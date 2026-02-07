@@ -50,7 +50,11 @@
         <nav id="step-nav" aria-label="Wizard steps"></nav>
 
         <!-- Step Content -->
-        <main id="step-content" role="region" aria-live="polite"></main>
+        <main id="step-content" role="region" aria-live="polite">
+            <div style="padding:40px;text-align:center;color:rgba(255,255,255,0.4);" id="loading-indicator">
+                Loading SmartPlans...
+            </div>
+        </main>
 
         <!-- Footer Navigation -->
         <footer id="step-footer"></footer>
@@ -61,7 +65,7 @@
             var el = document.getElementById('step-content');
             if (el) {
                 el.innerHTML = '<div style="padding:40px;color:#f43f5e;font-family:monospace;">' +
-                    '<h2 style="color:#f43f5e;margin-bottom:12px;">⚠ JavaScript Error</h2>' +
+                    '<h2 style="color:#f43f5e;margin-bottom:12px;">JavaScript Error</h2>' +
                     '<p><strong>Message:</strong> ' + msg + '</p>' +
                     '<p><strong>File:</strong> ' + url + '</p>' +
                     '<p><strong>Line:</strong> ' + line + ', Col: ' + col + '</p>' +
@@ -69,8 +73,20 @@
                     '</div>';
             }
         };
+        // If app.js fails to load entirely, show error after 5 seconds
+        setTimeout(function () {
+            var el = document.getElementById('loading-indicator');
+            if (el) {
+                el.innerHTML = '<div style="color:#f43f5e;font-family:monospace;">' +
+                    '<h2 style="color:#f43f5e;margin-bottom:12px;">app.js failed to load</h2>' +
+                    '<p>The application script did not execute. Check browser console (F12) for details.</p>' +
+                    '<p style="margin-top:12px;color:#f59e0b;">Possible causes: file not found (404), MIME type mismatch, or syntax error.</p>' +
+                    '</div>';
+            }
+        }, 5000);
     </script>
-    <script src="app.js" defer></script>
+    <script src="app.js"
+        onerror="document.getElementById('step-content').innerHTML='<div style=\'padding:40px;color:#f43f5e;font-family:monospace;\'><h2>app.js failed to load (404)</h2><p>The script file was not found on the server.</p></div>'"></script>
 </body>
 
 </html>
