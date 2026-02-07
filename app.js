@@ -138,6 +138,26 @@ const state = {
   workShift: "",
   priorEstimate: "",
 
+  // Pricing Configuration (loaded from PRICING_DB defaults)
+  pricingTier: "mid",  // "budget", "mid", "premium"
+  regionalMultiplier: "national_average",
+  laborRates: {
+    journeyman: 38.00,
+    lead: 45.00,
+    foreman: 52.00,
+    apprentice: 22.00,
+    pm: 65.00,
+    programmer: 55.00,
+  },
+  burdenRate: 35, // percentage
+  includeBurden: true,
+  markup: {
+    material: 25,
+    labor: 30,
+    equipment: 15,
+    subcontractor: 10,
+  },
+
   // Files (arrays of {name, size, type, base64?, rawFile?})
   legendFiles: [],
   planFiles: [],
@@ -504,6 +524,105 @@ function renderStep0(container) {
       <p class="form-hint">Describe it briefly. I can investigate discrepancies between my analysis and prior counts.</p>
       <textarea class="form-textarea" id="prior-estimate" placeholder="Describe any prior estimate data…">${esc(state.priorEstimate)}</textarea>
     </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0 8px;"></div>
+    <div style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 0;" id="pricing-toggle">
+      <span style="font-size:22px;">💲</span>
+      <div>
+        <div style="font-weight:700;font-size:15px;color:var(--text-primary);">Pricing & Rate Configuration</div>
+        <div style="font-size:12px;color:var(--text-muted);">Material pricing tier, labor rates, burden, and markup percentages</div>
+      </div>
+      <span style="margin-left:auto;font-size:18px;color:var(--text-muted);transition:transform 0.2s;" id="pricing-chevron">${state._pricingOpen ? "▼" : "▶"}</span>
+    </div>
+
+    <div id="pricing-panel" style="display:${state._pricingOpen ? "block" : "none"};margin-top:12px;">
+
+      <div class="form-group">
+        <label class="form-label" for="pricing-tier">Material Pricing Tier</label>
+        <p class="form-hint">Sets the unit cost level for all materials. Budget = value brands, Mid = standard spec, Premium = high-end specified.</p>
+        <select class="form-select" id="pricing-tier">
+          <option value="budget">💰 Budget — Value brands, competitive bid</option>
+          <option value="mid">⚖️ Mid-Range — Standard spec, name brands (default)</option>
+          <option value="premium">👑 Premium — High-end, specified brand</option>
+        </select>
+        <div style="margin-top:8px;padding:10px 14px;background:rgba(56,189,248,0.06);border-radius:8px;border:1px solid rgba(56,189,248,0.12);font-size:12px;color:var(--text-secondary);">
+          <strong>Example comparison:</strong><br>
+          Cat 6A Plenum: Budget $0.22/ft → Mid $0.32/ft → Premium $0.48/ft<br>
+          Fixed Outdoor Dome: Budget $180 → Mid $380 → Premium $720<br>
+          FACP (Medium): Budget $2,500 → Mid $5,000 → Premium $9,500
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="regional-multiplier">Regional Cost Multiplier</label>
+        <p class="form-hint">Adjusts all material costs based on geographic market conditions.</p>
+        <select class="form-select" id="regional-multiplier">
+          ${Object.entries(PRICING_DB.regionalMultipliers).map(([key, val]) =>
+    `<option value="${key}">${key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())} (${val.toFixed(2)}×)</option>`
+  ).join("")}
+        </select>
+      </div>
+
+      <div style="border-top:1px solid rgba(255,255,255,0.06);margin:16px 0;"></div>
+      <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:12px;">👷 Labor Rates ($/hr)</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        ${Object.entries(state.laborRates).map(([key, val]) => `
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="labor-${key}">${key === "pm" ? "Project Manager" : key === "journeyman" ? "Journeyman Tech" : key === "lead" ? "Lead Tech" : key === "foreman" ? "Foreman" : key === "apprentice" ? "Apprentice" : "Programmer"
+    }</label>
+            <input class="form-input labor-rate-input" type="number" step="0.50" min="0" id="labor-${key}" value="${val.toFixed(2)}" style="font-size:14px;padding:8px 10px;">
+          </div>
+        `).join("")}
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-top:16px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);">
+          <input type="checkbox" id="include-burden" ${state.includeBurden ? "checked" : ""} style="width:16px;height:16px;">
+          Include labor burden (taxes, WC, GL, insurance)
+        </label>
+      </div>
+      ${state.includeBurden ? `
+      <div class="form-group" style="margin-top:8px;margin-bottom:0;">
+        <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="burden-rate">Burden Rate (%)</label>
+        <input class="form-input" type="number" step="1" min="0" max="100" id="burden-rate" value="${state.burdenRate}" style="width:120px;font-size:14px;padding:8px 10px;">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Typical: 30-40% — covers FICA, FUTA/SUTA, WC, GL, H&W, pension</div>
+      </div>
+      ` : ""}
+
+      <div style="border-top:1px solid rgba(255,255,255,0.06);margin:16px 0;"></div>
+      <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:12px;">📈 Markup / Margin (%)</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-material">Material Markup</label>
+          <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-material" value="${state.markup.material}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-labor">Labor Markup</label>
+          <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-labor" value="${state.markup.labor}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-equipment">Equipment Markup</label>
+          <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-equipment" value="${state.markup.equipment}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-subcontractor">Subcontractor Markup</label>
+          <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-subcontractor" value="${state.markup.subcontractor}" style="font-size:14px;padding:8px 10px;">
+        </div>
+      </div>
+
+      <div class="info-card info-card--emerald" style="margin-top:16px;">
+        <div class="info-card-title">💡 How Pricing Works</div>
+        <div class="info-card-body">
+          <div>• Material costs use ${state.pricingTier.toUpperCase()} tier prices from the built-in database (200+ ELV items)</div>
+          <div>• Labor cost = Hours × Rate ${state.includeBurden ? `× (1 + ${state.burdenRate}% burden)` : "(no burden applied)"}</div>
+          <div>• Final price = Cost × (1 + Markup%)</div>
+          <div>• Regional multiplier adjusts for local market: ${(PRICING_DB.regionalMultipliers[state.regionalMultiplier] || 1.0).toFixed(2)}×</div>
+          <div>• The AI references these rates to produce a <strong>fully priced estimate</strong></div>
+        </div>
+      </div>
+    </div>
   `;
 
   // Bind events
@@ -543,6 +662,52 @@ function renderStep0(container) {
   shiftSelect.addEventListener("change", () => { state.workShift = shiftSelect.value; renderStep0(container); renderFooter(); });
 
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
+
+  // Pricing panel toggle
+  document.getElementById("pricing-toggle").addEventListener("click", () => {
+    state._pricingOpen = !state._pricingOpen;
+    renderStep0(container);
+  });
+
+  // Pricing tier
+  const tierSelect = document.getElementById("pricing-tier");
+  if (tierSelect) {
+    tierSelect.value = state.pricingTier;
+    tierSelect.addEventListener("change", () => { state.pricingTier = tierSelect.value; renderStep0(container); });
+  }
+
+  // Regional multiplier
+  const regionSelect = document.getElementById("regional-multiplier");
+  if (regionSelect) {
+    regionSelect.value = state.regionalMultiplier;
+    regionSelect.addEventListener("change", () => { state.regionalMultiplier = regionSelect.value; renderStep0(container); });
+  }
+
+  // Labor rates
+  document.querySelectorAll(".labor-rate-input").forEach(input => {
+    input.addEventListener("change", e => {
+      const key = e.target.id.replace("labor-", "");
+      state.laborRates[key] = parseFloat(e.target.value) || 0;
+    });
+  });
+
+  // Burden
+  const burdenCheck = document.getElementById("include-burden");
+  if (burdenCheck) {
+    burdenCheck.addEventListener("change", () => { state.includeBurden = burdenCheck.checked; renderStep0(container); });
+  }
+  const burdenInput = document.getElementById("burden-rate");
+  if (burdenInput) {
+    burdenInput.addEventListener("change", e => { state.burdenRate = parseInt(e.target.value) || 0; renderStep0(container); });
+  }
+
+  // Markup inputs
+  document.querySelectorAll(".markup-input").forEach(input => {
+    input.addEventListener("change", e => {
+      const key = e.target.id.replace("markup-", "");
+      state.markup[key] = parseInt(e.target.value) || 0;
+    });
+  });
 }
 
 
@@ -1054,6 +1219,77 @@ function fileToBase64(file) {
   });
 }
 
+function buildPricingContext() {
+  const tier = state.pricingTier;
+  const regionKey = state.regionalMultiplier;
+  const regionMult = PRICING_DB.regionalMultipliers[regionKey] || 1.0;
+  const regionLabel = regionKey.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+  // Build compact pricing reference from selected tier
+  function extractPrices(category, parentLabel) {
+    let lines = [];
+    for (const [subCat, items] of Object.entries(category)) {
+      for (const [key, item] of Object.entries(items)) {
+        if (typeof item === "object" && item[tier] !== undefined) {
+          const adjusted = (item[tier] * regionMult).toFixed(2);
+          lines.push(`   ${item.description}: $${adjusted} ${item.unit}`);
+        }
+      }
+    }
+    return lines;
+  }
+
+  // Labor rate summary
+  const burdenMult = state.includeBurden ? (1 + state.burdenRate / 100) : 1.0;
+  const laborLines = Object.entries(state.laborRates).map(([key, rate]) => {
+    const label = key === "pm" ? "Project Manager" : key === "journeyman" ? "Journeyman Tech" : key === "lead" ? "Lead Tech" : key === "foreman" ? "Foreman" : key === "apprentice" ? "Apprentice" : "Programmer";
+    const loaded = (rate * burdenMult).toFixed(2);
+    return `   ${label}: $${rate.toFixed(2)}/hr base × ${burdenMult.toFixed(2)} burden = $${loaded}/hr loaded`;
+  });
+
+  let ctx = `
+PRICING CONFIGURATION:
+Pricing Tier: ${tier.toUpperCase()} (${tier === "budget" ? "value brands" : tier === "mid" ? "standard spec, name brands" : "high-end, specified brand"})
+Regional Multiplier: ${regionLabel} (${regionMult.toFixed(2)}×)
+Labor Burden: ${state.includeBurden ? state.burdenRate + "% (included)" : "Not applied"}
+Markup — Material: ${state.markup.material}% | Labor: ${state.markup.labor}% | Equipment: ${state.markup.equipment}% | Subcontractor: ${state.markup.subcontractor}%
+
+LABOR RATES (use these exact rates for all labor calculations):
+${laborLines.join("\n")}
+
+MATERIAL UNIT PRICES (${tier.toUpperCase()} tier, ${regionLabel} ${regionMult.toFixed(2)}× — use these exact prices for all material calculations):
+
+Structured Cabling:
+${extractPrices(PRICING_DB.structuredCabling).join("\n")}
+
+CCTV / Video Surveillance:
+${extractPrices(PRICING_DB.cctv).join("\n")}
+
+Access Control:
+${extractPrices(PRICING_DB.accessControl).join("\n")}
+
+Fire Alarm:
+${extractPrices(PRICING_DB.fireAlarm).join("\n")}
+
+Intrusion Detection:
+${extractPrices(PRICING_DB.intrusionDetection).join("\n")}
+
+Audio Visual:
+${extractPrices(PRICING_DB.audioVisual).join("\n")}
+
+COST CALCULATION RULES:
+1. Material Cost = Σ(quantity × unit price from above) — already includes regional multiplier
+2. Material Sell Price = Material Cost × (1 + ${state.markup.material}%)
+3. Labor Cost = Σ(hours × loaded labor rate from above)
+4. Labor Sell Price = Labor Cost × (1 + ${state.markup.labor}%)
+5. Equipment Sell Price = Equipment Cost × (1 + ${state.markup.equipment}%)
+6. Subcontractor Sell Price = Sub Cost × (1 + ${state.markup.subcontractor}%)
+7. Total Project Price = Material Sell + Labor Sell + Equipment Sell + Sub Sell + Travel
+8. Apply these calculations to produce ACTUAL DOLLAR AMOUNTS in every summary table and in the SOV
+`;
+  return ctx;
+}
+
 function buildGeminiPrompt() {
   let prompt = `You are a senior low-voltage / ELV estimator, code compliance reviewer, and construction document analyst specializing in: Structured Cabling, CCTV, Access Control, Audio Visual, Intrusion Detection, and Fire Alarm systems.
 
@@ -1068,6 +1304,9 @@ Code Jurisdiction: ${state.codeJurisdiction || "Not specified"}
 Prevailing Wage: ${state.prevailingWage === "davis-bacon" ? "Davis-Bacon Act (Federal)" : state.prevailingWage === "state-prevailing" ? "State Prevailing Wage" : state.prevailingWage === "pla" ? "Project Labor Agreement (PLA)" : "Not applicable — standard rates"}
 Work Shift: ${state.workShift === "2nd-shift" ? "2nd Shift (3PM-11:30PM)" : state.workShift === "3rd-shift" ? "3rd Shift / Overnight (11PM-7:30AM)" : state.workShift === "weekends" ? "Weekends Only" : state.workShift === "split" ? "Split Shift (around occupants)" : state.workShift === "mixed" ? "Mixed — varies by phase" : state.workShift === "4-10" ? "4/10s (4 days × 10 hours)" : "1st Shift — Standard (7AM-3:30PM)"}
 `;
+
+  // Inject full pricing context with unit prices, labor rates, and markup rules
+  prompt += buildPricingContext();
 
   if (state.specificItems) {
     prompt += `\nSpecific items to count:\n${state.specificItems}\n`;
@@ -1692,13 +1931,41 @@ INSTRUCTIONS:
 
    Produce the SOV as a complete table ready for direct entry into an AIA G703 form.
 
-13. **CODE COMPLIANCE SUMMARY** — Dedicated summary section:
+13. **PRICED ESTIMATE SUMMARY** — Using the PRICING CONFIGURATION data provided above, calculate the complete project cost. This is MANDATORY — produce ACTUAL DOLLAR AMOUNTS, not placeholders.
+
+   MATERIAL COST BREAKDOWN:
+   | Category | Item Count | Material Cost | Markup (${state.markup.material}%) | Sell Price |
+   |----------|-----------|---------------|--------|------------|
+   | (one row per major material category) |
+
+   LABOR COST BREAKDOWN:
+   | Classification | Hours | Loaded Rate | Labor Cost | Markup (${state.markup.labor}%) | Sell Price |
+   |----------------|-------|-------------|------------|--------|------------|
+   | (one row per labor classification) |
+
+   PROJECT COST SUMMARY:
+   | Cost Category | Cost | Markup | Sell Price |
+   |---------------|------|--------|------------|
+   | Total Materials | $X,XXX | ${state.markup.material}% | $X,XXX |
+   | Total Labor | $X,XXX | ${state.markup.labor}% | $X,XXX |
+   | Equipment Rentals | $X,XXX | ${state.markup.equipment}% | $X,XXX |
+   | Subcontractors | $X,XXX | ${state.markup.subcontractor}% | $X,XXX |
+   | Travel & Per Diem | $X,XXX | — | $X,XXX |
+   | **TOTAL PROJECT PRICE** | **$XX,XXX** | | **$XX,XXX** |
+
+   Include notes on:
+   - What's included vs excluded
+   - Assumptions made
+   - Contingency recommendation (typically 5-10%)
+   - Payment terms suggestion
+
+14. **CODE COMPLIANCE SUMMARY** — Dedicated summary section:
    - Total issues found: 🔴 Critical / 🟡 Warning / 🔵 Info
    - Each issue with code reference, location, and recommended action
    - Items requiring AHJ approval or inspection
    - Permits likely required (fire alarm, low voltage, electrical)
 
-14. Analysis observations:
+15. Analysis observations:
    - Device counts by type, per sheet/floor
    - Cable/conduit pathway observations
    - Spec-to-plan conflicts
@@ -1706,24 +1973,26 @@ INSTRUCTIONS:
    - Scope gaps or ambiguities
    - Confidence level for each count
 
-15. Specific, actionable RFI questions with code references where applicable.
-16. If known quantities provided, compare and flag deviations over 10%.
+16. Specific, actionable RFI questions with code references where applicable.
+17. If known quantities provided, compare and flag deviations over 10%.
 
 FORMAT REQUIREMENTS:
 - Use markdown headers (##) to organize each major section
 - Follow this exact section order:
   1. ## CODE & STANDARDS COMPLIANCE REVIEW
   2. ## MDF/IDF MATERIAL BREAKDOWN (per room)
-  3. ## OVERALL MATERIAL SUMMARY
-  4. ## LABOR SUMMARY (hours by discipline, by phase, crew recommendation, shift comparison if applicable)
+  3. ## OVERALL MATERIAL SUMMARY (with unit prices and extended costs)
+  4. ## LABOR SUMMARY (hours by discipline, by phase, with loaded rates and dollar totals)
   5. ## PREVAILING WAGE DETERMINATION (if applicable — classifications, rates, labor cost)
   6. ## SPECIAL EQUIPMENT & CONDITIONS (⚠️ flags and cost impact)
   7. ## TRAVEL & PER DIEM ESTIMATE (cost table by phase)
-  8. ## SCHEDULE OF VALUES (SOV) — AIA G703 format
-  9. ## CODE COMPLIANCE SUMMARY (issue count table)
-  10. ## OBSERVATIONS & ANALYSIS
-  11. ## RFIs
+  8. ## SCHEDULE OF VALUES (SOV) — AIA G703 format with dollar amounts
+  9. ## PRICED ESTIMATE SUMMARY (material + labor + equipment + sub + markup = total price)
+  10. ## CODE COMPLIANCE SUMMARY (issue count table)
+  11. ## OBSERVATIONS & ANALYSIS
+  12. ## RFIs
 - Use tables where possible for readability
+- ALL cost tables must show ACTUAL DOLLAR AMOUNTS calculated from the pricing data provided
 - Tag code issues: 🔴 CRITICAL, 🟡 WARNING, 🔵 INFO
 - Tag special equipment: ⚠️ with cost impact ($, $$, $$$, $$$$)
 - Include confidence percentage for each major count
