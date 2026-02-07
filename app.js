@@ -1020,17 +1020,57 @@ function renderStep6(container) {
     aiSection = `
       <div class="info-card info-card--emerald" style="margin-bottom:22px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-left:8px;">
-          <div class="info-card-title" style="margin-bottom:0;">📋 MDF/IDF Material Breakdown & Analysis</div>
-          <button id="export-analysis-btn" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.1);color:var(--accent-emerald);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;">📥 Export Analysis</button>
+          <div class="info-card-title" style="margin-bottom:0;">📋 AI Estimation & Analysis</div>
         </div>
         <div class="info-card-body ai-analysis-content" style="white-space:pre-wrap; line-height:1.75; max-height:600px; overflow-y:auto;">${formatAIResponse(state.aiAnalysis)}</div>
       </div>
     `;
   }
 
+  // Export panel
+  const exportPanel = state.aiAnalysis ? `
+    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;"></div>
+    <div class="info-card info-card--indigo" style="margin-bottom:22px;">
+      <div class="info-card-title">📦 Export Estimate Package</div>
+      <div class="info-card-body" style="line-height:1.8;">
+        Export your complete analysis for use in project management, client proposals, or record keeping.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;">
+        <button class="export-pkg-btn" id="export-json" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(56,189,248,0.25);background:rgba(56,189,248,0.06);color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;">
+          <span style="font-size:24px;">🔗</span>
+          <div>
+            <div style="font-weight:700;font-size:13px;">JSON — PM App Import</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Structured data for project management app</div>
+          </div>
+        </button>
+        <button class="export-pkg-btn" id="export-excel" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;">
+          <span style="font-size:24px;">📊</span>
+          <div>
+            <div style="font-weight:700;font-size:13px;">Excel — Spreadsheet</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Multi-sheet workbook for review & editing</div>
+          </div>
+        </button>
+        <button class="export-pkg-btn" id="export-markdown" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(245,158,11,0.25);background:rgba(245,158,11,0.06);color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;">
+          <span style="font-size:24px;">📄</span>
+          <div>
+            <div style="font-weight:700;font-size:13px;">Markdown — Proposal Report</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Formatted document for client proposals</div>
+          </div>
+        </button>
+        <button class="export-pkg-btn" id="export-all" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(129,140,248,0.25);background:rgba(129,140,248,0.06);color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;">
+          <span style="font-size:24px;">📦</span>
+          <div>
+            <div style="font-weight:700;font-size:13px;">Export All Formats</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Download JSON + Excel + Markdown at once</div>
+          </div>
+        </button>
+      </div>
+    </div>
+  ` : "";
+
   container.innerHTML = `
-    <h2 class="step-heading">Analysis Complete</h2>
-    <p class="step-subheading">Based on the documents and context you provided, here are my findings and recommended RFIs to resolve gaps.</p>
+    <h2 class="step-heading">Estimate Complete</h2>
+    <p class="step-subheading">Your AI-powered estimate is ready. Review the analysis below, then export for your project management workflow.</p>
 
     <div class="results-hero">
       <div class="results-top">
@@ -1065,12 +1105,15 @@ function renderStep6(container) {
 
     ${aiSection}
 
+    ${exportPanel}
+
     <div class="info-card info-card--sky">
       <div class="info-card-title">What to Do Next</div>
       <div class="info-card-body" style="line-height:1.9">
         <strong>1.</strong> Review the AI analysis above and verify symbol counts against your drawings.<br>
-        <strong>2.</strong> Submit the selected RFIs below to the architect/engineer to resolve gaps before finalizing your estimate.<br>
-        <strong>3.</strong> Spot-check AI counts on 2–3 sheets. If they deviate by more than 10%, re-analyze with corrective guidance.
+        <strong>2.</strong> Export your estimate package (JSON for PM app, Excel for spreadsheet review).<br>
+        <strong>3.</strong> Submit the selected RFIs below to the architect/engineer to resolve gaps.<br>
+        <strong>4.</strong> Import the JSON file into your Project Management app for tracking, billing, and change orders.
       </div>
     </div>
 
@@ -1127,10 +1170,18 @@ function renderStep6(container) {
     exportBtn.addEventListener("click", exportRFIs);
   }
 
-  const exportAnalysisBtn = document.getElementById("export-analysis-btn");
-  if (exportAnalysisBtn) {
-    exportAnalysisBtn.addEventListener("click", exportAnalysis);
-  }
+  // Export package buttons
+  const jsonBtn = document.getElementById("export-json");
+  if (jsonBtn) jsonBtn.addEventListener("click", () => SmartPlansExport.exportJSON(state));
+
+  const excelBtn = document.getElementById("export-excel");
+  if (excelBtn) excelBtn.addEventListener("click", () => SmartPlansExport.exportExcel(state));
+
+  const mdBtn = document.getElementById("export-markdown");
+  if (mdBtn) mdBtn.addEventListener("click", () => SmartPlansExport.exportMarkdown(state));
+
+  const allBtn = document.getElementById("export-all");
+  if (allBtn) allBtn.addEventListener("click", () => SmartPlansExport.exportAll(state));
 }
 
 
