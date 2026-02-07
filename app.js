@@ -4,17 +4,29 @@
    ================================================================ */
 
 // ═══════════════════════════════════════════════════════════════
+// GEMINI API CONFIG
+// ═══════════════════════════════════════════════════════════════
+
+const GEMINI_CONFIG = {
+  apiKey: "AIzaSyAqm-Jayt-Ty1iTJTxH2oqWuvmfcUZQDqY",
+  model: "gemini-2.0-flash",
+  get endpoint() {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════
 // DATA & CONFIG
 // ═══════════════════════════════════════════════════════════════
 
 const STEPS = [
-  { id: "setup",   title: "Project Setup",    subtitle: "Let's get started",   icon: "📋" },
-  { id: "legend",  title: "Symbol Legend",     subtitle: "Upload your key",     icon: "🔑" },
-  { id: "plans",   title: "Floor Plans",       subtitle: "Upload drawings",     icon: "📐" },
-  { id: "specs",   title: "Specifications",    subtitle: "Upload spec docs",    icon: "📄" },
-  { id: "addenda", title: "Addenda",           subtitle: "Changes & updates",   icon: "📝" },
-  { id: "review",  title: "Review & Analyze",  subtitle: "Final check",         icon: "🔍" },
-  { id: "results", title: "Results & RFIs",    subtitle: "Analysis complete",   icon: "✅" },
+  { id: "setup", title: "Project Setup", subtitle: "Let's get started", icon: "📋" },
+  { id: "legend", title: "Symbol Legend", subtitle: "Upload your key", icon: "🔑" },
+  { id: "plans", title: "Floor Plans", subtitle: "Upload drawings", icon: "📐" },
+  { id: "specs", title: "Specifications", subtitle: "Upload spec docs", icon: "📄" },
+  { id: "addenda", title: "Addenda", subtitle: "Changes & updates", icon: "📝" },
+  { id: "review", title: "Review & Analyze", subtitle: "Final check", icon: "🔍" },
+  { id: "results", title: "Results & RFIs", subtitle: "Analysis complete", icon: "✅" },
 ];
 
 const DISCIPLINES = [
@@ -37,11 +49,11 @@ const PROJECT_TYPES = [
 ];
 
 const FILE_FORMATS = [
-  { label: "Vector PDF (from CAD)",      quality: "best", color: "#10b981" },
-  { label: "DWG / DXF (AutoCAD)",        quality: "best", color: "#10b981" },
-  { label: "IFC / Revit BIM",            quality: "best", color: "#10b981" },
-  { label: "High-res scan (300+ DPI)",   quality: "ok",   color: "#f59e0b" },
-  { label: "Low-res PDF / JPEG",         quality: "poor", color: "#f43f5e" },
+  { label: "Vector PDF (from CAD)", quality: "best", color: "#10b981" },
+  { label: "DWG / DXF (AutoCAD)", quality: "best", color: "#10b981" },
+  { label: "IFC / Revit BIM", quality: "best", color: "#10b981" },
+  { label: "High-res scan (300+ DPI)", quality: "ok", color: "#f59e0b" },
+  { label: "Low-res PDF / JPEG", quality: "poor", color: "#f43f5e" },
 ];
 
 const RFI_TEMPLATES = {
@@ -113,18 +125,25 @@ const state = {
   codeJurisdiction: "",
   priorEstimate: "",
 
-  // Files (arrays of {name, size, type})
+  // Files (arrays of {name, size, type, base64?, rawFile?})
   legendFiles: [],
   planFiles: [],
   specFiles: [],
   addendaFiles: [],
   hasAddenda: null,
 
+  // Raw File objects for Gemini API
+  rawFiles: new Map(), // key: "category-index", value: File object
+
   notes: "",
 
   // Results
   selectedRFIs: new Set(),
   expandedRFI: null,
+
+  // AI Analysis
+  aiAnalysis: null,  // raw text response from Gemini
+  aiError: null,     // error message if API fails
 };
 
 
@@ -740,6 +759,27 @@ function renderStep6(container) {
     `;
   }).join("");
 
+  // Build AI analysis section
+  let aiSection = "";
+  if (state.aiError) {
+    aiSection = `
+      <div class="info-card info-card--amber" style="margin-bottom:22px;">
+        <div class="info-card-title">⚠ AI Analysis Note</div>
+        <div class="info-card-body">
+          The Gemini AI analysis encountered an issue: <strong>${esc(state.aiError)}</strong><br>
+          Template-based RFI recommendations are shown below as a fallback. You can retry by starting a new analysis.
+        </div>
+      </div>
+    `;
+  } else if (state.aiAnalysis) {
+    aiSection = `
+      <div class="info-card info-card--emerald" style="margin-bottom:22px;">
+        <div class="info-card-title">🤖 Gemini AI Analysis</div>
+        <div class="info-card-body ai-analysis-content" style="white-space:pre-wrap; line-height:1.75;">${formatAIResponse(state.aiAnalysis)}</div>
+      </div>
+    `;
+  }
+
   container.innerHTML = `
     <h2 class="step-heading">Analysis Complete</h2>
     <p class="step-subheading">Based on the documents and context you provided, here are my findings and recommended RFIs to resolve gaps.</p>
@@ -775,10 +815,12 @@ function renderStep6(container) {
       </div>
     </div>
 
+    ${aiSection}
+
     <div class="info-card info-card--sky">
       <div class="info-card-title">What to Do Next</div>
       <div class="info-card-body" style="line-height:1.9">
-        <strong>1.</strong> Upload these files to your AI analysis tool with the prompt: <em>"Analyze these floor plans using the symbol legend. Count all [items] on each sheet and compare against the specifications."</em><br>
+        <strong>1.</strong> Review the AI analysis above and verify symbol counts against your drawings.<br>
         <strong>2.</strong> Submit the selected RFIs below to the architect/engineer to resolve gaps before finalizing your estimate.<br>
         <strong>3.</strong> Spot-check AI counts on 2–3 sheets. If they deviate by more than 10%, re-analyze with corrective guidance.
       </div>
@@ -899,7 +941,8 @@ function renderFileUpload(container, { label, description, files, onFilesChange,
   });
 
   function handleNewFiles(fileList) {
-    const arr = Array.from(fileList).map(f => ({ name: f.name, size: f.size, type: f.type }));
+    const newRawFiles = Array.from(fileList);
+    const arr = newRawFiles.map(f => ({ name: f.name, size: f.size, type: f.type, rawFile: f }));
     const updated = [...files, ...arr];
     onFilesChange(updated);
     renderFileUpload(container, { label, description, files: updated, onFilesChange, accept });
@@ -908,7 +951,161 @@ function renderFileUpload(container, { label, description, files, onFilesChange,
 
 
 // ═══════════════════════════════════════════════════════════════
-// ANALYSIS ANIMATION
+// GEMINI API — File Conversion & Analysis
+// ═══════════════════════════════════════════════════════════════
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(",")[1];
+      resolve({ base64, mimeType: file.type || "application/octet-stream" });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildGeminiPrompt() {
+  let prompt = `You are a senior construction estimator and document analyst for the project: "${state.projectName}".
+
+Project Type: ${state.projectType}
+Disciplines to focus on: ${state.disciplines.join(", ")}
+File Format: ${state.fileFormat || "Not specified"}
+Code Jurisdiction: ${state.codeJurisdiction || "Not specified"}
+`;
+
+  if (state.specificItems) {
+    prompt += `\nSpecific items to count:\n${state.specificItems}\n`;
+  }
+  if (state.knownQuantities) {
+    prompt += `\nKnown quantities for verification:\n${state.knownQuantities}\n`;
+  }
+  if (state.priorEstimate) {
+    prompt += `\nPrior estimate data:\n${state.priorEstimate}\n`;
+  }
+  if (state.notes) {
+    prompt += `\nAdditional notes:\n${state.notes}\n`;
+  }
+
+  prompt += `
+
+INSTRUCTIONS:
+1. Analyze the uploaded construction documents (symbol legends, floor plans, specifications, addenda).
+2. Identify and count all symbols relevant to the selected disciplines: ${state.disciplines.join(", ")}.
+3. Cross-reference floor plan symbols against the legend to verify correct identification.
+4. Check for discrepancies between plans, specs, and any addenda.
+5. Provide a detailed analysis summary including:
+   - Symbol counts by type and sheet
+   - Any discrepancies found between drawings and specifications
+   - Missing information that would require RFIs
+   - Scope gaps or ambiguities
+   - Confidence level for each count
+6. List specific, actionable RFI questions based on gaps found in these actual documents.
+7. If known quantities were provided, compare your counts and flag deviations over 10%.
+
+Format your response with clear sections using markdown headers. Be specific and reference sheet numbers where applicable.`;
+
+  return prompt;
+}
+
+async function callGeminiAPI(progressCallback) {
+  // Gather all files with raw File objects
+  const allFileEntries = [
+    ...state.legendFiles.map(f => ({ ...f, category: "Symbol Legend" })),
+    ...state.planFiles.map(f => ({ ...f, category: "Floor Plan" })),
+    ...state.specFiles.map(f => ({ ...f, category: "Specification" })),
+    ...state.addendaFiles.map(f => ({ ...f, category: "Addendum" })),
+  ];
+
+  const filesToSend = allFileEntries.filter(f => f.rawFile);
+
+  progressCallback(10, "Preparing files for analysis…");
+
+  // Convert files to base64 for Gemini inline_data
+  const parts = [];
+
+  // Add text prompt first
+  parts.push({ text: buildGeminiPrompt() });
+
+  // Convert each file to base64 and add as inline_data
+  const supportedTypes = [
+    "application/pdf", "image/png", "image/jpeg", "image/webp", "image/gif",
+    "image/tiff", "text/plain",
+  ];
+
+  let fileIdx = 0;
+  for (const entry of filesToSend) {
+    fileIdx++;
+    const pct = 10 + Math.round((fileIdx / filesToSend.length) * 30);
+    progressCallback(pct, `Encoding ${entry.category}: ${entry.name}…`);
+
+    try {
+      const { base64, mimeType } = await fileToBase64(entry.rawFile);
+
+      // Check if mime type is supported, fallback for common types
+      let finalMime = mimeType;
+      if (entry.name.toLowerCase().endsWith(".pdf")) finalMime = "application/pdf";
+      else if (entry.name.toLowerCase().endsWith(".png")) finalMime = "image/png";
+      else if (entry.name.toLowerCase().endsWith(".jpg") || entry.name.toLowerCase().endsWith(".jpeg")) finalMime = "image/jpeg";
+      else if (entry.name.toLowerCase().endsWith(".tif") || entry.name.toLowerCase().endsWith(".tiff")) finalMime = "image/tiff";
+      else if (entry.name.toLowerCase().endsWith(".txt")) finalMime = "text/plain";
+
+      // Add file label
+      parts.push({ text: `\n--- FILE: ${entry.name} (${entry.category}) ---` });
+
+      // Only send supported types as inline_data
+      if (supportedTypes.some(t => finalMime.startsWith(t.split("/")[0])) || finalMime === "application/pdf") {
+        parts.push({
+          inline_data: {
+            mime_type: finalMime,
+            data: base64,
+          },
+        });
+      } else {
+        parts.push({ text: `[File type ${finalMime} not supported for direct analysis. Filename: ${entry.name}]` });
+      }
+    } catch (err) {
+      parts.push({ text: `[Error reading file: ${entry.name}]` });
+    }
+  }
+
+  progressCallback(45, "Sending documents to Gemini AI…");
+
+  // Call the Gemini API
+  const requestBody = {
+    contents: [{ parts }],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 8192,
+    },
+  };
+
+  const response = await fetch(GEMINI_CONFIG.endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody),
+  });
+
+  progressCallback(80, "Processing AI response…");
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData?.error?.message || `API Error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  progressCallback(95, "Compiling results…");
+
+  // Extract text from response
+  const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n") || "No analysis generated.";
+  return text;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// ANALYSIS ANIMATION + API CALL
 // ═══════════════════════════════════════════════════════════════
 
 function renderAnalysis(container) {
@@ -920,13 +1117,76 @@ function renderAnalysis(container) {
         </div>
       </div>
       <div class="analysis-title">Analyzing Your Documents</div>
-      <div class="analysis-stage" id="analysis-stage"></div>
+      <div class="analysis-stage" id="analysis-stage">Initializing…</div>
       <div class="analysis-bar-track"><div class="analysis-bar-fill" id="analysis-bar"></div></div>
     </div>
   `;
 
+  const pctEl = document.getElementById("analysis-pct");
+  const stageEl = document.getElementById("analysis-stage");
+  const barEl = document.getElementById("analysis-bar");
+  const ringEl = document.getElementById("analysis-ring");
+
+  function updateProgress(pct, text) {
+    const p = Math.min(Math.round(pct), 100);
+    pctEl.textContent = p + "%";
+    barEl.style.width = p + "%";
+    ringEl.style.background = `conic-gradient(var(--accent-sky) ${pct * 3.6}deg, rgba(255,255,255,0.05) 0deg)`;
+    if (text) stageEl.textContent = text;
+  }
+
+  // Check if we have any files with rawFile objects to send
+  const hasRawFiles = [
+    ...state.legendFiles, ...state.planFiles, ...state.specFiles, ...state.addendaFiles
+  ].some(f => f.rawFile);
+
+  if (hasRawFiles) {
+    // Real Gemini API analysis
+    runGeminiAnalysis(updateProgress);
+  } else {
+    // Fallback: simulated analysis (no raw files available)
+    runSimulatedAnalysis(updateProgress);
+  }
+
+  renderFooter(); // hides footer
+}
+
+async function runGeminiAnalysis(updateProgress) {
+  try {
+    updateProgress(5, "Preparing documents…");
+    const result = await callGeminiAPI(updateProgress);
+    state.aiAnalysis = result;
+    state.aiError = null;
+    updateProgress(100, "Analysis complete!");
+
+    setTimeout(() => {
+      state.analyzing = false;
+      state.analysisComplete = true;
+      state.completedSteps.add("review");
+      state.currentStep = 6;
+      render();
+      scrollContentTop();
+    }, 600);
+  } catch (err) {
+    console.error("Gemini API Error:", err);
+    state.aiAnalysis = null;
+    state.aiError = err.message;
+    updateProgress(100, "Analysis complete (with errors)");
+
+    setTimeout(() => {
+      state.analyzing = false;
+      state.analysisComplete = true;
+      state.completedSteps.add("review");
+      state.currentStep = 6;
+      render();
+      scrollContentTop();
+    }, 600);
+  }
+}
+
+function runSimulatedAnalysis(updateProgress) {
   const stages = [
-    { at: 5,  text: "Scanning file formats and quality…" },
+    { at: 5, text: "Scanning file formats and quality…" },
     { at: 15, text: "Reading symbol legend…" },
     { at: 25, text: "Identifying drawing scale and orientation…" },
     { at: 35, text: "Detecting symbols on floor plans…" },
@@ -940,16 +1200,13 @@ function renderAnalysis(container) {
   ];
 
   let progress = 0;
-  const pctEl = document.getElementById("analysis-pct");
-  const stageEl = document.getElementById("analysis-stage");
-  const barEl = document.getElementById("analysis-bar");
-  const ringEl = document.getElementById("analysis-ring");
-
   const interval = setInterval(() => {
     progress += Math.random() * 2.5 + 0.5;
     if (progress >= 100) {
       progress = 100;
       clearInterval(interval);
+      state.aiAnalysis = null;
+      state.aiError = null;
       setTimeout(() => {
         state.analyzing = false;
         state.analysisComplete = true;
@@ -960,16 +1217,9 @@ function renderAnalysis(container) {
       }, 600);
     }
 
-    const p = Math.round(progress);
-    pctEl.textContent = p + "%";
-    barEl.style.width = p + "%";
-    ringEl.style.background = `conic-gradient(var(--accent-sky) ${progress * 3.6}deg, rgba(255,255,255,0.05) 0deg)`;
-
     const currentStage = [...stages].reverse().find(s => progress >= s.at);
-    if (currentStage) stageEl.textContent = currentStage.text;
+    updateProgress(progress, currentStage?.text);
   }, 180);
-
-  renderFooter(); // hides footer
 }
 
 
@@ -1007,6 +1257,28 @@ function exportRFIs() {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// AI RESPONSE FORMATTER
+// ═══════════════════════════════════════════════════════════════
+
+function formatAIResponse(text) {
+  if (!text) return "";
+  // Basic markdown-to-HTML conversion for display
+  let html = esc(text);
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<strong style="color:var(--accent-sky);font-size:14px;display:block;margin-top:14px;">$1</strong>');
+  html = html.replace(/^## (.+)$/gm, '<strong style="color:var(--accent-indigo);font-size:15px;display:block;margin-top:18px;margin-bottom:4px;">$1</strong>');
+  html = html.replace(/^# (.+)$/gm, '<strong style="color:var(--text-primary);font-size:16px;display:block;margin-top:20px;margin-bottom:6px;">$1</strong>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>');
+  // Bullet points
+  html = html.replace(/^[\-\*] (.+)$/gm, '<div style="padding-left:16px;">• $1</div>');
+  // Numbered lists
+  html = html.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;"><strong>$1.</strong> $2</div>');
+  return html;
 }
 
 
