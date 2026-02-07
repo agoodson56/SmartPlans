@@ -1593,7 +1593,117 @@ INSTRUCTIONS:
 
    If prevailing wage is NOT selected, skip this section and note: "Standard (non-prevailing) labor rates apply. No certified payroll required."
 
-13. Analysis observations:
+13. **SCHEDULE OF VALUES (SOV)** — Generate a complete Schedule of Values for this project. The SOV is used for progress billing via AIA G702/G703 payment applications. Structure the SOV as follows:
+
+   SOV FORMAT — Each line item should include:
+   | Item # | Description of Work | Scheduled Value | Material | Labor | Equipment/Sub |
+   |--------|---------------------|-----------------|----------|-------|---------------|
+
+   SOV LINE ITEMS — Organize by CSI Division and discipline. Include at minimum:
+
+   GENERAL CONDITIONS / MOBILIZATION:
+   | Item | Description |
+   |------|-------------|
+   | 01-001 | Mobilization / Demobilization |
+   | 01-002 | Project Management & Supervision |
+   | 01-003 | As-Built Documentation |
+   | 01-004 | Permits & Inspections |
+   | 01-005 | Bonds & Insurance (if applicable) |
+   | 01-006 | Travel & Per Diem (if out of town) |
+   | 01-007 | Temporary Facilities / Storage |
+
+   DIVISION 27 — COMMUNICATIONS (Structured Cabling):
+   | Item | Description |
+   |------|-------------|
+   | 27-001 | MDF/IDF Room Build-Out (per room — list each) |
+   | 27-002 | Equipment Racks & Cabinets |
+   | 27-003 | Horizontal Cabling — Rough-In (Cat 6/6A) |
+   | 27-004 | Horizontal Cabling — Termination & Testing |
+   | 27-005 | Backbone / Riser Cabling (Fiber & Copper) |
+   | 27-006 | Wireless Access Points (WAP) |
+   | 27-007 | Cable Tray & J-Hook Pathway |
+   | 27-008 | Conduit & Raceway |
+   | 27-009 | Grounding & Bonding (TMGB/TGB/TBB) |
+   | 27-010 | Firestopping |
+   | 27-011 | Patch Panels, Patch Cords & Cable Management |
+   | 27-012 | Labeling & Documentation |
+   | 27-013 | Cable Certification Testing |
+
+   DIVISION 28 — ELECTRONIC SAFETY & SECURITY:
+   | Item | Description |
+   |------|-------------|
+   | 28-001 | CCTV — Camera Installation (Interior) |
+   | 28-002 | CCTV — Camera Installation (Exterior) |
+   | 28-003 | CCTV — NVR/VMS & Head-End Equipment |
+   | 28-004 | CCTV — Monitors & Video Wall |
+   | 28-005 | CCTV — Cabling & Pathway |
+   | 28-006 | CCTV — Programming & Commissioning |
+   | 28-007 | Access Control — Door Hardware & Readers |
+   | 28-008 | Access Control — Panels & Power Supplies |
+   | 28-009 | Access Control — Cabling & Pathway |
+   | 28-010 | Access Control — Software & Programming |
+   | 28-011 | Access Control — Commissioning & Testing |
+   | 28-012 | Intrusion Detection — Sensors & Devices |
+   | 28-013 | Intrusion Detection — Panels & Keypads |
+   | 28-014 | Intrusion Detection — Cabling & Programming |
+   | 28-015 | Fire Alarm — Initiating Devices (Smokes, Heats, Pulls) |
+   | 28-016 | Fire Alarm — Notification Devices (Horn/Strobes, Speakers) |
+   | 28-017 | Fire Alarm — FACP & Annunciators |
+   | 28-018 | Fire Alarm — Modules (Monitor & Control) |
+   | 28-019 | Fire Alarm — Conduit & Wiring |
+   | 28-020 | Fire Alarm — Programming & Commissioning |
+   | 28-021 | Fire Alarm — AHJ Inspection & Acceptance Testing |
+
+   DIVISION 27 — AUDIO VISUAL:
+   | Item | Description |
+   |------|-------------|
+   | 27-050 | AV — Displays & Projectors |
+   | 27-051 | AV — Audio (Speakers, Amps, DSP) |
+   | 27-052 | AV — Control Systems |
+   | 27-053 | AV — Video Conferencing |
+   | 27-054 | AV — Rack Build & Wiring |
+   | 27-055 | AV — Cabling & Pathway |
+   | 27-056 | AV — Programming & Commissioning |
+   | 27-057 | AV — Digital Signage |
+
+   SPECIAL CONDITIONS (add if applicable):
+   | Item | Description |
+   |------|-------------|
+   | SC-001 | Underground / Exterior Conduit & Trenching |
+   | SC-002 | Core Drilling & Concrete Work |
+   | SC-003 | Aerial Cable Runs / Pole Mounts |
+   | SC-004 | Equipment Rental (Lifts, Boring, etc.) |
+   | SC-005 | Subcontractor — Electrical |
+   | SC-006 | Subcontractor — Excavation/Boring |
+   | SC-007 | Subcontractor — Firestopping |
+
+   CLOSEOUT:
+   | Item | Description |
+   |------|-------------|
+   | CL-001 | Punch List |
+   | CL-002 | Owner Training |
+   | CL-003 | Warranty Documentation |
+   | CL-004 | Final As-Builts & O&M Manuals |
+
+   SOV GUIDELINES FOR THE PM:
+   - **Retainage**: Typically 10% held until substantial completion, reduced to 5% at 50% complete (verify contract terms)
+   - **Front-loading**: Distribute values so early phases (mobilization, rough-in) carry slightly higher material values for cash flow
+   - **Granularity**: Break large-value items into sub-items when a single line exceeds 15% of total contract value
+   - **Change Orders**: Reserve a contingency line or note that COs will be added as separate SOV line items
+   - **Stored Materials**: If contract allows billing for stored materials, note which line items may have early material procurement
+   - **Percentage Complete**: Each line item should be billable by percentage complete per month
+   - **Balancing**: Total of all SOV line items MUST equal the total contract value
+
+   For each SOV line item, calculate the Scheduled Value using:
+   - Material cost (from the Overall Material Summary)
+   - Labor cost (from the Labor Summary, with shift/prevailing wage adjustments)
+   - Equipment rental allocation
+   - Subcontractor cost allocation
+   - Proportional share of General Conditions
+
+   Produce the SOV as a complete table ready for direct entry into an AIA G703 form.
+
+14. Analysis observations:
    - Device counts by type, per sheet/floor
    - Cable/conduit pathway observations
    - Spec-to-plan conflicts
@@ -1601,8 +1711,8 @@ INSTRUCTIONS:
    - Scope gaps or ambiguities
    - Confidence level for each count
 
-14. Specific, actionable RFI questions with code references where applicable.
-15. If known quantities provided, compare and flag deviations over 10%.
+15. Specific, actionable RFI questions with code references where applicable.
+16. If known quantities provided, compare and flag deviations over 10%.
 
 FORMAT REQUIREMENTS:
 - Use markdown headers to organize sections
@@ -1613,6 +1723,7 @@ FORMAT REQUIREMENTS:
 - Then ## PREVAILING WAGE DETERMINATION (if applicable — classifications, rates, labor cost)
 - Then ## SPECIAL EQUIPMENT & CONDITIONS (with ⚠️ flags and cost impact)
 - Then ## TRAVEL & PER DIEM ESTIMATE (with cost table by phase)
+- Then ## SCHEDULE OF VALUES (SOV) — AIA G703 format, ready for billing
 - Then ## CODE COMPLIANCE SUMMARY table
 - Then ## RFIs
 - Use tables where possible
@@ -1620,7 +1731,7 @@ FORMAT REQUIREMENTS:
 - Tag special equipment: ⚠️ with cost impact ($, $$, $$$, $$$$)
 - Include confidence percentage for each major count
 - Reference sheet numbers, room numbers, device types
-- Detailed enough for PM procurement, labor planning, wage compliance, travel budgeting, equipment scheduling, and subcontractor coordination`;
+- Detailed enough for PM procurement, labor planning, wage compliance, progress billing, travel budgeting, equipment scheduling, and subcontractor coordination`;
 
 
   return prompt;
@@ -1694,7 +1805,7 @@ async function callGeminiAPI(progressCallback) {
     contents: [{ parts }],
     generationConfig: {
       temperature: 0.3,
-      maxOutputTokens: 16384,
+      maxOutputTokens: 32768,
     },
   };
 
