@@ -1287,7 +1287,85 @@ INSTRUCTIONS:
    d) Estimate crew size and duration (assume 8-hour days, 2-person crew minimum for safety)
    e) Break out labor into phases: Rough-In, Trim/Termination, Programming/Commissioning, Testing
 
-10. Analysis observations:
+10. **SPECIAL EQUIPMENT, CONDITIONS & SUBCONTRACTOR CALLOUTS** — This section is MANDATORY. Scan the documents for ANY tasks that require special tools, equipment, materials, or subcontracted labor. Flag each item with a ⚠️ marker. Look for:
+
+   HEAVY EQUIPMENT / RENTALS:
+   - Scissor lift — interior ceiling work above 10 ft (note: check floor load capacity for slab-on-grade vs elevated decks)
+   - Boom lift / articulating lift — exterior camera mounts, exterior cable runs, building-mounted equipment above 20 ft
+   - Bucket truck — pole-mounted cameras, aerial cable runs, exterior building mounts
+   - Forklift — equipment delivery, rack staging, material handling
+   - Trencher — underground conduit runs between buildings, parking lot crossings
+   - Directional boring / horizontal directional drill (HDD) — road crossings, parking lot crossings, landscaped areas (no-dig requirement)
+   - Mini excavator — deep trench runs, utility crossings, duct bank installation
+   - Concrete saw / saw cutting — cutting concrete for underground conduit, slab penetrations, curb crossings
+   - Core drill — concrete wall/floor penetrations, CMU block penetrations, rated assembly penetrations
+   - Cable puller / tugger — long conduit runs (over 150 ft), large cable bundles, backbone pulls
+   - Generator — temporary power for remote installations, exterior work areas
+
+   SPECIALTY TOOLS / EQUIPMENT:
+   - Fusion splicer — fiber optic splicing (own or rent, plus certified operator)
+   - OTDR (Optical Time Domain Reflectometer) — fiber certification testing
+   - Cable certifier (Fluke DSX or equivalent) — Cat 6/6A certification per TIA
+   - Thermal imager — verifying HVAC in telecom rooms, hot spot detection
+   - Fire alarm programmer / service tool — manufacturer-specific (Notifier, EST, Simplex, etc.)
+   - Access control programming laptop — manufacturer-specific software (Lenel, Genetec, S2, Brivo, etc.)
+   - CCTV camera aiming/focus tool — for long-distance lens adjustment
+   - Hydraulic knockout punch — panel/backbox knockouts in existing enclosures
+   - Conduit bender (hand, mechanical, or hydraulic) — based on conduit size (hand < 1-1/4", mech/hydraulic > 1-1/4")
+   - Crimping/pressing tools — for specific connector or compression fitting types (BNC, F-type, RJ-45)
+
+   SPECIAL MATERIALS (often missed in estimates):
+   - Underground / direct burial conduit (Schedule 40/80 PVC, HDPE)
+   - Duct bank materials (spacers, concrete encasement, warning tape, tracer wire)
+   - Underground pull boxes / handholes
+   - Bollards for exterior equipment protection (cameras, pull boxes)
+   - Pole foundations — concrete pier, base plate, anchor bolts
+   - Weatherproof junction boxes — NEMA 3R/4/4X rated
+   - Plenum-rated cable (CMP/OFNP) — verify ceiling return air plenums vs ducted returns
+   - Riser-rated cable (CMR/OFNR) — for vertical shaft runs between floors
+   - LSZH (Low Smoke Zero Halogen) cable — if specified or required by occupancy
+   - Seismic bracing — for racks, cable tray, and overhead equipment in seismic zones
+   - Fire-rated cable (CI/FPL) — for fire alarm circuits in some jurisdictions
+   - Armored / MC cable — if required for exposed runs or per spec
+
+   PERMITS & INSPECTIONS:
+   - City/county excavation/trenching permit
+   - Right-of-way permit (if crossing public property)
+   - Hot work permit (if welding/brazing near existing systems)
+   - Fire alarm permit and required inspections (AHJ)
+   - Low voltage permit (where required by jurisdiction)
+   - Roof penetration approval (if mounting equipment on roof)
+   - OSHA confined space entry (if applicable to any telecom rooms)
+
+   SUBCONTRACTOR / SPECIALTY LABOR:
+   - Concrete cutting / core drilling subcontractor
+   - Trenching / excavation subcontractor
+   - Directional boring subcontractor
+   - Electrical subcontractor — for dedicated circuits, panels, disconnects for LV equipment
+   - Fire stopping / firesafe subcontractor — UL-listed systems in rated assemblies
+   - Structural engineer — if adding roof loads, pole foundations, or wall-mounted equipment > 100 lbs
+   - Painting / patching — wall repair after surface-mount conduit or device relocation
+   - Roofing subcontractor — for roof penetrations to maintain warranty
+   - Elevator subcontractor — required for elevator cab equipment, phone, camera, card reader
+
+   SITE CONDITIONS TO FLAG:
+   - Asbestos / lead paint — pre-1980 buildings, require abatement before penetrations
+   - Above-ceiling conditions — accessible vs hard lid, existing congestion, clearance restrictions
+   - Existing building occupancy — working around tenants, restricted hours, security requirements
+   - High-security areas — SCIFs, data centers, vaults requiring special clearance
+   - Outdoor exposure — weather delays, seasonal temperature restrictions for concrete/adhesives
+   - Parking lot / road crossings — traffic control, night work, flagging requirements
+   - Roof access — safety requirements, fall protection, guardrail systems
+   - Attic/crawl space access — limited clearance, hazardous conditions
+   - Historic buildings — preservation requirements limiting mounting methods and pathways
+
+   For each special item identified, provide:
+   - What triggered it (specific location, drawing reference, or scope item)
+   - Estimated rental duration or subcontractor scope
+   - Impact on schedule (add days/weeks)
+   - Approximate cost impact category: $ (under $1K), $$ ($1K-$5K), $$$ ($5K-$25K), $$$$ (over $25K)
+
+11. Analysis observations:
    - Device counts by type, per sheet/floor
    - Cable/conduit pathway observations
    - Spec-to-plan conflicts
@@ -1295,8 +1373,8 @@ INSTRUCTIONS:
    - Scope gaps or ambiguities
    - Confidence level for each count
 
-11. Specific, actionable RFI questions with code references where applicable.
-12. If known quantities provided, compare and flag deviations over 10%.
+12. Specific, actionable RFI questions with code references where applicable.
+13. If known quantities provided, compare and flag deviations over 10%.
 
 FORMAT REQUIREMENTS:
 - Use markdown headers to organize sections
@@ -1304,13 +1382,15 @@ FORMAT REQUIREMENTS:
 - Then ## MDF/IDF MATERIAL BREAKDOWN per room
 - Then ## OVERALL MATERIAL SUMMARY
 - Then ## LABOR SUMMARY (with total hours by discipline, by phase, crew recommendation)
+- Then ## SPECIAL EQUIPMENT & CONDITIONS (with ⚠️ flags and cost impact)
 - Then ## CODE COMPLIANCE SUMMARY table
 - Then ## RFIs
 - Use tables where possible
 - Tag issues: 🔴 CRITICAL, 🟡 WARNING, 🔵 INFO
+- Tag special equipment: ⚠️ with cost impact ($, $$, $$$, $$$$)
 - Include confidence percentage for each major count
 - Reference sheet numbers, room numbers, device types
-- Detailed enough for PM procurement, labor planning, and installation scheduling`;
+- Detailed enough for PM procurement, labor planning, equipment scheduling, and subcontractor coordination`;
 
 
   return prompt;
