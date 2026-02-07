@@ -133,6 +133,7 @@ const state = {
   specificItems: "",
   knownQuantities: "",
   codeJurisdiction: "",
+  projectLocation: "",
   priorEstimate: "",
 
   // Files (arrays of {name, size, type, base64?, rawFile?})
@@ -440,6 +441,12 @@ function renderStep0(container) {
     </div>
 
     <div class="form-group">
+      <label class="form-label" for="project-location">Project Location <span style="color:var(--text-muted);font-weight:400">(for travel estimate)</span></label>
+      <p class="form-hint">City and state of the project site. If the project is 100+ miles from your office, travel expenses (hotel, meals, airfare, vehicle) will be calculated.</p>
+      <input class="form-input" type="text" id="project-location" value="${esc(state.projectLocation)}" placeholder="e.g., Austin, TX or Miami, FL">
+    </div>
+
+    <div class="form-group">
       <label class="form-label" for="prior-estimate">Prior estimate or bid to compare against <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
       <p class="form-hint">Describe it briefly. I can investigate discrepancies between my analysis and prior counts.</p>
       <textarea class="form-textarea" id="prior-estimate" placeholder="Describe any prior estimate data…">${esc(state.priorEstimate)}</textarea>
@@ -472,6 +479,7 @@ function renderStep0(container) {
   document.getElementById("specific-items").addEventListener("input", e => { state.specificItems = e.target.value; });
   document.getElementById("known-quantities").addEventListener("input", e => { state.knownQuantities = e.target.value; });
   document.getElementById("code-jurisdiction").addEventListener("input", e => { state.codeJurisdiction = e.target.value; });
+  document.getElementById("project-location").addEventListener("input", e => { state.projectLocation = e.target.value; });
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
 }
 
@@ -991,6 +999,7 @@ You have expert knowledge of all applicable federal, state, local codes and indu
 
 Project: "${state.projectName}"
 Project Type: ${state.projectType}
+Project Location: ${state.projectLocation || "Not specified"}
 ELV Disciplines to analyze: ${state.disciplines.join(", ")}
 File Format: ${state.fileFormat || "Not specified"}
 Code Jurisdiction: ${state.codeJurisdiction || "Not specified"}
@@ -1365,7 +1374,47 @@ INSTRUCTIONS:
    - Impact on schedule (add days/weeks)
    - Approximate cost impact category: $ (under $1K), $$ ($1K-$5K), $$$ ($5K-$25K), $$$$ (over $25K)
 
-11. Analysis observations:
+11. **TRAVEL & PER DIEM EXPENSES** — If a project location was provided, evaluate whether travel expenses apply. For projects 100+ miles from the contractor's office, calculate out-of-town expenses using the following GSA (General Services Administration) federal per diem rate structure:
+
+   TRAVEL EXPENSE CALCULATION:
+   a) Determine if this is an out-of-town project (100+ miles from nearest office)
+   b) Based on the total labor hours calculated above, determine:
+      - Total on-site work days (labor hours ÷ 8 hours/day)
+      - Number of overnight stays required
+      - Number of mobilization/demobilization trips (typically one per phase: Rough-In, Trim, Programming, Testing/Commissioning)
+
+   GSA PER DIEM RATES (use current standard rates, adjust for project city if known):
+   | Expense Category | Standard Rate | High-Cost City Rate | Notes |
+   |------------------|---------------|---------------------|-------|
+   | Lodging (hotel) | $107/night | $150-$300/night | Use actual GSA rate for project city/county if known |
+   | M&IE (Meals & Incidental Expenses) | $68/day | $74-$79/day | Breakfast, lunch, dinner, tips, misc |
+   | First & Last Day M&IE | 75% of full rate | 75% of full rate | Travel days are reduced rate |
+   | Rental car | $75/day | $75-$100/day | Mid-size SUV for tool/material transport |
+   | Fuel / mileage | $0.70/mile | $0.70/mile | IRS standard mileage rate |
+   | Airfare (if 500+ miles) | $400-$800 RT | $400-$800 RT | Per person, round trip, economy |
+   | Checked bags (tools) | $35-$70 RT | $35-$70 RT | Tool cases, test equipment |
+   | Parking at jobsite | $0-$25/day | $15-$40/day | Varies by urban vs suburban |
+
+   TRAVEL COST CALCULATION TABLE — Produce a table like this:
+   | Phase | Crew Size | On-Site Days | Nights | Lodging | M&IE | Vehicle | Phase Total |
+   |-------|-----------|-------------|--------|---------|------|---------|-------------|
+   | Rough-In | X | X | X | $X | $X | $X | $X |
+   | Trim/Term | X | X | X | $X | $X | $X | $X |
+   | Programming | X | X | X | $X | $X | $X | $X |
+   | Testing/Commissioning | X | X | X | $X | $X | $X | $X |
+   | Punch List | X | X | X | $X | $X | $X | $X |
+   | **TOTAL** | | | | **$X** | **$X** | **$X** | **$X** |
+
+   ADDITIONAL TRAVEL CONSIDERATIONS:
+   - Weekend return trips home (for jobs > 2 weeks, budget RT airfare/mileage every 2 weeks)
+   - Tool shipping costs if flying (heavy test equipment: fusion splicer, OTDR, Fluke, fire alarm tools)
+   - Per diem adjustments for extended stays (hotels may offer weekly rates for 7+ nights — factor 15-25% discount)
+   - Multiple mobilization trips if phases are separated by weeks/months
+   - Project manager site visits (separate from install crew, typically 1-2 day trips)
+
+   If no project location is provided, include a note: "⚠️ Project location not specified — unable to calculate travel expenses. If this project is 100+ miles from your office, add travel costs."
+
+12. Analysis observations:
    - Device counts by type, per sheet/floor
    - Cable/conduit pathway observations
    - Spec-to-plan conflicts
@@ -1373,8 +1422,8 @@ INSTRUCTIONS:
    - Scope gaps or ambiguities
    - Confidence level for each count
 
-12. Specific, actionable RFI questions with code references where applicable.
-13. If known quantities provided, compare and flag deviations over 10%.
+13. Specific, actionable RFI questions with code references where applicable.
+14. If known quantities provided, compare and flag deviations over 10%.
 
 FORMAT REQUIREMENTS:
 - Use markdown headers to organize sections
@@ -1383,6 +1432,7 @@ FORMAT REQUIREMENTS:
 - Then ## OVERALL MATERIAL SUMMARY
 - Then ## LABOR SUMMARY (with total hours by discipline, by phase, crew recommendation)
 - Then ## SPECIAL EQUIPMENT & CONDITIONS (with ⚠️ flags and cost impact)
+- Then ## TRAVEL & PER DIEM ESTIMATE (with cost table by phase)
 - Then ## CODE COMPLIANCE SUMMARY table
 - Then ## RFIs
 - Use tables where possible
@@ -1390,7 +1440,7 @@ FORMAT REQUIREMENTS:
 - Tag special equipment: ⚠️ with cost impact ($, $$, $$$, $$$$)
 - Include confidence percentage for each major count
 - Reference sheet numbers, room numbers, device types
-- Detailed enough for PM procurement, labor planning, equipment scheduling, and subcontractor coordination`;
+- Detailed enough for PM procurement, labor planning, travel budgeting, equipment scheduling, and subcontractor coordination`;
 
 
   return prompt;
