@@ -985,7 +985,9 @@ function fileToBase64(file) {
 }
 
 function buildGeminiPrompt() {
-  let prompt = `You are a senior low-voltage / ELV estimator and construction document analyst specializing in: Structured Cabling, CCTV, Access Control, Audio Visual, Intrusion Detection, and Fire Alarm systems.
+  let prompt = `You are a senior low-voltage / ELV estimator, code compliance reviewer, and construction document analyst specializing in: Structured Cabling, CCTV, Access Control, Audio Visual, Intrusion Detection, and Fire Alarm systems.
+
+You have expert knowledge of all applicable federal, state, local codes and industry standards. You MUST flag any code violations or non-compliant items found in the documents.
 
 Project: "${state.projectName}"
 Project Type: ${state.projectType}
@@ -1021,63 +1023,159 @@ INSTRUCTIONS:
 3. Cross-reference floor plan symbols against the symbol legend provided.
 4. Check for discrepancies between plans, specifications, and any addenda.
 
-5. **MDF/IDF/TR MATERIAL BREAKDOWN** — This is critical for project management. For EACH telecom room identified on the drawings, provide a detailed breakdown:
+5. **CODE & STANDARDS COMPLIANCE REVIEW** — This section is MANDATORY. Review the documents against ALL of the following. Flag ANY violations, missing requirements, or areas needing clarification:
 
-   For each MDF, IDF, or TR room:
-   a) Room Designation & Location (e.g., "IDF-2A — 2nd Floor, East Wing, Room 247")
-   b) Devices/drops served from this room (list devices by type and floor area served)
-   c) Structured Cabling materials:
-      - Number of data drops home-running to this room
-      - Cable type and estimated quantities (Cat 6, Cat 6A, etc.)
-      - Patch panels needed (24-port, 48-port) based on drop count
-      - Estimated cable lengths (short/medium/long runs)
-   d) Rack/Cabinet requirements:
-      - Rack size (2-post, 4-post, wall-mount, floor-standing)
-      - Estimated rack units (RU) needed
-      - Rack-mount accessories (shelves, cable management, blanks)
-   e) Networking (if identifiable):
-      - PoE switch port count needed
-      - Fiber patch panel / enclosure
-      - Backbone fiber or copper to MDF
-   f) Power & Infrastructure:
-      - Dedicated circuit requirements
-      - UPS/battery backup sizing
-      - Grounding requirements (TGB)
-   g) CCTV equipment in this room (NVR, switches)
-   h) Access control panels in this room
-   i) Fire alarm panels or annunciators in this room
-   j) Intrusion detection panels in this room
-   k) AV head-end equipment in this room
+   FEDERAL / NATIONAL CODES:
+   - NEC (NFPA 70):
+     * Article 725: Class 1/2/3 Remote-Control, Signaling, Power-Limited Circuits (access control, intrusion, AV control wiring)
+     * Article 760: Fire Alarm Systems (power-limited vs non-power-limited, conductor types, pathway separation from Class 2)
+     * Article 770: Optical Fiber Cables and Raceways (fiber installation, listing requirements)
+     * Article 800: Communications Circuits (data/voice cabling, grounding, entrance protection)
+     * Article 820: CATV/Radio Distribution Systems (coax for CCTV)
+     * Article 830: Network-Powered Broadband Communications
+     * Article 300.22: Wiring in plenums and air-handling spaces (plenum-rated cable requirements — CMP, OFNP)
+   - NFPA 72 — National Fire Alarm and Signaling Code:
+     * Smoke/heat detector spacing per ceiling height (Table 17.6.3.5.1)
+     * NAC candela requirements per room size and ADA
+     * Pull station placement (within 5 ft of each exit, max travel 200 ft)
+     * Audibility (15 dB above ambient or 5 dB above max, whichever greater)
+     * Pathway Class designations (A, B, X, N) and survivability
+     * Duct detector requirements per HVAC unit size (>2000 CFM)
+     * Two-way emergency communication (elevators, areas of refuge)
+   - NFPA 101 — Life Safety Code:
+     * Egress requirements affecting door hardware (access control on egress paths)
+     * Delayed egress locks (15/30-second delay, signage, integration with fire alarm)
+     * Controlled egress (requires approval of AHJ)
+     * Fire door requirements affecting electrified hardware
+   - NFPA 70E — Arc flash and electrical safety
+   - IBC — International Building Code:
+     * Occupancy classification driving fire alarm and access control requirements
+     * Fire-rated assembly penetrations (firestopping per UL Systems)
+     * Accessible design for readers, keypads, intercoms
+   - IFC — International Fire Code:
+     * Fire command center requirements
+     * Manual fire alarm by occupancy type
+     * Emergency Responder Radio Coverage (ERRC/BDA/DAS) — Section 510
+   - ADA / ADA Standards for Accessible Design:
+     * Card reader mounting: 48" max, 15" min from finished floor
+     * Keypad/intercom accessibility (reach range, operable parts)
+     * Visual notification appliance candela for hearing impaired per NFPA 72
+     * Pull station height: 42"-48" AFF
+     * Door opening force max 5 lbs, clearances for controlled doors
+   - OSHA:
+     * 29 CFR 1926 construction safety
+     * Fall protection for ceiling/overhead installations
+     * Confined space for telecom rooms without proper egress or ventilation
 
-   Format each room as its own section so a project manager can use it as an install checklist.
+   STATE & LOCAL CODES:
+   - State fire marshal amendments to NFPA 72 / IFC (flag items where local amendments commonly differ)
+   - State licensing requirements for fire alarm, access control, intrusion systems
+   - Local building department amendments to IBC
+   - State energy code (lighting controls integration)
+   - Local AHJ-specific requirements — flag items that typically need AHJ approval or special inspection
 
-6. **OVERALL MATERIAL SUMMARY** — After the per-room breakdown, provide a consolidated bill of materials:
-   - Total cable quantities by type (Cat 6, Cat 6A, fiber, coax, 18/2, 18/4, 22/4, etc.)
-   - Total device counts by type across all rooms
-   - Total rack units across all rooms
-   - Total patch panels, switches, and accessories
+   INDUSTRY STANDARDS:
+   - BICSI TDMM:
+     * Telecom room sizing per workstations served
+     * Minimum MDF/IDF room dimensions
+     * Equipment clearance: 36" front, 30" rear
+     * Max horizontal cable run: 90m (100m total channel)
+   - TIA-568 — Telecommunications Cabling Standard:
+     * Category performance (Cat 6 vs Cat 6A)
+     * Max cable distances and bend radius
+     * Testing requirements (permanent link vs channel)
+   - TIA-569 — Pathways and Spaces:
+     * Pathway fill ratios (40% conduit fill per NEC, BICSI 50% initial + 25% growth)
+     * Telecom room environment: 64-75°F, 30-55% relative humidity
+     * Ceiling pathway support spacing
+   - TIA-606 — Administration Standard:
+     * Labeling for cables, panels, outlets, pathways
+     * Color coding for system identification
+     * As-built documentation requirements
+   - TIA-607 — Bonding and Grounding:
+     * TMGB (Telecom Main Grounding Busbar) requirements
+     * TGB per telecom room
+     * TBB (Bonding Backbone) sizing and routing
+   - UL Standards:
+     * UL 294 — Access Control System Units
+     * UL 681 — Burglar Alarm System Installation/Classification
+     * UL 827 — Central Station Alarm Services
+     * UL 864 — Fire Alarm Control Units
+     * UL 1076 — Proprietary Burglar Alarm Units
+     * UL 2050 — National Industrial Security Systems
+     * UL 2572 — Mass Notification Systems
+   - AVIXA:
+     * F502.01 — Display Image Size for 2D Content
+     * F501.01 — Audio Coverage Uniformity
+   - ASIS / SIA:
+     * SIA OSDP for access control readers
+     * Physical asset protection standards
+   - FM Global — FM Approved equipment for insured properties
+
+   For each code issue found, provide:
+   - Severity: 🔴 CRITICAL (code violation) / 🟡 WARNING (potential issue) / 🔵 INFO (best practice)
+   - Specific code section
+   - What the code requires
+   - What the documents show (or fail to show)
+   - Recommended corrective action or RFI
+
+6. **MDF/IDF/TR MATERIAL BREAKDOWN** — For EACH telecom room provide:
+   a) Room Designation & Location
+   b) Code compliance for this room:
+      - Sizing adequacy per BICSI/TIA-569
+      - HVAC present per TIA-569 requirements
+      - Dedicated electrical circuit per NEC
+      - Fire suppression requirements
+      - ADA accessibility
+   c) Devices/drops served
+   d) Structured Cabling: drop count, cable type/qty, patch panels, estimated run lengths (flag runs near 90m)
+   e) Rack/Cabinet: size, RU needed, accessories, clearance compliance per BICSI
+   f) Networking: PoE switch ports, fiber backbone, patch panel
+   g) Power: circuits per NEC, UPS sizing, grounding per TIA-607
+   h) CCTV equipment in this room
+   i) Access control panels in this room
+   j) Fire alarm panels/annunciators in this room
+   k) Intrusion detection panels in this room
+   l) AV head-end equipment in this room
+
+   Format each room as its own section — an install checklist for project managers.
+
+7. **OVERALL MATERIAL SUMMARY** — Consolidated bill of materials:
+   - Total cable by type (Cat 6, Cat 6A, fiber, coax, 18/2, 18/4, 22/4, etc.)
+   - Total devices by type across all rooms
+   - Total rack units
+   - Total patch panels, switches, accessories
    - Pathway materials (cable tray, J-hooks, conduit, firestop)
 
-7. Provide analysis observations:
+8. **CODE COMPLIANCE SUMMARY** — Dedicated section:
+   - Total issues: 🔴 Critical / 🟡 Warning / 🔵 Info
+   - Each issue with code reference, location, and recommended action
+   - Items requiring AHJ approval or inspection
+   - Permits likely required (fire alarm, low voltage, electrical)
+
+9. Analysis observations:
    - Device counts by type, per sheet/floor
    - Cable/conduit pathway observations
    - Spec-to-plan conflicts
-   - Missing information requiring RFIs
+   - Missing info requiring RFIs
    - Scope gaps or ambiguities
    - Confidence level for each count
 
-8. Reference industry standards where applicable: BICSI TDMM, TIA-568, TIA-569, TIA-606, TIA-607, NFPA 72, NEC Article 725/760/770, NFPA 101.
-9. List specific, actionable RFI questions based on actual gaps found in these documents.
-10. If known quantities were provided, compare your counts and flag deviations over 10%.
+10. Specific, actionable RFI questions with code references where applicable.
+11. If known quantities provided, compare and flag deviations over 10%.
 
 FORMAT REQUIREMENTS:
 - Use markdown headers to organize sections
-- Organize the MDF/IDF breakdown with each room as a ## header
-- Use tables where possible for material quantities
-- Include a confidence percentage for each major count
-- Be specific — reference sheet numbers, room numbers, and device types
-- The MDF/IDF breakdown should be detailed enough for a project manager to use as a procurement and installation planning document`;
-
+- Start with # CODE & STANDARDS COMPLIANCE REVIEW
+- Follow with ## MDF/IDF MATERIAL BREAKDOWN per room
+- Then ## OVERALL MATERIAL SUMMARY
+- Then ## CODE COMPLIANCE SUMMARY table
+- Then ## RFIs
+- Use tables where possible
+- Tag issues: 🔴 CRITICAL, 🟡 WARNING, 🔵 INFO
+- Include confidence percentage for each major count
+- Reference sheet numbers, room numbers, device types
+- Detailed enough for PM procurement and installation planning`;
 
 
   return prompt;
