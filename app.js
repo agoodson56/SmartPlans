@@ -1153,7 +1153,141 @@ INSTRUCTIONS:
    - Items requiring AHJ approval or inspection
    - Permits likely required (fire alarm, low voltage, electrical)
 
-9. Analysis observations:
+9. **LABOR ESTIMATION — NECA NATIONAL LABOR UNITS** — Apply standard NECA (National Electrical Contractors Association) labor units to ALL device counts and material quantities. Use the following reference labor units (adjust for project complexity and conditions):
+
+   STRUCTURED CABLING LABOR UNITS:
+   | Task | Unit | Labor Hours |
+   |------|------|-------------|
+   | Cat 6 data drop — rough-in (w/ J-hook pathway, box, ring, support) | each | 0.75 hr |
+   | Cat 6 data drop — trim (terminate, test, label, faceplate) | each | 0.35 hr |
+   | Cat 6A data drop — rough-in | each | 0.85 hr |
+   | Cat 6A data drop — trim | each | 0.40 hr |
+   | Patch panel 24-port — install and terminate | each | 2.5 hr |
+   | Patch panel 48-port — install and terminate | each | 4.0 hr |
+   | Cable tray installation — straight section | per 10 ft | 0.80 hr |
+   | Cable tray fittings (elbow, tee, cross) | each | 0.50 hr |
+   | J-hook installation | each | 0.15 hr |
+   | 3/4" EMT conduit | per 100 ft | 4.0 hr |
+   | 1" EMT conduit | per 100 ft | 5.0 hr |
+   | 1-1/4" EMT conduit | per 100 ft | 6.5 hr |
+   | Firestop penetration — single cable bundle | each | 0.50 hr |
+   | Firestop penetration — sleeve/multi-cable | each | 1.0 hr |
+   | 2-post relay rack — assemble and install | each | 3.0 hr |
+   | 4-post equipment rack — assemble and install | each | 4.0 hr |
+   | Wall-mount cabinet — install | each | 2.0 hr |
+   | WAP — install, mount, cable, test | each | 1.25 hr |
+   | Fiber termination — per strand (fusion splice) | each | 0.30 hr |
+   | Fiber termination — per strand (mechanical) | each | 0.20 hr |
+   | Fiber enclosure — install and label | each | 1.0 hr |
+   | TGB — install and bond | each | 2.5 hr |
+   | TMGB — install and bond | each | 4.0 hr |
+   | TBB — install per 100 ft | per 100 ft | 3.0 hr |
+   | Cable pulling — per 1000 ft (horizontal) | per 1000 ft | 2.0 hr |
+   | Cable pulling — per 1000 ft (riser/vertical) | per 1000 ft | 4.0 hr |
+
+   CCTV LABOR UNITS:
+   | Task | Unit | Labor Hours |
+   |------|------|-------------|
+   | Fixed indoor dome camera — mount, cable, aim, configure | each | 1.5 hr |
+   | Fixed indoor bullet camera — mount, cable, aim, configure | each | 1.5 hr |
+   | Fixed outdoor dome camera — mount, weatherproof, cable, configure | each | 2.5 hr |
+   | Fixed outdoor bullet camera — mount, weatherproof, cable, configure | each | 2.5 hr |
+   | PTZ camera — mount, cable, configure, program presets | each | 3.5 hr |
+   | Multi-sensor/panoramic camera — mount, cable, configure | each | 4.0 hr |
+   | Exterior pole/arm mount with base | each | 4.0 hr |
+   | NVR — rack mount, configure, connect | each | 4.0 hr |
+   | VMS server — rack mount, configure, license | each | 8.0 hr |
+   | Monitor/display — mount and connect | each | 1.0 hr |
+   | Video wall — mount, configure, processor | per display | 2.0 hr |
+   | PoE switch — rack mount, configure, patch | each | 2.0 hr |
+
+   ACCESS CONTROL LABOR UNITS:
+   | Task | Unit | Labor Hours |
+   |------|------|-------------|
+   | Single door — reader, electrified hardware, REX, DPS, wiring | each | 6.0 hr |
+   | Card reader — mount and wire (reader only) | each | 1.0 hr |
+   | Electric strike — install and wire | each | 2.0 hr |
+   | Magnetic lock — install and wire | each | 1.5 hr |
+   | Electric latch retraction — install and wire | each | 3.0 hr |
+   | REX sensor (PIR) — mount and wire | each | 0.5 hr |
+   | Door contact — install and wire | each | 0.75 hr |
+   | Access control panel (4-door) — mount, wire, configure | each | 4.0 hr |
+   | Access control panel (8-door) — mount, wire, configure | each | 6.0 hr |
+   | Power supply with battery backup | each | 1.5 hr |
+   | Elevator floor control module — per floor | each | 2.0 hr |
+   | Intercom station — mount, wire, configure | each | 2.0 hr |
+   | Software programming — per door | each | 0.5 hr |
+
+   AUDIO VISUAL LABOR UNITS:
+   | Task | Unit | Labor Hours |
+   |------|------|-------------|
+   | Flat panel display — wall mount, connect, configure | each | 2.0 hr |
+   | Projector and screen — ceiling mount, connect, align | each | 4.0 hr |
+   | Ceiling speaker — install, wire, aim | each | 0.75 hr |
+   | Wall speaker — install, wire | each | 1.0 hr |
+   | DSP/Amplifier — rack mount, configure, tune | each | 3.0 hr |
+   | Control panel/touch panel — mount, wire, program | each | 3.0 hr |
+   | Video conferencing system — install, configure, test | each | 6.0 hr |
+   | AV rack — build, wire, terminate, test | each | 16.0 hr |
+   | Digital signage player — mount, connect, configure | each | 1.0 hr |
+   | Wireless presentation system — install, configure | each | 1.5 hr |
+
+   INTRUSION DETECTION LABOR UNITS:
+   | Task | Unit | Labor Hours |
+   |------|------|-------------|
+   | PIR motion detector — mount and wire | each | 0.75 hr |
+   | Door/window contact — install and wire | each | 0.50 hr |
+   | Glass break sensor — mount and wire | each | 0.50 hr |
+   | Intrusion panel — mount, wire, program | each | 6.0 hr |
+   | Keypad — mount, wire, configure | each | 1.0 hr |
+   | Interior siren/strobe — mount and wire | each | 0.75 hr |
+   | Exterior siren/strobe — mount and wire | each | 1.5 hr |
+   | Cellular communicator — install and activate | each | 1.0 hr |
+
+   FIRE ALARM LABOR UNITS:
+   | Task | Unit | Labor Hours |
+   |------|------|-------------|
+   | Smoke detector (addressable) — mount, wire, address | each | 0.65 hr |
+   | Heat detector (addressable) — mount, wire, address | each | 0.65 hr |
+   | Pull station — mount, wire, address | each | 0.75 hr |
+   | Horn/strobe (wall) — mount, wire, address | each | 0.80 hr |
+   | Horn/strobe (ceiling) — mount, wire, address | each | 0.90 hr |
+   | Speaker/strobe (voice evac) — mount, wire, address | each | 1.0 hr |
+   | Duct smoke detector — mount, wire, address, remote test/reset | each | 2.5 hr |
+   | FACP — mount, wire, program, test | each | 16.0 hr |
+   | Annunciator — mount, wire, configure | each | 3.0 hr |
+   | NAC extender/booster — mount, wire | each | 2.0 hr |
+   | Monitor module — install and wire | each | 0.50 hr |
+   | Control module (relay) — install and wire | each | 0.75 hr |
+   | 3/4" EMT conduit for FA circuits | per 100 ft | 4.0 hr |
+   | Fire alarm wire pulling (per circuit) | per 100 ft | 1.5 hr |
+
+   GENERAL / OVERHEAD LABOR:
+   | Task | Unit | Labor Hours |
+   |------|------|-------------|
+   | Project mobilization/demobilization | per project | 8.0 hr |
+   | Telecom room build-out (per room, general) | each | 8.0 hr |
+   | Final testing and commissioning — structured cabling | per 100 drops | 8.0 hr |
+   | Final testing and commissioning — fire alarm | per device loop | 4.0 hr |
+   | Final testing and commissioning — access control | per door | 0.5 hr |
+   | As-built documentation | per project | 8.0-16.0 hr |
+   | Punch list / warranty walk | per project | 8.0 hr |
+
+   LABOR ADJUSTMENT FACTORS (note these to the PM):
+   - Working above 10 ft (ladder/lift required): multiply by 1.25
+   - Existing/occupied building: multiply by 1.15
+   - Night/weekend work: multiply by 1.50 (OT) or 2.0 (DT)
+   - Concrete/masonry wall penetrations: add 0.5 hr per penetration
+   - Union labor jurisdiction: check local rates and productivity factors
+
+   For the labor summary:
+   a) Calculate total labor hours per discipline using the units above × device counts
+   b) Calculate total labor hours per MDF/IDF room
+   c) Provide a grand total labor hours for the project
+   d) Estimate crew size and duration (assume 8-hour days, 2-person crew minimum for safety)
+   e) Break out labor into phases: Rough-In, Trim/Termination, Programming/Commissioning, Testing
+
+10. Analysis observations:
    - Device counts by type, per sheet/floor
    - Cable/conduit pathway observations
    - Spec-to-plan conflicts
@@ -1161,21 +1295,22 @@ INSTRUCTIONS:
    - Scope gaps or ambiguities
    - Confidence level for each count
 
-10. Specific, actionable RFI questions with code references where applicable.
-11. If known quantities provided, compare and flag deviations over 10%.
+11. Specific, actionable RFI questions with code references where applicable.
+12. If known quantities provided, compare and flag deviations over 10%.
 
 FORMAT REQUIREMENTS:
 - Use markdown headers to organize sections
 - Start with # CODE & STANDARDS COMPLIANCE REVIEW
-- Follow with ## MDF/IDF MATERIAL BREAKDOWN per room
+- Then ## MDF/IDF MATERIAL BREAKDOWN per room
 - Then ## OVERALL MATERIAL SUMMARY
+- Then ## LABOR SUMMARY (with total hours by discipline, by phase, crew recommendation)
 - Then ## CODE COMPLIANCE SUMMARY table
 - Then ## RFIs
 - Use tables where possible
 - Tag issues: 🔴 CRITICAL, 🟡 WARNING, 🔵 INFO
 - Include confidence percentage for each major count
 - Reference sheet numbers, room numbers, device types
-- Detailed enough for PM procurement and installation planning`;
+- Detailed enough for PM procurement, labor planning, and installation scheduling`;
 
 
   return prompt;
