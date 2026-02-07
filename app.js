@@ -784,8 +784,11 @@ function renderStep6(container) {
   } else if (state.aiAnalysis) {
     aiSection = `
       <div class="info-card info-card--emerald" style="margin-bottom:22px;">
-        <div class="info-card-title">🤖 Gemini AI Analysis</div>
-        <div class="info-card-body ai-analysis-content" style="white-space:pre-wrap; line-height:1.75;">${formatAIResponse(state.aiAnalysis)}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-left:8px;">
+          <div class="info-card-title" style="margin-bottom:0;">📋 MDF/IDF Material Breakdown & Analysis</div>
+          <button id="export-analysis-btn" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.1);color:var(--accent-emerald);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;">📥 Export Analysis</button>
+        </div>
+        <div class="info-card-body ai-analysis-content" style="white-space:pre-wrap; line-height:1.75; max-height:600px; overflow-y:auto;">${formatAIResponse(state.aiAnalysis)}</div>
       </div>
     `;
   }
@@ -887,6 +890,11 @@ function renderStep6(container) {
   const exportBtn = document.getElementById("export-rfis");
   if (exportBtn) {
     exportBtn.addEventListener("click", exportRFIs);
+  }
+
+  const exportAnalysisBtn = document.getElementById("export-analysis-btn");
+  if (exportAnalysisBtn) {
+    exportAnalysisBtn.addEventListener("click", exportAnalysis);
   }
 }
 
@@ -1012,19 +1020,65 @@ INSTRUCTIONS:
    - FIRE ALARM: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, FACP, NAC circuits
 3. Cross-reference floor plan symbols against the symbol legend provided.
 4. Check for discrepancies between plans, specifications, and any addenda.
-5. Identify MDF/IDF/TR rooms and list infrastructure requirements (racks, power, cooling, grounding).
-6. Provide a detailed analysis including:
+
+5. **MDF/IDF/TR MATERIAL BREAKDOWN** — This is critical for project management. For EACH telecom room identified on the drawings, provide a detailed breakdown:
+
+   For each MDF, IDF, or TR room:
+   a) Room Designation & Location (e.g., "IDF-2A — 2nd Floor, East Wing, Room 247")
+   b) Devices/drops served from this room (list devices by type and floor area served)
+   c) Structured Cabling materials:
+      - Number of data drops home-running to this room
+      - Cable type and estimated quantities (Cat 6, Cat 6A, etc.)
+      - Patch panels needed (24-port, 48-port) based on drop count
+      - Estimated cable lengths (short/medium/long runs)
+   d) Rack/Cabinet requirements:
+      - Rack size (2-post, 4-post, wall-mount, floor-standing)
+      - Estimated rack units (RU) needed
+      - Rack-mount accessories (shelves, cable management, blanks)
+   e) Networking (if identifiable):
+      - PoE switch port count needed
+      - Fiber patch panel / enclosure
+      - Backbone fiber or copper to MDF
+   f) Power & Infrastructure:
+      - Dedicated circuit requirements
+      - UPS/battery backup sizing
+      - Grounding requirements (TGB)
+   g) CCTV equipment in this room (NVR, switches)
+   h) Access control panels in this room
+   i) Fire alarm panels or annunciators in this room
+   j) Intrusion detection panels in this room
+   k) AV head-end equipment in this room
+
+   Format each room as its own section so a project manager can use it as an install checklist.
+
+6. **OVERALL MATERIAL SUMMARY** — After the per-room breakdown, provide a consolidated bill of materials:
+   - Total cable quantities by type (Cat 6, Cat 6A, fiber, coax, 18/2, 18/4, 22/4, etc.)
+   - Total device counts by type across all rooms
+   - Total rack units across all rooms
+   - Total patch panels, switches, and accessories
+   - Pathway materials (cable tray, J-hooks, conduit, firestop)
+
+7. Provide analysis observations:
    - Device counts by type, per sheet/floor
    - Cable/conduit pathway observations
    - Spec-to-plan conflicts
    - Missing information requiring RFIs
    - Scope gaps or ambiguities
    - Confidence level for each count
-7. Reference industry standards where applicable: BICSI TDMM, TIA-568, TIA-569, TIA-606, TIA-607, NFPA 72, NEC Article 725/760/770, NFPA 101.
-8. List specific, actionable RFI questions based on actual gaps found in these documents.
-9. If known quantities were provided, compare your counts and flag deviations over 10%.
 
-Format your response with clear sections using markdown headers. Organize by discipline. Be specific and reference sheet numbers where applicable.`;
+8. Reference industry standards where applicable: BICSI TDMM, TIA-568, TIA-569, TIA-606, TIA-607, NFPA 72, NEC Article 725/760/770, NFPA 101.
+9. List specific, actionable RFI questions based on actual gaps found in these documents.
+10. If known quantities were provided, compare your counts and flag deviations over 10%.
+
+FORMAT REQUIREMENTS:
+- Use markdown headers to organize sections
+- Organize the MDF/IDF breakdown with each room as a ## header
+- Use tables where possible for material quantities
+- Include a confidence percentage for each major count
+- Be specific — reference sheet numbers, room numbers, and device types
+- The MDF/IDF breakdown should be detailed enough for a project manager to use as a procurement and installation planning document`;
+
+
 
   return prompt;
 }
@@ -1097,7 +1151,7 @@ async function callGeminiAPI(progressCallback) {
     contents: [{ parts }],
     generationConfig: {
       temperature: 0.3,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 16384,
     },
   };
 
@@ -1279,6 +1333,32 @@ function exportRFIs() {
   URL.revokeObjectURL(url);
 }
 
+function exportAnalysis() {
+  if (!state.aiAnalysis) return;
+
+  const line = "=".repeat(64);
+  let text = `SMARTPLANS AI ANALYSIS — MDF/IDF MATERIAL BREAKDOWN\n`;
+  text += `${line}\n`;
+  text += `Project: ${state.projectName || "Project"}\n`;
+  text += `Generated: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}\n`;
+  text += `Project Type: ${state.projectType}\n`;
+  text += `Disciplines: ${state.disciplines.join(", ")}\n`;
+  text += `${line}\n\n`;
+  text += state.aiAnalysis;
+  text += `\n\n${line}\n`;
+  text += `Generated by SmartPlans — AI-Powered ELV Document Analysis\n`;
+
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Analysis_${(state.projectName || "Project").replace(/\s+/g, "_")}_MDF_IDF_Breakdown.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // AI RESPONSE FORMATTER
@@ -1288,16 +1368,54 @@ function formatAIResponse(text) {
   if (!text) return "";
   // Basic markdown-to-HTML conversion for display
   let html = esc(text);
+
+  // Horizontal rules
+  html = html.replace(/^-{3,}$/gm, '<hr style="border:none;border-top:1px solid var(--border-medium);margin:16px 0;">');
+
   // Headers
+  html = html.replace(/^#### (.+)$/gm, '<strong style="color:var(--accent-emerald);font-size:13px;display:block;margin-top:10px;">$1</strong>');
   html = html.replace(/^### (.+)$/gm, '<strong style="color:var(--accent-sky);font-size:14px;display:block;margin-top:14px;">$1</strong>');
-  html = html.replace(/^## (.+)$/gm, '<strong style="color:var(--accent-indigo);font-size:15px;display:block;margin-top:18px;margin-bottom:4px;">$1</strong>');
-  html = html.replace(/^# (.+)$/gm, '<strong style="color:var(--text-primary);font-size:16px;display:block;margin-top:20px;margin-bottom:6px;">$1</strong>');
+  html = html.replace(/^## (.+)$/gm, '<div style="color:var(--accent-indigo);font-size:15px;font-weight:700;display:block;margin-top:20px;margin-bottom:4px;padding:8px 12px;background:rgba(129,140,248,0.08);border-radius:6px;border-left:3px solid var(--accent-indigo);">$1</div>');
+  html = html.replace(/^# (.+)$/gm, '<div style="color:var(--text-primary);font-size:17px;font-weight:800;display:block;margin-top:24px;margin-bottom:8px;padding:10px 14px;background:rgba(56,189,248,0.06);border-radius:8px;border-left:3px solid var(--accent-sky);">$1</div>');
+
   // Bold
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>');
+
+  // Tables — convert markdown table rows to HTML tables
+  html = html.replace(/((?:^\|.+\|$\n?)+)/gm, function (tableBlock) {
+    const rows = tableBlock.trim().split("\n").filter(r => r.trim());
+    if (rows.length < 2) return tableBlock;
+
+    let tableHtml = '<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12.5px;">';
+    rows.forEach((row, idx) => {
+      const cells = row.split("|").filter(c => c.trim() !== "");
+      // Skip separator row (|---|---|)
+      if (cells.every(c => /^[\s\-:]+$/.test(c))) return;
+
+      const tag = idx === 0 ? "th" : "td";
+      const bgStyle = idx === 0 ? "background:rgba(56,189,248,0.08);font-weight:700;color:var(--accent-sky);" : (idx % 2 === 0 ? "background:rgba(255,255,255,0.02);" : "");
+      tableHtml += "<tr>";
+      cells.forEach(cell => {
+        tableHtml += `<${tag} style="padding:8px 12px;border:1px solid var(--border-medium);text-align:left;${bgStyle}">${cell.trim()}</${tag}>`;
+      });
+      tableHtml += "</tr>";
+    });
+    tableHtml += "</table>";
+    return tableHtml;
+  });
+
+  // Indented sub-items (lines starting with spaces + -)
+  html = html.replace(/^   +[\-\*] (.+)$/gm, '<div style="padding-left:32px;color:var(--text-secondary);">◦ $1</div>');
+
   // Bullet points
   html = html.replace(/^[\-\*] (.+)$/gm, '<div style="padding-left:16px;">• $1</div>');
+
   // Numbered lists
   html = html.replace(/^(\d+)\. (.+)$/gm, '<div style="padding-left:16px;"><strong>$1.</strong> $2</div>');
+
+  // Lettered lists (a), b), etc.)
+  html = html.replace(/^   ([a-k])\) (.+)$/gm, '<div style="padding-left:24px;margin:2px 0;"><strong style="color:var(--accent-sky);">$1)</strong> $2</div>');
+
   return html;
 }
 
