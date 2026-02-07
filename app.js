@@ -30,14 +30,12 @@ const STEPS = [
 ];
 
 const DISCIPLINES = [
-  "Architectural",
-  "Electrical",
-  "Mechanical / HVAC",
-  "Plumbing",
-  "Fire Protection",
-  "Structural",
-  "Site / Civil",
-  "Low Voltage / Technology",
+  "Structured Cabling",
+  "CCTV",
+  "Access Control",
+  "Audio Visual",
+  "Intrusion Detection",
+  "Fire Alarm",
 ];
 
 const PROJECT_TYPES = [
@@ -45,7 +43,8 @@ const PROJECT_TYPES = [
   "Renovation / Remodel",
   "Tenant Improvement",
   "Addition",
-  "Demolition Only",
+  "Design-Build",
+  "Service / Retrofit",
 ];
 
 const FILE_FORMATS = [
@@ -57,50 +56,61 @@ const FILE_FORMATS = [
 ];
 
 const RFI_TEMPLATES = {
-  Architectural: [
-    { id: "A-001", q: "The symbol legend does not include a symbol that appears repeatedly on the plans. Please clarify what this symbol represents and provide the correct quantity.", reason: "Unknown symbols cannot be counted or priced." },
-    { id: "A-002", q: "Multiple sheets appear to have overlapping coverage areas. Please confirm which sheet governs and whether items on both should be counted once or twice.", reason: "Prevents double-counting." },
-    { id: "A-003", q: "Plans show existing and new work without clear differentiation. Please confirm which items are existing-to-remain, demo, and new.", reason: "Phasing confusion causes scope errors." },
-    { id: "A-004", q: "The drawing scale does not appear consistent with dimensions shown. Please confirm correct scale and provide a graphic scale bar.", reason: "Incorrect scale invalidates all measurements." },
-    { id: "A-005", q: "The door schedule count does not match doors shown on plans. Please reconcile.", reason: "Schedule vs. plan discrepancy is one of the most common CD errors." },
-    { id: "A-006", q: "Several rooms lack finish schedules or room tags. Please provide finish designations.", reason: "Missing finishes prevent accurate material quantification." },
+  "Structured Cabling": [
+    { id: "SC-001", q: "Data outlet symbols are inconsistent across sheets. Please confirm symbol definitions and clarify whether each represents single-gang, dual-gang, or multi-port configurations.", reason: "Inconsistent symbols cause cable and faceplate miscounts." },
+    { id: "SC-002", q: "MDF/IDF/TR locations are shown but room dimensions, dedicated HVAC, and electrical requirements are not specified. Please provide telecom room details.", reason: "Telecom room build-out (racks, power, cooling, grounding) is a significant cost driver." },
+    { id: "SC-003", q: "Cable pathways (conduit, J-hooks, cable tray, innerduct) are not shown for horizontal runs. Please specify pathway type and sizing.", reason: "Pathway type dramatically affects labor and material cost per BICSI standards." },
+    { id: "SC-004", q: "Backbone cabling between MDF and IDFs is not shown on riser diagrams. Please provide backbone routing, fiber counts, and cable types (OS2, OM3, OM4).", reason: "Backbone infrastructure drives major material costs and cannot be assumed." },
+    { id: "SC-005", q: "Cable category is not specified on the drawings (Cat 5e, Cat 6, Cat 6A). Please confirm cable performance category per TIA-568 requirements.", reason: "Cat 6A costs 40-60% more than Cat 6 for cable and connectivity." },
+    { id: "SC-006", q: "Grounding and bonding requirements for telecom rooms are not shown. Please confirm TBB, TMGB, and TGB requirements per TIA-607.", reason: "Telecom grounding is code-required and a separate scope item." },
+    { id: "SC-007", q: "Wireless access point (WAP) locations are shown but mounting details, pathway to ceiling, and PoE switch requirements are not specified. Please clarify.", reason: "WAP quantity drives PoE switch sizing and ceiling pathway costs." },
+    { id: "SC-008", q: "Firestopping requirements for cable penetrations through rated walls and floors are not specified. Please confirm firestop product and method.", reason: "Firestopping is often missed in LV bids but is code-required and labor-intensive." },
   ],
-  Electrical: [
-    { id: "E-001", q: "Receptacle symbols vary in appearance. Please confirm whether these represent standard duplex, GFI, dedicated circuits, or other configurations.", reason: "Similar symbols with different meanings cause miscounts." },
-    { id: "E-002", q: "The panel schedule shows fewer circuits than devices on the floor plan can accommodate. Please confirm panel sizing.", reason: "Panel capacity must match device count." },
-    { id: "E-003", q: "Home run designations are missing for several branch circuits. Please provide circuit routing.", reason: "Without home runs, wire quantities cannot be calculated." },
-    { id: "E-004", q: "Lighting fixture schedule references types not on the reflected ceiling plan. Please confirm locations.", reason: "Schedule/plan mismatch affects procurement." },
-    { id: "E-005", q: "Conduit sizes and types are not indicated for branch circuit runs. Please specify.", reason: "Conduit type significantly impacts cost." },
+  "CCTV": [
+    { id: "CC-001", q: "Camera locations are shown but camera types (fixed, PTZ, dome, bullet, multi-sensor) are not specified for each location. Please provide a camera schedule.", reason: "Camera type determines mounting, lens, housing, and unit cost." },
+    { id: "CC-002", q: "Field of view and coverage requirements are not indicated. Please confirm intended coverage areas, focal lengths, and minimum PPF (pixels per foot) requirements.", reason: "Coverage requirements determine camera count, lens selection, and mounting height." },
+    { id: "CC-003", q: "Network Video Recorder (NVR) or Video Management System (VMS) specifications are not provided. Please confirm storage duration, resolution, and frame rate requirements.", reason: "Storage calculations drive server sizing and are a major cost variable." },
+    { id: "CC-004", q: "PoE power budget and network switch requirements for the camera system are not specified. Please confirm PoE class requirements per camera.", reason: "High-resolution and PTZ cameras require PoE+ or PoE++, affecting switch selection." },
+    { id: "CC-005", q: "Exterior camera locations do not indicate weatherproofing requirements, pole/arm mounting details, or conduit routing. Please provide mounting and pathway details.", reason: "Exterior installations require poles, arms, weatherproof enclosures, and underground conduit." },
+    { id: "CC-006", q: "Integration requirements between CCTV and access control (door-triggered recording, video verification) are not defined. Please confirm integration scope.", reason: "System integration requires software licensing, network configuration, and programming hours." },
+    { id: "CC-007", q: "Monitor/display requirements for guard stations or command centers are not specified. Please provide monitor sizes, quantities, and video wall layout.", reason: "Display hardware and video decoders are a separate cost center." },
   ],
-  "Mechanical / HVAC": [
-    { id: "M-001", q: "Ductwork sizes are missing for several runs. Please provide sizing or confirm contractor designs per criteria.", reason: "Duct sizing drives sheet metal and insulation quantities." },
-    { id: "M-002", q: "Diffuser/grille schedule count doesn't match the floor plan. Please reconcile.", reason: "Counts must match for air balancing estimates." },
-    { id: "M-003", q: "Plans show thermostats but specs reference a BAS system. Please confirm which to price.", reason: "BAS vs. standalone has dramatically different costs." },
+  "Access Control": [
+    { id: "AC-001", q: "Door hardware schedule does not indicate which doors require access control. Please provide a door-by-door access control matrix.", reason: "Not all doors shown on plans require access control; assuming all creates scope inflation." },
+    { id: "AC-002", q: "Reader types are not specified per door (proximity, smart card, biometric, mobile credential). Please confirm reader technology and credential type.", reason: "Reader technology drives per-door cost from $200 to $3,000+." },
+    { id: "AC-003", q: "Electrified hardware requirements (electric strikes, maglocks, electric hinges, auto-operators) are not specified per door. Please confirm locking hardware.", reason: "Lock type affects door prep, power supply sizing, and fire code compliance." },
+    { id: "AC-004", q: "Request-to-exit (REX) device types are not shown. Please confirm whether PIR sensors, push buttons, or crash bars with REX switches are required.", reason: "REX type affects wiring, door hardware coordination, and ADA compliance." },
+    { id: "AC-005", q: "Access control panel locations and power requirements are not shown on the drawings. Please confirm panel locations, dedicated circuits, and UPS/battery backup requirements.", reason: "Panel placement drives home-run cable lengths and power infrastructure costs." },
+    { id: "AC-006", q: "Integration with elevator control for floor access restriction is noted in specs but not detailed on drawings. Please provide elevator cab reader locations and floor mapping.", reason: "Elevator integration requires coordination with elevator vendor and additional I/O modules." },
+    { id: "AC-007", q: "Head-end software licensing (number of doors, cardholders, concurrent users) is not specified. Please confirm software tier and licensing model.", reason: "Software licensing can range from $0 (included) to $50,000+ depending on platform and scale." },
+    { id: "AC-008", q: "Door contact and door position switch (DPS) types are not specified. Please confirm surface mount, concealed, or recessed contacts per door.", reason: "Contact type must match door material (wood, metal, glass) and frame condition." },
   ],
-  Plumbing: [
-    { id: "P-001", q: "Fixture schedule references discontinued models. Please provide substitutes.", reason: "Discontinued fixtures require pricing adjustments." },
-    { id: "P-002", q: "Pipe sizes not shown for domestic water distribution. Please provide or confirm contractor sizes per code.", reason: "Pipe sizing determines material and insulation costs." },
-    { id: "P-003", q: "Floor drains on architectural plans don't appear on plumbing plans. Please confirm requirements.", reason: "Cross-discipline discrepancies are common." },
+  "Audio Visual": [
+    { id: "AV-001", q: "AV system equipment lists and connection diagrams (signal flow drawings) are not provided. Please furnish for each room type.", reason: "AV integration scope is impossible to price from floor plans alone." },
+    { id: "AV-002", q: "Display sizes, types (LED, LCD, projector/screen), and mounting methods are not specified per room. Please provide an AV equipment schedule.", reason: "Display selection drives mounting infrastructure, power, and conduit requirements." },
+    { id: "AV-003", q: "Audio system requirements (ceiling speakers, wall speakers, DSP, amplifiers) are not shown. Please confirm speaker zones, coverage, and paging integration.", reason: "Audio coverage design determines speaker count, amplifier sizing, and cable quantities." },
+    { id: "AV-004", q: "Control system type (Crestron, Extron, Q-SYS, Biamp) and user interface (touch panel, button panel, scheduling panel) are not specified. Please confirm.", reason: "Control system platform determines programming hours and hardware costs, which vary dramatically." },
+    { id: "AV-005", q: "Video conferencing and unified communication (UC) platform requirements are not specified. Please confirm (Zoom Rooms, Teams Rooms, Webex, BYOD).", reason: "UC platform determines codec, camera, microphone, and display requirements per room." },
+    { id: "AV-006", q: "AV rack locations, sizes, ventilation, and dedicated power requirements are not shown. Please provide rack elevations and power specs.", reason: "Rack infrastructure is a significant cost item often omitted from AV drawings." },
+    { id: "AV-007", q: "Digital signage locations, content management system, and media player requirements are not specified. Please confirm signage scope.", reason: "Digital signage includes displays, media players, CMS licensing, and network drops." },
   ],
-  "Fire Protection": [
-    { id: "FP-001", q: "Sprinkler head locations not shown. Please confirm if this is design-build and provide performance criteria.", reason: "Design-build vs. fully designed have different bid requirements." },
-    { id: "FP-002", q: "Fire extinguisher types and sizes not specified. Please provide schedule.", reason: "Different types for different hazards affect pricing." },
-    { id: "FP-003", q: "Fire alarm NAC circuit wiring paths not shown. Please provide conduit routing.", reason: "Wiring paths drive conduit and cable quantities." },
+  "Intrusion Detection": [
+    { id: "ID-001", q: "Intrusion detection zones and device types (door contacts, motion detectors, glass break sensors) are not shown on plans. Please provide a device schedule and zone map.", reason: "Zone design determines panel sizing, device count, and wiring topology." },
+    { id: "ID-002", q: "Alarm panel location, type, and communication path (IP, cellular, POTS) are not specified. Please confirm panel specifications.", reason: "Communication method affects monthly monitoring costs and infrastructure requirements." },
+    { id: "ID-003", q: "Keypad locations and quantities are not shown. Please confirm keypad types (standard, touchscreen) and locations.", reason: "Keypad type and placement affect user experience and wiring runs." },
+    { id: "ID-004", q: "Integration with access control system is referenced but not detailed. Please confirm whether intrusion arming/disarming is tied to access control events.", reason: "Integration requires compatible platforms and additional programming." },
+    { id: "ID-005", q: "Siren/strobe locations for interior and exterior alarm notification are not shown. Please confirm quantities and placement.", reason: "Notification devices are code-required in many jurisdictions and affect wiring layout." },
+    { id: "ID-006", q: "Central station monitoring requirements and UL listing (UL 681, UL 2050) are not specified. Please confirm monitoring level and certification requirements.", reason: "UL-listed installations have specific wiring, device spacing, and inspection requirements that increase cost." },
   ],
-  Structural: [
-    { id: "S-001", q: "Connection details referenced on structural plans are not in the drawing set. Please provide.", reason: "Connection details drive fabrication costs." },
-    { id: "S-002", q: "Foundation plan shows different footing sizes than the structural schedule. Please reconcile.", reason: "Affects concrete, rebar, and excavation quantities." },
-  ],
-  "Site / Civil": [
-    { id: "SW-001", q: "Utility connections lack invert elevations and pipe materials. Please provide.", reason: "Determines excavation depth and pipe cost." },
-    { id: "SW-002", q: "Pavement sections reference a soils report not included in the bid documents. Please provide.", reason: "Soil conditions dictate base course and subgrade preparation." },
-  ],
-  "Low Voltage / Technology": [
-    { id: "LV-001", q: "Data outlet symbols are inconsistent across sheets. Please confirm symbol definitions and counts.", reason: "Inconsistent symbols cause cable and faceplate miscounts." },
-    { id: "LV-002", q: "MDF/IDF locations are shown but room size and HVAC requirements are not specified. Please provide.", reason: "Telecom room build-out is a significant cost driver." },
-    { id: "LV-003", q: "Cable pathways (conduit/J-hooks/cable tray) are not shown for horizontal runs. Please specify.", reason: "Pathway type dramatically affects labor and material cost." },
-    { id: "LV-004", q: "Camera, access control, and intercom locations lack Schedule of Values or riser diagrams. Please provide.", reason: "Without SOV, device quantities and specs are ambiguous." },
-    { id: "LV-005", q: "AV system equipment list and connection diagrams not provided. Please furnish.", reason: "AV integration scope is impossible to price from floor plans alone." },
+  "Fire Alarm": [
+    { id: "FA-001", q: "Fire alarm device symbols are shown but the device schedule (manufacturer, model, type) is not provided. Please furnish a complete device schedule.", reason: "Device selection determines compatibility with the specified FACP and affects unit pricing." },
+    { id: "FA-002", q: "NAC (Notification Appliance Circuit) circuit routing and conduit paths are not shown. Please provide NAC wiring diagrams.", reason: "NAC wiring is the largest labor component of fire alarm installation." },
+    { id: "FA-003", q: "Fire alarm control panel (FACP) location and size are not specified. Please confirm panel manufacturer, model, and number of SLC/NAC circuits.", reason: "Panel sizing determines circuit capacity, cabinet size, and battery backup requirements." },
+    { id: "FA-004", q: "Smoke detector spacing does not appear to comply with NFPA 72 for the ceiling heights shown. Please confirm ceiling heights and verify detector spacing.", reason: "Ceiling height affects detector spacing per NFPA 72 Table 17.6.3.5.1, which changes device count." },
+    { id: "FA-005", q: "Duct smoke detector locations are shown but HVAC unit identification and coordination with mechanical contractor are not addressed. Please confirm duct detector assignments.", reason: "Duct detectors require coordination for mounting location, remote test/reset stations, and HVAC shutdown wiring." },
+    { id: "FA-006", q: "Fire alarm system integration with building systems (elevator recall, HVAC shutdown, door holders, access control) is referenced but relay assignments are not provided. Please furnish an integration matrix.", reason: "Auxiliary relay programming and wiring for building integration is a significant cost item." },
+    { id: "FA-007", q: "Mass notification or voice evacuation requirements are referenced in specs but not shown on drawings. Please clarify whether the system is horn/strobe or voice evacuation.", reason: "Voice evacuation systems cost 2-3x more than conventional horn/strobe systems." },
+    { id: "FA-008", q: "Existing fire alarm system information (manufacturer, protocol, age) is not provided. Please confirm existing system for compatibility assessment.", reason: "Retrofit projects require compatibility with existing FACP and devices, limiting vendor options." },
   ],
 };
 
@@ -967,10 +977,11 @@ function fileToBase64(file) {
 }
 
 function buildGeminiPrompt() {
-  let prompt = `You are a senior construction estimator and document analyst for the project: "${state.projectName}".
+  let prompt = `You are a senior low-voltage / ELV estimator and construction document analyst specializing in: Structured Cabling, CCTV, Access Control, Audio Visual, Intrusion Detection, and Fire Alarm systems.
 
+Project: "${state.projectName}"
 Project Type: ${state.projectType}
-Disciplines to focus on: ${state.disciplines.join(", ")}
+ELV Disciplines to analyze: ${state.disciplines.join(", ")}
 File Format: ${state.fileFormat || "Not specified"}
 Code Jurisdiction: ${state.codeJurisdiction || "Not specified"}
 `;
@@ -991,20 +1002,29 @@ Code Jurisdiction: ${state.codeJurisdiction || "Not specified"}
   prompt += `
 
 INSTRUCTIONS:
-1. Analyze the uploaded construction documents (symbol legends, floor plans, specifications, addenda).
-2. Identify and count all symbols relevant to the selected disciplines: ${state.disciplines.join(", ")}.
-3. Cross-reference floor plan symbols against the legend to verify correct identification.
-4. Check for discrepancies between plans, specs, and any addenda.
-5. Provide a detailed analysis summary including:
-   - Symbol counts by type and sheet
-   - Any discrepancies found between drawings and specifications
-   - Missing information that would require RFIs
+1. Analyze the uploaded construction documents (symbol legends, floor plans, specifications, addenda) for all low-voltage / ELV systems.
+2. For each selected discipline, identify and count:
+   - STRUCTURED CABLING: Data outlets, voice outlets, WAPs, fiber runs, MDF/IDF/TR rooms, cable tray, J-hooks, conduit, backbone cables
+   - CCTV: Camera locations (fixed, PTZ, dome, bullet), NVR/VMS, monitors, exterior vs interior, pole mounts
+   - ACCESS CONTROL: Controlled doors, reader locations, electrified hardware, REX devices, panels, credential type
+   - AUDIO VISUAL: Displays, projectors, speakers, control panels, AV racks, video conferencing systems, digital signage
+   - INTRUSION DETECTION: Motion detectors, door contacts, glass break sensors, keypads, panels, sirens
+   - FIRE ALARM: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, FACP, NAC circuits
+3. Cross-reference floor plan symbols against the symbol legend provided.
+4. Check for discrepancies between plans, specifications, and any addenda.
+5. Identify MDF/IDF/TR rooms and list infrastructure requirements (racks, power, cooling, grounding).
+6. Provide a detailed analysis including:
+   - Device counts by type, per sheet/floor
+   - Cable/conduit pathway observations
+   - Spec-to-plan conflicts
+   - Missing information requiring RFIs
    - Scope gaps or ambiguities
    - Confidence level for each count
-6. List specific, actionable RFI questions based on gaps found in these actual documents.
-7. If known quantities were provided, compare your counts and flag deviations over 10%.
+7. Reference industry standards where applicable: BICSI TDMM, TIA-568, TIA-569, TIA-606, TIA-607, NFPA 72, NEC Article 725/760/770, NFPA 101.
+8. List specific, actionable RFI questions based on actual gaps found in these documents.
+9. If known quantities were provided, compare your counts and flag deviations over 10%.
 
-Format your response with clear sections using markdown headers. Be specific and reference sheet numbers where applicable.`;
+Format your response with clear sections using markdown headers. Organize by discipline. Be specific and reference sheet numbers where applicable.`;
 
   return prompt;
 }
