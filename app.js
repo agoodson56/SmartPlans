@@ -1220,13 +1220,7 @@ INSTRUCTIONS:
    - Total patch panels, switches, accessories
    - Pathway materials (cable tray, J-hooks, conduit, firestop)
 
-8. **CODE COMPLIANCE SUMMARY** — Dedicated section:
-   - Total issues: 🔴 Critical / 🟡 Warning / 🔵 Info
-   - Each issue with code reference, location, and recommended action
-   - Items requiring AHJ approval or inspection
-   - Permits likely required (fire alarm, low voltage, electrical)
-
-9. **LABOR ESTIMATION — NECA NATIONAL LABOR UNITS** — Apply standard NECA (National Electrical Contractors Association) labor units to ALL device counts and material quantities. Use the following reference labor units (adjust for project complexity and conditions):
+8. **LABOR ESTIMATION — NECA NATIONAL LABOR UNITS** — Apply standard NECA (National Electrical Contractors Association) labor units to ALL device counts and material quantities. Use the following reference labor units (adjust for project complexity and conditions):
 
    STRUCTURED CABLING LABOR UNITS:
    | Task | Unit | Labor Hours |
@@ -1391,20 +1385,15 @@ INSTRUCTIONS:
    - Weekend work in occupied buildings requires advance notice to tenants/management
    - Mixed-shift projects should identify which phases are off-shift vs standard
 
-   For the labor summary, apply shift multipliers:
-   a) Show base labor hours at standard rates
-   b) Show adjusted labor cost with shift differential and productivity loss applied
-   c) Clearly show the cost difference between standard and off-shift work
-
-   For the labor summary:
+   LABOR SUMMARY — Produce the following:
    a) Calculate total labor hours per discipline using the units above × device counts
    b) Calculate total labor hours per MDF/IDF room
    c) Provide a grand total labor hours for the project
    d) Estimate crew size and duration (assume 8-hour days, 2-person crew minimum for safety)
    e) Break out labor into phases: Rough-In, Trim/Termination, Programming/Commissioning, Testing
-   f) If off-shift: show cost at standard rate vs off-shift rate side by side
+   f) If off-shift: show base labor cost at standard rate vs adjusted off-shift cost side by side
 
-10. **SPECIAL EQUIPMENT, CONDITIONS & SUBCONTRACTOR CALLOUTS** — This section is MANDATORY. Scan the documents for ANY tasks that require special tools, equipment, materials, or subcontracted labor. Flag each item with a ⚠️ marker. Look for:
+9. **SPECIAL EQUIPMENT, CONDITIONS & SUBCONTRACTOR CALLOUTS** — This section is MANDATORY. Scan the documents for ANY tasks that require special tools, equipment, materials, or subcontracted labor. Flag each item with a ⚠️ marker. Look for:
 
    HEAVY EQUIPMENT / RENTALS:
    - Scissor lift — interior ceiling work above 10 ft (note: check floor load capacity for slab-on-grade vs elevated decks)
@@ -1482,7 +1471,7 @@ INSTRUCTIONS:
    - Impact on schedule (add days/weeks)
    - Approximate cost impact category: $ (under $1K), $$ ($1K-$5K), $$$ ($5K-$25K), $$$$ (over $25K)
 
-11. **TRAVEL & PER DIEM EXPENSES** — If a project location was provided, evaluate whether travel expenses apply. For projects 100+ miles from the contractor's office, calculate out-of-town expenses using the following GSA (General Services Administration) federal per diem rate structure:
+10. **TRAVEL & PER DIEM EXPENSES** — If a project location was provided, evaluate whether travel expenses apply. For projects 100+ miles from the contractor's office, calculate out-of-town expenses using the following GSA (General Services Administration) federal per diem rate structure:
 
    TRAVEL EXPENSE CALCULATION:
    a) Determine if this is an out-of-town project (100+ miles from nearest office)
@@ -1522,7 +1511,7 @@ INSTRUCTIONS:
 
    If no project location is provided, include a note: "⚠️ Project location not specified — unable to calculate travel expenses. If this project is 100+ miles from your office, add travel costs."
 
-12. **PREVAILING WAGE / DAVIS-BACON WAGE DETERMINATION** — If prevailing wage is indicated, this section is MANDATORY. Apply DOL (Department of Labor) wage classifications and rates to all labor calculations.
+11. **PREVAILING WAGE / DAVIS-BACON WAGE DETERMINATION** — If prevailing wage is indicated, this section is MANDATORY. Apply DOL (Department of Labor) wage classifications and rates to all labor calculations.
 
    WAGE CLASSIFICATION MAPPING FOR ELV TRADES:
    Identify the correct DOL wage classification for each type of work. Common classifications:
@@ -1593,7 +1582,7 @@ INSTRUCTIONS:
 
    If prevailing wage is NOT selected, skip this section and note: "Standard (non-prevailing) labor rates apply. No certified payroll required."
 
-13. **SCHEDULE OF VALUES (SOV)** — Generate a complete Schedule of Values for this project. The SOV is used for progress billing via AIA G702/G703 payment applications. Structure the SOV as follows:
+12. **SCHEDULE OF VALUES (SOV)** — Generate a complete Schedule of Values for this project. The SOV is used for progress billing via AIA G702/G703 payment applications. Structure the SOV as follows:
 
    SOV FORMAT — Each line item should include:
    | Item # | Description of Work | Scheduled Value | Material | Labor | Equipment/Sub |
@@ -1703,6 +1692,12 @@ INSTRUCTIONS:
 
    Produce the SOV as a complete table ready for direct entry into an AIA G703 form.
 
+13. **CODE COMPLIANCE SUMMARY** — Dedicated summary section:
+   - Total issues found: 🔴 Critical / 🟡 Warning / 🔵 Info
+   - Each issue with code reference, location, and recommended action
+   - Items requiring AHJ approval or inspection
+   - Permits likely required (fire alarm, low voltage, electrical)
+
 14. Analysis observations:
    - Device counts by type, per sheet/floor
    - Cable/conduit pathway observations
@@ -1715,19 +1710,21 @@ INSTRUCTIONS:
 16. If known quantities provided, compare and flag deviations over 10%.
 
 FORMAT REQUIREMENTS:
-- Use markdown headers to organize sections
-- Start with # CODE & STANDARDS COMPLIANCE REVIEW
-- Then ## MDF/IDF MATERIAL BREAKDOWN per room
-- Then ## OVERALL MATERIAL SUMMARY
-- Then ## LABOR SUMMARY (with total hours by discipline, by phase, crew recommendation)
-- Then ## PREVAILING WAGE DETERMINATION (if applicable — classifications, rates, labor cost)
-- Then ## SPECIAL EQUIPMENT & CONDITIONS (with ⚠️ flags and cost impact)
-- Then ## TRAVEL & PER DIEM ESTIMATE (with cost table by phase)
-- Then ## SCHEDULE OF VALUES (SOV) — AIA G703 format, ready for billing
-- Then ## CODE COMPLIANCE SUMMARY table
-- Then ## RFIs
-- Use tables where possible
-- Tag issues: 🔴 CRITICAL, 🟡 WARNING, 🔵 INFO
+- Use markdown headers (##) to organize each major section
+- Follow this exact section order:
+  1. ## CODE & STANDARDS COMPLIANCE REVIEW
+  2. ## MDF/IDF MATERIAL BREAKDOWN (per room)
+  3. ## OVERALL MATERIAL SUMMARY
+  4. ## LABOR SUMMARY (hours by discipline, by phase, crew recommendation, shift comparison if applicable)
+  5. ## PREVAILING WAGE DETERMINATION (if applicable — classifications, rates, labor cost)
+  6. ## SPECIAL EQUIPMENT & CONDITIONS (⚠️ flags and cost impact)
+  7. ## TRAVEL & PER DIEM ESTIMATE (cost table by phase)
+  8. ## SCHEDULE OF VALUES (SOV) — AIA G703 format
+  9. ## CODE COMPLIANCE SUMMARY (issue count table)
+  10. ## OBSERVATIONS & ANALYSIS
+  11. ## RFIs
+- Use tables where possible for readability
+- Tag code issues: 🔴 CRITICAL, 🟡 WARNING, 🔵 INFO
 - Tag special equipment: ⚠️ with cost impact ($, $$, $$$, $$$$)
 - Include confidence percentage for each major count
 - Reference sheet numbers, room numbers, device types
