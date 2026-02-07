@@ -135,6 +135,7 @@ const state = {
   codeJurisdiction: "",
   projectLocation: "",
   prevailingWage: "",
+  workShift: "",
   priorEstimate: "",
 
   // Files (arrays of {name, size, type, base64?, rawFile?})
@@ -472,6 +473,33 @@ function renderStep0(container) {
     ` : ""}
 
     <div class="form-group">
+      <label class="form-label" for="work-shift">Work Shift / Schedule</label>
+      <p class="form-hint">Off-shift work affects labor rates, productivity, and scheduling. Select the primary shift for this project.</p>
+      <select class="form-select" id="work-shift">
+        <option value="">1st Shift — Standard (7AM-3:30PM)</option>
+        <option value="2nd-shift">2nd Shift (3PM-11:30PM)</option>
+        <option value="3rd-shift">3rd Shift / Overnight (11PM-7:30AM)</option>
+        <option value="weekends">Weekends Only (Sat-Sun)</option>
+        <option value="split">Split Shift (work around occupants)</option>
+        <option value="mixed">Mixed — varies by phase</option>
+        <option value="4-10">4/10s (4 days × 10 hours)</option>
+      </select>
+    </div>
+    ${state.workShift ? `
+    <div class="info-card info-card--rose" style="margin-bottom:16px;">
+      <div class="info-card-title">🌙 Off-Shift Premium Active</div>
+      <div class="info-card-body">
+        Off-shift work impacts your project budget:<br>
+        <div>• Shift differential pay (10-15% premium on 2nd, 15-20% on 3rd)</div>
+        <div>• Overtime rates for weekends (1.5×) and holidays (2.0×)</div>
+        <div>• Reduced productivity (10-25% efficiency loss at night)</div>
+        <div>• Possible security escort or building access fees</div>
+        <div>• Noise restrictions may limit power tool use</div>
+      </div>
+    </div>
+    ` : ""}
+
+    <div class="form-group">
       <label class="form-label" for="prior-estimate">Prior estimate or bid to compare against <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
       <p class="form-hint">Describe it briefly. I can investigate discrepancies between my analysis and prior counts.</p>
       <textarea class="form-textarea" id="prior-estimate" placeholder="Describe any prior estimate data…">${esc(state.priorEstimate)}</textarea>
@@ -509,6 +537,10 @@ function renderStep0(container) {
   const pwSelect = document.getElementById("prevailing-wage");
   pwSelect.value = state.prevailingWage;
   pwSelect.addEventListener("change", () => { state.prevailingWage = pwSelect.value; renderStep0(container); renderFooter(); });
+
+  const shiftSelect = document.getElementById("work-shift");
+  shiftSelect.value = state.workShift;
+  shiftSelect.addEventListener("change", () => { state.workShift = shiftSelect.value; renderStep0(container); renderFooter(); });
 
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
 }
@@ -1034,6 +1066,7 @@ ELV Disciplines to analyze: ${state.disciplines.join(", ")}
 File Format: ${state.fileFormat || "Not specified"}
 Code Jurisdiction: ${state.codeJurisdiction || "Not specified"}
 Prevailing Wage: ${state.prevailingWage === "davis-bacon" ? "Davis-Bacon Act (Federal)" : state.prevailingWage === "state-prevailing" ? "State Prevailing Wage" : state.prevailingWage === "pla" ? "Project Labor Agreement (PLA)" : "Not applicable — standard rates"}
+Work Shift: ${state.workShift === "2nd-shift" ? "2nd Shift (3PM-11:30PM)" : state.workShift === "3rd-shift" ? "3rd Shift / Overnight (11PM-7:30AM)" : state.workShift === "weekends" ? "Weekends Only" : state.workShift === "split" ? "Split Shift (around occupants)" : state.workShift === "mixed" ? "Mixed — varies by phase" : state.workShift === "4-10" ? "4/10s (4 days × 10 hours)" : "1st Shift — Standard (7AM-3:30PM)"}
 `;
 
   if (state.specificItems) {
@@ -1316,9 +1349,52 @@ INSTRUCTIONS:
    LABOR ADJUSTMENT FACTORS (note these to the PM):
    - Working above 10 ft (ladder/lift required): multiply by 1.25
    - Existing/occupied building: multiply by 1.15
-   - Night/weekend work: multiply by 1.50 (OT) or 2.0 (DT)
    - Concrete/masonry wall penetrations: add 0.5 hr per penetration
    - Union labor jurisdiction: check local rates and productivity factors
+
+   **OFF-SHIFT / AFTER-HOURS WORK ADJUSTMENTS** — Apply these based on the work shift indicated above:
+
+   SHIFT DIFFERENTIAL RATE MULTIPLIERS:
+   | Shift | Typical Hours | Rate Premium | Productivity Factor | Effective Cost Multiplier |
+   |-------|---------------|-------------|--------------------|--------------------------|
+   | 1st Shift (Standard) | 7:00AM – 3:30PM | Base rate (1.0×) | 100% productivity | 1.0× |
+   | 2nd Shift | 3:00PM – 11:30PM | Base + 10-15% differential | 90% productivity | ~1.20-1.28× |
+   | 3rd Shift / Overnight | 11:00PM – 7:30AM | Base + 15-20% differential | 80-85% productivity | ~1.35-1.50× |
+   | Saturday | 8 hrs | 1.5× base (OT) | 95% productivity | ~1.58× |
+   | Sunday | 8 hrs | 2.0× base (DT) | 90% productivity | ~2.22× |
+   | Holiday | 8 hrs | 2.0-2.5× base | 85% productivity | ~2.35-2.94× |
+   | 4/10s (Mon-Thurs) | 10 hr/day | 1.0× for 8 hrs + 1.5× for 2 hrs OT/day | 95% avg | ~1.10× |
+   | Split Shift | Varies | Base + coordination premium | 75-85% productivity | ~1.30-1.45× |
+
+   OFF-SHIFT COST IMPACTS — Factor these into the estimate:
+   - **Shift differential pay**: Additional hourly premium on top of base/prevailing wage rate
+   - **Overtime (OT)**: 1.5× base rate after 8 hrs/day or 40 hrs/week (fringe stays at straight-time for prevailing wage)
+   - **Double-time (DT)**: 2.0× base rate for Sundays, holidays, or 7th consecutive day worked
+   - **Reduced productivity**: Night work is inherently less productive — apply efficiency loss factor
+   - **Supervision premium**: Foreman/lead tech may require additional premium for off-shift
+
+   OFF-SHIFT SITE CONDITIONS TO ACCOUNT FOR:
+   - Security escort fees — some facilities require paid security to accompany after-hours crews ($50-$100/hr)
+   - Building access coordination — key/badge management, alarm system deactivation
+   - Temporary lighting — work lights for poorly lit areas at night (cost + setup time)
+   - HVAC availability — building HVAC may be off during off-hours (extreme temps affect productivity)
+   - Noise restrictions — no hammer drilling, sawing, or loud tools during certain hours (adjacent occupied spaces)
+   - Elevator availability — may be locked out after hours, require operator or manual freight key
+   - Loading dock hours — material deliveries may be restricted to daytime only
+   - Parking — different rules/availability for off-shift crews
+   - Emergency response time — reduced site staff means slower injury/incident response
+
+   SHIFT WORK SCHEDULING NOTES FOR PM:
+   - 2nd/3rd shift crews often need 1-2 days of overlap with 1st shift for coordination
+   - Testing and commissioning typically MUST happen during normal business hours (stakeholder availability)
+   - Fire alarm system testing must coordinate with building management and monitoring company
+   - Weekend work in occupied buildings requires advance notice to tenants/management
+   - Mixed-shift projects should identify which phases are off-shift vs standard
+
+   For the labor summary, apply shift multipliers:
+   a) Show base labor hours at standard rates
+   b) Show adjusted labor cost with shift differential and productivity loss applied
+   c) Clearly show the cost difference between standard and off-shift work
 
    For the labor summary:
    a) Calculate total labor hours per discipline using the units above × device counts
@@ -1326,6 +1402,7 @@ INSTRUCTIONS:
    c) Provide a grand total labor hours for the project
    d) Estimate crew size and duration (assume 8-hour days, 2-person crew minimum for safety)
    e) Break out labor into phases: Rough-In, Trim/Termination, Programming/Commissioning, Testing
+   f) If off-shift: show cost at standard rate vs off-shift rate side by side
 
 10. **SPECIAL EQUIPMENT, CONDITIONS & SUBCONTRACTOR CALLOUTS** — This section is MANDATORY. Scan the documents for ANY tasks that require special tools, equipment, materials, or subcontracted labor. Flag each item with a ⚠️ marker. Look for:
 
