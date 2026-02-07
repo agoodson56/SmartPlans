@@ -134,6 +134,7 @@ const state = {
   knownQuantities: "",
   codeJurisdiction: "",
   projectLocation: "",
+  prevailingWage: "",
   priorEstimate: "",
 
   // Files (arrays of {name, size, type, base64?, rawFile?})
@@ -447,6 +448,30 @@ function renderStep0(container) {
     </div>
 
     <div class="form-group">
+      <label class="form-label" for="prevailing-wage">Prevailing Wage / Davis-Bacon</label>
+      <p class="form-hint">For government, public, or federally funded projects. Determines labor rate classifications and certified payroll requirements.</p>
+      <select class="form-select" id="prevailing-wage">
+        <option value="">Not applicable — standard rates</option>
+        <option value="davis-bacon">Davis-Bacon (federal project)</option>
+        <option value="state-prevailing">State prevailing wage</option>
+        <option value="pla">Project Labor Agreement (PLA)</option>
+      </select>
+    </div>
+    ${state.prevailingWage ? `
+    <div class="info-card info-card--amber" style="margin-bottom:16px;">
+      <div class="info-card-title">⚖️ Prevailing Wage Active</div>
+      <div class="info-card-body">
+        Labor costs will be calculated using DOL wage determinations. The analysis will include:<br>
+        <div>• Correct wage classifications per ELV trade</div>
+        <div>• Base hourly rate + fringe benefits = loaded rate</div>
+        <div>• Certified payroll requirements</div>
+        <div>• Apprentice ratio guidelines</div>
+        <div style="margin-top:6px;color:var(--accent-amber);font-weight:600;">💡 Tip: Enter the project location above so the correct county/locality wage rates can be applied.</div>
+      </div>
+    </div>
+    ` : ""}
+
+    <div class="form-group">
       <label class="form-label" for="prior-estimate">Prior estimate or bid to compare against <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
       <p class="form-hint">Describe it briefly. I can investigate discrepancies between my analysis and prior counts.</p>
       <textarea class="form-textarea" id="prior-estimate" placeholder="Describe any prior estimate data…">${esc(state.priorEstimate)}</textarea>
@@ -480,6 +505,11 @@ function renderStep0(container) {
   document.getElementById("known-quantities").addEventListener("input", e => { state.knownQuantities = e.target.value; });
   document.getElementById("code-jurisdiction").addEventListener("input", e => { state.codeJurisdiction = e.target.value; });
   document.getElementById("project-location").addEventListener("input", e => { state.projectLocation = e.target.value; });
+
+  const pwSelect = document.getElementById("prevailing-wage");
+  pwSelect.value = state.prevailingWage;
+  pwSelect.addEventListener("change", () => { state.prevailingWage = pwSelect.value; renderStep0(container); renderFooter(); });
+
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
 }
 
@@ -1003,6 +1033,7 @@ Project Location: ${state.projectLocation || "Not specified"}
 ELV Disciplines to analyze: ${state.disciplines.join(", ")}
 File Format: ${state.fileFormat || "Not specified"}
 Code Jurisdiction: ${state.codeJurisdiction || "Not specified"}
+Prevailing Wage: ${state.prevailingWage === "davis-bacon" ? "Davis-Bacon Act (Federal)" : state.prevailingWage === "state-prevailing" ? "State Prevailing Wage" : state.prevailingWage === "pla" ? "Project Labor Agreement (PLA)" : "Not applicable — standard rates"}
 `;
 
   if (state.specificItems) {
@@ -1414,7 +1445,78 @@ INSTRUCTIONS:
 
    If no project location is provided, include a note: "⚠️ Project location not specified — unable to calculate travel expenses. If this project is 100+ miles from your office, add travel costs."
 
-12. Analysis observations:
+12. **PREVAILING WAGE / DAVIS-BACON WAGE DETERMINATION** — If prevailing wage is indicated, this section is MANDATORY. Apply DOL (Department of Labor) wage classifications and rates to all labor calculations.
+
+   WAGE CLASSIFICATION MAPPING FOR ELV TRADES:
+   Identify the correct DOL wage classification for each type of work. Common classifications:
+
+   | ELV Task | DOL Wage Classification | Typical WD Code |
+   |----------|------------------------|------------------|
+   | Structured Cabling (install, terminate, test) | Sound & Communication Installer / Telecom Technician | SCOM / TELE |
+   | CCTV (camera install, NVR, programming) | Sound & Communication Installer | SCOM |
+   | Access Control (readers, panels, hardware) | Sound & Communication Installer | SCOM |
+   | Fire Alarm (devices, panels, wiring) | Electrician (Inside Wireman) — required in many jurisdictions | ELEC |
+   | Intrusion Detection (sensors, panels) | Sound & Communication Installer | SCOM |
+   | Audio Visual (speakers, displays, DSP) | Sound & Communication Installer | SCOM |
+   | Conduit installation (EMT, rigid) | Electrician (Inside Wireman) | ELEC |
+   | Cable tray installation | Electrician or Ironworker (varies by jurisdiction) | ELEC / IRON |
+   | Trenching / Underground work | Laborer | LABR |
+   | Equipment operation (lifts, boring) | Operating Engineer | OPER |
+   | Firestopping | Laborer or Carpenter (varies) | LABR / CARP |
+   | General material handling | Laborer | LABR |
+   | Project Manager / Foreman (on-site) | Foreman rate (typically 10-15% above journeyman) | FORE |
+
+   WAGE RATE STRUCTURE — For each classification, provide:
+   | Classification | Base Rate/hr | Fringe Benefits/hr | Loaded Rate/hr |
+   |----------------|-------------|--------------------|-----------------|
+   | Electrician (Inside Wireman) | $XX.XX | $XX.XX | $XX.XX |
+   | Sound & Communication Installer | $XX.XX | $XX.XX | $XX.XX |
+   | Telecom Technician | $XX.XX | $XX.XX | $XX.XX |
+   | Laborer | $XX.XX | $XX.XX | $XX.XX |
+   | Operating Engineer | $XX.XX | $XX.XX | $XX.XX |
+   | Foreman | $XX.XX | $XX.XX | $XX.XX |
+
+   Use the project location to determine the correct county/locality wage rates. If the exact WD rates are not known, use representative national averages:
+   - Electrician (Inside Wireman): Base $45-$55/hr + Fringe $25-$35/hr = Loaded $70-$90/hr
+   - Sound & Comm Installer: Base $35-$48/hr + Fringe $18-$28/hr = Loaded $53-$76/hr
+   - Telecom Technician: Base $30-$42/hr + Fringe $15-$25/hr = Loaded $45-$67/hr
+   - Laborer: Base $22-$32/hr + Fringe $15-$22/hr = Loaded $37-$54/hr
+   - Operating Engineer: Base $40-$55/hr + Fringe $25-$35/hr = Loaded $65-$90/hr
+
+   FRINGE BENEFIT COMPONENTS (typical):
+   - Health & Welfare insurance
+   - Pension / retirement fund
+   - Vacation / holiday pay
+   - Training / apprenticeship fund
+   - FICA, FUTA, SUTA (employer payroll taxes)
+   - Workers' compensation insurance
+   - General liability insurance allocation
+
+   APPRENTICE GUIDELINES:
+   - Apprentice-to-journeyman ratios vary by trade and jurisdiction (typically 1:1 to 1:3)
+   - Apprentice rates are a percentage of journeyman rate based on period (1st period: 50%, 2nd: 55%, etc.)
+   - Must be registered in approved apprenticeship program
+   - Flag any tasks where apprentice labor can reduce costs
+
+   CERTIFIED PAYROLL REQUIREMENTS:
+   - Weekly certified payroll (WH-347) required for Davis-Bacon projects
+   - All workers must be classified correctly — misclassification is a federal violation
+   - Overtime: 1.5x base rate after 40 hours/week (fringe stays the same)
+   - Penalty for underpayment: back wages + liquidated damages + potential debarment
+
+   LABOR COST SUMMARY — Apply loaded rates to all labor hours:
+   | Classification | Hours | Loaded Rate | Total Cost |
+   |----------------|-------|-------------|------------|
+   | Electrician | X hrs | $XX.XX/hr | $X,XXX |
+   | Sound & Comm | X hrs | $XX.XX/hr | $X,XXX |
+   | Laborer | X hrs | $XX.XX/hr | $X,XXX |
+   | Operating Eng | X hrs | $XX.XX/hr | $X,XXX |
+   | Foreman | X hrs | $XX.XX/hr | $X,XXX |
+   | **TOTAL LABOR COST** | **X hrs** | | **$XX,XXX** |
+
+   If prevailing wage is NOT selected, skip this section and note: "Standard (non-prevailing) labor rates apply. No certified payroll required."
+
+13. Analysis observations:
    - Device counts by type, per sheet/floor
    - Cable/conduit pathway observations
    - Spec-to-plan conflicts
@@ -1422,8 +1524,8 @@ INSTRUCTIONS:
    - Scope gaps or ambiguities
    - Confidence level for each count
 
-13. Specific, actionable RFI questions with code references where applicable.
-14. If known quantities provided, compare and flag deviations over 10%.
+14. Specific, actionable RFI questions with code references where applicable.
+15. If known quantities provided, compare and flag deviations over 10%.
 
 FORMAT REQUIREMENTS:
 - Use markdown headers to organize sections
@@ -1431,6 +1533,7 @@ FORMAT REQUIREMENTS:
 - Then ## MDF/IDF MATERIAL BREAKDOWN per room
 - Then ## OVERALL MATERIAL SUMMARY
 - Then ## LABOR SUMMARY (with total hours by discipline, by phase, crew recommendation)
+- Then ## PREVAILING WAGE DETERMINATION (if applicable — classifications, rates, labor cost)
 - Then ## SPECIAL EQUIPMENT & CONDITIONS (with ⚠️ flags and cost impact)
 - Then ## TRAVEL & PER DIEM ESTIMATE (with cost table by phase)
 - Then ## CODE COMPLIANCE SUMMARY table
@@ -1440,7 +1543,7 @@ FORMAT REQUIREMENTS:
 - Tag special equipment: ⚠️ with cost impact ($, $$, $$$, $$$$)
 - Include confidence percentage for each major count
 - Reference sheet numbers, room numbers, device types
-- Detailed enough for PM procurement, labor planning, travel budgeting, equipment scheduling, and subcontractor coordination`;
+- Detailed enough for PM procurement, labor planning, wage compliance, travel budgeting, equipment scheduling, and subcontractor coordination`;
 
 
   return prompt;
