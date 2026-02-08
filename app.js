@@ -328,6 +328,9 @@ function renderFooter() {
       state.analysisComplete = false;
       state.selectedRFIs.clear();
       state.expandedRFI = null;
+      state.estimateId = null; // Reset so next save creates a new record
+      state.aiAnalysis = null;
+      state.aiError = null;
       render();
       scrollContentTop();
     });
@@ -337,9 +340,13 @@ function renderFooter() {
   footer.style.justifyContent = "space-between";
   const can = canProceed();
 
+  const showSave = state.projectName && state.currentStep > 0;
   footer.innerHTML = `
-    <button class="footer-btn footer-btn--back" id="btn-back" ${state.currentStep === 0 ? "disabled" : ""}>← Back</button>
-    <span class="footer-step-indicator">Step ${state.currentStep + 1} of ${STEPS.length}</span>
+    <button class="footer-btn footer-btn--back" id="btn-back" ${state.currentStep === 0 ? "disabled" : ""}>&larr; Back</button>
+    <div style="display:flex;align-items:center;gap:12px;">
+      ${showSave ? '<button class="footer-btn footer-btn--back" id="btn-save-draft" style="border-color:rgba(129,140,248,0.3);color:var(--accent-indigo);">💾 Save</button>' : ''}
+      <span class="footer-step-indicator">Step ${state.currentStep + 1} of ${STEPS.length}</span>
+    </div>
     <button class="footer-btn footer-btn--next" id="btn-next" ${!can ? "disabled" : ""}>
       ${state.currentStep === 5 ? "🔍 Begin Analysis" : "Next →"}
     </button>
@@ -367,6 +374,9 @@ function renderFooter() {
       scrollContentTop();
     }
   });
+
+  const saveBtn = document.getElementById("btn-save-draft");
+  if (saveBtn) saveBtn.addEventListener("click", () => saveEstimate(true));
 }
 
 function scrollContentTop() {
@@ -2223,6 +2233,8 @@ async function runGeminiAnalysis(updateProgress) {
       state.currentStep = 6;
       render();
       scrollContentTop();
+      // Auto-save to cloud database
+      saveEstimate(true);
     }, 600);
   } catch (err) {
     console.error("Gemini API Error:", err);
@@ -2400,6 +2412,216 @@ function formatAIResponse(text) {
   html = html.replace(/^   ([a-k])\) (.+)$/gm, '<div style="padding-left:24px;margin:2px 0;"><strong style="color:var(--accent-sky);">$1)</strong> $2</div>');
 
   return html;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// SAVED ESTIMATES — Cloud Persistence via D1
+// ═══════════════════════════════════════════════════════════════
+
+function spToast(msg, type = 'success') {
+  const existing = document.querySelector('.sp-toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.className = `sp-toast sp-toast--${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+
+// Store the current estimate's DB id
+state.estimateId = null;
+
+async function saveEstimate(showToast = true) {
+  const exportPkg = SmartPlansExport.buildExportPackage(state);
+  const payload = {
+    project_name: state.projectName || 'Untitled Estimate',
+    project_type: state.projectType || null,
+    project_location: state.projectLocation || null,
+    disciplines: state.disciplines || [],
+    pricing_tier: state.pricingTier || 'mid',
+    status: state.aiAnalysis ? 'analyzed' : 'draft',
+    export_data: exportPkg,
+  };
+
+  try {
+    if (state.estimateId) {
+      // Update existing
+      const res = await fetch(`/api/estimates/${state.estimateId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (showToast) spToast('Estimate saved ✓');
+    } else {
+      // Create new
+      const res = await fetch('/api/estimates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      state.estimateId = data.id;
+      if (showToast) spToast('Estimate saved ✓');
+    }
+  } catch (err) {
+    console.error('Save error:', err);
+    if (showToast) spToast('Failed to save: ' + err.message, 'error');
+  }
+}
+
+async function loadEstimate(id) {
+  try {
+    const res = await fetch(`/api/estimates/${id}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const est = data.estimate;
+    const pkg = est.export_data;
+
+    // Restore state from the saved export package
+    state.estimateId = est.id;
+    state.projectName = pkg?.project?.name || est.project_name || '';
+    state.projectType = pkg?.project?.type || est.project_type || '';
+    state.projectLocation = pkg?.project?.location || est.project_location || '';
+    state.disciplines = pkg?.project?.disciplines || (est.disciplines ? (typeof est.disciplines === 'string' ? JSON.parse(est.disciplines) : est.disciplines) : []);
+    state.pricingTier = pkg?.pricingConfig?.tier || est.pricing_tier || 'mid';
+    state.codeJurisdiction = pkg?.project?.codeJurisdiction || '';
+    state.prevailingWage = pkg?.project?.prevailingWage || '';
+    state.workShift = pkg?.project?.workShift || '';
+
+    // Restore pricing config if available
+    if (pkg?.pricingConfig) {
+      state.regionalMultiplier = pkg.pricingConfig.region || 'national_average';
+      state.includeBurden = pkg.pricingConfig.burdenIncluded !== false;
+      state.burdenRate = pkg.pricingConfig.burdenRate || 35;
+      if (pkg.pricingConfig.laborRates) state.laborRates = { ...state.laborRates, ...pkg.pricingConfig.laborRates };
+      if (pkg.pricingConfig.markup) state.markup = { ...state.markup, ...pkg.pricingConfig.markup };
+    }
+
+    // Restore AI analysis if it was saved
+    if (pkg?.analysis?.rawMarkdown) {
+      state.aiAnalysis = pkg.analysis.rawMarkdown;
+      state.analysisComplete = true;
+      state.completedSteps = new Set(['setup', 'legend', 'plans', 'specs', 'addenda', 'review']);
+      state.currentStep = 6;
+    } else {
+      // Draft — go to the setup step
+      state.aiAnalysis = null;
+      state.analysisComplete = false;
+      state.completedSteps = new Set();
+      state.currentStep = 0;
+    }
+
+    state.aiError = null;
+    state.analyzing = false;
+
+    // Close panel and re-render
+    closeSavedPanel();
+    render();
+    spToast(`Loaded: ${state.projectName || 'Untitled'}`, 'info');
+  } catch (err) {
+    console.error('Load error:', err);
+    spToast('Failed to load estimate: ' + err.message, 'error');
+  }
+}
+
+async function deleteEstimate(id, name) {
+  if (!confirm(`Delete "${name || 'this estimate'}" permanently?`)) return;
+  try {
+    const res = await fetch(`/api/estimates/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (state.estimateId === id) state.estimateId = null;
+    spToast('Estimate deleted');
+    showSavedEstimates(); // Refresh the list
+  } catch (err) {
+    spToast('Failed to delete: ' + err.message, 'error');
+  }
+}
+
+function closeSavedPanel() {
+  const backdrop = document.querySelector('.saved-panel-backdrop');
+  const panel = document.querySelector('.saved-panel');
+  if (backdrop) backdrop.remove();
+  if (panel) panel.remove();
+}
+
+async function showSavedEstimates() {
+  // Close existing panel first
+  closeSavedPanel();
+
+  // Create backdrop
+  const backdrop = document.createElement('div');
+  backdrop.className = 'saved-panel-backdrop';
+  backdrop.addEventListener('click', closeSavedPanel);
+  document.body.appendChild(backdrop);
+
+  // Create panel
+  const panel = document.createElement('div');
+  panel.className = 'saved-panel';
+  panel.innerHTML = `
+    <div class="saved-panel-header">
+      <h2>📂 Saved Estimates</h2>
+      <button class="saved-panel-close" onclick="closeSavedPanel()">✕</button>
+    </div>
+    <div class="saved-panel-body" id="saved-list">
+      <div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);">Loading...</div>
+    </div>`;
+  document.body.appendChild(panel);
+
+  // Fetch estimates
+  try {
+    const res = await fetch('/api/estimates');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const estimates = data.estimates || [];
+    const container = document.getElementById('saved-list');
+
+    if (estimates.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center;padding:40px;">
+          <div style="font-size:42px;margin-bottom:14px;">📋</div>
+          <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">No Saved Estimates</div>
+          <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+            Estimates are automatically saved to the cloud when you complete an AI analysis.<br>
+            You can also click <strong>💾 Save</strong> at any time during setup.
+          </div>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = estimates.map(est => {
+      const discArr = est.disciplines ? (typeof est.disciplines === 'string' ? JSON.parse(est.disciplines) : est.disciplines) : [];
+      const dateStr = est.updated_at ? new Date(est.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      const isCurrent = state.estimateId === est.id;
+      return `<div class="est-card" style="${isCurrent ? 'border-color:var(--accent-indigo);' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:start;">
+          <div class="est-card-name">${esc(est.project_name || 'Untitled')}${isCurrent ? ' <span style="font-size:11px;color:var(--accent-indigo);">(current)</span>' : ''}</div>
+          <span class="est-card-status est-card-status--${est.status || 'draft'}">${est.status || 'draft'}</span>
+        </div>
+        <div class="est-card-meta">
+          ${est.project_type ? '<span>' + esc(est.project_type) + '</span> · ' : ''}
+          ${discArr.length ? '<span>' + discArr.join(', ') + '</span> · ' : ''}
+          ${est.project_location ? '<span>📍 ' + esc(est.project_location) + '</span> · ' : ''}
+          <span>${dateStr}</span>
+        </div>
+        <div class="est-card-actions">
+          <button class="est-card-btn est-card-btn--load" onclick="event.stopPropagation();loadEstimate('${est.id}')">📂 Load</button>
+          <button class="est-card-btn est-card-btn--delete" onclick="event.stopPropagation();deleteEstimate('${est.id}','${esc(est.project_name || '')}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    document.getElementById('saved-list').innerHTML = `
+      <div style="text-align:center;padding:40px;color:var(--accent-rose);">
+        <div style="font-size:36px;margin-bottom:10px;">⚠️</div>
+        <div style="font-size:14px;">Failed to load estimates</div>
+        <div style="font-size:12px;margin-top:6px;color:var(--text-muted);">${esc(err.message)}</div>
+      </div>`;
+  }
 }
 
 

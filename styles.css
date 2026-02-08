@@ -1377,4 +1377,267 @@ body {
   .accuracy-value {
     font-size: 40px;
   }
+
+  .saved-est-label {
+    display: none;
+  }
+
+  .saved-est-btn {
+    padding: 8px 12px !important;
+    font-size: 18px !important;
+  }
+}
+
+/* ─── Saved Estimates Button ─── */
+.saved-est-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  background: rgba(129, 140, 248, 0.08);
+  color: var(--accent-indigo);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-sans);
+}
+
+.saved-est-btn:hover {
+  background: rgba(129, 140, 248, 0.15);
+  border-color: var(--accent-indigo);
+  transform: translateY(-1px);
+}
+
+/* ─── Saved Estimates Panel ─── */
+.saved-panel-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.saved-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 440px;
+  max-width: 95vw;
+  height: 100vh;
+  background: var(--bg-deep);
+  border-left: 1px solid var(--border-subtle);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.saved-panel-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.saved-panel-header h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.saved-panel-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.saved-panel-close:hover {
+  background: rgba(244, 63, 94, 0.1);
+  border-color: rgba(244, 63, 94, 0.3);
+  color: var(--accent-rose);
+}
+
+.saved-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+/* ─── Estimate Cards ─── */
+.est-card {
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-2);
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.est-card:hover {
+  border-color: rgba(56, 189, 248, 0.3);
+  background: rgba(56, 189, 248, 0.04);
+  transform: translateY(-1px);
+}
+
+.est-card-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.est-card-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.est-card-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.est-card-status--draft {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--accent-amber);
+}
+
+.est-card-status--analyzed {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--accent-emerald);
+}
+
+.est-card-status--exported {
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent-sky);
+}
+
+.est-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.est-card-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-sans);
+  border: none;
+}
+
+.est-card-btn--load {
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: var(--accent-sky);
+}
+
+.est-card-btn--load:hover {
+  background: rgba(56, 189, 248, 0.2);
+}
+
+.est-card-btn--delete {
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.2);
+  color: var(--accent-rose);
+}
+
+.est-card-btn--delete:hover {
+  background: rgba(244, 63, 94, 0.18);
+}
+
+/* ─── Toast Notification ─── */
+.sp-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 14px 22px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  z-index: 2000;
+  animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+  font-family: var(--font-sans);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.sp-toast--success {
+  background: var(--accent-emerald);
+}
+
+.sp-toast--error {
+  background: var(--accent-rose);
+}
+
+.sp-toast--info {
+  background: var(--accent-sky);
+}
+
+@keyframes toastIn {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toastOut {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
