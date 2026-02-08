@@ -70,6 +70,10 @@ const SmartPlansExport = {
             },
 
             rfis: this._extractRFIs(state),
+
+            // Structured MDF/IDF data for SmartPM Infrastructure module
+            // AI-generated budgets — locked from field manipulation
+            infrastructure: this._extractInfrastructure(state),
         };
     },
 
@@ -122,6 +126,117 @@ const SmartPlansExport = {
             selected: rfis.filter(r => r.selected).length,
             items: rfis,
         };
+    },
+
+    // ─── Extract MDF/IDF Infrastructure from AI analysis ────
+    // Parses the "MDF/IDF MATERIAL BREAKDOWN" section into structured
+    // location data that SmartPM imports as locked AI budgets
+    _extractInfrastructure(state) {
+        const md = state.aiAnalysis || "";
+        if (!md) return { locations: [], source: 'none' };
+
+        // Find the MDF/IDF section
+        const sectionRegex = /#{1,3}\s*MDF\/IDF[^\n]*/i;
+        const match = sectionRegex.exec(md);
+        if (!match) return { locations: [], source: 'not_found' };
+
+        // Extract content until next major section (## heading)
+        const start = match.index;
+        const nextSection = md.substring(start + match[0].length).search(/\n#{1,2}\s+[A-Z]/);
+        const sectionContent = nextSection > -1
+            ? md.substring(start, start + match[0].length + nextSection)
+            : md.substring(start);
+
+        // Split into individual room sections (### sub-headers or bold room names)
+        const roomSplits = sectionContent.split(/(?=###\s+|\*\*(?:MDF|IDF|TR|Telecom Room)[^*]*\*\*)/i);
+        const locations = [];
+
+        for (const roomBlock of roomSplits) {
+            if (!roomBlock.trim()) continue;
+            // Try to extract room name from header or bold text
+            const nameMatch = roomBlock.match(/(?:###\s*|\*\*)([^*\n]+)/);
+            if (!nameMatch) continue;
+            const rawName = nameMatch[1].replace(/\*+/g, '').trim();
+            if (!rawName || rawName.toLowerCase().includes('material breakdown')) continue;
+
+            // Determine type
+            const lower = rawName.toLowerCase();
+            let type = 'idf';
+            if (lower.includes('mdf') || lower.includes('main distribution')) type = 'mdf';
+            else if (lower.includes('tr') || lower.includes('telecom room')) type = 'tr';
+
+            // Extract floor/room from name or content
+            const floorMatch = roomBlock.match(/(?:floor|level)\s*[:#]?\s*([\w\d-]+)/i);
+            const roomMatch = roomBlock.match(/(?:room|rm)\s*[:#]?\s*([\w\d-]+)/i);
+
+            // Extract equipment items from tables or lists
+            const items = [];
+            // Match table rows: | item | qty | cost | etc
+            const tableRows = roomBlock.match(/\|[^|\n]+\|[^|\n]+\|[^\n]*/g) || [];
+            for (const row of tableRows) {
+                const cells = row.split('|').map(c => c.trim()).filter(Boolean);
+                if (cells.length < 2) continue;
+                // Skip header rows
+                if (cells[0].match(/^[-:]+$/) || cells[0].toLowerCase() === 'item') continue;
+                const qtyMatch = cells.find(c => c.match(/^\d+$/));
+                const costMatch = cells.find(c => c.match(/\$[\d,]+/));
+                items.push({
+                    item_name: cells[0],
+                    category: this._guessCategory(cells[0]),
+                    budgeted_qty: qtyMatch ? parseInt(qtyMatch) : 1,
+                    budgeted_cost: costMatch ? parseFloat(costMatch.replace(/[\$,]/g, '')) : 0,
+                });
+            }
+
+            // Extract cable quantities from mentions like "150 Cat 6A drops" or "12-strand fiber"
+            const cableRuns = [];
+            const cablePatterns = [
+                { regex: /(\d+)\s*(?:Cat\s*6A?|CAT6A?)\s*(?:drops?|runs?|cables?)/gi, type: 'cat6a' },
+                { regex: /(\d+)\s*(?:Cat\s*6|CAT6)(?!A)\s*(?:drops?|runs?|cables?)/gi, type: 'cat6' },
+                { regex: /(\d+)[-\s]*(?:strand|fiber|SM|OS2)\s*(?:fiber|cable|backbone)/gi, type: 'fiber_sm' },
+                { regex: /(\d+)[-\s]*(?:strand|fiber|MM|OM[34])\s*(?:fiber|cable|backbone)/gi, type: 'fiber_mm' },
+            ];
+            for (const { regex, type: cableType } of cablePatterns) {
+                let m;
+                while ((m = regex.exec(roomBlock)) !== null) {
+                    cableRuns.push({ cable_type: cableType, budgeted_qty: parseInt(m[1]) });
+                }
+            }
+
+            locations.push({
+                name: rawName,
+                type,
+                floor: floorMatch ? floorMatch[1] : null,
+                room_number: roomMatch ? roomMatch[1] : null,
+                items: items.filter(i => i.item_name && !i.item_name.match(/^[-:]+$/)),
+                cable_runs: cableRuns,
+                raw_content: roomBlock.substring(0, 2000), // Keep raw for reference
+            });
+        }
+
+        return {
+            locations,
+            source: 'ai_analysis',
+            extracted_at: new Date().toISOString(),
+        };
+    },
+
+    _guessCategory(itemName) {
+        const n = itemName.toLowerCase();
+        if (n.includes('rack') || n.includes('cabinet')) return 'rack';
+        if (n.includes('switch') || n.includes('poe')) return 'switch';
+        if (n.includes('patch panel') || n.includes('patch_panel')) return 'patch_panel';
+        if (n.includes('fiber panel') || n.includes('fiber enclosure')) return 'fiber_panel';
+        if (n.includes('ups') || n.includes('battery')) return 'ups';
+        if (n.includes('pdu') || n.includes('power')) return 'pdu';
+        if (n.includes('cable management') || n.includes('cable manager')) return 'cable_management';
+        if (n.includes('grounding') || n.includes('tgb') || n.includes('tmgb')) return 'grounding';
+        if (n.includes('conduit')) return 'conduit';
+        if (n.includes('camera') || n.includes('nvr') || n.includes('vms')) return 'cctv';
+        if (n.includes('reader') || n.includes('access') || n.includes('credential')) return 'access_control';
+        if (n.includes('speaker') || n.includes('display') || n.includes('projector')) return 'av';
+        if (n.includes('detector') || n.includes('pull station') || n.includes('strobe')) return 'fire_alarm';
+        return 'other';
     },
 
 
