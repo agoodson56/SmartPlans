@@ -1483,7 +1483,7 @@ INSTRUCTIONS:
    - Recommended corrective action or RFI
 
 6. **MDF/IDF/TR MATERIAL BREAKDOWN** — For EACH telecom room provide:
-   a) Room Designation & Location
+   a) Room Designation & Location (building, floor, room number)
    b) Code compliance for this room:
       - Sizing adequacy per BICSI/TIA-569
       - HVAC present per TIA-569 requirements
@@ -1501,7 +1501,19 @@ INSTRUCTIONS:
    k) Intrusion detection panels in this room
    l) AV head-end equipment in this room
 
-   Format each room as its own section — an install checklist for project managers.
+   **CRITICAL FORMAT — For each room, list ALL equipment and materials in this EXACT markdown table format:**
+   | Item | Qty | Unit | Unit Cost | Extended Cost |
+   |------|-----|------|-----------|---------------|
+   | 42U Server Cabinet | 1 | ea | $2,500 | $2,500 |
+   | 48-Port Cat6A Patch Panel | 2 | ea | $450 | $900 |
+   | (continue for EVERY item in this room...) |
+
+   **Also list cable quantities clearly as:**
+   - "XX Cat6A drops" or "XX Cat6A runs"
+   - "XX-strand SM fiber backbone"
+   - "XX Cat6 cables"
+
+   Format each room as its own ### subsection — an install checklist for project managers.
 
 7. **OVERALL MATERIAL SUMMARY** — Consolidated bill of materials:
    - Total cable by type (Cat 6, Cat 6A, fiber, coax, 18/2, 18/4, 22/4, etc.)

@@ -130,30 +130,32 @@ const SmartPlansExport = {
 
     // ─── Extract MDF/IDF Infrastructure from AI analysis ────
     // Parses the "MDF/IDF MATERIAL BREAKDOWN" section into structured
-    // location data that SmartPM imports as locked AI budgets
+    // location data that SmartPM imports as locked AI budgets.
+    // Expects AI output with ### room headers and markdown equipment tables:
+    //   | Item | Qty | Unit | Unit Cost | Extended Cost |
     _extractInfrastructure(state) {
         const md = state.aiAnalysis || "";
         if (!md) return { locations: [], source: 'none' };
 
-        // Find the MDF/IDF section
-        const sectionRegex = /#{1,3}\s*MDF\/IDF[^\n]*/i;
+        // Find the MDF/IDF section (matches both "MDF/IDF MATERIAL BREAKDOWN" and "MDF/IDF/TR MATERIAL BREAKDOWN")
+        const sectionRegex = /#{1,3}\s*(?:MDF\/IDF|MDF\/IDF\/TR)[^\n]*/i;
         const match = sectionRegex.exec(md);
         if (!match) return { locations: [], source: 'not_found' };
 
-        // Extract content until next major section (## heading)
+        // Extract content until next major section (## heading that isn't a room sub-header)
         const start = match.index;
-        const nextSection = md.substring(start + match[0].length).search(/\n#{1,2}\s+[A-Z]/);
+        const nextSection = md.substring(start + match[0].length).search(/\n#{1,2}\s+(?!MDF|IDF|TR\b)[A-Z]/);
         const sectionContent = nextSection > -1
             ? md.substring(start, start + match[0].length + nextSection)
             : md.substring(start);
 
         // Split into individual room sections (### sub-headers or bold room names)
-        const roomSplits = sectionContent.split(/(?=###\s+|\*\*(?:MDF|IDF|TR|Telecom Room)[^*]*\*\*)/i);
+        const roomSplits = sectionContent.split(/(?=###\s+|(?:^|\n)\*\*(?:MDF|IDF|TR|Telecom Room)[^*]*\*\*)/im);
         const locations = [];
 
         for (const roomBlock of roomSplits) {
             if (!roomBlock.trim()) continue;
-            // Try to extract room name from header or bold text
+            // Try to extract room name from ### header or **bold** text
             const nameMatch = roomBlock.match(/(?:###\s*|\*\*)([^*\n]+)/);
             if (!nameMatch) continue;
             const rawName = nameMatch[1].replace(/\*+/g, '').trim();
@@ -165,41 +167,77 @@ const SmartPlansExport = {
             if (lower.includes('mdf') || lower.includes('main distribution')) type = 'mdf';
             else if (lower.includes('tr') || lower.includes('telecom room')) type = 'tr';
 
-            // Extract floor/room from name or content
+            // Extract floor, room, building from name or content
             const floorMatch = roomBlock.match(/(?:floor|level)\s*[:#]?\s*([\w\d-]+)/i);
             const roomMatch = roomBlock.match(/(?:room|rm)\s*[:#]?\s*([\w\d-]+)/i);
+            const buildingMatch = roomBlock.match(/(?:building|bldg)\s*[:#]?\s*([\w\d\s-]+?)(?:\s*[,|\n])/i);
 
-            // Extract equipment items from tables or lists
+            // ─── Extract equipment items from markdown tables ───
+            // Supports these table formats:
+            //   | Item | Qty | Unit | Unit Cost | Extended Cost |    (5-col, preferred)
+            //   | Item | Qty | Cost |                                (3-col, fallback)
             const items = [];
-            // Match table rows: | item | qty | cost | etc
             const tableRows = roomBlock.match(/\|[^|\n]+\|[^|\n]+\|[^\n]*/g) || [];
+            let isHeaderRow = true;
+
             for (const row of tableRows) {
                 const cells = row.split('|').map(c => c.trim()).filter(Boolean);
                 if (cells.length < 2) continue;
-                // Skip header rows
-                if (cells[0].match(/^[-:]+$/) || cells[0].toLowerCase() === 'item') continue;
-                const qtyMatch = cells.find(c => c.match(/^\d+$/));
-                const costMatch = cells.find(c => c.match(/\$[\d,]+/));
+                // Skip header/separator rows
+                if (cells[0].match(/^[-:]+$/) || cells.every(c => c.match(/^[-:]+$/))) { isHeaderRow = false; continue; }
+                if (isHeaderRow && (cells[0].toLowerCase() === 'item' || cells[0].toLowerCase() === 'equipment')) { isHeaderRow = false; continue; }
+                // Skip "continue" placeholder rows
+                if (cells[0].includes('continue') || cells[0].includes('...')) continue;
+
+                // Parse quantity — find first cell that looks like a number
+                let qty = 1, unit = 'ea', unitCost = 0, extCost = 0;
+
+                if (cells.length >= 5) {
+                    // 5-column format: Item | Qty | Unit | Unit Cost | Extended Cost
+                    qty = parseInt(cells[1]) || 1;
+                    unit = cells[2].toLowerCase() || 'ea';
+                    const ucMatch = cells[3].match(/\$?([\d,.]+)/);
+                    const ecMatch = cells[4].match(/\$?([\d,.]+)/);
+                    unitCost = ucMatch ? parseFloat(ucMatch[1].replace(/,/g, '')) : 0;
+                    extCost = ecMatch ? parseFloat(ecMatch[1].replace(/,/g, '')) : (qty * unitCost);
+                } else if (cells.length >= 3) {
+                    // 3-column fallback: Item | Qty | Cost
+                    const qtyMatch = cells.find(c => c.match(/^\d+$/));
+                    const costMatch = cells.find(c => c.match(/\$[\d,]+/));
+                    qty = qtyMatch ? parseInt(qtyMatch) : 1;
+                    extCost = costMatch ? parseFloat(costMatch.replace(/[\$,]/g, '')) : 0;
+                    unitCost = qty > 0 ? extCost / qty : 0;
+                }
+
                 items.push({
                     item_name: cells[0],
                     category: this._guessCategory(cells[0]),
-                    budgeted_qty: qtyMatch ? parseInt(qtyMatch) : 1,
-                    budgeted_cost: costMatch ? parseFloat(costMatch.replace(/[\$,]/g, '')) : 0,
+                    budgeted_qty: qty,
+                    unit: unit,
+                    unit_cost: Math.round(unitCost * 100) / 100,
+                    budgeted_cost: Math.round(extCost * 100) / 100,
                 });
             }
 
-            // Extract cable quantities from mentions like "150 Cat 6A drops" or "12-strand fiber"
+            // ─── Extract cable quantities from prose text ───
+            // Looks for patterns like "150 Cat6A drops", "12-strand SM fiber backbone"
             const cableRuns = [];
             const cablePatterns = [
-                { regex: /(\d+)\s*(?:Cat\s*6A?|CAT6A?)\s*(?:drops?|runs?|cables?)/gi, type: 'cat6a' },
+                { regex: /(\d+)\s*(?:Cat\s*6A|CAT6A)\s*(?:drops?|runs?|cables?)/gi, type: 'cat6a' },
                 { regex: /(\d+)\s*(?:Cat\s*6|CAT6)(?!A)\s*(?:drops?|runs?|cables?)/gi, type: 'cat6' },
-                { regex: /(\d+)[-\s]*(?:strand|fiber|SM|OS2)\s*(?:fiber|cable|backbone)/gi, type: 'fiber_sm' },
-                { regex: /(\d+)[-\s]*(?:strand|fiber|MM|OM[34])\s*(?:fiber|cable|backbone)/gi, type: 'fiber_mm' },
+                { regex: /(\d+)\s*(?:Cat\s*5e?|CAT5E?)\s*(?:drops?|runs?|cables?)/gi, type: 'cat5e' },
+                { regex: /(\d+)[-\s]*(?:strand|fiber|SM|OS2)\s*(?:fiber|cable|backbone)\s*(?:SM|single[- ]?mode)?/gi, type: 'fiber_sm' },
+                { regex: /(\d+)[-\s]*(?:strand|fiber|MM|OM[34])\s*(?:fiber|cable|backbone)\s*(?:MM|multi[- ]?mode)?/gi, type: 'fiber_mm' },
+                { regex: /(\d+)\s*(?:RG[- ]?6|coax)\s*(?:cables?|runs?|drops?)/gi, type: 'coax_rg6' },
             ];
             for (const { regex, type: cableType } of cablePatterns) {
                 let m;
                 while ((m = regex.exec(roomBlock)) !== null) {
-                    cableRuns.push({ cable_type: cableType, budgeted_qty: parseInt(m[1]) });
+                    cableRuns.push({
+                        cable_type: cableType,
+                        budgeted_qty: parseInt(m[1]),
+                        destination: rawName + ' drops',
+                    });
                 }
             }
 
@@ -208,9 +246,10 @@ const SmartPlansExport = {
                 type,
                 floor: floorMatch ? floorMatch[1] : null,
                 room_number: roomMatch ? roomMatch[1] : null,
+                building: buildingMatch ? buildingMatch[1].trim() : null,
                 items: items.filter(i => i.item_name && !i.item_name.match(/^[-:]+$/)),
                 cable_runs: cableRuns,
-                raw_content: roomBlock.substring(0, 2000), // Keep raw for reference
+                raw_content: roomBlock.substring(0, 2000),
             });
         }
 
@@ -218,6 +257,11 @@ const SmartPlansExport = {
             locations,
             source: 'ai_analysis',
             extracted_at: new Date().toISOString(),
+            stats: {
+                total_locations: locations.length,
+                total_items: locations.reduce((s, l) => s + l.items.length, 0),
+                total_cable_runs: locations.reduce((s, l) => s + l.cable_runs.length, 0),
+            },
         };
     },
 
