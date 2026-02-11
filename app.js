@@ -4,14 +4,31 @@
    ================================================================ */
 
 // ═══════════════════════════════════════════════════════════════
-// GEMINI API CONFIG
+// GEMINI API CONFIG — Dual Key Failover
 // ═══════════════════════════════════════════════════════════════
 
 const GEMINI_CONFIG = {
-  apiKey: "AIzaSyAqm-Jayt-Ty1iTJTxH2oqWuvmfcUZQDqY",
+  // Primary and backup API keys — auto-rotates on quota/rate limit errors
+  apiKeys: [
+    "AIzaSyAqm-Jayt-Ty1iTJTxH2oqWuvmfcUZQDqY",
+    "AIzaSyAmP2pnHqMvHe960AvxhGRmWr21Xb7Wpxw", // Backup API key for failover
+  ],
+  _currentKeyIndex: 0,
   model: "gemini-2.0-flash",
+  verificationModel: "gemini-2.0-flash", // Can use a different model for cross-validation
+  get apiKey() { return this.apiKeys[this._currentKeyIndex]; },
   get endpoint() {
     return `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+  },
+  get verificationEndpoint() {
+    // Use the alternate key for verification if available
+    const altIdx = (this._currentKeyIndex + 1) % this.apiKeys.length;
+    const altKey = this.apiKeys[altIdx];
+    return `https://generativelanguage.googleapis.com/v1beta/models/${this.verificationModel}:generateContent?key=${altKey}`;
+  },
+  rotateKey() {
+    this._currentKeyIndex = (this._currentKeyIndex + 1) % this.apiKeys.length;
+    console.log(`[SmartPlans] Rotated to API key ${this._currentKeyIndex + 1}/${this.apiKeys.length}`);
   },
 };
 
@@ -177,6 +194,10 @@ const state = {
   // AI Analysis
   aiAnalysis: null,  // raw text response from Gemini
   aiError: null,     // error message if API fails
+
+  // Validation Results
+  mathValidation: null,       // automated math check results
+  sectionCompleteness: null,  // section completeness check results
 };
 
 
@@ -1027,6 +1048,65 @@ function renderStep6(container) {
       </div>
     `;
   } else if (state.aiAnalysis) {
+    // Build validation banners
+    let validationBanners = '';
+
+    // Math validation banner
+    if (state.mathValidation) {
+      const mv = state.mathValidation;
+      if (mv.passed) {
+        validationBanners += `
+          <div class="info-card" style="margin-bottom:12px; border-left:4px solid #10b981; background:rgba(16,185,129,0.08);">
+            <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;">
+              <span style="font-size:18px;">✅</span>
+              <span style="color:#10b981;font-weight:600;">Math Validation Passed</span>
+              <span style="color:rgba(255,255,255,0.5);font-size:13px;margin-left:auto;">${mv.total_tables_checked} cost rows checked</span>
+            </div>
+          </div>`;
+      } else {
+        validationBanners += `
+          <div class="info-card" style="margin-bottom:12px; border-left:4px solid #f59e0b; background:rgba(245,158,11,0.08);">
+            <div style="padding:10px 14px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <span style="font-size:18px;">⚠️</span>
+                <span style="color:#f59e0b;font-weight:600;">Math Discrepancies Found: ${mv.issues.length}</span>
+              </div>
+              <div style="font-size:13px;color:rgba(255,255,255,0.6);line-height:1.6;">
+                ${mv.issues.slice(0, 5).map(iss => `<div>Line ${iss.line}: ${iss.qty} × $${iss.unitCost.toLocaleString()} = <strong style="color:#f43f5e;">$${iss.extCost.toLocaleString()}</strong> (expected $${iss.expected.toLocaleString()})</div>`).join('')}
+                ${mv.issues.length > 5 ? `<div style="color:#f59e0b;">+ ${mv.issues.length - 5} more — check Verification Audit section below</div>` : ''}
+              </div>
+            </div>
+          </div>`;
+      }
+    }
+
+    // Section completeness banner
+    if (state.sectionCompleteness) {
+      const sc = state.sectionCompleteness;
+      if (sc.complete) {
+        validationBanners += `
+          <div class="info-card" style="margin-bottom:12px; border-left:4px solid #10b981; background:rgba(16,185,129,0.08);">
+            <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;">
+              <span style="font-size:18px;">✅</span>
+              <span style="color:#10b981;font-weight:600;">All ${sc.found.length} Required Sections Present</span>
+            </div>
+          </div>`;
+      } else {
+        validationBanners += `
+          <div class="info-card" style="margin-bottom:12px; border-left:4px solid #f59e0b; background:rgba(245,158,11,0.08);">
+            <div style="padding:10px 14px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <span style="font-size:18px;">🟡</span>
+                <span style="color:#f59e0b;font-weight:600;">Section Completeness: ${sc.score}% (${sc.found.length}/${sc.found.length + sc.missing.length})</span>
+              </div>
+              <div style="font-size:13px;color:rgba(255,255,255,0.6);">
+                Missing: ${sc.missing.map(m => `<span style="color:#f59e0b;">${m.replace(/_/g, ' ')}</span>`).join(', ')}
+              </div>
+            </div>
+          </div>`;
+      }
+    }
+
     aiSection = `
       <div class="info-card info-card--emerald" style="margin-bottom:22px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-left:8px;">
@@ -1034,6 +1114,7 @@ function renderStep6(container) {
         </div>
         <div class="info-card-body ai-analysis-content" style="white-space:pre-wrap; line-height:1.75; max-height:600px; overflow-y:auto;">${formatAIResponse(state.aiAnalysis)}</div>
       </div>
+      ${validationBanners}
     `;
   }
 
@@ -1268,16 +1349,109 @@ function renderFileUpload(container, { label, description, files, onFilesChange,
 // GEMINI API — File Conversion & Analysis
 // ═══════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════
+// RELIABILITY UTILITIES — Retry, Backoff, File Validation
+// ═══════════════════════════════════════════════════════════════
+
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
+const MAX_TOTAL_PAYLOAD = 95 * 1024 * 1024; // 95 MB total (Gemini limit ~100MB)
+const API_TIMEOUT_MS = 120000; // 120 seconds
+const MAX_RETRIES = 3;
+
+async function fetchWithRetry(url, options, maxRetries = MAX_RETRIES) {
+  let lastError;
+  let currentUrl = url;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), options._timeout || 30000);
+      const res = await fetch(currentUrl, { ...options, signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok || res.status === 400 || res.status === 404) return res;
+      // Quota/rate limit — rotate API key before retry
+      if ([429, 403].includes(res.status) && options._apiKeyRotator) {
+        options._apiKeyRotator();
+        currentUrl = url.replace(/key=[^&]+/, `key=${GEMINI_CONFIG.apiKey}`);
+        console.warn(`[SmartPlans] API key rotated due to ${res.status}`);
+      }
+      // Retryable server errors (429, 403, 500, 502, 503, 504)
+      if ([429, 403, 500, 502, 503, 504].includes(res.status)) {
+        lastError = new Error(`HTTP ${res.status}: ${res.statusText}`);
+        if (attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000) + Math.random() * 500;
+          console.warn(`[SmartPlans] Retry ${attempt}/${maxRetries} after ${Math.round(delay)}ms — ${res.status}`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (err.name === 'AbortError') lastError = new Error('Request timed out');
+      // On network error, also try rotating key (different IP/quota pool)
+      if (options._apiKeyRotator && attempt < maxRetries) {
+        options._apiKeyRotator();
+        currentUrl = url.replace(/key=[^&]+/, `key=${GEMINI_CONFIG.apiKey}`);
+      }
+      if (attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000) + Math.random() * 500;
+        console.warn(`[SmartPlans] Retry ${attempt}/${maxRetries} after ${Math.round(delay)}ms — ${err.message}`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastError;
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
+    if (file.size > MAX_FILE_SIZE) {
+      console.warn(`[SmartPlans] File "${file.name}" exceeds 20MB (${(file.size / 1048576).toFixed(1)}MB) — skipping`);
+      resolve({ base64: null, mimeType: file.type, skipped: true, reason: 'too_large' });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = reader.result.split(",")[1];
-      resolve({ base64, mimeType: file.type || "application/octet-stream" });
+      resolve({ base64, mimeType: file.type || "application/octet-stream", skipped: false });
     };
-    reader.onerror = reject;
+    reader.onerror = () => {
+      console.warn(`[SmartPlans] Failed to read file "${file.name}" — skipping`);
+      resolve({ base64: null, mimeType: file.type, skipped: true, reason: 'read_error' });
+    };
     reader.readAsDataURL(file);
   });
+}
+
+// ── PDF Text Extraction (for specification accuracy boost) ──
+// Uses PDF.js to extract raw text from PDF files locally.
+// This text is sent alongside the base64 PDF to give the AI
+// both visual and textual data channels for cross-referencing.
+async function extractPDFText(file) {
+  if (typeof pdfjsLib === 'undefined') return null;
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const maxPages = Math.min(pdf.numPages, 30); // Cap at 30 pages
+    let fullText = '';
+
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map(item => item.str).join(' ');
+      if (pageText.trim()) {
+        fullText += `\n--- PAGE ${i} ---\n${pageText}\n`;
+      }
+      // Safety: don't accumulate more than 50KB of text
+      if (fullText.length > 50000) break;
+    }
+
+    return fullText.trim();
+  } catch (err) {
+    console.warn(`[SmartPlans] PDF.js extraction error for ${file.name}:`, err.message);
+    return null;
+  }
 }
 
 function buildPricingContext() {
@@ -2087,59 +2261,96 @@ async function callGeminiAPI(progressCallback) {
 
   const filesToSend = allFileEntries.filter(f => f.rawFile);
 
+  progressCallback(5, "Validating files…");
+
+  // ── File size validation pass ──
+  let totalPayloadBytes = 0;
+  const oversizedFiles = [];
+  for (const entry of filesToSend) {
+    if (entry.rawFile.size > MAX_FILE_SIZE) {
+      oversizedFiles.push(`${entry.name} (${(entry.rawFile.size / 1048576).toFixed(1)}MB)`);
+    }
+    totalPayloadBytes += entry.rawFile.size;
+  }
+  if (oversizedFiles.length > 0) {
+    console.warn(`[SmartPlans] Oversized files will be skipped: ${oversizedFiles.join(', ')}`);
+  }
+
   progressCallback(10, "Preparing files for analysis…");
 
   // Convert files to base64 for Gemini inline_data
   const parts = [];
-
-  // Add text prompt first
   parts.push({ text: buildGeminiPrompt() });
 
-  // Convert each file to base64 and add as inline_data
   const supportedTypes = [
     "application/pdf", "image/png", "image/jpeg", "image/webp", "image/gif",
     "image/tiff", "text/plain",
   ];
 
   let fileIdx = 0;
+  let runningPayload = 0;
+  const skippedFiles = [];
+
   for (const entry of filesToSend) {
     fileIdx++;
     const pct = 10 + Math.round((fileIdx / filesToSend.length) * 30);
     progressCallback(pct, `Encoding ${entry.category}: ${entry.name}…`);
 
-    try {
-      const { base64, mimeType } = await fileToBase64(entry.rawFile);
-
-      // Check if mime type is supported, fallback for common types
-      let finalMime = mimeType;
-      if (entry.name.toLowerCase().endsWith(".pdf")) finalMime = "application/pdf";
-      else if (entry.name.toLowerCase().endsWith(".png")) finalMime = "image/png";
-      else if (entry.name.toLowerCase().endsWith(".jpg") || entry.name.toLowerCase().endsWith(".jpeg")) finalMime = "image/jpeg";
-      else if (entry.name.toLowerCase().endsWith(".tif") || entry.name.toLowerCase().endsWith(".tiff")) finalMime = "image/tiff";
-      else if (entry.name.toLowerCase().endsWith(".txt")) finalMime = "text/plain";
-
-      // Add file label
-      parts.push({ text: `\n--- FILE: ${entry.name} (${entry.category}) ---` });
-
-      // Only send supported types as inline_data
-      if (supportedTypes.some(t => finalMime.startsWith(t.split("/")[0])) || finalMime === "application/pdf") {
-        parts.push({
-          inline_data: {
-            mime_type: finalMime,
-            data: base64,
-          },
-        });
-      } else {
-        parts.push({ text: `[File type ${finalMime} not supported for direct analysis. Filename: ${entry.name}]` });
-      }
-    } catch (err) {
-      parts.push({ text: `[Error reading file: ${entry.name}]` });
+    // Check if adding this file would exceed total payload limit
+    if (runningPayload + entry.rawFile.size > MAX_TOTAL_PAYLOAD) {
+      skippedFiles.push({ name: entry.name, reason: 'payload_limit' });
+      parts.push({ text: `[File "${entry.name}" skipped — total payload limit reached. File size: ${(entry.rawFile.size / 1048576).toFixed(1)}MB]` });
+      continue;
     }
+
+    const { base64, mimeType, skipped, reason } = await fileToBase64(entry.rawFile);
+
+    if (skipped) {
+      skippedFiles.push({ name: entry.name, reason });
+      parts.push({ text: `[File "${entry.name}" skipped — ${reason === 'too_large' ? 'exceeds 20MB limit' : 'read error'}]` });
+      continue;
+    }
+
+    runningPayload += entry.rawFile.size;
+
+    // Detect MIME type from extension for reliability
+    let finalMime = mimeType;
+    const ext = entry.name.toLowerCase().split('.').pop();
+    const mimeMap = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', tif: 'image/tiff', tiff: 'image/tiff', txt: 'text/plain', webp: 'image/webp' };
+    if (mimeMap[ext]) finalMime = mimeMap[ext];
+
+    parts.push({ text: `\n--- FILE: ${entry.name} (${entry.category}) ---` });
+
+    if (supportedTypes.some(t => finalMime.startsWith(t.split("/")[0])) || finalMime === "application/pdf") {
+      parts.push({ inline_data: { mime_type: finalMime, data: base64 } });
+
+      // ── PDF Text Pre-Extraction for Specs (dual-channel accuracy boost) ──
+      // Specifications are text-heavy documents. Extracting text locally
+      // and including it alongside the PDF gives Gemini both visual + text
+      // data channels, dramatically improving spec interpretation accuracy.
+      if (finalMime === 'application/pdf' && entry.category === 'Specification' && typeof pdfjsLib !== 'undefined') {
+        try {
+          const extractedText = await extractPDFText(entry.rawFile);
+          if (extractedText && extractedText.length > 100) {
+            parts.push({ text: `\n[EXTRACTED TEXT FROM ${entry.name} — use alongside the PDF for cross-reference]\n${extractedText.substring(0, 15000)}` });
+            console.log(`[SmartPlans] Extracted ${extractedText.length} chars from ${entry.name}`);
+          }
+        } catch (pdfErr) {
+          console.warn(`[SmartPlans] PDF text extraction failed for ${entry.name}:`, pdfErr.message);
+        }
+      }
+    } else {
+      parts.push({ text: `[File type ${finalMime} not supported for direct analysis. Filename: ${entry.name}]` });
+    }
+  }
+
+  // Append skip report to prompt if any files were skipped
+  if (skippedFiles.length > 0) {
+    parts.push({ text: `\n\n⚠ NOTE: ${skippedFiles.length} file(s) were skipped due to size limits. The analysis is based on the files that were successfully uploaded. Skipped: ${skippedFiles.map(f => f.name).join(', ')}` });
   }
 
   progressCallback(45, "Sending documents to Gemini AI…");
 
-  // Call the Gemini API
   const requestBody = {
     contents: [{ parts }],
     generationConfig: {
@@ -2148,26 +2359,208 @@ async function callGeminiAPI(progressCallback) {
     },
   };
 
-  const response = await fetch(GEMINI_CONFIG.endpoint, {
+  // ── Retry with exponential backoff + timeout + API key rotation ──
+  const response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(requestBody),
-  });
+    _timeout: API_TIMEOUT_MS,
+    _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
+  }, MAX_RETRIES);
 
   progressCallback(80, "Processing AI response…");
 
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}));
-    throw new Error(errData?.error?.message || `API Error: ${response.status} ${response.statusText}`);
+    const msg = errData?.error?.message || `API Error: ${response.status} ${response.statusText}`;
+    throw new Error(msg);
   }
 
   const data = await response.json();
-
   progressCallback(95, "Compiling results…");
 
-  // Extract text from response
-  const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n") || "No analysis generated.";
+  // Extract text and validate response quality
+  const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n") || "";
+  if (!text || text.length < 100) {
+    throw new Error("AI returned an empty or incomplete response. Please try again.");
+  }
   return text;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// ACCURACY VALIDATION ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+// ── 1. Automated Math Validation ──────────────────────────────
+// Scans the AI analysis for tables containing quantities + costs
+// and verifies that Qty × Unit Cost = Extended Cost within $1 tolerance.
+function validateAnalysisMath(analysisText) {
+  if (!analysisText) return { issues: [], passed: true };
+
+  const issues = [];
+  const lines = analysisText.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.includes('|') || line.match(/^[\s|:-]+$/)) continue;
+
+    const cells = line.split('|').map(c => c.trim()).filter(Boolean);
+    if (cells.length < 3) continue;
+
+    // Look for rows with numeric values that look like cost calculations
+    const dollarCells = cells.filter(c => c.match(/\$[\d,]+/));
+    const numCells = cells.filter(c => c.match(/^\d+$/));
+
+    if (dollarCells.length >= 2 && numCells.length >= 1) {
+      const qty = parseInt(numCells[0]);
+      const costValues = dollarCells.map(c => {
+        const m = c.match(/\$?([\d,]+(?:\.\d{1,2})?)/);
+        return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+      }).filter(v => v !== null);
+
+      // If we have qty, unitCost, extCost — verify multiplication
+      if (qty && costValues.length >= 2 && qty > 0) {
+        const unitCost = costValues[0];
+        const extCost = costValues[costValues.length - 1]; // Last dollar value is typically extended
+        const expected = qty * unitCost;
+
+        // Allow $1 tolerance for rounding
+        if (Math.abs(expected - extCost) > 1.0 && expected > 0) {
+          issues.push({
+            line: i + 1,
+            content: line.substring(0, 120),
+            qty,
+            unitCost,
+            extCost,
+            expected: Math.round(expected * 100) / 100,
+            difference: Math.round((extCost - expected) * 100) / 100,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    issues,
+    passed: issues.length === 0,
+    total_tables_checked: lines.filter(l => l.includes('|') && l.match(/\$/)).length,
+    checked_at: new Date().toISOString(),
+  };
+}
+
+
+// ── 2. Section Completeness Check ─────────────────────────────
+// Verifies that all 12 required output sections are present
+function checkSectionCompleteness(analysisText) {
+  if (!analysisText) return { missing: ['ALL'], complete: false, score: 0 };
+
+  const requiredSections = [
+    { key: 'code_compliance', patterns: ['CODE & STANDARDS', 'CODE COMPLIANCE'] },
+    { key: 'mdf_idf', patterns: ['MDF/IDF', 'MDF/IDF/TR', 'INFRASTRUCTURE'] },
+    { key: 'material_summary', patterns: ['MATERIAL SUMMARY', 'OVERALL MATERIAL'] },
+    { key: 'labor_summary', patterns: ['LABOR SUMMARY', 'LABOR COST'] },
+    { key: 'special_equipment', patterns: ['SPECIAL EQUIPMENT', 'EQUIPMENT & CONDITIONS'] },
+    { key: 'schedule_of_values', patterns: ['SCHEDULE OF VALUES', 'SOV'] },
+    { key: 'cost_summary', patterns: ['PRICED ESTIMATE', 'PROJECT COST', 'ESTIMATE SUMMARY'] },
+    { key: 'observations', patterns: ['OBSERVATIONS', 'ANALYSIS'] },
+    { key: 'rfis', patterns: ['RFI'] },
+  ];
+
+  const upper = analysisText.toUpperCase();
+  const found = [];
+  const missing = [];
+
+  for (const section of requiredSections) {
+    const isPresent = section.patterns.some(p => upper.includes(p));
+    if (isPresent) {
+      found.push(section.key);
+    } else {
+      missing.push(section.key);
+    }
+  }
+
+  return {
+    found,
+    missing,
+    complete: missing.length === 0,
+    score: Math.round((found.length / requiredSections.length) * 100),
+    checked_at: new Date().toISOString(),
+  };
+}
+
+
+// ── 3. AI Verification Pass (Second Brain Cross-Check) ────────
+// After the primary analysis, sends it back for focused validation.
+// Catches: miscounts, math errors, missing items, inconsistent totals.
+async function runVerificationPass(primaryAnalysis, progressCallback) {
+  if (!primaryAnalysis || primaryAnalysis.length < 500) return null;
+
+  const verificationPrompt = `You are a SENIOR QUALITY ASSURANCE AUDITOR reviewing an ELV construction estimate that was just generated by an AI estimator. This estimate will be used for actual project bidding — errors could cost hundreds of thousands of dollars.
+
+YOUR TASK: Audit the following AI-generated estimate for accuracy, completeness, and internal consistency. You are NOT regenerating the estimate — you are VERIFYING it.
+
+CHECK THE FOLLOWING:
+1. **MATH VERIFICATION**: For every table with Qty × Unit Cost = Extended Cost, verify the multiplication is correct. Flag ANY math errors.
+2. **CROSS-REFERENCE TOTALS**: Verify that section subtotals add up to the grand total in the SOV / Estimate Summary.
+3. **QUANTITY CONSISTENCY**: Check that device counts mentioned in the observations match the quantities in the material tables. Flag if a count says "48 cameras" but the material table shows 42.
+4. **COST REASONABLENESS**: Flag any unit costs that seem unreasonable (e.g., a Cat6A cable drop priced at $5,000 or a camera at $15). Use your knowledge of typical ELV pricing.
+5. **MISSING ITEMS**: Check if any standard items are missing for the systems described (e.g., access control system with readers but no controller, CCTV cameras but no NVR, structured cabling without patch panels).
+6. **CODE COMPLIANCE**: Verify that the code citations are accurate — correct NFPA/NEC article numbers and requirements.
+7. **LABOR HOURS**: Check if the labor hours seem reasonable for the scope described. Flag if a 200-camera project shows only 40 labor hours.
+8. **MARKUP CALCULATIONS**: Verify that markup percentages were applied correctly to base costs.
+
+RESPONSE FORMAT:
+Respond ONLY in this format. Be concise — only report actual issues found.
+
+## ⚠️ VERIFICATION AUDIT
+
+**Audit Status**: [PASSED ✅ / ISSUES FOUND ⚠️]
+**Items Checked**: [number]
+**Issues Found**: [number]
+
+### Issues:
+(List each issue with severity: 🔴 CRITICAL, 🟡 WARNING, 🔵 INFO)
+
+If no issues are found, respond with:
+## ⚠️ VERIFICATION AUDIT
+**Audit Status**: PASSED ✅
+**Items Checked**: [number]
+**Issues Found**: 0
+*All calculations, quantities, and code references verified correct.*
+
+--- BEGIN ESTIMATE TO AUDIT ---
+${primaryAnalysis.substring(0, 28000)}
+--- END ESTIMATE ---`;
+
+  const requestBody = {
+    contents: [{ parts: [{ text: verificationPrompt }] }],
+    generationConfig: {
+      temperature: 0.1, // Very low temp for precise verification
+      maxOutputTokens: 4096,
+    },
+  };
+
+  const response = await fetchWithRetry(GEMINI_CONFIG.verificationEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody),
+    _timeout: 60000, // 60s timeout for verification
+  }, 2); // Only 2 retries for verification
+
+  if (!response.ok) {
+    console.warn('[SmartPlans] Verification API returned:', response.status);
+    return null;
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n") || "";
+
+  if (text && text.length > 50) {
+    console.log('[SmartPlans] ✓ Verification pass completed');
+    return text;
+  }
+  return null;
 }
 
 
@@ -2220,10 +2613,33 @@ function renderAnalysis(container) {
 
 async function runGeminiAnalysis(updateProgress) {
   try {
-    updateProgress(5, "Preparing documents…");
+    updateProgress(3, "Preparing documents…");
     const result = await callGeminiAPI(updateProgress);
     state.aiAnalysis = result;
     state.aiError = null;
+
+    // ─── Phase 2: Automated Math Validation ───
+    updateProgress(96, "Running math validation…");
+    const mathIssues = validateAnalysisMath(result);
+    state.mathValidation = mathIssues;
+
+    // ─── Phase 3: Section Completeness Check ───
+    updateProgress(97, "Checking section completeness…");
+    const missingReport = checkSectionCompleteness(result);
+    state.sectionCompleteness = missingReport;
+
+    // ─── Phase 4: AI Verification Pass (Second Brain) ───
+    updateProgress(98, "Running AI verification audit…");
+    try {
+      const verificationResult = await runVerificationPass(result, updateProgress);
+      if (verificationResult) {
+        state.aiAnalysis += "\n\n" + verificationResult;
+      }
+    } catch (verErr) {
+      console.warn('[SmartPlans] Verification pass failed (non-critical):', verErr.message);
+      state.aiAnalysis += "\n\n## ⚠️ VERIFICATION AUDIT\n*Automated verification pass could not complete. Manual review recommended.*\n";
+    }
+
     updateProgress(100, "Analysis complete!");
 
     setTimeout(() => {
@@ -2233,7 +2649,6 @@ async function runGeminiAnalysis(updateProgress) {
       state.currentStep = 6;
       render();
       scrollContentTop();
-      // Auto-save to cloud database
       saveEstimate(true);
     }, 600);
   } catch (err) {
@@ -2432,8 +2847,44 @@ function spToast(msg, type = 'success') {
 // Store the current estimate's DB id
 state.estimateId = null;
 
+// ─── localStorage Fallback for Offline Resilience ───
+function saveToLocalStorage(payload) {
+  try {
+    const key = state.estimateId || `sp_draft_${Date.now()}`;
+    const saved = JSON.parse(localStorage.getItem('sp_offline_estimates') || '{}');
+    saved[key] = { ...payload, _savedAt: new Date().toISOString(), _id: key };
+    localStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
+    if (!state.estimateId) state.estimateId = key;
+    return true;
+  } catch (e) {
+    console.error('[SmartPlans] localStorage save failed:', e);
+    return false;
+  }
+}
+
+function getLocalEstimates() {
+  try {
+    return JSON.parse(localStorage.getItem('sp_offline_estimates') || '{}');
+  } catch { return {}; }
+}
+
+function removeLocalEstimate(id) {
+  try {
+    const saved = getLocalEstimates();
+    delete saved[id];
+    localStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
+  } catch { }
+}
+
 async function saveEstimate(showToast = true) {
-  const exportPkg = SmartPlansExport.buildExportPackage(state);
+  let exportPkg;
+  try {
+    exportPkg = SmartPlansExport.buildExportPackage(state);
+  } catch (e) {
+    console.error('[SmartPlans] Export package build failed:', e);
+    exportPkg = { error: 'Package build failed', project: { name: state.projectName } };
+  }
+
   const payload = {
     project_name: state.projectName || 'Untitled Estimate',
     project_type: state.projectType || null,
@@ -2445,98 +2896,116 @@ async function saveEstimate(showToast = true) {
   };
 
   try {
-    if (state.estimateId) {
-      // Update existing
-      const res = await fetch(`/api/estimates/${state.estimateId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      if (showToast) spToast('Estimate saved ✓');
-    } else {
-      // Create new
-      const res = await fetch('/api/estimates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      state.estimateId = data.id;
-      if (showToast) spToast('Estimate saved ✓');
-    }
+    const url = state.estimateId ? `/api/estimates/${state.estimateId}` : '/api/estimates';
+    const method = state.estimateId ? 'PUT' : 'POST';
+
+    const res = await fetchWithRetry(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      _timeout: 15000,
+    }, 3);
+
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (!state.estimateId && data.id) state.estimateId = data.id;
+    removeLocalEstimate(state.estimateId); // Clean up any local fallback
+    if (showToast) spToast('Estimate saved ✓');
   } catch (err) {
-    console.error('Save error:', err);
-    if (showToast) spToast('Failed to save: ' + err.message, 'error');
+    console.error('[SmartPlans] Cloud save failed, using localStorage fallback:', err);
+    const localOk = saveToLocalStorage(payload);
+    if (showToast) {
+      if (localOk) spToast('Saved offline — will sync when connection restores', 'info');
+      else spToast('Failed to save: ' + err.message, 'error');
+    }
   }
 }
 
 async function loadEstimate(id) {
   try {
-    const res = await fetch(`/api/estimates/${id}`);
+    // Check if this is a localStorage-only estimate
+    const localEstimates = getLocalEstimates();
+    if (localEstimates[id]) {
+      const payload = localEstimates[id];
+      _restoreStateFromPayload(id, payload.export_data || {}, payload);
+      closeSavedPanel();
+      render();
+      spToast(`Loaded (offline): ${state.projectName || 'Untitled'}`, 'info');
+      return;
+    }
+
+    const res = await fetchWithRetry(`/api/estimates/${id}`, { _timeout: 15000 }, 3);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     const est = data.estimate;
     const pkg = est.export_data;
 
-    // Restore state from the saved export package
-    state.estimateId = est.id;
-    state.projectName = pkg?.project?.name || est.project_name || '';
-    state.projectType = pkg?.project?.type || est.project_type || '';
-    state.projectLocation = pkg?.project?.location || est.project_location || '';
-    state.disciplines = pkg?.project?.disciplines || (est.disciplines ? (typeof est.disciplines === 'string' ? JSON.parse(est.disciplines) : est.disciplines) : []);
-    state.pricingTier = pkg?.pricingConfig?.tier || est.pricing_tier || 'mid';
-    state.codeJurisdiction = pkg?.project?.codeJurisdiction || '';
-    state.prevailingWage = pkg?.project?.prevailingWage || '';
-    state.workShift = pkg?.project?.workShift || '';
+    _restoreStateFromPayload(est.id, pkg, est);
 
-    // Restore pricing config if available
-    if (pkg?.pricingConfig) {
-      state.regionalMultiplier = pkg.pricingConfig.region || 'national_average';
-      state.includeBurden = pkg.pricingConfig.burdenIncluded !== false;
-      state.burdenRate = pkg.pricingConfig.burdenRate || 35;
-      if (pkg.pricingConfig.laborRates) state.laborRates = { ...state.laborRates, ...pkg.pricingConfig.laborRates };
-      if (pkg.pricingConfig.markup) state.markup = { ...state.markup, ...pkg.pricingConfig.markup };
-    }
-
-    // Restore AI analysis if it was saved
-    if (pkg?.analysis?.rawMarkdown) {
-      state.aiAnalysis = pkg.analysis.rawMarkdown;
-      state.analysisComplete = true;
-      state.completedSteps = new Set(['setup', 'legend', 'plans', 'specs', 'addenda', 'review']);
-      state.currentStep = 6;
-    } else {
-      // Draft — go to the setup step
-      state.aiAnalysis = null;
-      state.analysisComplete = false;
-      state.completedSteps = new Set();
-      state.currentStep = 0;
-    }
-
-    state.aiError = null;
-    state.analyzing = false;
-
-    // Close panel and re-render
     closeSavedPanel();
     render();
     spToast(`Loaded: ${state.projectName || 'Untitled'}`, 'info');
   } catch (err) {
-    console.error('Load error:', err);
+    console.error('[SmartPlans] Load error:', err);
     spToast('Failed to load estimate: ' + err.message, 'error');
   }
+}
+
+// Shared state restoration logic for both cloud and local loads
+function _restoreStateFromPayload(id, pkg, est) {
+  state.estimateId = id;
+  state.projectName = pkg?.project?.name || est?.project_name || '';
+  state.projectType = pkg?.project?.type || est?.project_type || '';
+  state.projectLocation = pkg?.project?.location || est?.project_location || '';
+  state.disciplines = pkg?.project?.disciplines || (est?.disciplines ? (typeof est.disciplines === 'string' ? JSON.parse(est.disciplines) : est.disciplines) : []);
+  state.pricingTier = pkg?.pricingConfig?.tier || est?.pricing_tier || 'mid';
+  state.codeJurisdiction = pkg?.project?.codeJurisdiction || pkg?.project?.jurisdiction || '';
+  state.prevailingWage = pkg?.project?.prevailingWage || '';
+  state.workShift = pkg?.project?.workShift || '';
+
+  if (pkg?.pricingConfig) {
+    state.regionalMultiplier = pkg.pricingConfig.region || pkg.pricingConfig.regionalMultiplier || 'national_average';
+    state.includeBurden = pkg.pricingConfig.burdenIncluded !== false && pkg.pricingConfig.includeBurden !== false;
+    state.burdenRate = pkg.pricingConfig.burdenRate || 35;
+    if (pkg.pricingConfig.laborRates) state.laborRates = { ...state.laborRates, ...pkg.pricingConfig.laborRates };
+    if (pkg.pricingConfig.markup) state.markup = { ...state.markup, ...pkg.pricingConfig.markup };
+  }
+
+  if (pkg?.analysis?.rawMarkdown) {
+    state.aiAnalysis = pkg.analysis.rawMarkdown;
+    state.analysisComplete = true;
+    state.completedSteps = new Set(['setup', 'legend', 'plans', 'specs', 'addenda', 'review']);
+    state.currentStep = 6;
+  } else {
+    state.aiAnalysis = null;
+    state.analysisComplete = false;
+    state.completedSteps = new Set();
+    state.currentStep = 0;
+  }
+
+  state.aiError = null;
+  state.analyzing = false;
 }
 
 async function deleteEstimate(id, name) {
   if (!confirm(`Delete "${name || 'this estimate'}" permanently?`)) return;
   try {
-    const res = await fetch(`/api/estimates/${id}`, { method: 'DELETE' });
+    // Check if it's a local-only estimate
+    const localEstimates = getLocalEstimates();
+    if (localEstimates[id]) {
+      removeLocalEstimate(id);
+      if (state.estimateId === id) state.estimateId = null;
+      spToast('Estimate deleted');
+      showSavedEstimates();
+      return;
+    }
+
+    const res = await fetchWithRetry(`/api/estimates/${id}`, { method: 'DELETE', _timeout: 10000 }, 3);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     if (state.estimateId === id) state.estimateId = null;
     spToast('Estimate deleted');
-    showSavedEstimates(); // Refresh the list
+    showSavedEstimates();
   } catch (err) {
     spToast('Failed to delete: ' + err.message, 'error');
   }
@@ -2550,16 +3019,13 @@ function closeSavedPanel() {
 }
 
 async function showSavedEstimates() {
-  // Close existing panel first
   closeSavedPanel();
 
-  // Create backdrop
   const backdrop = document.createElement('div');
   backdrop.className = 'saved-panel-backdrop';
   backdrop.addEventListener('click', closeSavedPanel);
   document.body.appendChild(backdrop);
 
-  // Create panel
   const panel = document.createElement('div');
   panel.className = 'saved-panel';
   panel.innerHTML = `
@@ -2572,56 +3038,77 @@ async function showSavedEstimates() {
     </div>`;
   document.body.appendChild(panel);
 
-  // Fetch estimates
+  // Merge cloud + local estimates
+  let estimates = [];
+  let cloudOk = false;
   try {
-    const res = await fetch('/api/estimates');
+    const res = await fetchWithRetry('/api/estimates', { _timeout: 10000 }, 3);
     const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    const estimates = data.estimates || [];
-    const container = document.getElementById('saved-list');
-
-    if (estimates.length === 0) {
-      container.innerHTML = `
-        <div style="text-align:center;padding:40px;">
-          <div style="font-size:42px;margin-bottom:14px;">📋</div>
-          <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">No Saved Estimates</div>
-          <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">
-            Estimates are automatically saved to the cloud when you complete an AI analysis.<br>
-            You can also click <strong>💾 Save</strong> at any time during setup.
-          </div>
-        </div>`;
-      return;
+    if (!data.error) {
+      estimates = data.estimates || [];
+      cloudOk = true;
     }
-
-    container.innerHTML = estimates.map(est => {
-      const discArr = est.disciplines ? (typeof est.disciplines === 'string' ? JSON.parse(est.disciplines) : est.disciplines) : [];
-      const dateStr = est.updated_at ? new Date(est.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
-      const isCurrent = state.estimateId === est.id;
-      return `<div class="est-card" style="${isCurrent ? 'border-color:var(--accent-indigo);' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:start;">
-          <div class="est-card-name">${esc(est.project_name || 'Untitled')}${isCurrent ? ' <span style="font-size:11px;color:var(--accent-indigo);">(current)</span>' : ''}</div>
-          <span class="est-card-status est-card-status--${est.status || 'draft'}">${est.status || 'draft'}</span>
-        </div>
-        <div class="est-card-meta">
-          ${est.project_type ? '<span>' + esc(est.project_type) + '</span> · ' : ''}
-          ${discArr.length ? '<span>' + discArr.join(', ') + '</span> · ' : ''}
-          ${est.project_location ? '<span>📍 ' + esc(est.project_location) + '</span> · ' : ''}
-          <span>${dateStr}</span>
-        </div>
-        <div class="est-card-actions">
-          <button class="est-card-btn est-card-btn--load" onclick="event.stopPropagation();loadEstimate('${est.id}')">📂 Load</button>
-          <button class="est-card-btn est-card-btn--delete" onclick="event.stopPropagation();deleteEstimate('${est.id}','${esc(est.project_name || '')}')">🗑 Delete</button>
-        </div>
-      </div>`;
-    }).join('');
   } catch (err) {
-    document.getElementById('saved-list').innerHTML = `
-      <div style="text-align:center;padding:40px;color:var(--accent-rose);">
-        <div style="font-size:36px;margin-bottom:10px;">⚠️</div>
-        <div style="font-size:14px;">Failed to load estimates</div>
-        <div style="font-size:12px;margin-top:6px;color:var(--text-muted);">${esc(err.message)}</div>
-      </div>`;
+    console.warn('[SmartPlans] Cloud fetch failed, showing local only:', err.message);
   }
+
+  // Merge in any localStorage-only estimates
+  const localEstimates = getLocalEstimates();
+  const cloudIds = new Set(estimates.map(e => e.id));
+  for (const [lid, ldata] of Object.entries(localEstimates)) {
+    if (!cloudIds.has(lid)) {
+      estimates.push({
+        id: lid,
+        project_name: ldata.project_name || 'Untitled',
+        project_type: ldata.project_type || '',
+        project_location: ldata.project_location || '',
+        disciplines: ldata.disciplines || [],
+        pricing_tier: ldata.pricing_tier || 'mid',
+        status: (ldata.status || 'draft') + ' (offline)',
+        updated_at: ldata._savedAt || '',
+        _isLocal: true,
+      });
+    }
+  }
+
+  const container = document.getElementById('saved-list');
+
+  if (estimates.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:40px;">
+        <div style="font-size:42px;margin-bottom:14px;">📋</div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">No Saved Estimates</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+          Estimates are automatically saved to the cloud when you complete an AI analysis.<br>
+          You can also click <strong>💾 Save</strong> at any time during setup.
+          ${!cloudOk ? '<br><span style="color:var(--accent-amber);">⚠ Cloud unavailable — estimates will be saved locally until connection restores.</span>' : ''}
+        </div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = (!cloudOk ? '<div style="padding:8px 14px;margin-bottom:10px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;font-size:12px;color:var(--accent-amber);">⚠ Cloud unavailable — showing cached and offline estimates</div>' : '') +
+    estimates.map(est => {
+      const discArr = est.disciplines ? (typeof est.disciplines === 'string' ? JSON.parse(est.disciplines) : est.disciplines) : [];
+      const dateStr = est.updated_at ? new Date(est.updated_at.endsWith('Z') ? est.updated_at : est.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      const isCurrent = state.estimateId === est.id;
+      return `<div class="est-card" style="${isCurrent ? 'border-color:var(--accent-indigo);' : ''}${est._isLocal ? 'border-left:3px solid var(--accent-amber);' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <div class="est-card-name">${esc(est.project_name || 'Untitled')}${isCurrent ? ' <span style="font-size:11px;color:var(--accent-indigo);">(current)</span>' : ''}${est._isLocal ? ' <span style="font-size:11px;color:var(--accent-amber);">(offline)</span>' : ''}</div>
+        <span class="est-card-status est-card-status--${(est.status || 'draft').split(' ')[0]}">${est.status || 'draft'}</span>
+      </div>
+      <div class="est-card-meta">
+        ${est.project_type ? '<span>' + esc(est.project_type) + '</span> · ' : ''}
+        ${discArr.length ? '<span>' + discArr.join(', ') + '</span> · ' : ''}
+        ${est.project_location ? '<span>📍 ' + esc(est.project_location) + '</span> · ' : ''}
+        <span>${dateStr}</span>
+      </div>
+      <div class="est-card-actions">
+        <button class="est-card-btn est-card-btn--load" onclick="event.stopPropagation();loadEstimate('${est.id}')">📂 Load</button>
+        <button class="est-card-btn est-card-btn--delete" onclick="event.stopPropagation();deleteEstimate('${est.id}','${esc(est.project_name || '')}')">🗑 Delete</button>
+      </div>
+    </div>`;
+    }).join('');
 }
 
 

@@ -91,7 +91,57 @@
             }
         }, 5000);
     </script>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script>
+        // SheetJS CDN with fallback — try primary, then jsDelivr mirror
+        (function () {
+            function loadScript(src, onSuccess, onFail) {
+                var s = document.createElement('script');
+                s.src = src;
+                s.onload = onSuccess;
+                s.onerror = onFail;
+                document.head.appendChild(s);
+            }
+            loadScript(
+                'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js',
+                function () { console.log('[SmartPlans] SheetJS loaded (primary CDN)'); },
+                function () {
+                    console.warn('[SmartPlans] Primary SheetJS CDN failed, trying fallback…');
+                    loadScript(
+                        'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+                        function () { console.log('[SmartPlans] SheetJS loaded (fallback CDN)'); },
+                        function () { console.error('[SmartPlans] SheetJS failed to load from all CDNs — Excel export will use CSV fallback'); }
+                    );
+                }
+            );
+        })();
+    </script>
+    <script>
+        // PDF.js for text extraction — improves AI accuracy on specification documents
+        (function () {
+            function loadScript(src, onSuccess, onFail) {
+                var s = document.createElement('script'); s.src = src;
+                s.onload = onSuccess; s.onerror = onFail;
+                document.head.appendChild(s);
+            }
+            loadScript(
+                'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+                function () {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                    console.log('[SmartPlans] PDF.js loaded');
+                },
+                function () {
+                    loadScript(
+                        'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
+                        function () {
+                            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+                            console.log('[SmartPlans] PDF.js loaded (fallback CDN)');
+                        },
+                        function () { console.warn('[SmartPlans] PDF.js unavailable — text extraction disabled'); }
+                    );
+                }
+            );
+        })();
+    </script>
     <script src="pricing-database.js"></script>
     <script src="export-engine.js"></script>
     <script src="app.js"
