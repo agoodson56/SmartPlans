@@ -897,6 +897,27 @@ body {
   z-index: 1;
 }
 
+.accuracy-traffic-light {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.traffic-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s ease;
+}
+
+.traffic-dot:hover {
+  transform: scale(1.15);
+}
+
 /* ─── Analysis Progress ─── */
 .analysis-overlay {
   text-align: center;

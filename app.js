@@ -252,6 +252,12 @@ function getAccuracyEstimate() {
   return Math.min(base, 97);
 }
 
+function getTrafficLight(accuracy) {
+  if (accuracy >= 85) return { color: '#10b981', glow: 'rgba(16,185,129,0.25)', label: '🟢 HIGH', css: 'traffic-green' };
+  if (accuracy >= 70) return { color: '#f59e0b', glow: 'rgba(245,158,11,0.25)', label: '🟡 MODERATE', css: 'traffic-yellow' };
+  return { color: '#ef4444', glow: 'rgba(239,68,68,0.25)', label: '🔴 LOW', css: 'traffic-red' };
+}
+
 function getRelevantRFIs() {
   const rfis = [];
   state.disciplines.forEach(d => {
@@ -990,10 +996,15 @@ function renderStep5(container) {
       `).join("")}
     </div>
 
-    <div class="accuracy-panel">
+    <div class="accuracy-panel" style="border-color:${getTrafficLight(accuracy).glow};">
       <div class="accuracy-label">Estimated Accuracy</div>
-      <div class="accuracy-value">${accuracy}%</div>
-      <div class="accuracy-sub">Based on your file format, legend, and context provided</div>
+      <div class="accuracy-traffic-light">
+        <div class="traffic-dot" style="background:${accuracy >= 85 ? '#10b981' : 'rgba(255,255,255,0.1)'};box-shadow:${accuracy >= 85 ? '0 0 12px rgba(16,185,129,0.6)' : 'none'};"></div>
+        <div class="traffic-dot" style="background:${accuracy >= 70 && accuracy < 85 ? '#f59e0b' : 'rgba(255,255,255,0.1)'};box-shadow:${accuracy >= 70 && accuracy < 85 ? '0 0 12px rgba(245,158,11,0.6)' : 'none'};"></div>
+        <div class="traffic-dot" style="background:${accuracy < 70 ? '#ef4444' : 'rgba(255,255,255,0.1)'};box-shadow:${accuracy < 70 ? '0 0 12px rgba(239,68,68,0.6)' : 'none'};"></div>
+      </div>
+      <div class="accuracy-value" style="background:linear-gradient(135deg, ${getTrafficLight(accuracy).color}, ${getTrafficLight(accuracy).color}cc);-webkit-background-clip:text;background-clip:text;">${accuracy}%</div>
+      <div class="accuracy-sub">${getTrafficLight(accuracy).label} — Based on your file format, legend, and context provided</div>
     </div>
 
     <div class="form-group">
@@ -1011,15 +1022,16 @@ function renderStep5(container) {
 function renderStep6(container) {
   const rfis = getRelevantRFIs();
   const accuracy = getAccuracyEstimate();
+  const tl = getTrafficLight(accuracy);
   let confLabel, confDesc;
   if (accuracy >= 85) {
-    confLabel = "High";
+    confLabel = "🟢 High";
     confDesc = "Your file quality and context should produce reliable counts. Spot-check 2–3 sheets to verify.";
   } else if (accuracy >= 70) {
-    confLabel = "Moderate";
+    confLabel = "🟡 Moderate";
     confDesc = "Results are usable but require manual verification on dense areas. Consider upgrading file format.";
   } else {
-    confLabel = "Low";
+    confLabel = "🔴 Low";
     confDesc = "Significant manual verification needed. Request vector PDFs from the design team for better results.";
   }
 
@@ -1174,14 +1186,19 @@ function renderStep6(container) {
 
     <div class="results-hero">
       <div class="results-top">
-        <div class="results-ring" style="background:conic-gradient(var(--accent-emerald) ${accuracy * 3.6}deg, rgba(255,255,255,0.05) 0deg);">
+        <div class="results-ring" style="background:conic-gradient(${tl.color} ${accuracy * 3.6}deg, rgba(255,255,255,0.05) 0deg);box-shadow:0 0 20px ${tl.glow};">
           <div class="results-ring-inner">
-            <span class="results-ring-pct">${accuracy}%</span>
+            <span class="results-ring-pct" style="color:${tl.color};">${accuracy}%</span>
           </div>
         </div>
         <div>
-          <div class="results-confidence-label">Confidence Level: ${confLabel}</div>
+          <div class="results-confidence-label" style="color:${tl.color};">Confidence Level: ${confLabel}</div>
           <div class="results-confidence-desc">${confDesc}</div>
+          <div class="results-traffic-lights" style="margin-top:10px;display:flex;gap:8px;">
+            <div class="traffic-dot" style="background:${accuracy >= 85 ? '#10b981' : 'rgba(255,255,255,0.1)'};box-shadow:${accuracy >= 85 ? '0 0 12px rgba(16,185,129,0.6)' : 'none'};"></div>
+            <div class="traffic-dot" style="background:${accuracy >= 70 && accuracy < 85 ? '#f59e0b' : 'rgba(255,255,255,0.1)'};box-shadow:${accuracy >= 70 && accuracy < 85 ? '0 0 12px rgba(245,158,11,0.6)' : 'none'};"></div>
+            <div class="traffic-dot" style="background:${accuracy < 70 ? '#ef4444' : 'rgba(255,255,255,0.1)'};box-shadow:${accuracy < 70 ? '0 0 12px rgba(239,68,68,0.6)' : 'none'};"></div>
+          </div>
         </div>
       </div>
       <div class="results-stats">
