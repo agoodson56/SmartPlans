@@ -9,9 +9,18 @@
 
 const GEMINI_CONFIG = {
   // Primary and backup API keys — auto-rotates on quota/rate limit errors
+  // Full 10-key pool for maximum failover resilience
   apiKeys: [
-    "AIzaSyAqm-Jayt-Ty1iTJTxH2oqWuvmfcUZQDqY",
-    "AIzaSyAmP2pnHqMvHe960AvxhGRmWr21Xb7Wpxw", // Backup API key for failover
+    "AIzaSyAmP2pnHqMvHe960AvxhGRmWr21Xb7Wpxw",
+    "AIzaSyCh6EA9MaR7Y1MjyjR7MCxPiGVzmGELBlQ",
+    "AIzaSyCP5H4QTimW7BtPJ8hSKVwb1SSdcOl6Yn0",
+    "AIzaSyD3psR7vaKT-iT8kMogICvhhsTne4Vbf9k",
+    "AIzaSyB3_d0qstDxwBDIEbLBlBB-_NbVzscHrp4",
+    "AIzaSyAcTkAiy4x6Lg3a2zudSaK4iBbtEqB1B34",
+    "AIzaSyAAN3Wlq3SCFrSoPo5lB9SGZuL6JxZvbj8",
+    "AIzaSyCgfEYz8tctigTM1_MkezeTBgzz92Rq8x4",
+    "AIzaSyDhf3K_y9HIQNYKvcdR2HEZSzPOQBmdh9w",
+    "AIzaSyB84NuoTxXeUz6gMHxEFpZFmyYrOIpLe4g",
   ],
   _currentKeyIndex: 0,
   model: "gemini-2.0-flash",
@@ -2569,6 +2578,16 @@ ${primaryAnalysis.substring(0, 28000)}
 // ═══════════════════════════════════════════════════════════════
 
 function renderAnalysis(container) {
+  // Build brain dashboard HTML
+  const brainRows = Object.entries(SmartBrains.BRAINS).map(([key, brain]) => {
+    const waveLabels = { 1: 'Document Intelligence', 2: 'Cost Engine', 3: 'Cross-Validation', 4: 'Report Synthesis' };
+    return `<div class="brain-row" id="brain-${key}" data-wave="${brain.wave}">
+      <span class="brain-emoji">${brain.emoji}</span>
+      <span class="brain-name">${brain.name}</span>
+      <span class="brain-status" id="brain-status-${key}">⏳ Pending</span>
+    </div>`;
+  }).join('');
+
   container.innerHTML = `
     <div class="analysis-overlay">
       <div class="analysis-ring" id="analysis-ring">
@@ -2576,9 +2595,28 @@ function renderAnalysis(container) {
           <span class="analysis-pct" id="analysis-pct">0%</span>
         </div>
       </div>
-      <div class="analysis-title">Analyzing Your Documents</div>
-      <div class="analysis-stage" id="analysis-stage">Initializing…</div>
+      <div class="analysis-title">🧠 Multi-Brain AI Analysis</div>
+      <div class="analysis-stage" id="analysis-stage">Initializing 10 specialized AI brains…</div>
       <div class="analysis-bar-track"><div class="analysis-bar-fill" id="analysis-bar"></div></div>
+
+      <div class="brain-dashboard" id="brain-dashboard">
+        <div class="brain-wave-header">WAVE 1 — Document Intelligence</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 1).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}
+        <div class="brain-wave-header">WAVE 2 — Cost Engine</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 2).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}
+        <div class="brain-wave-header">WAVE 3 — Cross-Validation</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 3).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}
+        <div class="brain-wave-header">WAVE 4 — Report Synthesis</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 4).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}
+      </div>
     </div>
   `;
 
@@ -2587,12 +2625,34 @@ function renderAnalysis(container) {
   const barEl = document.getElementById("analysis-bar");
   const ringEl = document.getElementById("analysis-ring");
 
-  function updateProgress(pct, text) {
+  function updateProgress(pct, text, brainStatus) {
     const p = Math.min(Math.round(pct), 100);
     pctEl.textContent = p + "%";
     barEl.style.width = p + "%";
     ringEl.style.background = `conic-gradient(var(--accent-sky) ${pct * 3.6}deg, rgba(255,255,255,0.05) 0deg)`;
     if (text) stageEl.textContent = text;
+
+    // Update brain dashboard
+    if (brainStatus) {
+      for (const [key, status] of Object.entries(brainStatus)) {
+        const el = document.getElementById(`brain-status-${key}`);
+        if (!el) continue;
+        const row = document.getElementById(`brain-${key}`);
+        if (status.status === 'done') {
+          el.textContent = '✅';
+          if (row) row.style.opacity = '1';
+        } else if (status.status === 'failed') {
+          el.textContent = '❌';
+          if (row) row.style.opacity = '0.5';
+        } else if (status.status === 'running' || status.status === 'active') {
+          el.textContent = '🔄';
+          if (row) row.style.opacity = '1';
+        } else {
+          el.textContent = '⏳';
+          if (row) row.style.opacity = '0.5';
+        }
+      }
+    }
   }
 
   // Check if we have any files with rawFile objects to send
@@ -2601,46 +2661,32 @@ function renderAnalysis(container) {
   ].some(f => f.rawFile);
 
   if (hasRawFiles) {
-    // Real Gemini API analysis
     runGeminiAnalysis(updateProgress);
   } else {
-    // Fallback: simulated analysis (no raw files available)
     runSimulatedAnalysis(updateProgress);
   }
 
-  renderFooter(); // hides footer
+  renderFooter();
 }
 
 async function runGeminiAnalysis(updateProgress) {
   try {
-    updateProgress(3, "Preparing documents…");
-    const result = await callGeminiAPI(updateProgress);
-    state.aiAnalysis = result;
+    updateProgress(2, "🧠 Launching Multi-Brain Engine…", null);
+
+    // ═══ USE MULTI-BRAIN ENGINE ═══
+    const result = await SmartBrains.runFullAnalysis(state, updateProgress);
+
+    state.aiAnalysis = result.report;
     state.aiError = null;
+    state.brainResults = result.brainResults;
+    state.brainStats = result.stats;
 
-    // ─── Phase 2: Automated Math Validation ───
-    updateProgress(96, "Running math validation…");
-    const mathIssues = validateAnalysisMath(result);
-    state.mathValidation = mathIssues;
+    // ─── Local Math Validation (belt and suspenders) ───
+    updateProgress(99, "Running local math validation…", result.brainStatus);
+    state.mathValidation = validateAnalysisMath(result.report);
+    state.sectionCompleteness = checkSectionCompleteness(result.report);
 
-    // ─── Phase 3: Section Completeness Check ───
-    updateProgress(97, "Checking section completeness…");
-    const missingReport = checkSectionCompleteness(result);
-    state.sectionCompleteness = missingReport;
-
-    // ─── Phase 4: AI Verification Pass (Second Brain) ───
-    updateProgress(98, "Running AI verification audit…");
-    try {
-      const verificationResult = await runVerificationPass(result, updateProgress);
-      if (verificationResult) {
-        state.aiAnalysis += "\n\n" + verificationResult;
-      }
-    } catch (verErr) {
-      console.warn('[SmartPlans] Verification pass failed (non-critical):', verErr.message);
-      state.aiAnalysis += "\n\n## ⚠️ VERIFICATION AUDIT\n*Automated verification pass could not complete. Manual review recommended.*\n";
-    }
-
-    updateProgress(100, "Analysis complete!");
+    updateProgress(100, `🎯 Analysis complete — ${result.stats.successfulBrains}/10 brains succeeded!`, result.brainStatus);
 
     setTimeout(() => {
       state.analyzing = false;
@@ -2650,21 +2696,44 @@ async function runGeminiAnalysis(updateProgress) {
       render();
       scrollContentTop();
       saveEstimate(true);
-    }, 600);
-  } catch (err) {
-    console.error("Gemini API Error:", err);
-    state.aiAnalysis = null;
-    state.aiError = err.message;
-    updateProgress(100, "Analysis complete (with errors)");
+    }, 800);
 
-    setTimeout(() => {
-      state.analyzing = false;
-      state.analysisComplete = true;
-      state.completedSteps.add("review");
-      state.currentStep = 6;
-      render();
-      scrollContentTop();
-    }, 600);
+  } catch (err) {
+    console.error("[SmartBrains] Multi-Brain Analysis Error:", err);
+
+    // ─── FALLBACK: Try legacy single-brain call ───
+    console.warn('[SmartBrains] Falling back to legacy single-brain analysis…');
+    try {
+      updateProgress(10, "Fallback: single-brain analysis…", null);
+      const legacyResult = await callGeminiAPI(updateProgress);
+      state.aiAnalysis = legacyResult;
+      state.aiError = null;
+      state.mathValidation = validateAnalysisMath(legacyResult);
+      state.sectionCompleteness = checkSectionCompleteness(legacyResult);
+
+      updateProgress(100, "Analysis complete (fallback mode)", null);
+      setTimeout(() => {
+        state.analyzing = false;
+        state.analysisComplete = true;
+        state.completedSteps.add("review");
+        state.currentStep = 6;
+        render();
+        scrollContentTop();
+        saveEstimate(true);
+      }, 600);
+    } catch (fallbackErr) {
+      state.aiAnalysis = null;
+      state.aiError = `Multi-Brain: ${err.message} | Fallback: ${fallbackErr.message}`;
+      updateProgress(100, "Analysis complete (with errors)", null);
+      setTimeout(() => {
+        state.analyzing = false;
+        state.analysisComplete = true;
+        state.completedSteps.add("review");
+        state.currentStep = 6;
+        render();
+        scrollContentTop();
+      }, 600);
+    }
   }
 }
 

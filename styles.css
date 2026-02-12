@@ -977,6 +977,82 @@ body {
   transition: width 0.25s linear;
 }
 
+/* ─── Brain Dashboard ─── */
+.brain-dashboard {
+  margin-top: 28px;
+  padding: 20px 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.brain-wave-header {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent-sky);
+  margin-top: 14px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.1);
+}
+
+.brain-wave-header:first-child {
+  margin-top: 0;
+}
+
+.brain-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  opacity: 0.5;
+}
+
+.brain-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.brain-emoji {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+}
+
+.brain-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.brain-status {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+  transition: all var(--transition-fast);
+}
+
+@keyframes brainPulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
 /* ─── Results Page ─── */
 .results-hero {
   padding: 28px;
