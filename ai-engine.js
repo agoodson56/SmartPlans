@@ -59,7 +59,8 @@ const SmartBrains = {
       'AIzaSyDhf3K_y9HIQNYKvcdR2HEZSzPOQBmdh9w',  // Brain 8: Cross Validator
       'AIzaSyB84NuoTxXeUz6gMHxEFpZFmyYrOIpLe4g',  // Brain 9: Report Synthesizer
     ],
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.0-flash',              // Fast model for Wave 1-2 (speed)
+    accuracyModel: 'gemini-2.5-flash',       // Smarter model for Wave 3-4 (accuracy)
     useProxy: false,
     proxyEndpoint: '/api/ai/invoke',
     maxRetries: 3,
@@ -80,8 +81,8 @@ const SmartBrains = {
     MATERIAL_PRICER: { id: 5, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 8192 },
     LABOR_CALCULATOR: { id: 6, name: 'Labor Calculator', wave: 2, emoji: '👷', needsFiles: [], maxTokens: 8192 },
     FINANCIAL_ENGINE: { id: 7, name: 'Financial Engine', wave: 2, emoji: '📊', needsFiles: [], maxTokens: 12288 },
-    CROSS_VALIDATOR: { id: 8, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 8192 },
-    REPORT_WRITER: { id: 9, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 32768 },
+    CROSS_VALIDATOR: { id: 8, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 8192, useAccuracyModel: true },
+    REPORT_WRITER: { id: 9, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 32768, useAccuracyModel: true },
   },
 
   // Brain status tracking for UI
@@ -210,7 +211,8 @@ const SmartBrains = {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const apiKey = this.config.apiKeys[keyIndex];
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.config.model}:generateContent?key=${apiKey}`;
+      const modelName = (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
       const parts = [{ text: promptText }, ...fileParts];
       const genConfig = {
@@ -294,6 +296,56 @@ const SmartBrains = {
       }
       return null;
     }
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // RESPONSE VALIDATION SCHEMAS — Required fields per brain
+  // ═══════════════════════════════════════════════════════════
+
+  _SCHEMAS: {
+    SYMBOL_SCANNER: ['sheets', 'totals'],
+    CODE_COMPLIANCE: ['issues', 'summary'],
+    MDF_IDF_ANALYZER: ['rooms'],
+    CABLE_PATHWAY: ['horizontal_cables', 'pathways'],
+    SPECIAL_CONDITIONS: ['equipment_rentals', 'permits'],
+    MATERIAL_PRICER: ['categories', 'grand_total'],
+    LABOR_CALCULATOR: ['phases', 'total_hours'],
+    FINANCIAL_ENGINE: ['sov', 'project_summary'],
+    CROSS_VALIDATOR: ['status', 'issues', 'confidence_score'],
+    // REPORT_WRITER returns markdown, no JSON schema
+  },
+
+  _validateBrainOutput(brainKey, parsed) {
+    // Skip validation for non-JSON brains (Report Writer)
+    if (brainKey === 'REPORT_WRITER') return { valid: true };
+    if (!parsed || parsed._parseFailed || parsed._failed) {
+      return { valid: false, reason: 'JSON parse failed or empty response' };
+    }
+
+    const schema = this._SCHEMAS[brainKey];
+    if (!schema) return { valid: true };
+
+    // Check required fields exist
+    const missing = schema.filter(field => !(field in parsed));
+    if (missing.length > 0) {
+      return { valid: false, reason: `Missing required fields: ${missing.join(', ')}` };
+    }
+
+    // ── Confidence-based check for Symbol Scanner ──
+    // If average confidence across all symbols is below 70%, flag for retry
+    if (brainKey === 'SYMBOL_SCANNER' && Array.isArray(parsed.sheets)) {
+      const allConfidences = parsed.sheets.flatMap(sheet =>
+        (sheet.symbols || []).map(sym => typeof sym.confidence === 'number' ? sym.confidence : 100)
+      );
+      if (allConfidences.length > 0) {
+        const avgConfidence = allConfidences.reduce((a, b) => a + b, 0) / allConfidences.length;
+        if (avgConfidence < 70) {
+          return { valid: false, reason: `Low confidence: ${avgConfidence.toFixed(0)}% avg (threshold: 70%). Retrying with enhanced prompt.` };
+        }
+      }
+    }
+
+    return { valid: true };
   },
 
   // ═══════════════════════════════════════════════════════════
@@ -811,7 +863,7 @@ Generate the COMPLETE report in markdown format. Every section must have real da
         this._brainStatus[key].status = 'running';
         progressCallback(baseProgress, `${brain.emoji} ${brain.name} analyzing…`, this._brainStatus);
 
-        const rawResult = await this._invokeBrain(key, brain, prompt, fileParts, useJsonMode);
+        let rawResult = await this._invokeBrain(key, brain, prompt, fileParts, useJsonMode);
 
         // Parse JSON for non-report brains
         let parsed;
@@ -823,6 +875,35 @@ Generate the COMPLETE report in markdown format. Every section must have real da
           }
         } else {
           parsed = rawResult; // Report writer returns markdown
+        }
+
+        // ── Schema Validation + Auto-Retry ──
+        const validation = this._validateBrainOutput(key, parsed);
+        if (!validation.valid) {
+          console.warn(`[Brain:${brain.name}] Validation failed: ${validation.reason}. Auto-retrying…`);
+          this._brainStatus[key].status = 'retrying';
+          progressCallback(baseProgress, `🔄 ${brain.name} retrying (${validation.reason})…`, this._brainStatus);
+
+          try {
+            // Retry with enhanced prompt prefix
+            const retryPrefix = 'IMPORTANT: Your previous response was incomplete or had issues. STRICTLY follow the JSON schema. Include ALL required fields. Be thorough.\n\n';
+            rawResult = await this._invokeBrain(key, brain, retryPrefix + prompt, fileParts, useJsonMode);
+            if (useJsonMode) {
+              const retryParsed = this._parseJSON(rawResult);
+              if (retryParsed) {
+                const retryValidation = this._validateBrainOutput(key, retryParsed);
+                if (retryValidation.valid) {
+                  parsed = retryParsed;
+                  console.log(`[Brain:${brain.name}] ✓ Retry succeeded — validation passed`);
+                } else {
+                  console.warn(`[Brain:${brain.name}] Retry still invalid: ${retryValidation.reason}. Using best result.`);
+                  parsed = retryParsed; // Use retry result even if imperfect — it's likely better
+                }
+              }
+            }
+          } catch (retryErr) {
+            console.warn(`[Brain:${brain.name}] Retry failed: ${retryErr.message}. Using original result.`);
+          }
         }
 
         this._brainStatus[key] = { status: 'done', progress: 100, result: parsed, error: null };
