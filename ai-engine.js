@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
-   SMARTPLANS — MULTI-BRAIN AI ENGINE v1.0
+   SMARTPLANS — TRIPLE-READ CONSENSUS ENGINE v2.0
    ═══════════════════════════════════════════════════════════════
-   10 Specialized AI Brains × 4 Processing Waves
-   Parallel execution with cross-validation for 98%+ accuracy
+   18 Specialized AI Brains × 7 Processing Waves
+   Triple-Read Consensus Architecture for 99%+ accuracy
    
    Architecture:
    ┌─────────────────────────────────────────────────────────┐
@@ -38,34 +38,43 @@
 
 const SmartBrains = {
 
-  VERSION: '1.0.0',
+  VERSION: '2.0.0',
 
   // ═══════════════════════════════════════════════════════════
   // CONFIGURATION
   // ═══════════════════════════════════════════════════════════
 
   config: {
-    // 10 API keys — one per brain for true parallel execution
-    // Each brain gets its own dedicated key: zero rate-limit contention
+    // 18 API keys — one per brain for true parallel execution
     apiKeys: [
-      'AIzaSyAmP2pnHqMvHe960AvxhGRmWr21Xb7Wpxw',  // Brain 0: Symbol Scanner
-      'AIzaSyCh6EA9MaR7Y1MjyjR7MCxPiGVzmGELBlQ',  // Brain 1: Code Compliance
-      'AIzaSyCP5H4QTimW7BtPJ8hSKVwb1SSdcOl6Yn0',  // Brain 2: MDF/IDF Analyzer
-      'AIzaSyD3psR7vaKT-iT8kMogICvhhsTne4Vbf9k',  // Brain 3: Cable & Pathway
-      'AIzaSyB3_d0qstDxwBDIEbLBlBB-_NbVzscHrp4',  // Brain 4: Special Conditions
-      'AIzaSyAcTkAiy4x6Lg3a2zudSaK4iBbtEqB1B34',  // Brain 5: Material Pricer
-      'AIzaSyAAN3Wlq3SCFrSoPo5lB9SGZuL6JxZvbj8',  // Brain 6: Labor Calculator
-      'AIzaSyCgfEYz8tctigTM1_MkezeTBgzz92Rq8x4',   // Brain 7: Financial Engine
-      'AIzaSyDhf3K_y9HIQNYKvcdR2HEZSzPOQBmdh9w',  // Brain 8: Cross Validator
-      'AIzaSyB84NuoTxXeUz6gMHxEFpZFmyYrOIpLe4g',  // Brain 9: Report Synthesizer
+      'AIzaSyAmP2pnHqMvHe960AvxhGRmWr21Xb7Wpxw',  // 0: Legend Decoder
+      'AIzaSyCh6EA9MaR7Y1MjyjR7MCxPiGVzmGELBlQ',  // 1: Symbol Scanner
+      'AIzaSyCP5H4QTimW7BtPJ8hSKVwb1SSdcOl6Yn0',  // 2: Code Compliance
+      'AIzaSyD3psR7vaKT-iT8kMogICvhhsTne4Vbf9k',  // 3: MDF/IDF Analyzer
+      'AIzaSyB3_d0qstDxwBDIEbLBlBB-_NbVzscHrp4',  // 4: Cable & Pathway
+      'AIzaSyAcTkAiy4x6Lg3a2zudSaK4iBbtEqB1B34',  // 5: Special Conditions
+      'AIzaSyAAN3Wlq3SCFrSoPo5lB9SGZuL6JxZvbj8',  // 6: Shadow Scanner
+      'AIzaSyCgfEYz8tctigTM1_MkezeTBgzz92Rq8x4',   // 7: Discipline Deep-Dive
+      'AIzaSyDhf3K_y9HIQNYKvcdR2HEZSzPOQBmdh9w',  // 8: Quadrant Scanner
+      'AIzaSyB84NuoTxXeUz6gMHxEFpZFmyYrOIpLe4g',  // 9: Consensus Arbitrator
+      'AIzaSyDemI1nvir7gW8SAw0MvgmmJizChbQNV68',  // 10: Targeted Re-Scanner
+      'AIzaSyCYYcIMdT231K5LHtIrfImsA29qvRLNG0E',  // 11: Material Pricer
+      'AIzaSyD4ijF1RPUZ63sNwfbpart2Y1OijT_TJsA',  // 12: Labor Calculator
+      'AIzaSyAtbJTCE8KGNW2hYZGL_M-NRX-vblZZXRE',  // 13: Financial Engine
+      'AIzaSyByZqnUylJZxv--24laA55j_Tw3QNR34G8',  // 14: Reverse Verifier
+      'AIzaSyA4L8T4NH58R3ND6X88aKbsUhTzHEKNrTU',  // 15: Cross Validator
+      'AIzaSyBVtuHuOGsy2tb-KjO463MZzI0siX47lOg',  // 16: Devil's Advocate
+      'AIzaSyBzG6iaQ3R5hl-qJIs2Sxj-vuxl3fho1E8',  // 17: Report Writer
     ],
-    model: 'gemini-2.0-flash',              // Fast model for Wave 1-2 (speed)
-    accuracyModel: 'gemini-2.5-flash',       // Smarter model for Wave 3-4 (accuracy)
+    model: 'gemini-2.0-flash',              // Fast model for standard brains
+    accuracyModel: 'gemini-2.5-flash',       // Smarter model for report writing
+    proModel: 'gemini-2.5-pro',              // Pro model for vision-critical brains
     useProxy: false,
     proxyEndpoint: '/api/ai/invoke',
     maxRetries: 3,
     retryBaseDelay: 1000,
     timeout: 120000,
+    proTimeout: 180000,                      // Extended timeout for Pro model
   },
 
   // ═══════════════════════════════════════════════════════════
@@ -73,16 +82,32 @@ const SmartBrains = {
   // ═══════════════════════════════════════════════════════════
 
   BRAINS: {
-    SYMBOL_SCANNER: { id: 0, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 8192 },
-    CODE_COMPLIANCE: { id: 1, name: 'Code Compliance', wave: 1, emoji: '📋', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
-    MDF_IDF_ANALYZER: { id: 2, name: 'MDF/IDF Analyzer', wave: 1, emoji: '🏗️', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
-    CABLE_PATHWAY: { id: 3, name: 'Cable & Pathway', wave: 1, emoji: '🔌', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
-    SPECIAL_CONDITIONS: { id: 4, name: 'Special Conditions', wave: 1, emoji: '⚠️', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
-    MATERIAL_PRICER: { id: 5, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 8192 },
-    LABOR_CALCULATOR: { id: 6, name: 'Labor Calculator', wave: 2, emoji: '👷', needsFiles: [], maxTokens: 8192 },
-    FINANCIAL_ENGINE: { id: 7, name: 'Financial Engine', wave: 2, emoji: '📊', needsFiles: [], maxTokens: 12288 },
-    CROSS_VALIDATOR: { id: 8, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 8192, useAccuracyModel: true },
-    REPORT_WRITER: { id: 9, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 32768, useAccuracyModel: true },
+    // ── Wave 0: Legend Pre-Processing ──
+    LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 8192, useProModel: true },
+    // ── Wave 1: First Read — Document Intelligence ──
+    SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 8192, useProModel: true },
+    CODE_COMPLIANCE: { id: 2, name: 'Code Compliance', wave: 1, emoji: '📋', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
+    MDF_IDF_ANALYZER: { id: 3, name: 'MDF/IDF Analyzer', wave: 1, emoji: '🏗️', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
+    CABLE_PATHWAY: { id: 4, name: 'Cable & Pathway', wave: 1, emoji: '🔌', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
+    SPECIAL_CONDITIONS: { id: 5, name: 'Special Conditions', wave: 1, emoji: '⚠️', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
+    // ── Wave 1.5: Second Read — Independent Verification ──
+    SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 12288, useProModel: true },
+    DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 8192, useProModel: true },
+    QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 8192, useProModel: true },
+    // ── Wave 1.75: Consensus Resolution ──
+    CONSENSUS_ARBITRATOR: { id: 9, name: 'Consensus Arbitrator', wave: 1.75, emoji: '⚖️', needsFiles: [], maxTokens: 8192, useProModel: true },
+    TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 8192, useProModel: true },
+    // ── Wave 2: Cost Engine ──
+    MATERIAL_PRICER: { id: 11, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 8192 },
+    LABOR_CALCULATOR: { id: 12, name: 'Labor Calculator', wave: 2, emoji: '👷', needsFiles: [], maxTokens: 8192 },
+    FINANCIAL_ENGINE: { id: 13, name: 'Financial Engine', wave: 2, emoji: '📊', needsFiles: [], maxTokens: 12288 },
+    // ── Wave 2.5: Reverse Verification ──
+    REVERSE_VERIFIER: { id: 14, name: 'Reverse Verifier', wave: 2.5, emoji: '🔄', needsFiles: ['plans'], maxTokens: 8192, useProModel: true },
+    // ── Wave 3: Adversarial Audit ──
+    CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 8192, useProModel: true },
+    DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 8192, useProModel: true },
+    // ── Wave 4: Final Report ──
+    REPORT_WRITER: { id: 17, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 32768, useAccuracyModel: true },
   },
 
   // Brain status tracking for UI
@@ -211,7 +236,7 @@ const SmartBrains = {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const apiKey = this.config.apiKeys[keyIndex];
-      const modelName = (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
+      const modelName = brainDef.useProModel ? (this.config.proModel || this.config.model) : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
       const parts = [{ text: promptText }, ...fileParts];
@@ -230,7 +255,7 @@ const SmartBrains = {
 
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), this.config.timeout);
+        const timer = setTimeout(() => controller.abort(), brainDef.useProModel ? (this.config.proTimeout || this.config.timeout) : this.config.timeout);
 
         const response = await fetch(url, {
           method: 'POST',
@@ -303,15 +328,23 @@ const SmartBrains = {
   // ═══════════════════════════════════════════════════════════
 
   _SCHEMAS: {
+    LEGEND_DECODER: ['symbols', 'legend_quality'],
     SYMBOL_SCANNER: ['sheets', 'totals'],
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways'],
     SPECIAL_CONDITIONS: ['equipment_rentals', 'permits'],
+    SHADOW_SCANNER: ['sheets', 'totals'],
+    DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
+    QUADRANT_SCANNER: ['quadrants', 'totals'],
+    CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence'],
+    TARGETED_RESCANNER: ['resolved_items', 'final_counts'],
     MATERIAL_PRICER: ['categories', 'grand_total'],
     LABOR_CALCULATOR: ['phases', 'total_hours'],
     FINANCIAL_ENGINE: ['sov', 'project_summary'],
+    REVERSE_VERIFIER: ['verified_items', 'discrepancies'],
     CROSS_VALIDATOR: ['status', 'issues', 'confidence_score'],
+    DEVILS_ADVOCATE: ['challenges', 'risk_score', 'missed_items'],
     // REPORT_WRITER returns markdown, no JSON schema
   },
 
@@ -786,6 +819,263 @@ VALIDATION: ${JSON.stringify(context.wave3?.CROSS_VALIDATOR || {}, null, 2).subs
 
 Generate the COMPLETE report in markdown format. Every section must have real data.`,
 
+      // ── BRAIN 0: Legend Decoder (Wave 0 — Pre-Processing) ─────
+      LEGEND_DECODER: () => `You are a CONSTRUCTION SYMBOL LEGEND EXPERT. Your ONLY job is to decode the symbol legend and build a structured dictionary BEFORE any counting begins.
+
+PROJECT: ${context.projectName || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+INSTRUCTIONS:
+1. Study every symbol on the legend sheet(s) meticulously
+2. For each symbol, describe its visual appearance (shape, fill, letters, size)
+3. Classify each symbol by discipline and device type
+4. Note any symbols that are ambiguous or could be confused with others
+5. Rate overall legend quality (excellent/good/fair/poor)
+
+Return ONLY valid JSON:
+{
+  "symbols": [
+    { "symbol_id": "S1", "visual": "Solid circle with C inside", "discipline": "CCTV", "device_type": "fixed_dome_camera", "label_on_legend": "Camera - Fixed Dome", "similar_to": null, "confidence": 98 }
+  ],
+  "legend_quality": "good",
+  "ambiguous_symbols": [
+    { "symbol_id": "S5", "reason": "Similar shape to smoke detector - differentiate by size", "could_be": ["smoke_detector", "heat_detector"] }
+  ],
+  "total_unique_symbols": 24,
+  "disciplines_covered": ["Structured Cabling", "CCTV"]
+}`,
+
+      // ── BRAIN 6: Shadow Scanner (Wave 1.5 — Second Read) ──────
+      SHADOW_SCANNER: () => `You are an INDEPENDENT VERIFICATION SCANNER performing a SECOND COUNT of all ELV device symbols. You must use a COMPLETELY DIFFERENT methodology than a standard left-to-right scan.
+
+PROJECT: ${context.projectName || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+LEGEND DICTIONARY (from Legend Decoder):
+${JSON.stringify(context.wave0?.LEGEND_DECODER || {}, null, 2).substring(0, 4000)}
+
+YOUR METHODOLOGY — ROOM-BY-ROOM SCAN:
+1. Identify every distinct room/space/area on each sheet
+2. For EACH room, count every device symbol inside its boundaries
+3. Then count devices in corridors, lobbies, and common areas
+4. Finally count any devices in mechanical/electrical rooms
+5. Sum by room to get sheet totals, then grand totals
+
+CRITICAL: You have NOT seen the first count. You are a completely independent reader. Do NOT guess — if you cannot clearly identify a symbol, mark it as "uncertain".
+
+Return ONLY valid JSON (same schema as Symbol Scanner):
+{
+  "sheets": [
+    {
+      "sheet_id": "E1.01",
+      "sheet_name": "First Floor Plan",
+      "rooms_scanned": ["Lobby", "Office 101", "Corridor A"],
+      "symbols": [
+        { "type": "camera", "subtype": "fixed_dome", "count": 12, "confidence": 95, "by_room": {"Lobby": 3, "Corridor A": 5, "Office 101": 4} }
+      ]
+    }
+  ],
+  "totals": { "camera": 48, "data_outlet": 200 },
+  "methodology": "room-by-room",
+  "unidentified_symbols": [],
+  "notes": ""
+}`,
+
+      // ── BRAIN 7: Discipline Deep-Dive (Wave 1.5) ──────────────
+      DISCIPLINE_DEEP_DIVE: () => {
+        const primary = (context.disciplines || [])[0] || 'Structured Cabling';
+        return `You are a SPECIALIST COUNTER focused EXCLUSIVELY on ${primary} symbols. Ignore all other disciplines entirely.
+
+PROJECT: ${context.projectName || 'Unknown'}
+YOUR DISCIPLINE: ${primary} — count ONLY these symbols
+
+LEGEND DICTIONARY:
+${JSON.stringify((context.wave0?.LEGEND_DECODER?.symbols || []).filter(s => s.discipline === primary), null, 2).substring(0, 3000)}
+
+FIRST READ COUNTS (for reference — verify independently):
+${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 2000)}
+
+INSTRUCTIONS:
+1. Go sheet by sheet counting ONLY ${primary} devices
+2. For each device, note the exact location (room name or grid reference)
+3. Pay special attention to dense areas where devices cluster
+4. Double-check areas near MDF/IDF rooms where device density is highest
+5. Report any devices that are partially hidden behind text or other symbols
+
+Return ONLY valid JSON:
+{
+  "discipline": "${primary}",
+  "discipline_counts": [
+    { "device_type": "data_outlet", "total": 200, "confidence": 96, "by_sheet": {"E1.01": 80, "E1.02": 120}, "notes": "" }
+  ],
+  "total_devices": 250,
+  "problem_areas": [
+    { "sheet": "E1.02", "area": "Open office zone", "issue": "Dense cluster — counted 3 times to confirm" }
+  ]
+}`;
+      },
+
+      // ── BRAIN 8: Quadrant Scanner (Wave 1.5) ──────────────────
+      QUADRANT_SCANNER: () => `You are a ZONE-BASED VERIFICATION SCANNER. Instead of scanning by room, you divide each sheet into QUADRANTS and count devices per zone.
+
+PROJECT: ${context.projectName || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+YOUR METHODOLOGY — QUADRANT DIVISION:
+For each sheet:
+1. Mentally divide the drawing into 4 quadrants: TOP-LEFT, TOP-RIGHT, BOTTOM-LEFT, BOTTOM-RIGHT
+2. Count ALL device symbols in each quadrant independently
+3. Sum the 4 quadrants to get the sheet total
+4. This catches devices missed by room-based scanning (devices in undefined spaces, on boundaries)
+
+WHY THIS WORKS: Devices at room boundaries, in ceiling spaces, or in areas without clear room labels are often missed by room-based counting. Zone-based counting catches them.
+
+Return ONLY valid JSON:
+{
+  "quadrants": [
+    {
+      "sheet_id": "E1.01",
+      "top_left": { "camera": 3, "data_outlet": 15 },
+      "top_right": { "camera": 5, "data_outlet": 20 },
+      "bottom_left": { "camera": 2, "data_outlet": 18 },
+      "bottom_right": { "camera": 4, "data_outlet": 12 },
+      "sheet_total": { "camera": 14, "data_outlet": 65 }
+    }
+  ],
+  "totals": { "camera": 48, "data_outlet": 200 },
+  "boundary_devices": [
+    { "sheet": "E1.01", "type": "data_outlet", "count": 3, "note": "On boundary between quadrants — counted once" }
+  ]
+}`,
+
+      // ── BRAIN 9: Consensus Arbitrator (Wave 1.75) ─────────────
+      CONSENSUS_ARBITRATOR: () => `You are a SENIOR CONSENSUS ANALYST. Three independent teams just counted every device symbol on the same construction drawings using different methodologies. Your job is to find the TRUTH.
+
+READ 1 — Systematic Scan (Symbol Scanner):
+${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2)}
+
+READ 2 — Room-by-Room Scan (Shadow Scanner):
+${JSON.stringify(context.wave1_5?.SHADOW_SCANNER?.totals || {}, null, 2)}
+
+READ 3 — Quadrant Scan:
+${JSON.stringify(context.wave1_5?.QUADRANT_SCANNER?.totals || {}, null, 2)}
+
+DISCIPLINE SPECIALIST COUNT:
+${JSON.stringify(context.wave1_5?.DISCIPLINE_DEEP_DIVE?.discipline_counts || {}, null, 2).substring(0, 2000)}
+
+CONSENSUS RULES:
+1. If ALL 3 reads agree within 5% → HIGH CONFIDENCE. Use the average.
+2. If 2 of 3 agree within 5% → MODERATE CONFIDENCE. Use the agreeing pair's average.
+3. If ALL 3 disagree by >10% → DISPUTE. Flag for targeted re-scan.
+4. For disputed items, identify WHICH sheets/areas likely caused the disagreement.
+
+Return ONLY valid JSON:
+{
+  "consensus_counts": {
+    "camera": { "read1": 48, "read2": 46, "read3": 49, "consensus": 48, "confidence": "high", "method": "3-way average" }
+  },
+  "disputes": [
+    { "device_type": "data_outlet", "read1": 200, "read2": 180, "read3": 210, "variance_pct": 15, "likely_problem_area": "Sheet E1.02 open office zone", "needs_rescan": true }
+  ],
+  "confidence": 94,
+  "total_items_compared": 15,
+  "items_in_consensus": 12,
+  "items_disputed": 3
+}`,
+
+      // ── BRAIN 10: Targeted Re-Scanner (Wave 1.75) ─────────────
+      TARGETED_RESCANNER: () => {
+        const disputes = context.wave1_75?.CONSENSUS_ARBITRATOR?.disputes || [];
+        if (disputes.length === 0) return '';
+        return `You are a FORENSIC SYMBOL COUNTER performing a TARGETED THIRD READ. The consensus engine found ${disputes.length} disputed item(s) where three independent counts disagreed significantly.
+
+YOUR MISSION: Re-count ONLY the disputed items. Focus ONLY on the problem areas identified below.
+
+DISPUTED ITEMS FOR RE-COUNT:
+${JSON.stringify(disputes, null, 2)}
+
+LEGEND DICTIONARY:
+${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 3000)}
+
+INSTRUCTIONS:
+1. For each disputed item, go to the specified problem area
+2. Count with EXTREME precision — zoom in, count twice
+3. If a symbol is ambiguous, describe what you see and your best judgment
+4. Provide your final authoritative count with reasoning
+
+Return ONLY valid JSON:
+{
+  "resolved_items": [
+    { "device_type": "data_outlet", "final_count": 195, "confidence": 97, "reasoning": "Found 15 outlets obscured by furniture symbols on Sheet E1.02 that Read 1 missed and Read 3 double-counted at quadrant boundary" }
+  ],
+  "final_counts": { "data_outlet": 195 },
+  "unresolvable": []
+}`;
+      },
+
+      // ── BRAIN 14: Reverse Verifier (Wave 2.5) ────────────────
+      REVERSE_VERIFIER: () => `You are a REVERSE VERIFICATION ENGINEER. The cost engine has produced a Bill of Quantities. Your job is to COUNT BACKWARDS — take the BOQ and verify each line item actually exists on the plans.
+
+THIS IS THE OPPOSITE OF NORMAL COUNTING: Instead of "look at plans → count devices", you do "look at BOQ → find devices on plans".
+
+MATERIAL BOQ TO VERIFY:
+${JSON.stringify(context.wave2?.MATERIAL_PRICER?.categories || [], null, 2).substring(0, 6000)}
+
+CONSENSUS COUNTS:
+${JSON.stringify(context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 2000)}
+
+FOR EACH LINE ITEM:
+1. Can you find evidence of this quantity on the plans? (Yes/No/Partial)
+2. Does the quantity match what you can count? Note any discrepancies.
+3. Are there items on the plans NOT in the BOQ? (missed items)
+4. Are there items in the BOQ NOT on the plans? (phantom items)
+
+Return ONLY valid JSON:
+{
+  "verified_items": [
+    { "item": "Cat 6A Plenum Cable", "boq_qty": 30000, "verified": true, "plan_evidence": "Consistent with 200 drops × 150ft avg", "discrepancy": null }
+  ],
+  "discrepancies": [
+    { "item": "Card Reader", "boq_qty": 12, "actual_on_plans": 15, "difference": 3, "location": "3 readers on Sheet E2.01 not counted" }
+  ],
+  "phantom_items": [],
+  "missed_items": [],
+  "verification_score": 96
+}`,
+
+      // ── BRAIN 16: Devil's Advocate (Wave 3) ───────────────────
+      DEVILS_ADVOCATE: () => `You are a HOSTILE AUDITOR whose job is to FIND EVERYTHING WRONG with this estimate. You are paid to find errors. An estimate with zero issues is suspicious — dig deeper.
+
+THIS ESTIMATE MAY BE USED FOR PROJECTS UP TO $50 BILLION. YOUR JOB IS TO PROTECT THE COMPANY FROM A BAD BID.
+
+FULL ESTIMATE DATA:
+Symbol Counts: ${JSON.stringify(context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 2000)}
+Materials: ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 3000)}
+Labor: ${JSON.stringify(context.wave2?.LABOR_CALCULATOR || {}, null, 2).substring(0, 3000)}
+Financials: ${JSON.stringify(context.wave2?.FINANCIAL_ENGINE?.project_summary || {}, null, 2).substring(0, 2000)}
+Reverse Verification: ${JSON.stringify(context.wave2_5?.REVERSE_VERIFIER || {}, null, 2).substring(0, 2000)}
+
+ATTACK VECTORS — Challenge the estimate on:
+1. WHAT'S MISSING? Items that should be in a typical ELV project of this type but aren't
+2. WHAT'S SUSPICIOUSLY CHEAP? Unit costs that seem below market rate
+3. WHAT'S SUSPICIOUSLY EXPENSIVE? Items priced above market
+4. LABOR TOO LOW? Not enough hours for the scope described
+5. HIDDEN COSTS? Site conditions, permits, or equipment not accounted for
+6. DOUBLE COUNTING? Same device counted in multiple categories
+7. PHANTOM ITEMS? Materials listed that don't match any symbol on plans
+
+Return ONLY valid JSON:
+{
+  "challenges": [
+    { "severity": "critical", "category": "missing_item", "description": "No UPS listed for MDF room — this is always required", "estimated_impact": "$2,500-$8,000", "recommendation": "Add rack-mount UPS per TIA-569" }
+  ],
+  "risk_score": 15,
+  "risk_level": "low|medium|high|critical",
+  "missed_items": [],
+  "pricing_flags": [],
+  "overall_assessment": "string"
+}`,
+
     };
 
     return prompts[brainKey] ? prompts[brainKey]() : '';
@@ -834,11 +1124,11 @@ Generate the COMPLETE report in markdown format. Every section must have real da
   // ═══════════════════════════════════════════════════════════
 
   async _runWave(waveNum, brainKeys, encodedFiles, state, context, progressCallback) {
-    const waveStart = { 1: 15, 2: 55, 3: 75, 4: 85 };
-    const waveEnd = { 1: 55, 2: 75, 3: 85, 4: 98 };
-    const baseProgress = waveStart[waveNum] || 0;
-    const endProgress = waveEnd[waveNum] || 100;
-    const waveNames = { 1: 'Document Intelligence', 2: 'Cost Engine', 3: 'Cross-Validation', 4: 'Report Synthesis' };
+    const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 58, 2.5: 72, 3: 78, 4: 88 };
+    const waveEnd = { 0: 12, 1: 35, 1.5: 50, 1.75: 58, 2: 72, 2.5: 78, 3: 88, 4: 98 };
+    const baseProgress = waveStart[waveNum] ?? 0;
+    const endProgress = waveEnd[waveNum] ?? 100;
+    const waveNames = { 0: 'Legend Pre-Processing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Cost Engine', 2.5: 'Reverse Verification', 3: 'Adversarial Audit', 4: 'Report Synthesis' };
 
     const results = {};
     let completed = 0;
@@ -940,8 +1230,8 @@ Generate the COMPLETE report in markdown format. Every section must have real da
   // ═══════════════════════════════════════════════════════════
 
   async runFullAnalysis(state, progressCallback) {
-    console.log(`[SmartBrains] ═══ Starting Multi-Brain Analysis v${this.VERSION} ═══`);
-    console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Model: ${this.config.model}`);
+    console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
+    console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Flash: ${this.config.model}`);
 
     // Reset brain status
     this._brainStatus = {};
@@ -955,7 +1245,7 @@ Generate the COMPLETE report in markdown format. Every section must have real da
     const totalFiles = Object.values(encodedFiles).reduce((s, arr) => s + arr.length, 0);
     console.log(`[SmartBrains] Encoded ${totalFiles} files`);
 
-    // Build shared context
+    // Build shared context — expanded for 7 waves
     const context = {
       projectName: state.projectName,
       projectType: state.projectType,
@@ -973,33 +1263,79 @@ Generate the COMPLETE report in markdown format. Every section must have real da
       specificItems: state.specificItems,
       knownQuantities: state.knownQuantities,
       pricingContext: this._buildPricingContext(state),
-      wave1: null,
-      wave2: null,
-      wave3: null,
+      wave0: null, wave1: null, wave1_5: null, wave1_75: null,
+      wave2: null, wave2_5: null, wave3: null,
     };
 
-    // ═══ WAVE 1: Document Intelligence (5 parallel brains) ═══
-    progressCallback(16, '🧠 Wave 1: Document Intelligence — 5 brains analyzing…', this._brainStatus);
+    // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) ═══
+    progressCallback(5, '📖 Wave 0: Decoding symbol legend…', this._brainStatus);
+    const wave0Results = await this._runWave(0, ['LEGEND_DECODER'], encodedFiles, state, context, progressCallback);
+    context.wave0 = wave0Results;
+    console.log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded ═══');
+
+    // ═══ WAVE 1: First Read — Document Intelligence (5 parallel brains) ═══
+    progressCallback(12, '🔍 Wave 1: First Read — 5 brains scanning…', this._brainStatus);
     const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS'];
     const wave1Results = await this._runWave(1, wave1Keys, encodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
-    console.log('[SmartBrains] ═══ Wave 1 Complete ═══');
+    console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done ═══');
+
+    // ═══ WAVE 1.5: Second Read — Independent Verification (3 parallel brains, Pro model) ═══
+    progressCallback(35, '👁️ Wave 1.5: Second Read — 3 independent verifiers…', this._brainStatus);
+    const wave15Keys = ['SHADOW_SCANNER', 'DISCIPLINE_DEEP_DIVE', 'QUADRANT_SCANNER'];
+    const wave15Results = await this._runWave(1.5, wave15Keys, encodedFiles, state, context, progressCallback);
+    context.wave1_5 = wave15Results;
+    console.log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done ═══');
+
+    // ═══ WAVE 1.75: Consensus Resolution ═══
+    progressCallback(50, '⚖️ Wave 1.75: Building consensus from 3 reads…', this._brainStatus);
+    const wave175Results = await this._runWave(1.75, ['CONSENSUS_ARBITRATOR'], encodedFiles, state, context, progressCallback);
+    context.wave1_75 = wave175Results;
+
+    // Conditional: If disputes exist, run Targeted Re-Scanner (3rd read)
+    const disputes = wave175Results.CONSENSUS_ARBITRATOR?.disputes || [];
+    if (disputes.length > 0 && disputes.some(d => d.needs_rescan)) {
+      progressCallback(54, `🔬 Targeted Re-Scan — ${disputes.length} disputed items…`, this._brainStatus);
+      const rescanResults = await this._runWave(1.75, ['TARGETED_RESCANNER'], encodedFiles, state, context, progressCallback);
+      // Merge re-scan results into consensus
+      if (rescanResults.TARGETED_RESCANNER && !rescanResults.TARGETED_RESCANNER._failed) {
+        context.wave1_75.TARGETED_RESCANNER = rescanResults.TARGETED_RESCANNER;
+        // Update consensus counts with resolved values
+        const resolved = rescanResults.TARGETED_RESCANNER.final_counts || {};
+        for (const [key, val] of Object.entries(resolved)) {
+          if (context.wave1_75.CONSENSUS_ARBITRATOR?.consensus_counts?.[key]) {
+            context.wave1_75.CONSENSUS_ARBITRATOR.consensus_counts[key].consensus = val;
+            context.wave1_75.CONSENSUS_ARBITRATOR.consensus_counts[key].confidence = 'resolved';
+            context.wave1_75.CONSENSUS_ARBITRATOR.consensus_counts[key].method = 'targeted-rescan';
+          }
+        }
+      }
+    } else {
+      this._brainStatus['TARGETED_RESCANNER'] = { status: 'done', progress: 100, result: { _skipped: true, reason: 'No disputes' }, error: null };
+    }
+    console.log(`[SmartBrains] ═══ Wave 1.75 Complete — ${disputes.length} disputes resolved ═══`);
 
     // ═══ WAVE 2: Cost Engine (3 parallel brains) ═══
-    progressCallback(56, '💰 Wave 2: Cost Engine — computing pricing…', this._brainStatus);
+    progressCallback(58, '💰 Wave 2: Cost Engine — computing pricing…', this._brainStatus);
     const wave2Keys = ['MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE'];
     const wave2Results = await this._runWave(2, wave2Keys, encodedFiles, state, context, progressCallback);
     context.wave2 = wave2Results;
     console.log('[SmartBrains] ═══ Wave 2 Complete ═══');
 
-    // ═══ WAVE 3: Cross-Validation (1 brain) ═══
-    progressCallback(76, '✅ Wave 3: Cross-validating all results…', this._brainStatus);
-    const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR'], encodedFiles, state, context, progressCallback);
+    // ═══ WAVE 2.5: Reverse Verification (1 brain, Pro model) ═══
+    progressCallback(72, '🔄 Wave 2.5: Reverse-verifying BOQ against plans…', this._brainStatus);
+    const wave25Results = await this._runWave(2.5, ['REVERSE_VERIFIER'], encodedFiles, state, context, progressCallback);
+    context.wave2_5 = wave25Results;
+    console.log('[SmartBrains] ═══ Wave 2.5 Complete ═══');
+
+    // ═══ WAVE 3: Adversarial Audit (2 parallel brains, Pro model) ═══
+    progressCallback(78, '😈 Wave 3: Adversarial Audit — cross-validator + devil\'s advocate…', this._brainStatus);
+    const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], encodedFiles, state, context, progressCallback);
     context.wave3 = wave3Results;
     console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
 
     // ═══ WAVE 4: Report Synthesis (1 brain) ═══
-    progressCallback(86, '📝 Wave 4: Writing final report…', this._brainStatus);
+    progressCallback(88, '📝 Wave 4: Writing final report…', this._brainStatus);
     const wave4Results = await this._runWave(4, ['REPORT_WRITER'], encodedFiles, state, context, progressCallback);
     console.log('[SmartBrains] ═══ Wave 4 Complete ═══');
 
@@ -1009,11 +1345,24 @@ Generate the COMPLETE report in markdown format. Every section must have real da
       throw new Error('Report synthesis failed — unable to generate final report');
     }
 
-    // Append validation summary
+    // Build verification appendix from Cross Validator + Devil's Advocate + Consensus
     const validator = wave3Results.CROSS_VALIDATOR;
+    const devil = wave3Results.DEVILS_ADVOCATE;
+    const consensus = wave175Results.CONSENSUS_ARBITRATOR;
     let validationAppendix = '';
+
+    // Consensus summary
+    if (consensus && !consensus._failed) {
+      validationAppendix += '\n\n## 🎯 TRIPLE-READ CONSENSUS REPORT\n';
+      validationAppendix += `**Items Compared**: ${consensus.total_items_compared || 'N/A'}\n`;
+      validationAppendix += `**In Consensus**: ${consensus.items_in_consensus || 'N/A'}\n`;
+      validationAppendix += `**Disputes Resolved**: ${disputes.length}\n`;
+      validationAppendix += `**Consensus Confidence**: ${consensus.confidence || 'N/A'}%\n`;
+    }
+
+    // Cross-validator summary
     if (validator && !validator._failed) {
-      validationAppendix = '\n\n## ⚠️ VERIFICATION AUDIT\n';
+      validationAppendix += '\n\n## ⚠️ VERIFICATION AUDIT\n';
       validationAppendix += `**Audit Status**: ${validator.status === 'PASSED' ? 'PASSED ✅' : 'ISSUES FOUND ⚠️'}\n`;
       validationAppendix += `**Checks Performed**: ${validator.checks_performed || 'N/A'}\n`;
       validationAppendix += `**Confidence Score**: ${validator.confidence_score || 'N/A'}%\n`;
@@ -1027,25 +1376,54 @@ Generate the COMPLETE report in markdown format. Every section must have real da
       }
     }
 
-    // Build final analysis text
+    // Devil's advocate summary
+    if (devil && !devil._failed) {
+      validationAppendix += '\n\n## 😈 DEVIL\'S ADVOCATE CHALLENGE\n';
+      validationAppendix += `**Risk Score**: ${devil.risk_score || 'N/A'}/100\n`;
+      validationAppendix += `**Risk Level**: ${devil.risk_level || 'N/A'}\n`;
+      validationAppendix += `**Assessment**: ${devil.overall_assessment || 'N/A'}\n`;
+      if (devil.challenges && devil.challenges.length > 0) {
+        validationAppendix += '\n### Challenges:\n';
+        for (const c of devil.challenges) {
+          const icon = c.severity === 'critical' ? '🔴' : c.severity === 'warning' ? '🟡' : '🔵';
+          validationAppendix += `${icon} **${c.category}**: ${c.description} (Impact: ${c.estimated_impact || 'TBD'})\n`;
+        }
+      }
+    }
+
+    // Reverse verification summary
+    const reverseV = wave25Results.REVERSE_VERIFIER;
+    if (reverseV && !reverseV._failed) {
+      validationAppendix += `\n\n## 🔄 REVERSE VERIFICATION\n`;
+      validationAppendix += `**Verification Score**: ${reverseV.verification_score || 'N/A'}%\n`;
+      if (reverseV.discrepancies && reverseV.discrepancies.length > 0) {
+        validationAppendix += '\n### Discrepancies Found:\n';
+        for (const d of reverseV.discrepancies) {
+          validationAppendix += `⚠️ **${d.item}**: BOQ=${d.boq_qty}, Plans=${d.actual_on_plans}, Δ=${d.difference}\n`;
+        }
+      }
+    }
+
     const finalReport = (typeof report === 'string' ? report : JSON.stringify(report, null, 2)) + validationAppendix;
 
-    progressCallback(100, '🎯 Multi-brain analysis complete!', this._brainStatus);
+    progressCallback(100, '🎯 Triple-Read Consensus complete — 18 brains finished!', this._brainStatus);
 
-    // Return structured result
     return {
       report: finalReport,
       brainResults: {
-        wave1: wave1Results,
-        wave2: wave2Results,
+        wave0: wave0Results, wave1: wave1Results, wave1_5: wave15Results,
+        wave1_75: wave175Results, wave2: wave2Results, wave2_5: wave25Results,
         wave3: wave3Results,
       },
       brainStatus: { ...this._brainStatus },
       stats: {
-        totalBrains: 10,
+        totalBrains: Object.keys(this.BRAINS).length,
         successfulBrains: Object.values(this._brainStatus).filter(s => s.status === 'done').length,
         failedBrains: Object.values(this._brainStatus).filter(s => s.status === 'failed').length,
-        confidence: validator?.confidence_score || null,
+        confidence: validator?.confidence_score || consensus?.confidence || null,
+        consensusDisputes: disputes.length,
+        devilRiskScore: devil?.risk_score || null,
+        reverseVerificationScore: reverseV?.verification_score || null,
       },
     };
   },

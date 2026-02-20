@@ -2612,20 +2612,36 @@ function renderAnalysis(container) {
           <span class="analysis-pct" id="analysis-pct">0%</span>
         </div>
       </div>
-      <div class="analysis-title">🧠 Multi-Brain AI Analysis</div>
-      <div class="analysis-stage" id="analysis-stage">Initializing 10 specialized AI brains…</div>
+      <div class="analysis-title">🧠 Triple-Read Consensus Engine</div>
+      <div class="analysis-stage" id="analysis-stage">Initializing 18 specialized AI brains…</div>
       <div class="analysis-bar-track"><div class="analysis-bar-fill" id="analysis-bar"></div></div>
 
       <div class="brain-dashboard" id="brain-dashboard">
-        <div class="brain-wave-header">WAVE 1 — Document Intelligence</div>
+        <div class="brain-wave-header">WAVE 0 — Legend Pre-Processing</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 0).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}
+        <div class="brain-wave-header">WAVE 1 — First Read</div>
         ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 1).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}
+        <div class="brain-wave-header">WAVE 1.5 — Second Read (Verification)</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 1.5).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}
+        <div class="brain-wave-header">WAVE 1.75 — Consensus Resolution</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 1.75).map(([key, brain]) =>
     `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
   ).join('')}
         <div class="brain-wave-header">WAVE 2 — Cost Engine</div>
         ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 2).map(([key, brain]) =>
     `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
   ).join('')}
-        <div class="brain-wave-header">WAVE 3 — Cross-Validation</div>
+        <div class="brain-wave-header">WAVE 2.5 — Reverse Verification</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 2.5).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}
+        <div class="brain-wave-header">WAVE 3 — Adversarial Audit</div>
         ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 3).map(([key, brain]) =>
     `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
   ).join('')}
@@ -2703,7 +2719,7 @@ async function runGeminiAnalysis(updateProgress) {
     state.mathValidation = validateAnalysisMath(result.report);
     state.sectionCompleteness = checkSectionCompleteness(result.report);
 
-    updateProgress(100, `🎯 Analysis complete — ${result.stats.successfulBrains}/10 brains succeeded!`, result.brainStatus);
+    updateProgress(100, `🎯 Analysis complete — ${result.stats.successfulBrains}/${result.stats.totalBrains} brains succeeded!`, result.brainStatus);
 
     setTimeout(() => {
       state.analyzing = false;
