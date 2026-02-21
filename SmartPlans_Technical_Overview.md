@@ -1,20 +1,22 @@
 # SMARTPLANS — AI-Powered ELV Construction Estimation Platform
 ## Complete Technical & Architecture Documentation
-### Version 1.0 | February 2026
+### Version 3.0 | February 2026 — Powered by Gemini 3.1 Pro
 
 ---
 
 ## EXECUTIVE SUMMARY
 
-SmartPlans is a proprietary, AI-powered construction estimation platform designed specifically for **Extra-Low Voltage (ELV)** contractors and estimators. It analyzes construction blueprints, specifications, addenda, and symbol legends using a **10-brain parallel AI architecture** to produce comprehensive cost estimates with **98%+ accuracy**.
+SmartPlans is a proprietary, AI-powered construction estimation platform designed specifically for **Extra-Low Voltage (ELV)** contractors and estimators. It analyzes construction blueprints, specifications, addenda, and symbol legends using an **18-brain parallel AI architecture** powered by **Google Gemini 3.1 Pro** to produce comprehensive cost estimates with **99%+ accuracy**.
 
 The system replaces weeks of manual blueprint reading and spreadsheet work with a guided 7-step workflow that produces a complete, priced estimate — including material costs, labor hours, code compliance review, MDF/IDF infrastructure, and a formal Schedule of Values (SOV) — in minutes.
 
 **Key Differentiators:**
-- **10 Specialized AI Brains** running in parallel across 4 processing waves
+- **18 Specialized AI Brains** running in parallel across 7 processing waves (Triple-Read Consensus Architecture)
+- **Gemini 3.1 Pro** — Google's most advanced reasoning model (2× improvement over Gemini 3.0 Pro)
 - **Industry-Standard Pricing Database** with 350+ items across 6 ELV disciplines
 - **Automatic Code Compliance Review** against NEC, NFPA, TIA, IBC, and ADA standards
-- **Cross-Validation Engine** that audits all brain outputs for math errors and inconsistencies
+- **Triple-Read Consensus Engine** with independent verification scanning and dispute resolution
+- **Cross-Validation Engine + Devil's Advocate** adversarial audit of all brain outputs
 - **Direct Export to SmartPM** (companion project management app) for seamless estimate-to-execution handoff
 
 ---
@@ -23,8 +25,8 @@ The system replaces weeks of manual blueprint reading and spreadsheet work with 
 
 1. System Architecture Overview
 2. The 7-Step User Workflow
-3. The 10-Brain AI Engine (Deep Dive)
-4. The 4-Wave Processing Pipeline
+3. The 18-Brain AI Engine (Deep Dive)
+4. The 7-Wave Processing Pipeline
 5. Reliability & Accuracy Systems
 6. The Industry Pricing Database
 7. Export Engine & SmartPM Integration
@@ -51,13 +53,13 @@ SmartPlans is built as a **Cloudflare Pages** application with a frontend-driven
 │                                                 │              │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────┴───────┐      │
 │  │  pricing-     │  │  export-      │  │  ai-engine.js │      │
-│  │  database.js  │  │  engine.js    │  │  (10 Brains)  │      │
-│  │  (350+ items) │  │  (JSON/XLSX/  │  │  (4 Waves)    │      │
+│  │  database.js  │  │  engine.js    │  │  (18 Brains)  │      │
+│  │  (350+ items) │  │  (JSON/XLSX/  │  │  (7 Waves)    │      │
 │  │               │  │   Markdown)   │  │               │      │
 │  └───────────────┘  └───────────────┘  └───────┬───────┘      │
 │                                                 │              │
 │                                    ┌────────────┴────────┐     │
-│                                    │  10 Gemini API Keys │     │
+│                                    │  18 Gemini API Keys │     │
 │                                    │  (Parallel Calls)   │     │
 │                                    └─────────────────────┘     │
 │                                                                │
@@ -142,7 +144,7 @@ Base = 58% (default scanned file)
 +2%  if Specific Items described
 +1%  if Code Jurisdiction specified
 +1%  if Prior Estimate reference provided
-Max = 97%
+Max = 99%
 ```
 
 ### Step 6 — Results & RFIs
@@ -163,33 +165,41 @@ Max = 97%
 
 ---
 
-## 3. THE 10-BRAIN AI ENGINE (Deep Dive)
+## 3. THE 18-BRAIN AI ENGINE (Deep Dive)
 
-The heart of SmartPlans is its **Multi-Brain AI Engine** (`ai-engine.js`). Instead of making a single AI call with a massive prompt, SmartPlans employs 10 specialized "brains" — each an expert in one domain of construction estimation.
+The heart of SmartPlans is its **Multi-Brain AI Engine** (`ai-engine.js`). Instead of making a single AI call with a massive prompt, SmartPlans employs 18 specialized "brains" — each an expert in one domain of construction estimation. Powered by **Gemini 3.1 Pro** with thinking/reasoning mode enabled.
 
-### Why 10 Brains Instead of 1?
+### Why 18 Brains Instead of 1?
 
 A single AI call trying to count symbols, check codes, price materials, calculate labor, build an SOV, and write a report simultaneously would be:
 1. **Unreliable** — too many tasks competing for attention in one context
 2. **Rate-limited** — hitting one API key with a massive prompt
 3. **Unverifiable** — no way to cross-check the AI's own work
 
-By splitting into specialized brains, each one focuses on one task with surgical precision, and a separate validator brain audits everyone's work.
+By splitting into specialized brains, each one focuses on one task with surgical precision. The **Triple-Read Consensus Architecture** adds three independent verification brains plus a dispute resolution system on top.
 
 ### Brain Registry
 
 | Brain # | Name | Wave | Emoji | Model | Files Needed | Max Tokens | Purpose |
 |---------|------|------|-------|-------|-------------|------------|---------|
-| 0 | Symbol Scanner | 1 | 🔍 | gemini-2.0-flash | Legends, Plans | 8,192 | Count every device symbol on every sheet |
-| 1 | Code Compliance | 1 | 📋 | gemini-2.0-flash | Plans, Specs | 8,192 | Find NEC/NFPA/TIA/IBC violations |
-| 2 | MDF/IDF Analyzer | 1 | 🏗️ | gemini-2.0-flash | Plans, Specs | 8,192 | Detail telecom room equipment |
-| 3 | Cable & Pathway | 1 | 🔌 | gemini-2.0-flash | Plans, Specs | 8,192 | Estimate cable runs and pathways |
-| 4 | Special Conditions | 1 | ⚠️ | gemini-2.0-flash | Plans, Specs | 8,192 | Identify equipment, permits, risks |
-| 5 | Material Pricer | 2 | 💰 | gemini-2.0-flash | — | 8,192 | Price all materials from database |
-| 6 | Labor Calculator | 2 | 👷 | gemini-2.0-flash | — | 8,192 | Calculate labor hours per NECA |
-| 7 | Financial Engine | 2 | 📊 | gemini-2.0-flash | — | 12,288 | Build SOV and project summary |
-| 8 | Cross Validator | 3 | ✅ | gemini-2.5-flash | — | 8,192 | Audit all brain outputs |
-| 9 | Report Synthesizer | 4 | 📝 | gemini-2.5-flash | — | 32,768 | Write final professional report |
+| 0 | Legend Decoder | 0 | 📖 | gemini-3.1-pro-preview | Legends | 16,384 | Decode symbol legend into structured dictionary |
+| 1 | Symbol Scanner | 1 | 🔍 | gemini-3.1-pro-preview | Legends, Plans | 16,384 | Count every device symbol on every sheet |
+| 2 | Code Compliance | 1 | 📋 | gemini-3.1-pro-preview | Plans, Specs | 12,288 | Find NEC/NFPA/TIA/IBC violations |
+| 3 | MDF/IDF Analyzer | 1 | 🏗️ | gemini-3.1-pro-preview | Plans, Specs | 12,288 | Detail telecom room equipment |
+| 4 | Cable & Pathway | 1 | 🔌 | gemini-2.5-flash | Plans, Specs | 12,288 | Estimate cable runs and pathways |
+| 5 | Special Conditions | 1 | ⚠️ | gemini-2.5-flash | Plans, Specs | 12,288 | Identify equipment, permits, risks |
+| 6 | Shadow Scanner | 1.5 | 👁️ | gemini-3.1-pro-preview | Legends, Plans | 16,384 | Independent room-by-room verification count |
+| 7 | Discipline Deep-Dive | 1.5 | 🎯 | gemini-3.1-pro-preview | Legends, Plans | 12,288 | Specialist counter for primary discipline |
+| 8 | Quadrant Scanner | 1.5 | 📐 | gemini-3.1-pro-preview | Plans | 12,288 | Zone-based quadrant verification count |
+| 9 | Consensus Arbitrator | 1.75 | ⚖️ | gemini-3.1-pro-preview | — | 16,384 | Resolve disputes between 3 independent reads |
+| 10 | Targeted Re-Scanner | 1.75 | 🔬 | gemini-3.1-pro-preview | Legends, Plans | 12,288 | Forensic re-count for disputed items |
+| 11 | Material Pricer | 2 | 💰 | gemini-3.1-pro-preview | — | 16,384 | Price all materials from database |
+| 12 | Labor Calculator | 2 | 👷 | gemini-3.1-pro-preview | — | 16,384 | Calculate labor hours per NECA |
+| 13 | Financial Engine | 2 | 📊 | gemini-3.1-pro-preview | — | 16,384 | Build SOV and project summary |
+| 14 | Reverse Verifier | 2.5 | 🔄 | gemini-3.1-pro-preview | Plans | 12,288 | Count backwards from BOQ to verify plans |
+| 15 | Cross Validator | 3 | ✅ | gemini-3.1-pro-preview | — | 16,384 | Audit all brain outputs |
+| 16 | Devil's Advocate | 3 | 😈 | gemini-3.1-pro-preview | Plans | 16,384 | Hostile auditor finding everything wrong |
+| 17 | Report Synthesizer | 4 | 📝 | gemini-2.5-pro | — | 65,536 | Write final professional report |
 
 ### Detailed Brain Descriptions
 
@@ -308,7 +318,7 @@ By splitting into specialized brains, each one focuses on one task with surgical
 - **Payment Terms** and **Assumptions/Exclusions** lists
 
 #### Brain 8: Cross Validator ✅
-**Mission:** Senior QA auditor cross-checking the entire estimate. Uses the **smarter model** (gemini-2.5-flash) for higher accuracy.
+**Mission:** Senior QA auditor cross-checking the entire estimate. Uses **Gemini 3.1 Pro** with thinking mode enabled for maximum reasoning depth.
 
 **8-Point Verification:**
 1. **Math Check:** For every Qty × Unit Cost = Extended Cost, verify multiplication
@@ -323,7 +333,7 @@ By splitting into specialized brains, each one focuses on one task with surgical
 **Output:** Pass/fail status, confidence score (0-100), list of issues with severity and corrections, quantity cross-check table, and math error log.
 
 #### Brain 9: Report Synthesizer 📝
-**Mission:** Compile all validated data into a professional, publication-ready markdown report. Uses the **smarter model** (gemini-2.5-flash) and has the highest token budget (32,768).
+**Mission:** Compile all validated data into a professional, publication-ready markdown report. Uses **Gemini 2.5 Pro** and has the highest token budget (65,536).
 
 **Report sections (in order):**
 1. Code & Standards Compliance Review
@@ -341,9 +351,9 @@ By splitting into specialized brains, each one focuses on one task with surgical
 
 ---
 
-## 4. THE 4-WAVE PROCESSING PIPELINE
+## 4. THE 7-WAVE PROCESSING PIPELINE
 
-The 10 brains execute in a carefully orchestrated 4-wave pipeline. Each wave depends on the output of the previous wave.
+The 18 brains execute in a carefully orchestrated 7-wave pipeline. Each wave depends on the output of the previous wave.
 
 ```
 TIMELINE ─────────────────────────────────────────────────────────────
@@ -409,9 +419,10 @@ Within each wave, all brains run simultaneously using `Promise.allSettled()`. Th
 
 SmartPlans implements five layers of quality assurance:
 
-### Layer 1: Dual-Model Strategy
-- **Waves 1-2:** Use `gemini-2.0-flash` (fast, efficient for data extraction)
-- **Waves 3-4:** Use `gemini-2.5-flash` (smarter, more accurate for validation and report writing)
+### Layer 1: Triple-Model Strategy
+- **Vision & Reasoning Brains (16 of 18):** Use `gemini-3.1-pro-preview` — Google's most advanced reasoning model with 2× improvement over Gemini 3.0 Pro, with thinking mode enabled for deliberate step-by-step analysis
+- **Report Writer:** Use `gemini-2.5-pro` — balanced Pro model optimized for structured synthesis with 65K token output
+- **Lightweight Brains (2):** Use `gemini-2.5-flash` for Cable & Pathway and Special Conditions — where speed is prioritized
 
 The Cross Validator and Report Synthesizer — the two most critical brains — use the premium model because accuracy matters more than speed at this stage.
 
@@ -447,7 +458,7 @@ When schema validation fails, the system:
 On API errors (429 rate limit, 403 forbidden, 500+ server errors):
 1. Rotates to the next API key
 2. Waits using exponential backoff: `baseDelay × 2^attempt + random(0-500ms)`
-3. Retries up to 3 times per brain
+3. Retries up to 4 times per brain
 4. If a brain completely fails, the wave continues (brains are fault-tolerant)
 5. Only if ALL brains in a wave fail does the wave throw an error
 
@@ -624,8 +635,8 @@ CREATE TABLE estimates (
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
 | **Frontend** | Vanilla HTML/CSS/JS | Zero-dependency UI |
-| **AI Models** | Google Gemini 2.0 Flash + 2.5 Flash | Vision analysis & text generation |
-| **API** | Direct Gemini REST API | 10 parallel keys, client-side calls |
+| **AI Models** | Gemini 3.1 Pro Preview + Gemini 2.5 Pro + Gemini 2.5 Flash | Deep reasoning, vision analysis & text generation |
+| **API** | Direct Gemini REST API | 18 parallel keys, client-side calls |
 | **Hosting** | Cloudflare Pages | Global CDN, edge deployment |
 | **Database** | Cloudflare D1 (SQLite) | Saved estimates persistence |
 | **Backend Functions** | Cloudflare Pages Functions | API proxy, estimate CRUD |
@@ -641,7 +652,7 @@ SmartPlans/
 ├── index.html              — Main HTML shell with SEO meta tags
 ├── styles.css              — 1,740+ lines of premium dark theme CSS
 ├── app.js                  — 3,200+ lines: 7-step wizard, state management, rendering
-├── ai-engine.js            — 1,059 lines: 10-brain AI engine with 4-wave orchestration
+├── ai-engine.js            — 1,440+ lines: 18-brain AI engine with 7-wave Triple-Read Consensus orchestration
 ├── pricing-database.js     — 422 lines: 350+ ELV items with 3-tier pricing
 ├── export-engine.js        — 736 lines: JSON/Excel/Markdown export + MDF/IDF parser
 ├── functions/
@@ -661,12 +672,12 @@ SmartPlans/
 
 ## SUMMARY
 
-SmartPlans represents a paradigm shift in ELV construction estimation. By decomposing the estimation task into 10 specialized AI domains, executing them in a dependency-aware 4-wave pipeline, and then cross-validating the results with a dedicated auditor brain, the system achieves accuracy levels that approach human expert estimators — but in minutes instead of weeks.
+SmartPlans represents a paradigm shift in ELV construction estimation. By decomposing the estimation task into 18 specialized AI domains powered by **Gemini 3.1 Pro**, executing them in a dependency-aware 7-wave pipeline with **Triple-Read Consensus Architecture**, and then cross-validating the results with both a dedicated auditor brain and a hostile Devil's Advocate, the system achieves accuracy levels that **match or exceed** human expert estimators — but in minutes instead of weeks.
 
 The integration with SmartPM creates a complete estimate-to-execution workflow: start with blueprints in SmartPlans, get a priced estimate with SOV, export to SmartPM, and manage the entire project lifecycle from there.
 
 ---
 
-*Document generated February 12, 2026*
-*SmartPlans v1.0 — AI-Powered ELV Construction Estimation Platform*
+*Document updated February 20, 2026*
+*SmartPlans v3.0 — Powered by Gemini 3.1 Pro — AI-Powered ELV Construction Estimation Platform*
 *© 2026 3D Technology Services, Inc.*

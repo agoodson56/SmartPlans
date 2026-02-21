@@ -23,8 +23,8 @@ const GEMINI_CONFIG = {
     "AIzaSyB84NuoTxXeUz6gMHxEFpZFmyYrOIpLe4g",
   ],
   _currentKeyIndex: 0,
-  model: "gemini-2.0-flash",
-  verificationModel: "gemini-2.0-flash", // Can use a different model for cross-validation
+  model: "gemini-2.5-flash",
+  verificationModel: "gemini-2.5-flash", // Can use a different model for cross-validation
   get apiKey() { return this.apiKeys[this._currentKeyIndex]; },
   get endpoint() {
     return `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
@@ -249,7 +249,7 @@ function getAccuracyEstimate() {
   if (state.specificItems.trim()) base += 2;
   if (state.codeJurisdiction.trim()) base += 1;
   if (state.priorEstimate.trim()) base += 1;
-  return Math.min(base, 97);
+  return Math.min(base, 99);
 }
 
 function getTrafficLight(accuracy) {

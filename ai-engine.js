@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
-   SMARTPLANS — TRIPLE-READ CONSENSUS ENGINE v2.0
+   SMARTPLANS — TRIPLE-READ CONSENSUS ENGINE v3.0
    ═══════════════════════════════════════════════════════════════
+   Powered by Gemini 3.1 Pro — 2× reasoning improvement
    18 Specialized AI Brains × 7 Processing Waves
    Triple-Read Consensus Architecture for 99%+ accuracy
    
@@ -38,7 +39,7 @@
 
 const SmartBrains = {
 
-  VERSION: '2.0.0',
+  VERSION: '3.0.0',
 
   // ═══════════════════════════════════════════════════════════
   // CONFIGURATION
@@ -66,15 +67,15 @@ const SmartBrains = {
       'AIzaSyBVtuHuOGsy2tb-KjO463MZzI0siX47lOg',  // 16: Devil's Advocate
       'AIzaSyBzG6iaQ3R5hl-qJIs2Sxj-vuxl3fho1E8',  // 17: Report Writer
     ],
-    model: 'gemini-2.0-flash',              // Fast model for standard brains
-    accuracyModel: 'gemini-2.5-flash',       // Smarter model for report writing
-    proModel: 'gemini-2.5-pro',              // Pro model for vision-critical brains
+    model: 'gemini-2.5-flash',              // Flash model for lightweight brains
+    accuracyModel: 'gemini-2.5-pro',         // Pro model for report writing (accuracy-critical)
+    proModel: 'gemini-3.1-pro-preview',      // Gemini 3.1 Pro — 2× reasoning over 3.0 Pro
     useProxy: false,
     proxyEndpoint: '/api/ai/invoke',
-    maxRetries: 3,
-    retryBaseDelay: 1000,
-    timeout: 120000,
-    proTimeout: 180000,                      // Extended timeout for Pro model
+    maxRetries: 4,                           // Extra retry for Pro model rate limits
+    retryBaseDelay: 1500,                    // Slightly longer base delay for Pro quotas
+    timeout: 150000,                         // 2.5 min for Flash brains
+    proTimeout: 300000,                      // 5 min for Gemini 3.1 Pro (deep reasoning takes longer)
   },
 
   // ═══════════════════════════════════════════════════════════
@@ -82,32 +83,32 @@ const SmartBrains = {
   // ═══════════════════════════════════════════════════════════
 
   BRAINS: {
-    // ── Wave 0: Legend Pre-Processing ──
-    LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 8192, useProModel: true },
+    // ── Wave 0: Legend Pre-Processing (Gemini 3.1 Pro) ──
+    LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 16384, useProModel: true },
     // ── Wave 1: First Read — Document Intelligence ──
-    SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 8192, useProModel: true },
-    CODE_COMPLIANCE: { id: 2, name: 'Code Compliance', wave: 1, emoji: '📋', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
-    MDF_IDF_ANALYZER: { id: 3, name: 'MDF/IDF Analyzer', wave: 1, emoji: '🏗️', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
-    CABLE_PATHWAY: { id: 4, name: 'Cable & Pathway', wave: 1, emoji: '🔌', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
-    SPECIAL_CONDITIONS: { id: 5, name: 'Special Conditions', wave: 1, emoji: '⚠️', needsFiles: ['plans', 'specs'], maxTokens: 8192 },
-    // ── Wave 1.5: Second Read — Independent Verification ──
-    SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 12288, useProModel: true },
-    DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 8192, useProModel: true },
-    QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 8192, useProModel: true },
-    // ── Wave 1.75: Consensus Resolution ──
-    CONSENSUS_ARBITRATOR: { id: 9, name: 'Consensus Arbitrator', wave: 1.75, emoji: '⚖️', needsFiles: [], maxTokens: 8192, useProModel: true },
-    TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 8192, useProModel: true },
-    // ── Wave 2: Cost Engine ──
-    MATERIAL_PRICER: { id: 11, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 8192 },
-    LABOR_CALCULATOR: { id: 12, name: 'Labor Calculator', wave: 2, emoji: '👷', needsFiles: [], maxTokens: 8192 },
-    FINANCIAL_ENGINE: { id: 13, name: 'Financial Engine', wave: 2, emoji: '📊', needsFiles: [], maxTokens: 12288 },
-    // ── Wave 2.5: Reverse Verification ──
-    REVERSE_VERIFIER: { id: 14, name: 'Reverse Verifier', wave: 2.5, emoji: '🔄', needsFiles: ['plans'], maxTokens: 8192, useProModel: true },
-    // ── Wave 3: Adversarial Audit ──
-    CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 8192, useProModel: true },
-    DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 8192, useProModel: true },
-    // ── Wave 4: Final Report ──
-    REPORT_WRITER: { id: 17, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 32768, useAccuracyModel: true },
+    SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 16384, useProModel: true },
+    CODE_COMPLIANCE: { id: 2, name: 'Code Compliance', wave: 1, emoji: '📋', needsFiles: ['plans', 'specs'], maxTokens: 12288, useProModel: true },
+    MDF_IDF_ANALYZER: { id: 3, name: 'MDF/IDF Analyzer', wave: 1, emoji: '🏗️', needsFiles: ['plans', 'specs'], maxTokens: 12288, useProModel: true },
+    CABLE_PATHWAY: { id: 4, name: 'Cable & Pathway', wave: 1, emoji: '🔌', needsFiles: ['plans', 'specs'], maxTokens: 12288 },
+    SPECIAL_CONDITIONS: { id: 5, name: 'Special Conditions', wave: 1, emoji: '⚠️', needsFiles: ['plans', 'specs'], maxTokens: 12288 },
+    // ── Wave 1.5: Second Read — Independent Verification (all Gemini 3.1 Pro) ──
+    SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 16384, useProModel: true },
+    DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 12288, useProModel: true },
+    QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 12288, useProModel: true },
+    // ── Wave 1.75: Consensus Resolution (Gemini 3.1 Pro deep reasoning) ──
+    CONSENSUS_ARBITRATOR: { id: 9, name: 'Consensus Arbitrator', wave: 1.75, emoji: '⚖️', needsFiles: [], maxTokens: 16384, useProModel: true },
+    TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 12288, useProModel: true },
+    // ── Wave 2: Cost Engine (promoted to Gemini 3.1 Pro for pricing accuracy) ──
+    MATERIAL_PRICER: { id: 11, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 16384, useProModel: true },
+    LABOR_CALCULATOR: { id: 12, name: 'Labor Calculator', wave: 2, emoji: '👷', needsFiles: [], maxTokens: 16384, useProModel: true },
+    FINANCIAL_ENGINE: { id: 13, name: 'Financial Engine', wave: 2, emoji: '📊', needsFiles: [], maxTokens: 16384, useProModel: true },
+    // ── Wave 2.5: Reverse Verification (Gemini 3.1 Pro) ──
+    REVERSE_VERIFIER: { id: 14, name: 'Reverse Verifier', wave: 2.5, emoji: '🔄', needsFiles: ['plans'], maxTokens: 12288, useProModel: true },
+    // ── Wave 3: Adversarial Audit (Gemini 3.1 Pro deep reasoning) ──
+    CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 16384, useProModel: true },
+    DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 16384, useProModel: true },
+    // ── Wave 4: Final Report (Gemini 2.5 Pro for structured synthesis) ──
+    REPORT_WRITER: { id: 17, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 65536, useAccuracyModel: true },
   },
 
   // Brain status tracking for UI
@@ -240,12 +241,17 @@ const SmartBrains = {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
       const parts = [{ text: promptText }, ...fileParts];
+      // Gemini 3.1 Pro benefits from lower temperature for deterministic construction analysis
       const genConfig = {
-        temperature: brainKey === 'CROSS_VALIDATOR' ? 0.1 : 0.2,
+        temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
         maxOutputTokens: brainDef.maxTokens,
       };
       if (useJsonMode) {
         genConfig.responseMimeType = 'application/json';
+      }
+      // Enable thinking/reasoning for Gemini 3.1 Pro on complex brains
+      if (brainDef.useProModel && modelName.includes('3.1')) {
+        genConfig.thinkingConfig = { thinkingBudget: 8192 };
       }
 
       const body = {
@@ -1231,7 +1237,8 @@ Return ONLY valid JSON:
 
   async runFullAnalysis(state, progressCallback) {
     console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
-    console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Flash: ${this.config.model}`);
+    console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
+    console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — 2× reasoning, thinking mode enabled`);
 
     // Reset brain status
     this._brainStatus = {};
@@ -1406,7 +1413,7 @@ Return ONLY valid JSON:
 
     const finalReport = (typeof report === 'string' ? report : JSON.stringify(report, null, 2)) + validationAppendix;
 
-    progressCallback(100, '🎯 Triple-Read Consensus complete — 18 brains finished!', this._brainStatus);
+    progressCallback(100, '🎯 Gemini 3.1 Pro analysis complete — 18 brains finished!', this._brainStatus);
 
     return {
       report: finalReport,
