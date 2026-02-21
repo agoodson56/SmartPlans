@@ -119,7 +119,7 @@ const SmartBrains = {
   // ═══════════════════════════════════════════════════════════
 
   async _encodeAllFiles(state, progressCallback) {
-    const MAX_FILE_SIZE = 20 * 1024 * 1024;
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB per file (Gemini 3.1 Pro)
 
     const fileGroups = {
       legends: state.legendFiles || [],

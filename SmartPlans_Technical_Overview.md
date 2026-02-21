@@ -107,7 +107,7 @@ SmartPlans guides users through a structured wizard that collects all the inform
 - Only upload the disciplines being analyzed (e.g., E-sheets for electrical, T-sheets for telecom)
 
 **Accepted formats:** PDF (preferred), PNG, JPG, TIFF  
-**File size limit:** 20MB per file
+**File size limit:** 50MB per file
 
 ### Step 3 — Upload Specifications
 **Purpose:** Specification books let the AI cross-check what's shown on plans against written requirements. This is where conflicts between drawings and specs are caught.

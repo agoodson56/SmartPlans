@@ -1379,8 +1379,8 @@ function renderFileUpload(container, { label, description, files, onFilesChange,
 // RELIABILITY UTILITIES — Retry, Backoff, File Validation
 // ═══════════════════════════════════════════════════════════════
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB per file
-const MAX_TOTAL_PAYLOAD = 95 * 1024 * 1024; // 95 MB total (Gemini limit ~100MB)
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB per file (Gemini 3.1 Pro handles large files)
+const MAX_TOTAL_PAYLOAD = 200 * 1024 * 1024; // 200 MB total payload
 const API_TIMEOUT_MS = 120000; // 120 seconds
 const MAX_RETRIES = 3;
 
@@ -1432,7 +1432,7 @@ async function fetchWithRetry(url, options, maxRetries = MAX_RETRIES) {
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     if (file.size > MAX_FILE_SIZE) {
-      console.warn(`[SmartPlans] File "${file.name}" exceeds 20MB (${(file.size / 1048576).toFixed(1)}MB) — skipping`);
+      console.warn(`[SmartPlans] File "${file.name}" exceeds 50MB (${(file.size / 1048576).toFixed(1)}MB) — skipping`);
       resolve({ base64: null, mimeType: file.type, skipped: true, reason: 'too_large' });
       return;
     }
@@ -2333,7 +2333,7 @@ async function callGeminiAPI(progressCallback) {
 
     if (skipped) {
       skippedFiles.push({ name: entry.name, reason });
-      parts.push({ text: `[File "${entry.name}" skipped — ${reason === 'too_large' ? 'exceeds 20MB limit' : 'read error'}]` });
+      parts.push({ text: `[File "${entry.name}" skipped — ${reason === 'too_large' ? 'exceeds 50MB limit' : 'read error'}]` });
       continue;
     }
 
