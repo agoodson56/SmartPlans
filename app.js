@@ -2406,7 +2406,8 @@ async function callGeminiAPI(progressCallback) {
   progressCallback(95, "Compiling results…");
 
   // Extract text and validate response quality
-  const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n") || "";
+  const allParts = data?.candidates?.[0]?.content?.parts || [];
+  const text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join("\n") || "";
   if (!text || text.length < 100) {
     throw new Error("AI returned an empty or incomplete response. Please try again.");
   }
@@ -2580,7 +2581,8 @@ ${primaryAnalysis.substring(0, 28000)}
   }
 
   const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n") || "";
+  const allParts = data?.candidates?.[0]?.content?.parts || [];
+  const text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join("\n") || "";
 
   if (text && text.length > 50) {
     console.log('[SmartPlans] ✓ Verification pass completed');

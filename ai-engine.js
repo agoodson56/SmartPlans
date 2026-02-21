@@ -250,8 +250,12 @@ const SmartBrains = {
         genConfig.responseMimeType = 'application/json';
       }
       // Enable thinking/reasoning for Gemini 3.1 Pro on complex brains
+      // Gemini 3.x uses thinkingLevel (not thinkingBudget which is for 2.5 models)
       if (brainDef.useProModel && modelName.includes('3.1')) {
-        genConfig.thinkingConfig = { thinkingBudget: 8192 };
+        const deepReasoningBrains = ['CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR', 'DEVILS_ADVOCATE'];
+        genConfig.thinkingConfig = {
+          thinkingLevel: deepReasoningBrains.includes(brainKey) ? 'high' : 'medium'
+        };
       }
 
       const body = {
@@ -285,7 +289,10 @@ const SmartBrains = {
         }
 
         const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n') || '';
+        // Gemini 3.1 Pro with thinking mode returns both "thought" parts and "text" parts
+        // We only want the actual text output, not the internal reasoning chain
+        const allParts = data?.candidates?.[0]?.content?.parts || [];
+        const text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
 
         if (!text || text.length < 20) {
           throw new Error('Empty response from AI');
