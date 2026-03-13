@@ -1808,7 +1808,7 @@ Return ONLY valid JSON:
     }
 
     // Reverse verification summary
-    const reverseV = wave25Results.REVERSE_VERIFIER;
+    const reverseV = wave275Results?.REVERSE_VERIFIER;
     if (reverseV && !reverseV._failed) {
       validationAppendix += `\n\n## 🔄 REVERSE VERIFICATION\n`;
       validationAppendix += `**Verification Score**: ${reverseV.verification_score || 'N/A'}%\n`;
