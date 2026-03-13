@@ -22,18 +22,16 @@
 | Parameter | Limit |
 |-----------|-------|
 | **AI brains (parallel processors)** | 21 |
-| **Processing waves** | 10 (sequential waves, brains run in parallel within each wave) |
+| **Processing waves** | 12 (sequential waves, brains run in parallel within each wave) |
 | **Plan reading passes** | 6 (6-Read Consensus architecture) |
 | **API keys** | 18 (GEMINI_KEY_0 through GEMINI_KEY_17, stored as Cloudflare secrets) |
 | **Flash model** | Gemini 2.5 Flash (lightweight brains) |
 | **Pro model** | Gemini 3.1 Pro Preview (deep reasoning brains) |
-| **Accuracy model** | Gemini 2.5 Pro (report writing) |
 | **Flash brain timeout** | 2.5 minutes per brain |
 | **Pro brain timeout** | 5 minutes per brain |
-| **Legacy analysis timeout** | 2 minutes |
 | **Max retries per brain** | 4 attempts |
 | **Retry delay** | 1.5 sec (exponential backoff up to ~12 sec) |
-| **Estimated total processing time** | 7–8 minutes for a full analysis |
+| **Estimated total processing time** | 7–10 minutes for a full analysis |
 
 ---
 
@@ -66,14 +64,22 @@
 | Consensus Arbitrator | 9 | Pro | Resolves conflicts between first and second reads |
 | Targeted Re-Scanner | 10 | Pro | Focuses on areas flagged for re-scan (3rd read) |
 
-### Wave 2 — Cost Engine (3 brains in parallel)
+### Wave 2 — Material Pricing (sequential — runs first)
 | Brain | ID | Model | Purpose |
 |-------|----|-------|---------|
-| Material Pricer | 11 | Pro | Applies current material pricing |
-| Labor Calculator | 12 | Pro | Calculates labor hours and rates |
-| Financial Engine | 13 | Pro | Compiles complete financial model & SOV |
+| Material Pricer | 11 | Pro | Prices materials using consensus counts |
 
-### Wave 2.5 — Reverse Verification
+### Wave 2.25 — Labor Calculation (sequential — uses Material Pricer output)
+| Brain | ID | Model | Purpose |
+|-------|----|-------|---------|
+| Labor Calculator | 12 | Pro | Calculates labor hours matched to Material Pricer quantities |
+
+### Wave 2.5 — Financial Engine (sequential — sums Pricer + Labor)
+| Brain | ID | Model | Purpose |
+|-------|----|-------|---------|
+| Financial Engine | 13 | Pro | Compiles SOV and project cost summary from actual Pricer + Labor totals |
+
+### Wave 2.75 — Reverse Verification
 | Brain | ID | Model | Purpose |
 |-------|----|-------|---------|
 | Reverse Verifier | 14 | Pro | Cross-checks BOQ against plans (backward validation) |
@@ -100,6 +106,8 @@
 |-------|----|-------|---------|
 | Report Writer | 17 | Pro | Generates comprehensive bid package with material/labor tables |
 
+> **Key Architecture Decision:** Material Pricer → Labor Calculator → Financial Engine run **sequentially** (not in parallel) so each brain can use the previous brain's exact output. This eliminates quantity mismatches between materials, labor, and the financial summary.
+
 ---
 
 ## Output Capabilities
@@ -108,11 +116,12 @@
 |---------|---------|
 | **Material Takeoff** | Itemized with unit cost, extended cost, markup %, sell price |
 | **Labor Breakdown** | By phase with hours, rate, labor cost, markup %, sell price |
-| **Schedule of Values** | AIA G703 format |
+| **Schedule of Values** | AIA G703 format with Material + Labor + Equipment + Subcontractor columns |
 | **Export formats** | JSON (PM app), Excel, Markdown, Export All |
 | **Professional Proposal** | Word .doc download with cover page, 8 sections, TOC, signature block |
 | **Proposal company info** | 3D Technology Services Inc., Justin Whitton |
 | **Proposal branding** | Gold/Teal color scheme matched to 3dtsi.com |
+| **Proposal pricing** | Exact grand total extracted from analysis and injected into AI prompt |
 
 ---
 
