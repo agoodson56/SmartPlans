@@ -45,9 +45,9 @@ const ProposalGenerator = {
     // Pull the FULL analysis — the bid report has the real numbers
     const analysisSummary = (state.aiAnalysis || '').substring(0, 20000);
 
-    // Extract the grand total from the analysis for explicit reference
-    const grandTotalMatch = analysisSummary.match(/GRAND\s*TOTAL[\s\S]*?\$([\d,]+\.?\d*)/i);
-    const grandTotal = grandTotalMatch ? '$' + grandTotalMatch[1] : 'as calculated in the analysis';
+    // Extract the grand total from MULTIPLE sources for reliability
+    const grandTotal = this._extractGrandTotal(state);
+    const grandTotalDisplay = grandTotal ? this._formatMoney(grandTotal) : null;
 
     progressCallback(5, 'Crafting executive proposal with AI…');
 
@@ -118,16 +118,16 @@ Provide a realistic phased schedule with estimated durations:
 Adjust the timeline based on project complexity from the analysis data.
 
 ## 6. Investment Summary
-This section MUST contain the EXACT pricing from the analysis. The GRAND TOTAL from the analysis is ${grandTotal}.
+This section MUST contain the EXACT pricing from the analysis. The GRAND TOTAL from the analysis is ${grandTotalDisplay || 'as shown in the analysis data'}.
 
 Create a **Project Cost Summary** table with these EXACT columns:
 | Category | Base Cost | Markup | Sell Price |
 Include rows for: Materials, Labor, Equipment, Subcontractors, Travel
 Then show: SUBTOTAL, Contingency 10%, and GRAND TOTAL
 
-The GRAND TOTAL in this proposal MUST match ${grandTotal}. Use the EXACT numbers from the 9. PROJECT COST SUMMARY in the analysis data.
+The GRAND TOTAL in this proposal MUST be ${grandTotalDisplay || 'the exact value from the analysis'}. Use the EXACT numbers from the PROJECT COST SUMMARY in the analysis data.
 
-Also include material subtotals by discipline and labor subtotals by phase — but the bottom-line GRAND TOTAL must be ${grandTotal}.
+Also include material subtotals by discipline and labor subtotals by phase — but the bottom-line GRAND TOTAL must be ${grandTotalDisplay || 'from the analysis'}.
 Do NOT invent or round numbers. Copy them exactly from the analysis.
 
 ## 7. Terms & Conditions
@@ -215,6 +215,10 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     const refNum = `3DTSI-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 9000 + 1000)}`;
     const year = today.getFullYear();
     const bodyHtml = this._markdownToHtml(proposalText);
+
+    // Extract total again for the hardcoded total box
+    const grandTotal = this._extractGrandTotal(state);
+    const grandTotalDisplay = grandTotal ? this._formatMoney(grandTotal) : null;
 
     progressCallback(85, 'Creating downloadable document…');
 
@@ -467,6 +471,38 @@ PROPOSAL BODY — AI-Generated Content
 
 ${bodyHtml}
 
+${grandTotalDisplay ? `
+<!--
+═══════════════════════════════════════════════════════════
+TOTAL INVESTMENT — Hardcoded from analysis (guaranteed to appear)
+═══════════════════════════════════════════════════════════
+-->
+<div class="page-break"></div>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24pt;">
+  <tr><td bgcolor="${b.teal}" style="height:3pt;font-size:1pt;">&nbsp;</td></tr>
+</table>
+
+<table width="100%" cellpadding="20" cellspacing="0" border="0">
+  <tr>
+    <td bgcolor="${b.navy}" style="text-align:center;border:2pt solid ${b.gold};">
+      <p style="font-size:10pt;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-weight:bold;margin-bottom:8pt;font-family:Calibri,Arial,sans-serif;">Total Project Investment</p>
+      <p style="font-size:32pt;font-weight:bold;color:white;margin-bottom:4pt;font-family:Calibri,Arial,sans-serif;">${grandTotalDisplay}</p>
+      <p style="font-size:9pt;color:rgba(255,255,255,0.7);margin-bottom:0;font-family:Calibri,Arial,sans-serif;">Includes all materials, labor, equipment, and contingency as detailed in this proposal</p>
+    </td>
+  </tr>
+</table>
+
+<p style="font-size:9pt;color:${b.gray};margin-top:8pt;text-align:center;">
+  This pricing is valid for thirty (30) calendar days from ${dateStr}.<br>
+  All prices subject to material availability at time of contract execution.
+</p>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16pt;">
+  <tr><td bgcolor="${b.teal}" style="height:3pt;font-size:1pt;">&nbsp;</td></tr>
+</table>
+` : ''}
+
 <!--
 ═══════════════════════════════════════════════════════════
 ACCEPTANCE & SIGNATURE BLOCK
@@ -666,6 +702,66 @@ ACCEPTANCE & SIGNATURE BLOCK
     const d = document.createElement('div');
     d.textContent = str || '';
     return d.innerHTML;
+  },
+
+  // Extract grand total from every possible source
+  _extractGrandTotal(state) {
+    const analysis = state.aiAnalysis || '';
+    const brainResults = state.brainResults || state.lastBrainResults || {};
+
+    // Method 1: Regex patterns on analysis text (try multiple formats)
+    const patterns = [
+      /GRAND\s*TOTAL[^\$]*\$([\d,]+\.?\d*)/i,
+      /Grand\s*Total[^\n]*\$([\d,]+\.?\d*)/i,
+      /grand_total["\s:]*\$([\d,]+\.?\d*)/i,
+      /grand_total["\s:]+(\d[\d,]*\.?\d*)/i,
+      /TOTAL\s*PROJECT\s*INVESTMENT[^\$]*\$([\d,]+\.?\d*)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = analysis.match(pattern);
+      if (match) {
+        const num = parseFloat(match[1].replace(/,/g, ''));
+        if (num > 1000) return num; // Sanity check — must be > $1000
+      }
+    }
+
+    // Method 2: Financial Engine structured data
+    const finEngine = brainResults?.wave2_5_fin?.FINANCIAL_ENGINE
+      || brainResults?.wave2?.FINANCIAL_ENGINE
+      || {};
+    if (finEngine?.project_summary?.grand_total) {
+      return finEngine.project_summary.grand_total;
+    }
+
+    // Method 3: Sum Material + Labor + contingency
+    const materialPricer = brainResults?.wave2?.MATERIAL_PRICER || {};
+    const laborCalc = brainResults?.wave2_25?.LABOR_CALCULATOR || brainResults?.wave2?.LABOR_CALCULATOR || {};
+    const matTotal = materialPricer?.total_with_markup || materialPricer?.grand_total || 0;
+    const labTotal = laborCalc?.total_with_markup || laborCalc?.grand_total || 0;
+    if (matTotal + labTotal > 1000) {
+      const subtotal = matTotal + labTotal;
+      return Math.round(subtotal * 1.10 * 100) / 100; // Add 10% contingency
+    }
+
+    // Method 4: Search for dollar amounts in analysis > $10,000
+    const bigAmounts = [];
+    const allMoneyMatches = analysis.matchAll(/\$([\d,]+\.?\d*)/g);
+    for (const m of allMoneyMatches) {
+      const val = parseFloat(m[1].replace(/,/g, ''));
+      if (val > 10000) bigAmounts.push(val);
+    }
+    if (bigAmounts.length > 0) {
+      // The grand total is typically the largest amount
+      return Math.max(...bigAmounts);
+    }
+
+    return null;
+  },
+
+  _formatMoney(amount) {
+    if (!amount || isNaN(amount)) return null;
+    return '$' + Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
 };
 
