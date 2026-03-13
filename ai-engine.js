@@ -103,10 +103,13 @@ const SmartBrains = {
 
   // ═══════════════════════════════════════════════════════════
   // FILE ENCODING — Encode once, distribute to brains
+  // Files > 15MB uploaded via Gemini File API (supports up to 2GB)
+  // Files ≤ 15MB sent as inline base64 (faster, no upload needed)
   // ═══════════════════════════════════════════════════════════
 
   async _encodeAllFiles(state, progressCallback) {
-    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB per file (Gemini 3.1 Pro)
+    const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB per file (Gemini File API)
+    const INLINE_THRESHOLD = 15 * 1024 * 1024; // 15 MB — above this, use File API upload
 
     const fileGroups = {
       legends: state.legendFiles || [],
@@ -138,7 +141,7 @@ const SmartBrains = {
         progressCallback(pct, `Encoding ${category}: ${entry.name}…`, null);
 
         if (entry.rawFile.size > MAX_FILE_SIZE) {
-          console.warn(`[SmartBrains] Skipping oversized file: ${entry.name}`);
+          console.warn(`[SmartBrains] Skipping oversized file (>2GB): ${entry.name}`);
           continue;
         }
 
@@ -154,10 +157,34 @@ const SmartBrains = {
             const fileData = {
               name: entry.name,
               category,
-              base64,
               mimeType: finalMime,
               size: entry.rawFile.size,
             };
+
+            // Large files → upload to Gemini File API (server-side)
+            if (entry.rawFile.size > INLINE_THRESHOLD) {
+              progressCallback(pct, `Uploading large file: ${entry.name} (${Math.round(entry.rawFile.size / 1024 / 1024)} MB)…`, null);
+              console.log(`[SmartBrains] Uploading ${entry.name} (${Math.round(entry.rawFile.size / 1024 / 1024)} MB) via File API…`);
+
+              try {
+                const uploadResult = await this._uploadToFileAPI(base64, finalMime, entry.name);
+                if (uploadResult && uploadResult.fileUri) {
+                  fileData.fileUri = uploadResult.fileUri;
+                  fileData.uploadedName = uploadResult.name;
+                  console.log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${uploadResult.fileUri}`);
+                } else {
+                  // Fallback to inline if upload fails
+                  console.warn(`[SmartBrains] File API upload returned no URI, falling back to inline for ${entry.name}`);
+                  fileData.base64 = base64;
+                }
+              } catch (uploadErr) {
+                console.warn(`[SmartBrains] File API upload failed for ${entry.name}, falling back to inline:`, uploadErr.message);
+                fileData.base64 = base64;
+              }
+            } else {
+              // Small files → inline base64 (faster)
+              fileData.base64 = base64;
+            }
 
             // PDF text extraction for specs (dual-channel accuracy)
             if (finalMime === 'application/pdf' && category === 'specs' && typeof pdfjsLib !== 'undefined') {
@@ -180,6 +207,27 @@ const SmartBrains = {
     return encoded;
   },
 
+  // Upload file to Gemini File API via server-side proxy
+  async _uploadToFileAPI(base64Data, mimeType, fileName) {
+    const response = await fetch('/api/ai/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base64Data,
+        mimeType,
+        fileName,
+        brainSlot: 0,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Upload failed: ${response.status}`);
+    }
+
+    return await response.json();
+  },
+
   _fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -195,6 +243,7 @@ const SmartBrains = {
 
   // ═══════════════════════════════════════════════════════════
   // BUILD FILE PARTS — For a specific brain
+  // Supports both inline base64 and Gemini File API URIs
   // ═══════════════════════════════════════════════════════════
 
   _buildFileParts(brainDef, encodedFiles) {
@@ -203,7 +252,15 @@ const SmartBrains = {
       const files = encodedFiles[category] || [];
       for (const f of files) {
         parts.push({ text: `\n--- FILE: ${f.name} (${f.category}) ---` });
-        parts.push({ inline_data: { mime_type: f.mimeType, data: f.base64 } });
+
+        if (f.fileUri) {
+          // File uploaded via Gemini File API — reference by URI
+          parts.push({ fileData: { mimeType: f.mimeType, fileUri: f.fileUri } });
+        } else if (f.base64) {
+          // Small file — inline base64
+          parts.push({ inline_data: { mime_type: f.mimeType, data: f.base64 } });
+        }
+
         if (f.extractedText) {
           parts.push({ text: `\n[EXTRACTED TEXT FROM ${f.name}]\n${f.extractedText}` });
         }
