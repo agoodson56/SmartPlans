@@ -1463,11 +1463,11 @@ Return ONLY valid JSON:
   // ═══════════════════════════════════════════════════════════
 
   async _runWave(waveNum, brainKeys, encodedFiles, state, context, progressCallback) {
-    const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 58, 2.5: 72, 3: 78, 4: 88 };
-    const waveEnd = { 0: 12, 1: 35, 1.5: 50, 1.75: 58, 2: 72, 2.5: 78, 3: 88, 4: 98 };
+    const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 58, 2.5: 72, 3: 78, 3.5: 82, 3.75: 86, 4: 90 };
+    const waveEnd = { 0: 12, 1: 35, 1.5: 50, 1.75: 58, 2: 72, 2.5: 78, 3: 82, 3.5: 86, 3.75: 90, 4: 98 };
     const baseProgress = waveStart[waveNum] ?? 0;
     const endProgress = waveEnd[waveNum] ?? 100;
-    const waveNames = { 0: 'Legend Pre-Processing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Cost Engine', 2.5: 'Reverse Verification', 3: 'Adversarial Audit', 4: 'Report Synthesis' };
+    const waveNames = { 0: 'Legend Pre-Processing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Cost Engine', 2.5: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 4: 'Report Synthesis' };
 
     const results = {};
     let completed = 0;
@@ -1675,17 +1675,27 @@ Return ONLY valid JSON:
     console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
 
     // ═══ WAVE 3.5: 4th & 5th Read — Deep Accuracy (2 parallel brains, Pro) ═══
-    progressCallback(80, '🔎 Wave 3.5: 4th & 5th Read — Detail Verifier + Cross-Sheet Analyzer…', this._brainStatus);
-    const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER'];
-    const wave35Results = await this._runWave(3.5, wave35Keys, encodedFiles, state, context, progressCallback);
-    context.wave3_5 = wave35Results;
-    console.log('[SmartBrains] ═══ Wave 3.5 Complete — 4th & 5th Read done ═══');
+    try {
+      progressCallback(82, '🔎 Wave 3.5: 4th & 5th Read — Detail Verifier + Cross-Sheet Analyzer…', this._brainStatus);
+      const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER'];
+      const wave35Results = await this._runWave(3.5, wave35Keys, encodedFiles, state, context, progressCallback);
+      context.wave3_5 = wave35Results;
+      console.log('[SmartBrains] ═══ Wave 3.5 Complete — 4th & 5th Read done ═══');
+    } catch (e) {
+      console.warn('[SmartBrains] Wave 3.5 failed (non-fatal, continuing):', e.message);
+      context.wave3_5 = {};
+    }
 
     // ═══ WAVE 3.75: 6th Read — Final Reconciliation (1 brain, Pro deep reasoning) ═══
-    progressCallback(85, '🏁 Wave 3.75: 6th Read — Final Reconciliation sweep…', this._brainStatus);
-    const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], encodedFiles, state, context, progressCallback);
-    context.wave3_75 = wave375Results;
-    console.log('[SmartBrains] ═══ Wave 3.75 Complete — 6th Read done ═══');
+    try {
+      progressCallback(86, '🏁 Wave 3.75: 6th Read — Final Reconciliation sweep…', this._brainStatus);
+      const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], encodedFiles, state, context, progressCallback);
+      context.wave3_75 = wave375Results;
+      console.log('[SmartBrains] ═══ Wave 3.75 Complete — 6th Read done ═══');
+    } catch (e) {
+      console.warn('[SmartBrains] Wave 3.75 failed (non-fatal, continuing):', e.message);
+      context.wave3_75 = {};
+    }
 
     // ═══ WAVE 4: Report Synthesis (1 brain) ═══
     progressCallback(90, '📝 Wave 4: Writing final report…', this._brainStatus);
