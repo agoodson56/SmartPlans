@@ -388,7 +388,7 @@ COVER PAGE — Word-native table layout (renders perfectly)
 
 <!-- Document Type -->
 <p style="font-size:10pt;color:${b.teal};text-transform:uppercase;letter-spacing:5pt;font-weight:bold;margin-bottom:8pt;">
-  Professional Proposal
+  Project Proposal
 </p>
 
 <!-- Project Name — Bold and prominent -->
