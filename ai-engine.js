@@ -80,12 +80,14 @@ const SmartBrains = {
     // ── Wave 1.75: Consensus Resolution (Gemini 3.1 Pro deep reasoning) ──
     CONSENSUS_ARBITRATOR: { id: 9, name: 'Consensus Arbitrator', wave: 1.75, emoji: '⚖️', needsFiles: [], maxTokens: 16384, useProModel: true },
     TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 12288, useProModel: true },
-    // ── Wave 2: Cost Engine (promoted to Gemini 3.1 Pro for pricing accuracy) ──
+    // ── Wave 2: Material Pricing (must run BEFORE labor so labor can use material qtys) ──
     MATERIAL_PRICER: { id: 11, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 16384, useProModel: true },
-    LABOR_CALCULATOR: { id: 12, name: 'Labor Calculator', wave: 2, emoji: '👷', needsFiles: [], maxTokens: 16384, useProModel: true },
-    FINANCIAL_ENGINE: { id: 13, name: 'Financial Engine', wave: 2, emoji: '📊', needsFiles: [], maxTokens: 16384, useProModel: true },
-    // ── Wave 2.5: Reverse Verification (Gemini 3.1 Pro) ──
-    REVERSE_VERIFIER: { id: 14, name: 'Reverse Verifier', wave: 2.5, emoji: '🔄', needsFiles: ['plans'], maxTokens: 12288, useProModel: true },
+    // ── Wave 2.25: Labor Calculator (runs AFTER Material Pricer to use its quantities) ──
+    LABOR_CALCULATOR: { id: 12, name: 'Labor Calculator', wave: 2.25, emoji: '👷', needsFiles: [], maxTokens: 16384, useProModel: true },
+    // ── Wave 2.5: Financial Engine (runs AFTER both Pricer & Labor to sum their outputs) ──
+    FINANCIAL_ENGINE: { id: 13, name: 'Financial Engine', wave: 2.5, emoji: '📊', needsFiles: [], maxTokens: 16384, useProModel: true },
+    // ── Wave 2.75: Reverse Verification (Gemini 3.1 Pro) ──
+    REVERSE_VERIFIER: { id: 14, name: 'Reverse Verifier', wave: 2.75, emoji: '🔄', needsFiles: ['plans'], maxTokens: 12288, useProModel: true },
     // ── Wave 3: Adversarial Audit (Gemini 3.1 Pro deep reasoning) ──
     CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 16384, useProModel: true },
     DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 16384, useProModel: true },
@@ -640,31 +642,44 @@ Return ONLY valid JSON:
         const regionMult = (typeof PRICING_DB !== 'undefined' && PRICING_DB.regionalMultipliers)
           ? (PRICING_DB.regionalMultipliers[regionKey] || 1.0) : 1.0;
 
+        // Use CONSENSUS counts (not raw scanner) — these are verified by 3+ reads
+        const consensusCounts = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
+          || context.wave1_75?.TARGETED_RESCANNER?.final_counts
+          || context.wave1?.SYMBOL_SCANNER?.totals
+          || {};
+
         return `You are a CONSTRUCTION MATERIAL PRICING SPECIALIST. Calculate exact material costs.
 
 PROJECT: ${context.projectName}
 PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}× multiplier)
 MATERIAL MARKUP: ${context.markup?.material || 25}%
 
-SYMBOL COUNTS FROM SCANNER:
-${JSON.stringify(context.wave1?.SYMBOL_SCANNER || {}, null, 2)}
+═══ VERIFIED DEVICE COUNTS (from Triple-Read Consensus — USE THESE EXACT QUANTITIES) ═══
+${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
 
-MDF/IDF EQUIPMENT:
-${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2)}
+DETAILED SYMBOL DATA (for reference — quantities above take priority):
+${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.sheets || context.wave1?.SYMBOL_SCANNER || {}, null, 2).substring(0, 5000)}
 
-CABLE QUANTITIES:
-${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2)}
+MDF/IDF ROOMS & EQUIPMENT:
+${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 4000)}
+
+CABLE QUANTITIES & PATHWAYS:
+${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)}
 
 PRICING DATABASE (use these exact prices):
 ${context.pricingContext || 'Use industry standard pricing'}
 
-INSTRUCTIONS:
-1. Match every counted symbol to a material item with unit cost
-2. Use the EXACT prices from the pricing database above
-3. Apply the ${regionMult}× regional multiplier to all prices
-4. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost
-5. Group by category (Cabling, CCTV, Access Control, Fire Alarm, etc.)
-6. Include ALL mounting hardware, connectors, and accessories
+CRITICAL RULES:
+1. Use the CONSENSUS DEVICE COUNTS above as your EXACT quantities — do NOT invent different numbers
+2. If consensus says 24 cameras, price EXACTLY 24 cameras — not 20, not 30
+3. If consensus says 200 data outlets, price EXACTLY 200 data outlets
+4. Use the EXACT prices from the pricing database
+5. Apply the ${regionMult}× regional multiplier to all prices
+6. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost (verify your math)
+7. Group by category: Structured Cabling, CCTV, Access Control, Fire Alarm, Audio Visual, Intrusion Detection
+8. ONLY include categories that have devices in the consensus counts — do NOT add categories with zero devices
+9. Include ALL mounting hardware, connectors, cable, and accessories for each device
+10. Cable quantities: use ~150ft average per data drop, verify against CABLE_PATHWAY data
 
 Return ONLY valid JSON:
 {
@@ -686,6 +701,12 @@ Return ONLY valid JSON:
       // ── BRAIN 7: Labor Calculator ────────────────────────────
       LABOR_CALCULATOR: () => {
         const burdenMult = context.includeBurden ? (1 + (context.burdenRate || 35) / 100) : 1.0;
+        // Use CONSENSUS counts + actual Material Pricer output (now available since Pricer runs first)
+        const consensusCounts = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
+          || context.wave1_75?.TARGETED_RESCANNER?.final_counts
+          || context.wave1?.SYMBOL_SCANNER?.totals
+          || {};
+
         return `You are a CONSTRUCTION LABOR ESTIMATOR using NECA labor standards.
 
 PROJECT: ${context.projectName} | Type: ${context.projectType}
@@ -699,8 +720,11 @@ ${Object.entries(context.laborRates || {}).map(([k, v]) =>
           `- ${k}: $${v}/hr base × ${burdenMult.toFixed(2)} burden = $${(v * burdenMult).toFixed(2)}/hr loaded`
         ).join('\n')}
 
-MATERIAL QUANTITIES (from Material Pricer):
-${JSON.stringify(context.wave2?.MATERIAL_PRICER || context.wave1 || {}, null, 2).substring(0, 8000)}
+═══ VERIFIED DEVICE COUNTS (from Triple-Read Consensus — USE THESE) ═══
+${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
+
+MATERIAL PRICER OUTPUT (actual priced quantities — match your labor to THESE):
+${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000)}
 
 NECA LABOR UNIT GUIDELINES:
 - Cat6A drop (install+terminate+test): 0.45-0.55 hrs/drop
@@ -709,6 +733,16 @@ NECA LABOR UNIT GUIDELINES:
 - Fire alarm device: 0.5-1.5 hrs/device depending on type
 - Rack build-out: 8-16 hrs/rack
 - Cable tray: 0.15-0.25 hrs/ft
+- AV display mounting: 1.5-3.0 hrs/display
+- Speaker install: 0.5-1.0 hrs/speaker
+
+CRITICAL RULES:
+1. Your device quantities MUST EXACTLY MATCH the consensus counts and Material Pricer
+2. If Material Pricer has 24 cameras, your labor must cover EXACTLY 24 cameras
+3. If Material Pricer has 21 card readers, your labor must cover EXACTLY 21 doors
+4. If consensus has AV devices, you MUST include AV installation labor
+5. ONLY include labor for categories that exist in the consensus counts
+6. If consensus shows 0 fire alarm devices, do NOT add fire alarm labor
 
 Calculate labor by PROJECT PHASE:
 1. Rough-In (45-50% of total) — pathway, conduit, cable pulling, backboxes
@@ -744,25 +778,32 @@ PROJECT: ${context.projectName} | Location: ${context.projectLocation || 'Not sp
 PREVAILING WAGE: ${context.prevailingWage || 'No'}
 MARKUP: Material ${context.markup?.material || 25}% | Labor ${context.markup?.labor || 30}% | Equipment ${context.markup?.equipment || 15}% | Subcontractor ${context.markup?.subcontractor || 10}%
 
-MATERIAL COSTS:
-${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 5000)}
+═══ MATERIAL PRICER OUTPUT (USE THESE EXACT TOTALS) ═══
+${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 6000)}
 
-LABOR COSTS:
-${JSON.stringify(context.wave2?.LABOR_CALCULATOR || {}, null, 2).substring(0, 5000)}
+═══ LABOR CALCULATOR OUTPUT (USE THESE EXACT TOTALS) ═══
+${JSON.stringify(context.wave2_25?.LABOR_CALCULATOR || {}, null, 2).substring(0, 6000)}
 
 SPECIAL CONDITIONS:
 ${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 3000)}
 
+CRITICAL RULES:
+1. Your total_materials MUST EXACTLY EQUAL the Material Pricer's grand_total — do NOT estimate independently
+2. Your total_labor MUST EXACTLY EQUAL the Labor Calculator's total — do NOT estimate independently
+3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total
+4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
+5. All SOV line items must sum to the grand total
+
 GENERATE:
-1. Schedule of Values (SOV) in AIA G703 format with actual dollar amounts
-2. Travel & Per Diem estimate (if project location is 100+ miles, use GSA rates)
+1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
+2. Travel & Per Diem estimate (if project location is 100+ miles from Rancho Cordova, CA, use GSA rates)
 3. Prevailing wage determination (if applicable)
-4. Complete project cost summary with all markups applied
+4. Complete project cost summary with markups — totals MUST come from Material Pricer + Labor Calculator
 
 Return ONLY valid JSON:
 {
   "sov": [
-    { "item_num": "01-001", "description": "Mobilization/Demobilization", "material": 0, "labor": 2500, "equipment": 500, "total": 3000 }
+    { "item_num": "01-001", "description": "Mobilization/Demobilization", "material": 0, "labor": 2500, "equipment": 500, "subcontractor": 0, "total": 3000 }
   ],
   "travel": {
     "applicable": false,
@@ -776,15 +817,15 @@ Return ONLY valid JSON:
     "note": ""
   },
   "project_summary": {
-    "total_materials": 125000,
-    "total_labor": 78000,
-    "total_equipment": 15000,
-    "total_subcontractors": 12000,
+    "total_materials": 0,
+    "total_labor": 0,
+    "total_equipment": 0,
+    "total_subcontractors": 0,
     "total_travel": 0,
-    "subtotal": 230000,
+    "subtotal": 0,
     "contingency_pct": 10,
-    "contingency": 23000,
-    "grand_total": 253000
+    "contingency": 0,
+    "grand_total": 0
   },
   "payment_terms": "Net 30, 10% retainage until substantial completion",
   "assumptions": [],
@@ -813,10 +854,10 @@ MATERIAL PRICER DATA:
 ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 4000)}
 
 LABOR CALCULATOR DATA:
-${JSON.stringify(context.wave2?.LABOR_CALCULATOR || {}, null, 2).substring(0, 4000)}
+${JSON.stringify(context.wave2_25?.LABOR_CALCULATOR || {}, null, 2).substring(0, 4000)}
 
 FINANCIAL ENGINE DATA:
-${JSON.stringify(context.wave2?.FINANCIAL_ENGINE || {}, null, 2).substring(0, 4000)}
+${JSON.stringify(context.wave2_5_fin?.FINANCIAL_ENGINE || {}, null, 2).substring(0, 4000)}
 
 Return ONLY valid JSON:
 {
@@ -991,10 +1032,10 @@ MATERIAL PRICING (use these exact numbers):
 ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000)}
 
 LABOR CALCULATIONS (use these exact numbers):
-${JSON.stringify(context.wave2?.LABOR_CALCULATOR || {}, null, 2).substring(0, 8000)}
+${JSON.stringify(context.wave2_25?.LABOR_CALCULATOR || {}, null, 2).substring(0, 8000)}
 
 FINANCIALS & SOV:
-${JSON.stringify(context.wave2?.FINANCIAL_ENGINE || {}, null, 2).substring(0, 6000)}
+${JSON.stringify(context.wave2_5_fin?.FINANCIAL_ENGINE || {}, null, 2).substring(0, 6000)}
 
 CROSS-VALIDATION:
 ${JSON.stringify(context.wave3?.CROSS_VALIDATOR || {}, null, 2).substring(0, 3000)}
@@ -1240,9 +1281,9 @@ THIS ESTIMATE MAY BE USED FOR PROJECTS UP TO $50 BILLION. YOUR JOB IS TO PROTECT
 FULL ESTIMATE DATA:
 Symbol Counts: ${JSON.stringify(context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 2000)}
 Materials: ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 3000)}
-Labor: ${JSON.stringify(context.wave2?.LABOR_CALCULATOR || {}, null, 2).substring(0, 3000)}
-Financials: ${JSON.stringify(context.wave2?.FINANCIAL_ENGINE?.project_summary || {}, null, 2).substring(0, 2000)}
-Reverse Verification: ${JSON.stringify(context.wave2_5?.REVERSE_VERIFIER || {}, null, 2).substring(0, 2000)}
+Labor: ${JSON.stringify(context.wave2_25?.LABOR_CALCULATOR || {}, null, 2).substring(0, 3000)}
+Financials: ${JSON.stringify(context.wave2_5_fin?.FINANCIAL_ENGINE?.project_summary || {}, null, 2).substring(0, 2000)}
+Reverse Verification: ${JSON.stringify(context.wave2_75?.REVERSE_VERIFIER || {}, null, 2).substring(0, 2000)}
 
 ATTACK VECTORS — Challenge the estimate on:
 1. WHAT'S MISSING? Items that should be in a typical ELV project of this type but aren't
@@ -1362,7 +1403,7 @@ Return ONLY valid JSON:
         const consensus = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || {};
         const detailVerifier = context.wave3_5?.DETAIL_VERIFIER || {};
         const crossSheet = context.wave3_5?.CROSS_SHEET_ANALYZER || {};
-        const reverseVerifier = context.wave2_5?.REVERSE_VERIFIER || {};
+        const reverseVerifier = context.wave2_75?.REVERSE_VERIFIER || {};
         const devil = context.wave3?.DEVILS_ADVOCATE || {};
         return `You are the FINAL RECONCILIATION ENGINE performing the SIXTH AND FINAL READ of the construction plans. You have access to ALL previous data from 5 prior reads. Your job is to produce the AUTHORITATIVE, DEFINITIVE device counts.
 
@@ -1463,11 +1504,11 @@ Return ONLY valid JSON:
   // ═══════════════════════════════════════════════════════════
 
   async _runWave(waveNum, brainKeys, encodedFiles, state, context, progressCallback) {
-    const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 58, 2.5: 72, 3: 78, 3.5: 82, 3.75: 86, 4: 90 };
-    const waveEnd = { 0: 12, 1: 35, 1.5: 50, 1.75: 58, 2: 72, 2.5: 78, 3: 82, 3.5: 86, 3.75: 90, 4: 98 };
+    const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 4: 90 };
+    const waveEnd = { 0: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 80, 3.5: 84, 3.75: 90, 4: 98 };
     const baseProgress = waveStart[waveNum] ?? 0;
     const endProgress = waveEnd[waveNum] ?? 100;
-    const waveNames = { 0: 'Legend Pre-Processing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Cost Engine', 2.5: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 4: 'Report Synthesis' };
+    const waveNames = { 0: 'Legend Pre-Processing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Material Pricing', 2.25: 'Labor Calculation', 2.5: 'Financial Engine', 2.75: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 4: 'Report Synthesis' };
 
     const results = {};
     let completed = 0;
@@ -1604,7 +1645,8 @@ Return ONLY valid JSON:
       knownQuantities: state.knownQuantities,
       pricingContext: this._buildPricingContext(state),
       wave0: null, wave1: null, wave1_5: null, wave1_75: null,
-      wave2: null, wave2_5: null, wave3: null, wave3_5: null, wave3_75: null,
+      wave2: null, wave2_25: null, wave2_5_fin: null, wave2_75: null,
+      wave3: null, wave3_5: null, wave3_75: null,
     };
 
     // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) ═══
@@ -1655,18 +1697,29 @@ Return ONLY valid JSON:
     }
     console.log(`[SmartBrains] ═══ Wave 1.75 Complete — ${disputes.length} disputes resolved ═══`);
 
-    // ═══ WAVE 2: Cost Engine (3 parallel brains) ═══
-    progressCallback(58, '💰 Wave 2: Cost Engine — computing pricing…', this._brainStatus);
-    const wave2Keys = ['MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE'];
-    const wave2Results = await this._runWave(2, wave2Keys, encodedFiles, state, context, progressCallback);
+    // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
+    progressCallback(56, '💰 Wave 2: Material Pricer — computing material costs…', this._brainStatus);
+    const wave2Results = await this._runWave(2, ['MATERIAL_PRICER'], encodedFiles, state, context, progressCallback);
     context.wave2 = wave2Results;
-    console.log('[SmartBrains] ═══ Wave 2 Complete ═══');
+    console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
 
-    // ═══ WAVE 2.5: Reverse Verification (1 brain, Pro model) ═══
-    progressCallback(72, '🔄 Wave 2.5: Reverse-verifying BOQ against plans…', this._brainStatus);
-    const wave25Results = await this._runWave(2.5, ['REVERSE_VERIFIER'], encodedFiles, state, context, progressCallback);
-    context.wave2_5 = wave25Results;
-    console.log('[SmartBrains] ═══ Wave 2.5 Complete ═══');
+    // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
+    progressCallback(62, '👷 Wave 2.25: Labor Calculator — computing labor hours…', this._brainStatus);
+    const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], encodedFiles, state, context, progressCallback);
+    context.wave2_25 = wave225Results;
+    console.log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
+
+    // ═══ WAVE 2.5: Financial Engine (runs AFTER both to sum their outputs) ═══
+    progressCallback(68, '📊 Wave 2.5: Financial Engine — building SOV…', this._brainStatus);
+    const wave25FinResults = await this._runWave(2.5, ['FINANCIAL_ENGINE'], encodedFiles, state, context, progressCallback);
+    context.wave2_5_fin = wave25FinResults;
+    console.log('[SmartBrains] ═══ Wave 2.5 Complete — Financials computed ═══');
+
+    // ═══ WAVE 2.75: Reverse Verification (1 brain, Pro model) ═══
+    progressCallback(72, '🔄 Wave 2.75: Reverse-verifying BOQ against plans…', this._brainStatus);
+    const wave275Results = await this._runWave(2.75, ['REVERSE_VERIFIER'], encodedFiles, state, context, progressCallback);
+    context.wave2_75 = wave275Results;
+    console.log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
 
     // ═══ WAVE 3: Adversarial Audit (2 parallel brains, Pro model) ═══
     progressCallback(78, '😈 Wave 3: Adversarial Audit — cross-validator + devil\'s advocate…', this._brainStatus);
@@ -1769,14 +1822,15 @@ Return ONLY valid JSON:
 
     const finalReport = (typeof report === 'string' ? report : JSON.stringify(report, null, 2)) + validationAppendix;
 
-    progressCallback(100, '🎯 Analysis complete — 18 brains finished!', this._brainStatus);
+    progressCallback(100, '🎯 Analysis complete — 21 brains finished!', this._brainStatus);
 
     return {
       report: finalReport,
       brainResults: {
         wave0: wave0Results, wave1: wave1Results, wave1_5: wave15Results,
-        wave1_75: wave175Results, wave2: wave2Results, wave2_5: wave25Results,
-        wave3: wave3Results,
+        wave1_75: wave175Results, wave2: wave2Results, wave2_25: wave225Results,
+        wave2_5_fin: wave25FinResults, wave2_75: wave275Results,
+        wave3: wave3Results, wave3_5: context.wave3_5, wave3_75: context.wave3_75,
       },
       brainStatus: { ...this._brainStatus },
       stats: {
