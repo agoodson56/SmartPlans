@@ -1304,23 +1304,36 @@ function renderStep6(container) {
   // Proposal Generator button
   const proposalBtn = document.getElementById("btn-generate-proposal");
   if (proposalBtn) {
-    proposalBtn.addEventListener("click", async () => {
+    proposalBtn.addEventListener("click", () => {
+      // Open window SYNCHRONOUSLY during click event to bypass popup blocker
+      const proposalWindow = window.open('', '_blank', 'width=900,height=700');
+      if (!proposalWindow) {
+        alert('Please allow popups for this site to generate the proposal PDF.');
+        return;
+      }
+      // Show loading spinner immediately
+      proposalWindow.document.write(`<!DOCTYPE html><html><head><title>Generating Proposal…</title>
+        <style>body{font-family:'Inter',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;}
+        .loader{text-align:center;}.spinner{width:48px;height:48px;border:4px solid rgba(255,255,255,0.1);border-top-color:#38bdf8;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 20px;}
+        @keyframes spin{to{transform:rotate(360deg)}}h2{font-size:18px;font-weight:600;margin-bottom:8px;}p{color:#94a3b8;font-size:14px;}</style></head>
+        <body><div class="loader"><div class="spinner"></div><h2>Generating Professional Proposal</h2><p>AI is crafting your Fortune 500 proposal…</p></div></body></html>`);
+
       proposalBtn.disabled = true;
       proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generating Proposal…';
       proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'AI is crafting your professional proposal — please wait';
       proposalBtn.classList.add('generating');
-      try {
-        await ProposalGenerator.renderAndDownload(state, (pct, msg) => {
-          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
-        });
-      } catch (e) {
+
+      // Now run async generation — window is already open
+      ProposalGenerator.renderAndDownload(state, (pct, msg) => {
+        proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
+      }, proposalWindow).catch(e => {
         console.error('[ProposalGen] Failed:', e);
-      } finally {
+      }).finally(() => {
         proposalBtn.disabled = false;
         proposalBtn.classList.remove('generating');
         proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Professional Proposal';
         proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Fortune 500-grade client proposal from 3D Technology Services Inc.';
-      }
+      });
     });
   }
 }
