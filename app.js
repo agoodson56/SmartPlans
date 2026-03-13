@@ -1139,11 +1139,8 @@ function renderStep6(container) {
     `;
   }
 
-  // Export panel
-  const exportPanel = state.aiAnalysis ? `
-    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;"></div>
-    <div class="info-card info-card--indigo" style="margin-bottom:22px;">
-      <div class="info-card-title">📦 Export Estimate Package</div>
+  // Export panel — show export buttons only if analysis succeeded, but ALWAYS show proposal button
+  const exportButtons = state.aiAnalysis ? `
       <div class="info-card-body" style="line-height:1.8;">
         Export your complete analysis for use in project management, client proposals, or record keeping.
       </div>
@@ -1176,7 +1173,17 @@ function renderStep6(container) {
             <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Download JSON + Excel + Markdown at once</div>
           </div>
         </button>
-      </div>
+      </div>` : `
+      <div class="info-card-body" style="line-height:1.8;">
+        AI analysis did not complete. Re-run analysis with valid API keys to enable full export.
+        You can still generate a professional proposal below.
+      </div>`;
+
+  const exportPanel = `
+    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;"></div>
+    <div class="info-card info-card--indigo" style="margin-bottom:22px;">
+      <div class="info-card-title">📦 Export & Proposal</div>
+      ${exportButtons}
 
       <button class="proposal-gen-btn" id="btn-generate-proposal">
         <div class="proposal-gen-btn__shine"></div>
@@ -1190,7 +1197,7 @@ function renderStep6(container) {
         </div>
       </button>
     </div>
-  ` : "";
+  `;
 
   container.innerHTML = `
     <h2 class="step-heading">Estimate Complete</h2>
