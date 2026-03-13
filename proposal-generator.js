@@ -1,12 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-// SMARTPLANS — PROFESSIONAL PROPOSAL GENERATOR v2.0
-// Fortune 500-grade client proposals for 3D Technology Services Inc.
-// Downloads as a Word document (.doc) — brand-matched to 3dtsi.com
+// SMARTPLANS — PROFESSIONAL PROPOSAL GENERATOR v3.0
+// Fortune 500-grade Microsoft Word proposals
+// Uses Word-native table/bgcolor formatting (NOT modern CSS)
 // ═══════════════════════════════════════════════════════════════
 
 const ProposalGenerator = {
 
-  // ─── Company Info ───────────────────────────────────────────
   COMPANY: {
     name: '3D Technology Services Inc.',
     address: '11365 Sunrise Gold Circle',
@@ -20,17 +19,15 @@ const ProposalGenerator = {
     tagline: 'Guiding Businesses to Quality Technology Solutions',
   },
 
-  // ─── Brand Colors (matched to 3dtsi.com) ───────────────────
   BRAND: {
     gold: '#EBB328',
-    goldDark: '#D4A01E',
     teal: '#3B97A1',
     tealDark: '#2B828B',
     navy: '#1B2A4A',
     dark: '#1a1a2e',
     gray: '#4A5568',
-    lightGray: '#F8F9FA',
-    border: '#E2E8F0',
+    lightGray: '#F4F6F8',
+    border: '#D1D5DB',
   },
 
   // ─── Generate the proposal via Gemini AI ───────────────────
@@ -45,11 +42,12 @@ const ProposalGenerator = {
     const validUntil = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
       .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-    const analysisSummary = (state.aiAnalysis || '').substring(0, 12000);
+    // Pull the FULL analysis — the bid report has the real numbers
+    const analysisSummary = (state.aiAnalysis || '').substring(0, 20000);
 
     progressCallback(5, 'Crafting executive proposal with AI…');
 
-    const prompt = `You are a Fortune 500 proposal writer for ${co.name}, a premier low-voltage technology integrator headquartered in Rancho Cordova, California. Generate a COMPLETE, HIGHLY DETAILED, PROFESSIONALLY WRITTEN proposal document.
+    const prompt = `You are the Senior Proposal Manager at ${co.name}, a premier low-voltage technology integrator with 20+ years of excellence. You are writing a WINNING proposal that will be submitted to a real client. This must be the most professional, compelling, and detailed proposal the client has ever received.
 
 PROJECT: "${projName}"
 TYPE: ${projType}
@@ -57,86 +55,102 @@ LOCATION: ${projLoc}
 DISCIPLINES: ${disciplines}
 DATE: ${dateStr}
 VALID UNTIL: ${validUntil}
+CONSULTANT: ${co.consultant}, ${co.title}
 
-BID ANALYSIS DATA (use real numbers from this data — do NOT invent numbers):
+═══ COMPLETE BID ANALYSIS DATA ═══
+The following contains the REAL material counts, labor hours, and pricing from our 21-brain AI analysis system. Use these EXACT numbers in the proposal — do NOT invent different numbers:
+
 ${analysisSummary}
 
-CRITICAL INSTRUCTIONS:
-- Write 8-12 pages of thorough, executive-level content
-- Use REAL quantities, costs, and material counts from the analysis data above
-- Every section must have substantial detail — no one-liner sections
-- Write paragraphs, not just bullet points — this must read like a Fortune 500 RFP response
-- Be specific about 3D Technology Services capabilities
-- Reference actual industry standards (BICSI, TIA-568, NFPA 72, NEC Article 725/760/770/800)
-
-Write the proposal in these EXACT sections:
+═══ PROPOSAL REQUIREMENTS ═══
+Write a MINIMUM 10-page Fortune 500 executive proposal. Each section must have MULTIPLE rich paragraphs (not just bullet points). This proposal must convince the client that ${co.name} is the ONLY professional choice.
 
 ## 1. Executive Summary
-3 full paragraphs minimum. Open with a powerful statement about the project's importance. Explain why ${co.name} is the definitive choice — 20+ years of systems integration excellence, BICSI RCDD & NICET certified technicians, Fortune 500 client portfolio. End with a compelling value proposition that differentiates 3D TSI from every competitor.
+Write 4-5 substantial paragraphs. Open with a powerful statement about the project. Explain the full scope. Position ${co.name} as the definitive technology integration partner. Reference our BICSI RCDD and NICET certified team, 20+ years of experience, and Fortune 500 track record. Close with a compelling value proposition and the total investment amount from the analysis data.
 
-## 2. Company Qualifications & Experience
-Write rich, detailed paragraphs covering:
-- Company history (20+ years in low-voltage technology integration)
+## 2. Company Qualifications & Experience  
+Write detailed paragraphs (NOT just bullets) covering:
+- 20+ years as California's premier low-voltage technology integrator
 - BICSI Registered Communications Distribution Designer (RCDD) credentials
-- NICET Fire Alarm certified technicians
-- Manufacturer certifications and partnerships
-- Fortune 500, healthcare, government, and educational project experience
-- Safety record (OSHA compliant, EMR rating, safety programs)
-- $5M+ general liability, workers compensation, bonding capacity
-- Quality Management System based on ISO 9001 principles
+- NICET certified fire alarm technicians
+- Manufacturer certifications (Axis, Genetec, Lenel, Corning, CommScope, Panduit)
+- Project portfolio: Fortune 500 headquarters, hospitals, government facilities, K-12 and higher education, data centers
+- Safety program: OSHA 30-hour certified supervisors, zero lost-time incidents, EMR rating below 1.0
+- Insurance: $5M general liability, full workers compensation, auto liability, professional liability
+- Bonding capacity: $10M per project performance and payment bonds
+- Quality Management: ISO 9001-aligned quality system with documented inspection checkpoints
 
 ## 3. Detailed Scope of Work
-Break down EVERY deliverable by discipline from the analysis. Use the actual material counts and system descriptions. Each discipline should have its own subsection (### heading) with bullet points of specific deliverables and quantities.
+Create a subsection (### heading) for EACH discipline found in the analysis. Under each, provide:
+- Detailed description of what will be installed
+- EXACT material quantities from the analysis data (e.g., "Install 200 Cat 6A data outlets")
+- Installation standards that will be followed
+- Testing and certification procedures
 
 ## 4. Technical Approach & Methodology
-Detailed paragraphs for each phase:
-- Pre-Construction: Site survey, coordination meetings, submittal process, material procurement
-- Rough-In Phase: Pathway installation, cable tray, conduit, J-hooks, fire stopping, backing boards
-- Trim-Out Phase: Device installation, cable termination, labeling per TIA-606
-- Testing & Commissioning: Category cable certification (Fluke DSX), fiber OTDR testing, system programming
-- Project Closeout: As-built drawings, O&M manuals, warranty registration, training
+Write detailed paragraphs for EACH phase:
+### Pre-Construction Planning
+- Dedicated project manager assignment, site survey, coordination meetings, submittal process (shop drawings, product data, samples), material procurement and staging
 
-## 5. Project Timeline & Milestones
-Provide a realistic phased schedule. Include:
-- Mobilization & submittals
-- Rough-in phase
-- Trim-out & device installation
-- System programming & testing
-- Commissioning & client training
-- Project closeout & final documentation
+### Rough-In Installation
+- Pathway installation (cable tray, J-hooks, conduit, innerduct), fire stopping per ASTM E814, backing boards, equipment room build-out, cable pulling per BICSI guidelines (max 25 lbf tension)
+
+### Trim-Out & Termination
+- Device installation, cable termination per TIA-568 standards, labeling per TIA-606-C, patch cord installation, rack dressing and cable management
+
+### Testing & Commissioning
+- Category cable certification using Fluke DSX-8000, fiber certification using OTDR, system programming and configuration, integration testing, performance verification
+
+### Project Closeout
+- As-built documentation (CAD and PDF), O&M manuals, warranty registration with manufacturers, staff training (minimum 4 hours), 30-day post-installation support period
+
+## 5. Project Timeline & Milestones  
+Provide a realistic phased schedule with estimated durations:
+- Phase 1: Mobilization, submittals, procurement (Weeks 1-2)
+- Phase 2: Rough-in infrastructure (Weeks 3-6)
+- Phase 3: Device installation & termination (Weeks 7-10)
+- Phase 4: Programming, testing, commissioning (Weeks 11-12)
+- Phase 5: Training, documentation, closeout (Week 13-14)
+Adjust the timeline based on project complexity from the analysis data.
 
 ## 6. Investment Summary
-Use a professional pricing table with these columns: Description | Quantity | Unit | Unit Price | Extended Price
-Include subtotals for Material, Labor, Equipment, and a Grand Total.
-Use REAL numbers from the analysis data.
+Create a professional pricing summary using the EXACT numbers from the analysis. Include:
+- Material costs by category with line items
+- Labor costs by phase  
+- Equipment and tool costs
+- Subtotals for each category
+- Grand total
+USE THE REAL NUMBERS FROM THE ANALYSIS DATA ABOVE. Do not use placeholder amounts.
 
 ## 7. Terms & Conditions
-Comprehensive terms including:
-- Payment terms (Net 30 from invoice date, progress billing for projects over $50,000)
-- Change order process and pricing
-- Warranty coverage (1-year comprehensive parts and labor, manufacturer warranties pass-through)
-- Insurance coverage ($5M general liability, workers compensation, auto)
-- Performance and payment bonding availability
-- Exclusions and clarifications (above-ceiling access, permits, patching/painting/core drilling unless specified)
-- Force majeure provisions
+Write comprehensive professional terms:
+- Payment: Net 30 from invoice date, progress billing monthly for projects exceeding $50,000
+- Change orders: Written authorization required, pricing per unit rates in this proposal or T&M at standard rates
+- Warranty: One (1) year comprehensive parts and labor warranty, manufacturer warranties assigned to owner (typically 10-25 years on cable plant)
+- Insurance: $5M general liability, workers compensation per California requirements, commercial auto liability, umbrella coverage
+- Bonding: Performance and payment bonds available upon request (cost not included unless specified)
+- Exclusions: Electrical power to equipment, HVAC for equipment rooms, architectural modifications, fire alarm monitoring service, permits (unless noted)
+- Prevailing wage: If applicable, all labor rates comply with DIR determinations
+- Force majeure: Neither party liable for delays beyond reasonable control
 
 ## 8. Why Choose 3D Technology Services
-Write a compelling closing with:
+Write a compelling closing (3-4 paragraphs) covering:
 - Single-source accountability from design through ongoing support
-- Dedicated project manager assigned to every project
+- Dedicated project manager and superintendent for every project  
 - 24/7/365 emergency service and support
-- Comprehensive post-installation training and documentation
-- Technology refresh and scalability planning
-- Local presence with nationwide capabilities
-- References available upon request
+- Comprehensive post-installation training (we don't just install and leave)
+- Technology refresh planning and future-proof infrastructure design
+- Local presence in Rancho Cordova with projects throughout California and nationwide
+- Client references available upon request
+- "When you choose ${co.name}, you're choosing a partner, not just a contractor"
 
-Output ONLY the proposal body text. Use markdown headers (## for sections, ### for subsections). Write like a senior proposal manager at a Fortune 500 company. Every paragraph should demonstrate deep expertise and instill absolute confidence.`;
+OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections). Write multiple paragraphs per section — this is NOT a template, it's a real proposal. Every sentence should demonstrate deep expertise and instill absolute confidence. The total document should be 8-12 pages when formatted.`;
 
     const requestBody = {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 16384,
+        temperature: 0.35,
+        maxOutputTokens: 32768,
       },
       _model: 'gemini-3.1-pro-preview',
       _brainSlot: 17,
@@ -148,7 +162,7 @@ Output ONLY the proposal body text. Use markdown headers (## for sections, ### f
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
-      _timeout: 120000,
+      _timeout: 180000,
       _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
     }, 3);
 
@@ -161,7 +175,7 @@ Output ONLY the proposal body text. Use markdown headers (## for sections, ### f
     const allParts = data?.candidates?.[0]?.content?.parts || [];
     const proposalText = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
 
-    if (!proposalText || proposalText.length < 200) {
+    if (!proposalText || proposalText.length < 500) {
       throw new Error('AI returned insufficient proposal content. Please try again.');
     }
 
@@ -169,7 +183,6 @@ Output ONLY the proposal body text. Use markdown headers (## for sections, ### f
     return proposalText;
   },
 
-  // ─── Generate and download as Word document ──────────────────
   async renderAndDownload(state, progressCallback, _unused) {
     try {
       const proposalText = await this.generateProposal(state, progressCallback);
@@ -182,7 +195,6 @@ Output ONLY the proposal body text. Use markdown headers (## for sections, ### f
     }
   },
 
-  // ─── Build Word-compatible HTML and trigger download ────────
   _downloadWordDoc(state, proposalText, progressCallback) {
     const co = this.COMPANY;
     const b = this.BRAND;
@@ -193,551 +205,338 @@ Output ONLY the proposal body text. Use markdown headers (## for sections, ### f
     const validUntil = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
       .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const refNum = `3DTSI-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 9000 + 1000)}`;
+    const year = today.getFullYear();
+    const bodyHtml = this._markdownToHtml(proposalText);
 
-    let bodyHtml = this._markdownToHtml(proposalText);
     progressCallback(85, 'Creating downloadable document…');
 
+    // ─── Word-native HTML — uses tables + bgcolor (NOT modern CSS) ───
     const wordHtml = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office"
       xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns:v="urn:schemas-microsoft-com:vml"
       xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="UTF-8">
 <meta name="ProgId" content="Word.Document">
-<meta name="Generator" content="SmartPlans Proposal Generator v2.0">
-<title>${this._esc(projName)} — Proposal | ${co.name}</title>
+<meta name="Generator" content="SmartPlans v3.0">
+<title>${this._esc(projName)} — Professional Proposal | ${co.name}</title>
 <!--[if gte mso 9]>
-<xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml>
+<xml>
+  <w:WordDocument>
+    <w:View>Print</w:View>
+    <w:Zoom>100</w:Zoom>
+    <w:DoNotOptimizeForBrowser/>
+    <w:BrowserLevel>MicrosoftInternetExplorer4</w:BrowserLevel>
+  </w:WordDocument>
+</xml>
 <![endif]-->
 <style>
-  /* ═════════════════════════════════════════════════════════════
-     3D TECHNOLOGY SERVICES — PROFESSIONAL PROPOSAL STYLES
-     Brand Colors: Gold #EBB328 | Teal #3B97A1 | Navy #1B2A4A
-     ═════════════════════════════════════════════════════════════ */
+  @page {
+    size: 8.5in 11in;
+    margin: 0.7in 0.85in 0.7in 0.85in;
+    mso-header-margin: 0.3in;
+    mso-footer-margin: 0.3in;
+    mso-paper-source: 0;
+  }
 
-  @page { size: 8.5in 11in; margin: 0.8in 1in; }
+  @page Section1 { mso-header: h1; mso-footer: f1; }
 
   body {
-    font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
+    font-family: Calibri, Arial, sans-serif;
     font-size: 11pt;
-    line-height: 1.7;
-    color: ${b.dark};
+    line-height: 1.65;
+    color: #222;
     margin: 0;
     padding: 0;
   }
 
-  /* ══════════════════════════════════════════════════════════
-     COVER PAGE — Full-page, premium corporate design
-     ══════════════════════════════════════════════════════════ */
-  .cover-page {
-    page-break-after: always;
-    position: relative;
-    min-height: 9in;
-    padding: 0;
-    text-align: left;
-  }
+  /* Word-compatible page break */
+  .page-break { page-break-before: always; }
 
-  /* Top accent bar with brand gradient */
-  .cover-top-bar {
-    height: 8px;
-    background: linear-gradient(90deg, ${b.teal}, ${b.gold});
-    margin: -0.8in -1in 0 -1in;
-  }
-
-  /* Company header section */
-  .cover-header {
-    margin-top: 1.2in;
-    padding-bottom: 30px;
-    border-bottom: 3px solid ${b.teal};
-  }
-
-  .cover-company-name {
-    font-size: 28pt;
-    font-weight: bold;
-    color: ${b.teal};
-    letter-spacing: -0.5px;
-    margin: 0 0 2px 0;
-    line-height: 1.2;
-  }
-
-  .cover-company-sub {
-    font-size: 11pt;
-    color: ${b.gold};
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 3px;
-    margin: 0;
-  }
-
-  /* Main proposal title section */
-  .cover-title-section {
-    margin-top: 1in;
-    margin-bottom: 0.8in;
-  }
-
-  .cover-doc-type {
-    font-size: 12pt;
-    color: ${b.teal};
-    text-transform: uppercase;
-    letter-spacing: 4px;
-    font-weight: 600;
-    margin-bottom: 12px;
-  }
-
-  .cover-project-name {
-    font-size: 26pt;
-    font-weight: bold;
-    color: ${b.navy};
-    line-height: 1.25;
-    margin-bottom: 8px;
-    border-left: 5px solid ${b.gold};
-    padding-left: 20px;
-  }
-
-  .cover-project-location {
-    font-size: 13pt;
-    color: ${b.gray};
-    margin-top: 8px;
-    padding-left: 25px;
-  }
-
-  /* Info grid */
-  .cover-info-grid {
-    border-collapse: collapse;
-    margin-top: 0.6in;
-    width: 100%;
-  }
-
-  .cover-info-grid td {
-    padding: 10px 0;
-    font-size: 10.5pt;
-    border: none;
-    vertical-align: top;
-  }
-
-  .cover-info-grid .info-left {
-    width: 50%;
-    padding-right: 30px;
-  }
-
-  .cover-info-grid .info-right {
-    width: 50%;
-    padding-left: 30px;
-    border-left: 1px solid ${b.border};
-  }
-
-  .cover-info-label {
-    font-size: 8pt;
-    color: ${b.teal};
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    font-weight: 700;
-    margin-bottom: 3px;
-  }
-
-  .cover-info-value {
-    font-size: 10.5pt;
-    color: ${b.dark};
-    font-weight: 500;
-  }
-
-  .cover-info-row {
-    margin-bottom: 16px;
-  }
-
-  /* Bottom confidential bar */
-  .cover-bottom {
-    position: absolute;
-    bottom: 0;
-    left: -1in;
-    right: -1in;
-    background: ${b.navy};
-    padding: 14px 1in;
-    color: rgba(255,255,255,0.7);
-    font-size: 8pt;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    text-align: center;
-  }
-
-  .cover-ref {
-    color: ${b.gold};
-    font-weight: 600;
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     TABLE OF CONTENTS PAGE
-     ══════════════════════════════════════════════════════════ */
-  .toc-page {
-    page-break-after: always;
-    padding-top: 0.5in;
-  }
-
-  .toc-title {
-    font-size: 20pt;
-    font-weight: bold;
-    color: ${b.navy};
-    margin-bottom: 30px;
-    padding-bottom: 12px;
-    border-bottom: 3px solid ${b.teal};
-  }
-
-  .toc-item {
-    display: block;
-    padding: 10px 0;
-    border-bottom: 1px solid ${b.border};
-    font-size: 11pt;
-    color: ${b.dark};
-    text-decoration: none;
-  }
-
-  .toc-num {
-    display: inline-block;
-    width: 40px;
-    font-weight: 700;
-    color: ${b.teal};
-    font-size: 12pt;
-  }
-
-  .toc-text {
-    font-weight: 500;
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     BODY — Section Headers, Text, Tables
-     ══════════════════════════════════════════════════════════ */
-  .proposal-body {
-    text-align: left;
-  }
-
+  /* ── Section Headers ── */
   h2 {
+    font-family: Calibri, Arial, sans-serif;
     font-size: 16pt;
     font-weight: bold;
     color: ${b.navy};
-    margin-top: 36px;
-    margin-bottom: 14px;
-    padding-bottom: 8px;
-    border-bottom: 3px solid ${b.teal};
+    margin-top: 24pt;
+    margin-bottom: 8pt;
+    padding-bottom: 4pt;
+    border-bottom: 3pt solid ${b.teal};
     page-break-after: avoid;
-    text-align: left;
   }
 
   h3 {
+    font-family: Calibri, Arial, sans-serif;
     font-size: 13pt;
     font-weight: bold;
     color: ${b.teal};
-    margin-top: 22px;
-    margin-bottom: 8px;
-    padding-left: 12px;
-    border-left: 4px solid ${b.gold};
+    margin-top: 16pt;
+    margin-bottom: 6pt;
     page-break-after: avoid;
-    text-align: left;
   }
 
   h4 {
+    font-family: Calibri, Arial, sans-serif;
     font-size: 11pt;
-    font-weight: bold;
-    color: ${b.dark};
-    margin-top: 14px;
-    margin-bottom: 5px;
-    text-align: left;
-  }
-
-  p {
-    margin: 0 0 10px;
-    text-align: left;
-    line-height: 1.7;
-  }
-
-  ul, ol {
-    margin: 0 0 12px 24px;
-    padding: 0;
-    text-align: left;
-  }
-
-  li {
-    margin-bottom: 4px;
-    line-height: 1.6;
-    text-align: left;
-  }
-
-  strong { color: ${b.navy}; }
-
-  /* Professional Tables */
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 14px 0 20px;
-    font-size: 9.5pt;
-    page-break-inside: avoid;
-  }
-
-  th {
-    background: ${b.navy};
-    color: #fff;
-    padding: 9px 12px;
-    text-align: left;
-    font-weight: 600;
-    font-size: 8.5pt;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border: 1px solid ${b.navy};
-  }
-
-  td {
-    padding: 8px 12px;
-    border: 1px solid ${b.border};
-    vertical-align: top;
-    text-align: left;
-  }
-
-  tr:nth-child(even) td { background: ${b.lightGray}; }
-
-  /* Highlight row for totals */
-  .total-row td {
-    background: ${b.navy} !important;
-    color: #fff !important;
-    font-weight: 700;
-    font-size: 10pt;
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     SIGNATURE BLOCK
-     ══════════════════════════════════════════════════════════ */
-  .signature-block {
-    page-break-inside: avoid;
-    margin-top: 50px;
-    padding-top: 30px;
-    border-top: 3px solid ${b.teal};
-  }
-
-  .sig-title {
-    font-size: 16pt;
     font-weight: bold;
     color: ${b.navy};
-    margin-bottom: 10px;
-    padding-bottom: 8px;
-    border-bottom: 3px solid ${b.teal};
+    margin-top: 10pt;
+    margin-bottom: 4pt;
   }
 
-  .sig-intro {
-    font-size: 10pt;
-    color: ${b.gray};
-    margin-bottom: 30px;
-    line-height: 1.6;
+  p { margin-top: 0; margin-bottom: 8pt; line-height: 1.65; }
+  ul, ol { margin-top: 4pt; margin-bottom: 8pt; }
+  li { margin-bottom: 3pt; line-height: 1.5; }
+  strong { color: ${b.navy}; }
+  em { color: ${b.teal}; }
+
+  /* ── Data Tables ── */
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8pt 0 14pt 0;
+    font-size: 9pt;
+    page-break-inside: avoid;
   }
-
-  .sig-table { border-collapse: collapse; width: 100%; }
-  .sig-table td { border: none; padding: 5px 24px; vertical-align: top; width: 50%; }
-
-  .sig-heading {
-    font-size: 11pt;
-    color: ${b.teal};
+  table.data-table th {
+    background: ${b.navy};
+    color: white;
+    padding: 6pt 8pt;
+    text-align: left;
     font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    margin-bottom: 24px;
-    padding-bottom: 6px;
-    border-bottom: 2px solid ${b.gold};
-  }
-
-  .sig-line {
-    border-bottom: 1px solid #333;
-    height: 32px;
-    margin-bottom: 4px;
-  }
-
-  .sig-label {
     font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+    border: 1pt solid ${b.navy};
+  }
+  table.data-table td {
+    padding: 5pt 8pt;
+    border: 1pt solid ${b.border};
+    vertical-align: top;
+  }
+
+  /* ── Signature Lines ── */
+  .sig-line {
+    border-bottom: 1pt solid #333;
+    height: 28pt;
+    margin-bottom: 3pt;
+  }
+  .sig-label {
+    font-size: 7.5pt;
     color: #888;
     text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 600;
-    margin-bottom: 18px;
-  }
-
-  .sig-prefilled {
-    font-size: 10.5pt;
-    font-weight: 600;
-    color: ${b.dark};
-  }
-
-  .sig-prefilled-sub {
-    font-size: 9pt;
-    color: ${b.gray};
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     FOOTER
-     ══════════════════════════════════════════════════════════ */
-  .doc-footer {
-    margin-top: 50px;
-    padding-top: 14px;
-    border-top: 2px solid ${b.teal};
-    text-align: center;
-    font-size: 8.5pt;
-    color: ${b.gray};
-  }
-
-  .footer-company {
-    font-weight: 700;
-    color: ${b.teal};
-    font-size: 9pt;
-    margin-bottom: 2px;
-  }
-
-  .footer-copy {
-    color: #aaa;
-    font-size: 7.5pt;
-    margin-top: 6px;
+    letter-spacing: 1pt;
+    font-weight: bold;
+    margin-bottom: 14pt;
   }
 </style>
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════════
-     COVER PAGE
-     ═══════════════════════════════════════════════════════════ -->
-<div class="cover-page">
-  <div class="cover-top-bar"></div>
+<!--
+═══════════════════════════════════════════════════════════
+COVER PAGE — Word-native table layout (renders perfectly)
+═══════════════════════════════════════════════════════════
+-->
 
-  <div class="cover-header">
-    <div class="cover-company-name">${co.name}</div>
-    <div class="cover-company-sub">Systems Integration &amp; Technology Solutions</div>
-  </div>
+<!-- Top accent bar -->
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:-0.7in -0.85in 0 -0.85in;width:calc(100% + 1.7in);">
+  <tr><td bgcolor="${b.navy}" style="height:8pt;font-size:1pt;">&nbsp;</td></tr>
+  <tr><td bgcolor="${b.teal}" style="height:4pt;font-size:1pt;">&nbsp;</td></tr>
+</table>
 
-  <div class="cover-title-section">
-    <div class="cover-doc-type">Professional Proposal</div>
-    <div class="cover-project-name">${this._esc(projName)}</div>
-    <div class="cover-project-location">${this._esc(projLoc)}</div>
-  </div>
+<br><br><br><br>
 
-  <table class="cover-info-grid">
-    <tr>
-      <td class="info-left">
-        <div class="cover-info-row">
-          <div class="cover-info-label">Prepared For</div>
-          <div class="cover-info-value">${this._esc(projName)}</div>
-        </div>
-        <div class="cover-info-row">
-          <div class="cover-info-label">Project Location</div>
-          <div class="cover-info-value">${this._esc(projLoc)}</div>
-        </div>
-        <div class="cover-info-row">
-          <div class="cover-info-label">Date Submitted</div>
-          <div class="cover-info-value">${dateStr}</div>
-        </div>
-        <div class="cover-info-row">
-          <div class="cover-info-label">Valid Until</div>
-          <div class="cover-info-value">${validUntil}</div>
-        </div>
-      </td>
-      <td class="info-right">
-        <div class="cover-info-row">
-          <div class="cover-info-label">Prepared By</div>
-          <div class="cover-info-value">${co.consultant}</div>
-          <div class="cover-info-value" style="font-weight:400;color:${b.gray};font-size:9.5pt;">${co.title}</div>
-        </div>
-        <div class="cover-info-row">
-          <div class="cover-info-label">Contact</div>
-          <div class="cover-info-value">${co.email}</div>
-          <div class="cover-info-value">${co.phone}</div>
-        </div>
-        <div class="cover-info-row">
-          <div class="cover-info-label">Corporate Office</div>
-          <div class="cover-info-value">${co.address}</div>
-          <div class="cover-info-value">${co.cityStateZip}</div>
-        </div>
-        <div class="cover-info-row">
-          <div class="cover-info-label">Reference Number</div>
-          <div class="cover-info-value">${refNum}</div>
-        </div>
-      </td>
-    </tr>
-  </table>
+<!-- Company Name — Large, commanding -->
+<p style="font-size:32pt;font-weight:bold;color:${b.navy};margin-bottom:2pt;font-family:Calibri,Arial,sans-serif;">
+  ${co.name}
+</p>
+<p style="font-size:11pt;color:${b.teal};text-transform:uppercase;letter-spacing:4pt;font-weight:bold;margin-bottom:0;">
+  Systems Integration &amp; Technology Solutions
+</p>
 
-  <div class="cover-bottom">
-    <span class="cover-ref">${co.name}</span> &nbsp;&middot;&nbsp; Confidential &amp; Proprietary &nbsp;&middot;&nbsp; ${co.website}
-  </div>
-</div>
+<!-- Gold divider line -->
+<table width="200" cellpadding="0" cellspacing="0" border="0" style="margin:16pt 0 24pt 0;">
+  <tr><td bgcolor="${b.gold}" style="height:3pt;font-size:1pt;">&nbsp;</td></tr>
+</table>
 
-<!-- ═══════════════════════════════════════════════════════════
-     TABLE OF CONTENTS
-     ═══════════════════════════════════════════════════════════ -->
-<div class="toc-page">
-  <div class="toc-title">Table of Contents</div>
-  <div class="toc-item"><span class="toc-num">01</span> <span class="toc-text">Executive Summary</span></div>
-  <div class="toc-item"><span class="toc-num">02</span> <span class="toc-text">Company Qualifications &amp; Experience</span></div>
-  <div class="toc-item"><span class="toc-num">03</span> <span class="toc-text">Detailed Scope of Work</span></div>
-  <div class="toc-item"><span class="toc-num">04</span> <span class="toc-text">Technical Approach &amp; Methodology</span></div>
-  <div class="toc-item"><span class="toc-num">05</span> <span class="toc-text">Project Timeline &amp; Milestones</span></div>
-  <div class="toc-item"><span class="toc-num">06</span> <span class="toc-text">Investment Summary</span></div>
-  <div class="toc-item"><span class="toc-num">07</span> <span class="toc-text">Terms &amp; Conditions</span></div>
-  <div class="toc-item"><span class="toc-num">08</span> <span class="toc-text">Why Choose 3D Technology Services</span></div>
-  <div class="toc-item"><span class="toc-num">09</span> <span class="toc-text">Acceptance &amp; Authorization</span></div>
-</div>
+<!-- Document Type -->
+<p style="font-size:10pt;color:${b.teal};text-transform:uppercase;letter-spacing:5pt;font-weight:bold;margin-bottom:8pt;">
+  Professional Proposal
+</p>
 
-<!-- ═══════════════════════════════════════════════════════════
-     PROPOSAL BODY (AI-generated content)
-     ═══════════════════════════════════════════════════════════ -->
-<div class="proposal-body">
+<!-- Project Name — Bold and prominent -->
+<table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8pt;">
+  <tr>
+    <td bgcolor="${b.gold}" style="width:5pt;">&nbsp;</td>
+    <td style="padding-left:16pt;">
+      <span style="font-size:26pt;font-weight:bold;color:${b.navy};font-family:Calibri,Arial,sans-serif;">${this._esc(projName)}</span>
+    </td>
+  </tr>
+</table>
+<p style="font-size:13pt;color:${b.gray};margin-left:21pt;margin-bottom:0;">${this._esc(projLoc)}</p>
+
+<br><br><br>
+
+<!-- Info Grid — Two-column table -->
+<table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-top:20pt;">
+  <tr valign="top">
+    <td width="48%" style="padding-right:24pt;">
+      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Prepared For</p>
+      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._esc(projName)}</p>
+
+      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Project Location</p>
+      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._esc(projLoc)}</p>
+
+      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Date Submitted</p>
+      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${dateStr}</p>
+
+      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Valid Until</p>
+      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:0;">${validUntil}</p>
+    </td>
+    <td width="4%" style="border-left:1pt solid ${b.border};">&nbsp;</td>
+    <td width="48%" style="padding-left:24pt;">
+      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Prepared By</p>
+      <p style="font-size:11pt;color:#222;font-weight:bold;margin-bottom:1pt;">${co.consultant}</p>
+      <p style="font-size:9.5pt;color:${b.gray};margin-bottom:14pt;">${co.title}</p>
+
+      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Direct Contact</p>
+      <p style="font-size:11pt;color:#222;margin-bottom:1pt;">${co.email}</p>
+      <p style="font-size:11pt;color:#222;margin-bottom:14pt;">${co.phone}</p>
+
+      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Corporate Office</p>
+      <p style="font-size:11pt;color:#222;margin-bottom:1pt;">${co.address}</p>
+      <p style="font-size:11pt;color:#222;margin-bottom:14pt;">${co.cityStateZip}</p>
+
+      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Reference No.</p>
+      <p style="font-size:11pt;color:#222;font-weight:bold;margin-bottom:0;">${refNum}</p>
+    </td>
+  </tr>
+</table>
+
+<br><br><br><br><br>
+
+<!-- Bottom confidential bar -->
+<table width="100%" cellpadding="10" cellspacing="0" border="0" style="margin:0 -0.85in;width:calc(100% + 1.7in);">
+  <tr><td bgcolor="${b.navy}" align="center" style="font-size:7.5pt;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:2pt;font-family:Calibri,Arial,sans-serif;">
+    <span style="color:${b.gold};font-weight:bold;">${co.name}</span>
+    &nbsp;&nbsp;&middot;&nbsp;&nbsp;CONFIDENTIAL &amp; PROPRIETARY&nbsp;&nbsp;&middot;&nbsp;&nbsp;${co.website}
+  </td></tr>
+</table>
+
+<!--
+═══════════════════════════════════════════════════════════
+TABLE OF CONTENTS
+═══════════════════════════════════════════════════════════
+-->
+<div class="page-break"></div>
+
+<p style="font-size:22pt;font-weight:bold;color:${b.navy};margin-bottom:6pt;font-family:Calibri,Arial,sans-serif;">Table of Contents</p>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:18pt;">
+  <tr><td bgcolor="${b.teal}" style="height:3pt;font-size:1pt;">&nbsp;</td></tr>
+</table>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">01</span> <span style="font-size:11pt;color:#222;">Executive Summary</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">02</span> <span style="font-size:11pt;color:#222;">Company Qualifications &amp; Experience</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">03</span> <span style="font-size:11pt;color:#222;">Detailed Scope of Work</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">04</span> <span style="font-size:11pt;color:#222;">Technical Approach &amp; Methodology</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">05</span> <span style="font-size:11pt;color:#222;">Project Timeline &amp; Milestones</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">06</span> <span style="font-size:11pt;color:#222;">Investment Summary</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">07</span> <span style="font-size:11pt;color:#222;">Terms &amp; Conditions</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">08</span> <span style="font-size:11pt;color:#222;">Why Choose 3D Technology Services</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">09</span> <span style="font-size:11pt;color:#222;">Acceptance &amp; Authorization</span></td></tr>
+</table>
+
+<!--
+═══════════════════════════════════════════════════════════
+PROPOSAL BODY — AI-Generated Content
+═══════════════════════════════════════════════════════════
+-->
+<div class="page-break"></div>
+
 ${bodyHtml}
-</div>
 
-<!-- ═══════════════════════════════════════════════════════════
-     SIGNATURE / ACCEPTANCE BLOCK
-     ═══════════════════════════════════════════════════════════ -->
-<div class="signature-block">
-  <div class="sig-title">Acceptance &amp; Authorization</div>
-  <div class="sig-intro">
-    By signing below, the authorized representative of the Client accepts this proposal, including all terms, conditions, scope of work, and pricing as described herein. This proposal and the pricing contained within are valid for thirty (30) calendar days from the date of issuance (${dateStr}). This proposal supersedes any previous proposals or communications regarding the same scope of work.
-  </div>
+<!--
+═══════════════════════════════════════════════════════════
+ACCEPTANCE & SIGNATURE BLOCK
+═══════════════════════════════════════════════════════════
+-->
+<div class="page-break"></div>
 
-  <table class="sig-table">
-    <tr>
-      <td>
-        <div class="sig-heading">${co.name}</div>
-        <div class="sig-line"></div>
-        <div class="sig-label">Authorized Signature</div>
-        <div class="sig-prefilled">${co.consultant}</div>
-        <div class="sig-prefilled-sub">${co.title}</div>
-        <div class="sig-prefilled-sub">${co.email}</div>
-        <div class="sig-prefilled-sub">${co.phone}</div>
-        <br>
-        <div class="sig-line" style="width:220px;"></div>
-        <div class="sig-label">Date</div>
-      </td>
-      <td>
-        <div class="sig-heading">Client Acceptance</div>
-        <div class="sig-line"></div>
-        <div class="sig-label">Authorized Signature</div>
-        <div class="sig-line"></div>
-        <div class="sig-label">Printed Name</div>
-        <div class="sig-line"></div>
-        <div class="sig-label">Title / Position</div>
-        <div class="sig-line"></div>
-        <div class="sig-label">Company Name</div>
-        <div class="sig-line" style="width:220px;"></div>
-        <div class="sig-label">Date</div>
-      </td>
-    </tr>
-  </table>
-</div>
+<h2>Acceptance &amp; Authorization</h2>
 
-<!-- ═══════════════════════════════════════════════════════════
-     DOCUMENT FOOTER
-     ═══════════════════════════════════════════════════════════ -->
-<div class="doc-footer">
-  <div class="footer-company">${co.name}</div>
-  <div>${co.address}, ${co.cityStateZip} &nbsp;|&nbsp; ${co.mainPhone} &nbsp;|&nbsp; ${co.website}</div>
-  <div>${co.consultant}, ${co.title} &nbsp;|&nbsp; ${co.email} &nbsp;|&nbsp; ${co.phone}</div>
-  <div class="footer-copy">&copy; ${today.getFullYear()} ${co.name}. All rights reserved. This document contains confidential and proprietary information.</div>
-</div>
+<p>By executing this document below, the authorized representative of the Client hereby accepts this proposal in its entirety, including all terms, conditions, scope of work, and investment summary as described herein. This agreement constitutes a binding contract between ${co.name} and the Client upon signature by both parties.</p>
+
+<p>This proposal and the pricing contained within are valid for <b>thirty (30) calendar days</b> from the date of issuance (${dateStr}). After this period, ${co.name} reserves the right to re-quote based on current material pricing and labor availability.</p>
+
+<br>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top">
+    <!-- LEFT: 3DTSI -->
+    <td width="47%">
+      <!-- Section header with gold underline -->
+      <p style="font-size:10pt;color:${b.teal};font-weight:bold;text-transform:uppercase;letter-spacing:2pt;margin-bottom:4pt;">${co.name}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="${b.gold}" style="height:2pt;font-size:1pt;">&nbsp;</td></tr></table>
+      <br><br>
+
+      <div class="sig-line"></div>
+      <div class="sig-label">Authorized Signature</div>
+
+      <p style="font-size:11pt;font-weight:bold;color:#222;margin-bottom:1pt;">${co.consultant}</p>
+      <p style="font-size:9pt;color:${b.gray};margin-bottom:1pt;">${co.title}</p>
+      <p style="font-size:9pt;color:${b.gray};margin-bottom:1pt;">${co.email}</p>
+      <p style="font-size:9pt;color:${b.gray};margin-bottom:14pt;">${co.phone}</p>
+
+      <div class="sig-line" style="width:65%;"></div>
+      <div class="sig-label">Date</div>
+    </td>
+
+    <td width="6%">&nbsp;</td>
+
+    <!-- RIGHT: Client -->
+    <td width="47%">
+      <p style="font-size:10pt;color:${b.teal};font-weight:bold;text-transform:uppercase;letter-spacing:2pt;margin-bottom:4pt;">Client Acceptance</p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="${b.gold}" style="height:2pt;font-size:1pt;">&nbsp;</td></tr></table>
+      <br><br>
+
+      <div class="sig-line"></div>
+      <div class="sig-label">Authorized Signature</div>
+
+      <div class="sig-line"></div>
+      <div class="sig-label">Printed Name</div>
+
+      <div class="sig-line"></div>
+      <div class="sig-label">Title / Position</div>
+
+      <div class="sig-line"></div>
+      <div class="sig-label">Company / Organization</div>
+
+      <div class="sig-line" style="width:65%;"></div>
+      <div class="sig-label">Date</div>
+    </td>
+  </tr>
+</table>
+
+<br><br><br>
+
+<!-- Footer -->
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr><td bgcolor="${b.teal}" style="height:2pt;font-size:1pt;">&nbsp;</td></tr>
+</table>
+<p style="text-align:center;font-size:8.5pt;color:${b.gray};margin-top:8pt;">
+  <b style="color:${b.teal};">${co.name}</b><br>
+  ${co.address}, ${co.cityStateZip} &nbsp;|&nbsp; ${co.mainPhone} &nbsp;|&nbsp; ${co.website}<br>
+  ${co.consultant}, ${co.title} &nbsp;|&nbsp; ${co.email} &nbsp;|&nbsp; ${co.phone}<br>
+  <span style="font-size:7pt;color:#aaa;">&copy; ${year} ${co.name}. All rights reserved. This document contains confidential and proprietary information.</span>
+</p>
 
 </body>
 </html>`;
 
-    // Download as .doc — Word opens HTML .doc files natively with full formatting
     const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -748,57 +547,70 @@ ${bodyHtml}
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-
     progressCallback(100, 'Proposal downloaded!');
-    if (typeof spToast === 'function') {
-      spToast('✓ Professional proposal downloaded — open in Microsoft Word');
-    }
+    if (typeof spToast === 'function') spToast('✓ Professional proposal downloaded — open in Microsoft Word');
   },
 
-  // ─── Markdown → HTML converter ─────────────────────────────
   _markdownToHtml(md) {
     if (!md) return '';
     let html = this._esc(md);
 
-    html = html.replace(/^-{3,}$/gm, '<hr style="border:none;border-top:2px solid #E2E8F0;margin:28px 0;">');
+    // Horizontal rules
+    html = html.replace(/^-{3,}$/gm, '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16pt 0;"><tr><td bgcolor="#D1D5DB" style="height:1pt;font-size:1pt;">&nbsp;</td></tr></table>');
+
+    // Headers
     html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
     html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h2 style="font-size:18pt;">$1</h2>');
-    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    html = html.replace(/^## (.+)$/gm, '<div class="page-break"></div><h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h2 style="font-size:20pt;">$1</h2>');
 
-    // Tables
+    // Bold / Italic
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<b><i>$1</i></b>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<b style="color:#1B2A4A;">$1</b>');
+    html = html.replace(/\*(.+?)\*/g, '<i>$1</i>');
+
+    // Tables → Word-native tables
     html = html.replace(/((?:^\|.+\|$\n?)+)/gm, (tableBlock) => {
       const rows = tableBlock.trim().split('\n').filter(r => r.trim());
       if (rows.length < 2) return tableBlock;
-      let tHtml = '<table>';
+      let tHtml = '<table class="data-table" width="100%" cellpadding="5" cellspacing="0" border="1" bordercolor="#D1D5DB">';
+      let rowNum = 0;
       rows.forEach((row, idx) => {
         const cells = row.split('|').filter(c => c.trim() !== '');
         if (cells.every(c => /^[\s\-:]+$/.test(c))) return;
-        const tag = idx === 0 ? 'th' : 'td';
-        const isLast = idx === rows.length - 1;
-        const cellText = cells.map(c => c.trim()).join('');
-        const isTotalRow = isLast && (cellText.toLowerCase().includes('total') || cellText.toLowerCase().includes('grand'));
-        tHtml += isTotalRow ? '<tr class="total-row">' : '<tr>';
-        cells.forEach(cell => { tHtml += `<${tag}>${cell.trim()}</${tag}>`; });
-        tHtml += '</tr>';
+        if (idx === 0) {
+          tHtml += '<tr>';
+          cells.forEach(cell => { tHtml += `<th bgcolor="#1B2A4A" style="color:white;padding:6pt 8pt;font-size:8pt;text-transform:uppercase;font-weight:bold;">${cell.trim()}</th>`; });
+          tHtml += '</tr>';
+        } else {
+          rowNum++;
+          const bgColor = rowNum % 2 === 0 ? ' bgcolor="#F4F6F8"' : '';
+          // Check if this is a total/grand total row
+          const cellText = cells.map(c => c.trim().toLowerCase()).join(' ');
+          const isTotal = cellText.includes('total') || cellText.includes('grand');
+          if (isTotal) {
+            tHtml += '<tr>';
+            cells.forEach(cell => { tHtml += `<td bgcolor="#1B2A4A" style="color:white;padding:6pt 8pt;font-weight:bold;font-size:10pt;">${cell.trim()}</td>`; });
+            tHtml += '</tr>';
+          } else {
+            tHtml += `<tr${bgColor}>`;
+            cells.forEach(cell => { tHtml += `<td style="padding:5pt 8pt;font-size:9pt;">${cell.trim()}</td>`; });
+            tHtml += '</tr>';
+          }
+        }
       });
       tHtml += '</table>';
       return tHtml;
     });
 
     // Lists
-    html = html.replace(/^(\s*)[-*] (.+)$/gm, (m, indent, text) => {
-      return `<li style="margin-left:${indent.length > 2 ? 20 : 0}px;">${text}</li>`;
-    });
-    html = html.replace(/((?:<li[^>]*>.*?<\/li>\s*)+)/g, '<ul>$1</ul>');
-    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/^(\s*)[-*] (.+)$/gm, '<li style="margin-bottom:3pt;">$2</li>');
+    html = html.replace(/((?:<li[^>]*>.*?<\/li>\s*)+)/g, '<ul style="margin-left:18pt;margin-bottom:8pt;">$1</ul>');
+    html = html.replace(/^\d+\. (.+)$/gm, '<li style="margin-bottom:3pt;">$1</li>');
 
     // Paragraphs
-    html = html.replace(/\n{2,}/g, '</p><p>');
-    if (!html.startsWith('<')) html = '<p>' + html;
+    html = html.replace(/\n{2,}/g, '</p>\n<p style="margin-bottom:8pt;">');
+    if (!html.startsWith('<')) html = '<p style="margin-bottom:8pt;">' + html;
     if (!html.endsWith('>')) html += '</p>';
 
     return html;
