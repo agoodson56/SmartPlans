@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
 // SMARTPLANS — PROFESSIONAL PROPOSAL GENERATOR
 // Fortune 500-grade client proposals for 3D Technology Services Inc.
+// Downloads as a Word document (.doc) — no popups needed
 // ═══════════════════════════════════════════════════════════════
 
 const ProposalGenerator = {
@@ -92,7 +93,7 @@ Output ONLY the proposal body text. Use markdown headers (##) for sections. Be s
         maxOutputTokens: 8192,
       },
       _model: GEMINI_CONFIG.model,
-      _brainSlot: 17,  // Use Report Writer's key slot
+      _brainSlot: 17,
     };
 
     progressCallback(15, 'AI is drafting your proposal…');
@@ -118,35 +119,25 @@ Output ONLY the proposal body text. Use markdown headers (##) for sections. Be s
       throw new Error('AI returned insufficient proposal content. Please try again.');
     }
 
-    progressCallback(60, 'Rendering PDF document…');
+    progressCallback(60, 'Rendering Word document…');
     return proposalText;
   },
 
-  // ─── Render proposal to PDF and download ──────────────────
-  async renderAndDownload(state, progressCallback, printWindow) {
-    // printWindow is passed in from the click handler (opened synchronously to bypass popup blocker)
-    if (!printWindow) {
-      printWindow = window.open('', '_blank', 'width=900,height=700');
-      if (!printWindow) {
-        alert('Please allow popups to generate the proposal PDF.');
-        return;
-      }
-    }
-
+  // ─── Generate and download as Word document ──────────────────
+  async renderAndDownload(state, progressCallback, _unused) {
     try {
       const proposalText = await this.generateProposal(state, progressCallback);
-      progressCallback(70, 'Building PDF layout…');
-      this._buildPDF(state, proposalText, progressCallback, printWindow);
+      progressCallback(70, 'Building Word document…');
+      this._downloadWordDoc(state, proposalText, progressCallback);
     } catch (err) {
       console.error('[ProposalGen] Error:', err);
-      printWindow.document.body.innerHTML = `<div style="text-align:center;padding:40px;color:#ef4444;font-family:system-ui;"><h2>Proposal Generation Failed</h2><p>${err.message}</p><button onclick="window.close()" style="margin-top:20px;padding:10px 24px;border:none;border-radius:6px;background:#334155;color:#fff;cursor:pointer;">Close</button></div>`;
       if (typeof spToast === 'function') spToast('Proposal generation failed: ' + err.message, 'error');
       throw err;
     }
   },
 
-  // ─── Build the PDF using browser print ────────────────────
-  _buildPDF(state, proposalText, progressCallback, printWindow) {
+  // ─── Build Word-compatible HTML and trigger download ────────
+  _downloadWordDoc(state, proposalText, progressCallback) {
     const co = this.COMPANY;
     const projName = state.projectName || 'Untitled Project';
     const today = new Date();
@@ -155,403 +146,146 @@ Output ONLY the proposal body text. Use markdown headers (##) for sections. Be s
     // Convert markdown to styled HTML
     let bodyHtml = this._markdownToHtml(proposalText);
 
-    progressCallback(85, 'Formatting proposal document…');
+    progressCallback(85, 'Formatting Word document…');
 
-    printWindow.document.write(`<!DOCTYPE html>
-<html lang="en">
+    // Word-compatible HTML document
+    const wordHtml = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="UTF-8">
+<meta name="ProgId" content="Word.Document">
+<meta name="Generator" content="SmartPlans Proposal Generator">
 <title>Proposal — ${this._esc(projName)} | ${co.name}</title>
+<!--[if gte mso 9]>
+<xml>
+<w:WordDocument>
+<w:View>Print</w:View>
+<w:Zoom>100</w:Zoom>
+<w:DoNotOptimizeForBrowser/>
+</w:WordDocument>
+</xml>
+<![endif]-->
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap');
-
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  @page {
-    size: letter;
-    margin: 0.75in 0.85in;
-  }
-
-  body {
-    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-    font-size: 10.5pt;
-    line-height: 1.65;
-    color: #1a1a2e;
-    background: #fff;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  /* ── Cover Page ── */
-  .cover-page {
-    page-break-after: always;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-    position: relative;
-    padding: 2in 1in;
-  }
-
-  .cover-accent-bar {
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 8px;
-    background: linear-gradient(90deg, #003366, #0066cc, #003366);
-  }
-
-  .cover-company {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 28pt;
-    font-weight: 800;
-    color: #003366;
-    letter-spacing: -0.02em;
-    margin-bottom: 6px;
-  }
-
-  .cover-tagline {
-    font-size: 10pt;
-    color: #666;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    font-weight: 500;
-    margin-bottom: 48px;
-  }
-
-  .cover-divider {
-    width: 120px;
-    height: 3px;
-    background: linear-gradient(90deg, #003366, #0066cc);
-    margin: 0 auto 48px;
-    border-radius: 2px;
-  }
-
-  .cover-title-label {
-    font-size: 10pt;
-    color: #999;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    font-weight: 600;
-    margin-bottom: 12px;
-  }
-
-  .cover-project-name {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 22pt;
-    font-weight: 700;
-    color: #1a1a2e;
-    margin-bottom: 48px;
-    max-width: 500px;
-    line-height: 1.3;
-  }
-
-  .cover-meta-table {
-    border-collapse: collapse;
-    margin: 0 auto;
-    text-align: left;
-  }
-
-  .cover-meta-table td {
-    padding: 6px 16px;
-    font-size: 9.5pt;
-  }
-
-  .cover-meta-table td:first-child {
-    color: #888;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 8.5pt;
-  }
-
-  .cover-meta-table td:last-child {
-    color: #1a1a2e;
-    font-weight: 500;
-  }
-
-  .cover-footer {
-    position: absolute;
-    bottom: 1in;
-    left: 0; right: 0;
-    text-align: center;
-    font-size: 8.5pt;
-    color: #aaa;
-  }
-
-  .cover-confidential {
-    display: inline-block;
-    padding: 4px 16px;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    font-size: 7.5pt;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    color: #999;
-    font-weight: 600;
-  }
-
-  /* ── Body Pages ── */
-  h2 {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: 16pt;
-    font-weight: 700;
-    color: #003366;
-    margin: 32px 0 12px;
-    padding-bottom: 8px;
-    border-bottom: 2px solid #003366;
-    page-break-after: avoid;
-  }
-
-  h3 {
-    font-size: 12pt;
-    font-weight: 700;
-    color: #004488;
-    margin: 20px 0 8px;
-    page-break-after: avoid;
-  }
-
-  h4 {
-    font-size: 10.5pt;
-    font-weight: 700;
-    color: #1a1a2e;
-    margin: 14px 0 6px;
-    page-break-after: avoid;
-  }
-
-  p { margin: 0 0 10px; }
-
-  ul, ol {
-    margin: 0 0 12px 20px;
-    padding: 0;
-  }
-
-  li { margin-bottom: 4px; }
-
+  @page { size: 8.5in 11in; margin: 0.75in 0.85in; }
+  body { font-family: 'Calibri', 'Segoe UI', Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #1a1a2e; }
+  .cover-page { page-break-after: always; text-align: center; padding-top: 2in; }
+  .cover-accent-bar { height: 6px; background: #003366; margin: -0.75in -0.85in 2in -0.85in; }
+  .cover-company { font-size: 26pt; font-weight: bold; color: #003366; margin-bottom: 4px; }
+  .cover-tagline { font-size: 10pt; color: #666; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 36px; }
+  .cover-divider { width: 120px; height: 3px; background: #003366; margin: 0 auto 36px; }
+  .cover-title-label { font-size: 10pt; color: #999; text-transform: uppercase; letter-spacing: 3px; font-weight: 600; margin-bottom: 10px; }
+  .cover-project-name { font-size: 20pt; font-weight: bold; color: #1a1a2e; margin-bottom: 36px; line-height: 1.3; }
+  .cover-meta-table { border-collapse: collapse; margin: 0 auto; text-align: left; }
+  .cover-meta-table td { padding: 5px 14px; font-size: 10pt; border: none; }
+  .cover-meta-label { color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; font-size: 8.5pt; }
+  .cover-meta-value { color: #1a1a2e; font-weight: 500; }
+  .cover-confidential { display: inline-block; padding: 4px 16px; border: 1px solid #ccc; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 2px; color: #999; font-weight: 600; margin-top: 80px; }
+  h2 { font-size: 16pt; font-weight: bold; color: #003366; margin-top: 28px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #003366; page-break-after: avoid; }
+  h3 { font-size: 13pt; font-weight: bold; color: #004488; margin-top: 18px; margin-bottom: 8px; page-break-after: avoid; }
+  h4 { font-size: 11pt; font-weight: bold; color: #1a1a2e; margin-top: 12px; margin-bottom: 5px; }
+  p { margin: 0 0 8px; }
+  ul, ol { margin: 0 0 10px 20px; padding: 0; }
+  li { margin-bottom: 3px; }
   strong { color: #003366; }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 12px 0 18px;
-    font-size: 9.5pt;
-    page-break-inside: avoid;
-  }
-
-  th {
-    background: #003366;
-    color: #fff;
-    padding: 8px 12px;
-    text-align: left;
-    font-weight: 600;
-    font-size: 8.5pt;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  td {
-    padding: 7px 12px;
-    border-bottom: 1px solid #e5e5e5;
-    vertical-align: top;
-  }
-
-  tr:nth-child(even) td { background: #f8f9fc; }
-  tr:hover td { background: #eef3f9; }
-
-  /* ── Signature Block ── */
-  .signature-block {
-    page-break-inside: avoid;
-    margin-top: 48px;
-    padding-top: 32px;
-    border-top: 2px solid #003366;
-  }
-
-  .sig-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 48px;
-    margin-top: 24px;
-  }
-
-  .sig-section h4 {
-    font-size: 10pt;
-    color: #003366;
-    margin-bottom: 24px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  .sig-line {
-    border-bottom: 1px solid #333;
-    margin-bottom: 6px;
-    min-height: 36px;
-  }
-
-  .sig-label {
-    font-size: 8pt;
-    color: #888;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
-    margin-bottom: 20px;
-  }
-
-  .sig-prefilled {
-    font-size: 10pt;
-    font-weight: 600;
-    color: #1a1a2e;
-    margin-bottom: 2px;
-  }
-
-  .sig-prefilled-sub {
-    font-size: 8.5pt;
-    color: #666;
-    margin-bottom: 0;
-  }
-
-  /* ── Page Footer ── */
-  .page-footer {
-    position: fixed;
-    bottom: 0;
-    left: 0; right: 0;
-    padding: 8px 0.85in;
-    font-size: 7.5pt;
-    color: #aaa;
-    border-top: 1px solid #e5e5e5;
-    display: flex;
-    justify-content: space-between;
-    background: #fff;
-  }
-
-  @media print {
-    .no-print { display: none !important; }
-    body { background: #fff; }
-  }
-
-  /* ── Print Button (screen only) ── */
-  .print-actions {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    gap: 8px;
-    z-index: 9999;
-  }
-
-  .print-actions button {
-    padding: 10px 24px;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .btn-print {
-    background: #003366;
-    color: #fff;
-  }
-
-  .btn-print:hover {
-    background: #004488;
-  }
-
-  .btn-close-prop {
-    background: #eee;
-    color: #333;
-  }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; font-size: 9.5pt; page-break-inside: avoid; }
+  th { background: #003366; color: #fff; padding: 7px 10px; text-align: left; font-weight: 600; font-size: 8.5pt; text-transform: uppercase; border: 1px solid #003366; }
+  td { padding: 6px 10px; border: 1px solid #ddd; vertical-align: top; }
+  .signature-block { page-break-inside: avoid; margin-top: 40px; padding-top: 24px; border-top: 2px solid #003366; }
+  .sig-table { border-collapse: collapse; width: 100%; }
+  .sig-table td { border: none; padding: 4px 20px; vertical-align: top; width: 50%; }
+  .sig-heading { font-size: 10pt; color: #003366; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
+  .sig-line { border-bottom: 1px solid #333; height: 30px; margin-bottom: 4px; }
+  .sig-label { font-size: 8pt; color: #888; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 16px; }
+  .sig-prefilled { font-size: 10pt; font-weight: 600; color: #1a1a2e; }
+  .sig-prefilled-sub { font-size: 9pt; color: #666; }
+  .doc-footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e5e5e5; text-align: center; font-size: 8pt; color: #aaa; }
 </style>
 </head>
 <body>
 
-<!-- Print Buttons -->
-<div class="print-actions no-print">
-  <button class="btn-print" onclick="window.print()">🖨️ Print / Save as PDF</button>
-  <button class="btn-close-prop" onclick="window.close()">✕ Close</button>
-</div>
-
-<!-- ═══ COVER PAGE ═══ -->
+<!-- COVER PAGE -->
 <div class="cover-page">
   <div class="cover-accent-bar"></div>
-
   <div class="cover-company">${co.name}</div>
   <div class="cover-tagline">Premier Low-Voltage Technology Integration</div>
-
   <div class="cover-divider"></div>
-
   <div class="cover-title-label">Professional Proposal</div>
   <div class="cover-project-name">${this._esc(projName)}</div>
-
   <table class="cover-meta-table">
-    <tr><td>Prepared For</td><td>${this._esc(projName)}</td></tr>
-    <tr><td>Location</td><td>${this._esc(state.projectLocation || 'As Specified')}</td></tr>
-    <tr><td>Date</td><td>${dateStr}</td></tr>
-    <tr><td>Prepared By</td><td>${co.consultant}, ${co.title}</td></tr>
-    <tr><td>Contact</td><td>${co.email} · ${co.phone}</td></tr>
-    <tr><td>Address</td><td>${co.address}, ${co.cityStateZip}</td></tr>
+    <tr><td class="cover-meta-label">Prepared For</td><td class="cover-meta-value">${this._esc(projName)}</td></tr>
+    <tr><td class="cover-meta-label">Location</td><td class="cover-meta-value">${this._esc(state.projectLocation || 'As Specified')}</td></tr>
+    <tr><td class="cover-meta-label">Date</td><td class="cover-meta-value">${dateStr}</td></tr>
+    <tr><td class="cover-meta-label">Prepared By</td><td class="cover-meta-value">${co.consultant}, ${co.title}</td></tr>
+    <tr><td class="cover-meta-label">Contact</td><td class="cover-meta-value">${co.email} · ${co.phone}</td></tr>
+    <tr><td class="cover-meta-label">Address</td><td class="cover-meta-value">${co.address}, ${co.cityStateZip}</td></tr>
   </table>
-
-  <div class="cover-footer">
-    <div class="cover-confidential">Confidential — Proprietary Information</div>
-  </div>
+  <div class="cover-confidential">Confidential — Proprietary Information</div>
 </div>
 
-<!-- ═══ PROPOSAL BODY ═══ -->
+<!-- PROPOSAL BODY -->
 <div class="proposal-body">
 ${bodyHtml}
 </div>
 
-<!-- ═══ SIGNATURE BLOCK ═══ -->
+<!-- SIGNATURE BLOCK -->
 <div class="signature-block">
-  <h2 style="border-bottom-color: #003366;">Acceptance & Authorization</h2>
-  <p style="margin-bottom:8px;">By signing below, the authorized representative of the Client accepts this proposal, including all terms, conditions, scope of work, and pricing as described herein. This proposal is valid for thirty (30) days from the date of issuance.</p>
-
-  <div class="sig-grid">
-    <div class="sig-section">
-      <h4>${co.name}</h4>
-      <div class="sig-line"></div>
-      <div class="sig-label">Signature</div>
-      <div class="sig-prefilled">${co.consultant}</div>
-      <div class="sig-prefilled-sub">${co.title}</div>
-      <div class="sig-prefilled-sub">${co.email}</div>
-      <div class="sig-prefilled-sub">${co.phone}</div>
-      <div style="margin-top:16px;">
+  <h2>Acceptance &amp; Authorization</h2>
+  <p>By signing below, the authorized representative of the Client accepts this proposal, including all terms, conditions, scope of work, and pricing as described herein. This proposal is valid for thirty (30) days from the date of issuance.</p>
+  <table class="sig-table">
+    <tr>
+      <td>
+        <div class="sig-heading">${co.name}</div>
+        <div class="sig-line"></div>
+        <div class="sig-label">Signature</div>
+        <div class="sig-prefilled">${co.consultant}</div>
+        <div class="sig-prefilled-sub">${co.title}</div>
+        <div class="sig-prefilled-sub">${co.email}</div>
+        <div class="sig-prefilled-sub">${co.phone}</div>
+        <br>
         <div class="sig-line" style="width:200px;"></div>
         <div class="sig-label">Date</div>
-      </div>
-    </div>
-
-    <div class="sig-section">
-      <h4>Client Acceptance</h4>
-      <div class="sig-line"></div>
-      <div class="sig-label">Authorized Signature</div>
-      <div class="sig-line"></div>
-      <div class="sig-label">Printed Name & Title</div>
-      <div class="sig-line" style="width:200px;"></div>
-      <div class="sig-label">Date</div>
-    </div>
-  </div>
+      </td>
+      <td>
+        <div class="sig-heading">Client Acceptance</div>
+        <div class="sig-line"></div>
+        <div class="sig-label">Authorized Signature</div>
+        <div class="sig-line"></div>
+        <div class="sig-label">Printed Name &amp; Title</div>
+        <div class="sig-line" style="width:200px;"></div>
+        <div class="sig-label">Date</div>
+      </td>
+    </tr>
+  </table>
 </div>
 
-<!-- ═══ FOOTER ═══ -->
-<div style="margin-top:48px;padding-top:16px;border-top:1px solid #e5e5e5;text-align:center;font-size:8pt;color:#aaa;">
-  <div>${co.name} · ${co.address}, ${co.cityStateZip}</div>
-  <div>${co.consultant} · ${co.email} · ${co.phone}</div>
-  <div style="margin-top:4px;">This document is confidential and proprietary. © ${today.getFullYear()} ${co.name}. All rights reserved.</div>
+<!-- FOOTER -->
+<div class="doc-footer">
+  <div>${co.name} &middot; ${co.address}, ${co.cityStateZip}</div>
+  <div>${co.consultant} &middot; ${co.email} &middot; ${co.phone}</div>
+  <div>This document is confidential and proprietary. &copy; ${today.getFullYear()} ${co.name}. All rights reserved.</div>
 </div>
 
 </body>
-</html>`);
+</html>`;
 
-    printWindow.document.close();
-    progressCallback(100, 'Proposal ready!');
+    // Download as .doc file — Word opens HTML .doc files natively
+    const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeName = projName.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
+    a.download = `3DTSI_Proposal_${safeName}_${today.toISOString().split('T')[0]}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    progressCallback(100, 'Proposal downloaded!');
 
     if (typeof spToast === 'function') {
-      spToast('Proposal generated — use Print/Save as PDF in the new window ✓');
+      spToast('Proposal downloaded as Word document ✓');
     }
   },
 
@@ -595,13 +329,12 @@ ${bodyHtml}
     html = html.replace(/^(\s*)[-*] (.+)$/gm, (m, indent, text) => {
       return `<li style="margin-left:${indent.length > 2 ? 20 : 0}px;">${text}</li>`;
     });
-    // Wrap consecutive <li> in <ul>
     html = html.replace(/((?:<li[^>]*>.*?<\/li>\s*)+)/g, '<ul>$1</ul>');
 
     // Numbered lists
     html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
 
-    // Paragraphs — wrap loose text
+    // Paragraphs
     html = html.replace(/\n{2,}/g, '</p><p>');
     if (!html.startsWith('<')) html = '<p>' + html;
     if (!html.endsWith('>')) html += '</p>';
