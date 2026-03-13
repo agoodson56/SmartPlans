@@ -1177,6 +1177,18 @@ function renderStep6(container) {
           </div>
         </button>
       </div>
+
+      <button class="proposal-gen-btn" id="btn-generate-proposal">
+        <div class="proposal-gen-btn__shine"></div>
+        <div class="proposal-gen-btn__content">
+          <span class="proposal-gen-btn__icon">📋</span>
+          <div>
+            <div class="proposal-gen-btn__title">Generate Professional Proposal</div>
+            <div class="proposal-gen-btn__sub">Fortune 500-grade client proposal from 3D Technology Services Inc.</div>
+          </div>
+          <span class="proposal-gen-btn__arrow">→</span>
+        </div>
+      </button>
     </div>
   ` : "";
 
@@ -1299,6 +1311,29 @@ function renderStep6(container) {
 
   const allBtn = document.getElementById("export-all");
   if (allBtn) allBtn.addEventListener("click", () => SmartPlansExport.exportAll(state));
+
+  // Proposal Generator button
+  const proposalBtn = document.getElementById("btn-generate-proposal");
+  if (proposalBtn) {
+    proposalBtn.addEventListener("click", async () => {
+      proposalBtn.disabled = true;
+      proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generating Proposal…';
+      proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'AI is crafting your professional proposal — please wait';
+      proposalBtn.classList.add('generating');
+      try {
+        await ProposalGenerator.renderAndDownload(state, (pct, msg) => {
+          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
+        });
+      } catch (e) {
+        console.error('[ProposalGen] Failed:', e);
+      } finally {
+        proposalBtn.disabled = false;
+        proposalBtn.classList.remove('generating');
+        proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Professional Proposal';
+        proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Fortune 500-grade client proposal from 3D Technology Services Inc.';
+      }
+    });
+  }
 }
 
 

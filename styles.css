@@ -1738,3 +1738,104 @@ body {
     opacity: 0;
   }
 }
+
+/* ─── Professional Proposal Button ─── */
+.proposal-gen-btn {
+  position: relative;
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 0;
+  border: 2px solid rgba(0, 51, 102, 0.4);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, #003366 0%, #004d99 50%, #003366 100%);
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 20px rgba(0, 51, 102, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.proposal-gen-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 51, 102, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  border-color: rgba(0, 102, 204, 0.6);
+}
+
+.proposal-gen-btn:active {
+  transform: translateY(0);
+}
+
+.proposal-gen-btn:disabled {
+  cursor: wait;
+  opacity: 0.85;
+}
+
+.proposal-gen-btn__shine {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  transform: skewX(-20deg);
+  animation: proposalShine 4s ease-in-out infinite;
+}
+
+@keyframes proposalShine {
+  0%, 100% { left: -100%; }
+  50% { left: 150%; }
+}
+
+.proposal-gen-btn__content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 22px;
+  z-index: 1;
+}
+
+.proposal-gen-btn__icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.proposal-gen-btn__title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.proposal-gen-btn__sub {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 3px;
+  font-weight: 400;
+}
+
+.proposal-gen-btn__arrow {
+  margin-left: auto;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.5);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.proposal-gen-btn:hover .proposal-gen-btn__arrow {
+  transform: translateX(4px);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.proposal-gen-btn.generating .proposal-gen-btn__icon {
+  animation: proposalSpin 1.2s linear infinite;
+}
+
+.proposal-gen-btn.generating .proposal-gen-btn__shine {
+  animation: proposalShine 1.5s ease-in-out infinite;
+}
+
+@keyframes proposalSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
