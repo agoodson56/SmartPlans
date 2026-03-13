@@ -66,6 +66,9 @@ The following contains the REAL material counts, labor hours, and pricing from o
 
 ${analysisSummary}
 
+═══ CRITICAL PRICING RULE ═══
+This proposal is for a CLIENT. You must NEVER show internal costs, base costs, cost breakdowns, markup amounts, or markup percentages anywhere in the proposal. Only show SELL PRICES (the final price the client pays). You may show unit sell prices, quantities, and unit hours — but NEVER internal cost or markup columns. This applies to ALL tables and ALL text throughout the entire proposal.
+
 ═══ PROPOSAL REQUIREMENTS ═══
 Write a MINIMUM 10-page Fortune 500 executive proposal. Each section must have MULTIPLE rich paragraphs (not just bullet points). This proposal must convince the client that ${co.name} is the ONLY professional choice.
 
@@ -120,15 +123,17 @@ Adjust the timeline based on project complexity from the analysis data.
 ## 6. Investment Summary
 This section MUST contain the EXACT pricing from the analysis. The GRAND TOTAL from the analysis is ${grandTotalDisplay || 'as shown in the analysis data'}.
 
-Create a **Project Cost Summary** table with these EXACT columns:
-| Category | Base Cost | Markup | Sell Price |
+IMPORTANT: Do NOT show any base costs, internal costs, or markup columns. Only show the SELL PRICE (what the client pays).
+
+Create a **Project Investment Summary** table with these EXACT columns:
+| Category | Sell Price |
 Include rows for: Materials, Labor, Equipment, Subcontractors, Travel
 Then show: SUBTOTAL, Contingency 10%, and GRAND TOTAL
 
-The GRAND TOTAL in this proposal MUST be ${grandTotalDisplay || 'the exact value from the analysis'}. Use the EXACT numbers from the PROJECT COST SUMMARY in the analysis data.
+The GRAND TOTAL in this proposal MUST be ${grandTotalDisplay || 'the exact value from the analysis'}. Use the EXACT sell price numbers from the PROJECT COST SUMMARY in the analysis data.
 
-Also include material subtotals by discipline and labor subtotals by phase — but the bottom-line GRAND TOTAL must be ${grandTotalDisplay || 'from the analysis'}.
-Do NOT invent or round numbers. Copy them exactly from the analysis.
+Also include material subtotals by discipline (showing quantity and sell price only) and labor subtotals by phase (showing hours and sell price only) — but the bottom-line GRAND TOTAL must be ${grandTotalDisplay || 'from the analysis'}.
+Do NOT invent or round numbers. Copy them exactly from the analysis. NEVER include base cost or markup columns — only sell prices.
 
 ## 7. Terms & Conditions
 Write comprehensive professional terms:
@@ -246,9 +251,9 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
 <style>
   @page {
     size: 8.5in 11in;
-    margin: 0.7in 0.85in 0.7in 0.85in;
+    margin: 0.7in 0.85in 0.8in 0.85in;
     mso-header-margin: 0.3in;
-    mso-footer-margin: 0.3in;
+    mso-footer-margin: 0.4in;
     mso-paper-source: 0;
   }
 
@@ -347,6 +352,13 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
 </head>
 <body>
 
+<!-- Word footer — appears on EVERY page -->
+<div style="mso-element:footer" id="f1">
+  <p style="text-align:center;font-size:8pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding-top:4pt;border-top:1pt solid ${b.teal};">
+    3D CONFIDENTIAL
+  </p>
+</div>
+
 <!--
 ═══════════════════════════════════════════════════════════
 COVER PAGE — Word-native table layout (renders perfectly)
@@ -420,7 +432,9 @@ COVER PAGE — Word-native table layout (renders perfectly)
 
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Corporate Office</p>
       <p style="font-size:11pt;color:#222;margin-bottom:1pt;">${co.address}</p>
-      <p style="font-size:11pt;color:#222;margin-bottom:14pt;">${co.cityStateZip}</p>
+      <p style="font-size:11pt;color:#222;margin-bottom:1pt;">${co.cityStateZip}</p>
+      <p style="font-size:11pt;color:#222;margin-bottom:1pt;">3dtsi.com</p>
+      <p style="font-size:11pt;color:#222;margin-bottom:14pt;">(800) 733-3453</p>
 
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Reference No.</p>
       <p style="font-size:11pt;color:#222;font-weight:bold;margin-bottom:0;">${refNum}</p>
