@@ -39,7 +39,7 @@
 
 const SmartBrains = {
 
-  VERSION: '3.0.0',
+  VERSION: '3.1.0',
 
   // ═══════════════════════════════════════════════════════════
   // CONFIGURATION
@@ -69,13 +69,13 @@ const SmartBrains = {
     ],
     model: 'gemini-2.5-flash',              // Flash model for lightweight brains
     accuracyModel: 'gemini-2.5-pro',         // Pro model for report writing (accuracy-critical)
-    proModel: 'gemini-3.1-pro-preview',      // Gemini 3.1 Pro — 2× reasoning over 3.0 Pro
+    proModel: 'gemini-3.1-pro-preview',      // Gemini 3.1 Pro — released Feb 19, 2026
     useProxy: false,
     proxyEndpoint: '/api/ai/invoke',
     maxRetries: 4,                           // Extra retry for Pro model rate limits
     retryBaseDelay: 1500,                    // Slightly longer base delay for Pro quotas
     timeout: 150000,                         // 2.5 min for Flash brains
-    proTimeout: 300000,                      // 5 min for Gemini 3.1 Pro (deep reasoning takes longer)
+    proTimeout: 300000,                      // 5 min for Gemini 3.1 Pro (deep reasoning)
   },
 
   // ═══════════════════════════════════════════════════════════
@@ -107,8 +107,8 @@ const SmartBrains = {
     // ── Wave 3: Adversarial Audit (Gemini 3.1 Pro deep reasoning) ──
     CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 16384, useProModel: true },
     DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 16384, useProModel: true },
-    // ── Wave 4: Final Report (Gemini 2.5 Pro for structured synthesis) ──
-    REPORT_WRITER: { id: 17, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 65536, useAccuracyModel: true },
+    // ── Wave 4: Final Report (Gemini 3.1 Pro for comprehensive bid generation) ──
+    REPORT_WRITER: { id: 17, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 65536, useProModel: true },
   },
 
   // Brain status tracking for UI
@@ -241,7 +241,7 @@ const SmartBrains = {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
       const parts = [{ text: promptText }, ...fileParts];
-      // Gemini 3.1 Pro benefits from lower temperature for deterministic construction analysis
+      // Low temperature for deterministic construction analysis
       const genConfig = {
         temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
         maxOutputTokens: brainDef.maxTokens,
@@ -250,9 +250,8 @@ const SmartBrains = {
         genConfig.responseMimeType = 'application/json';
       }
       // Enable thinking/reasoning for Gemini 3.1 Pro on complex brains
-      // Gemini 3.x uses thinkingLevel (not thinkingBudget which is for 2.5 models)
       if (brainDef.useProModel && modelName.includes('3.1')) {
-        const deepReasoningBrains = ['CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR', 'DEVILS_ADVOCATE'];
+        const deepReasoningBrains = ['CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR', 'DEVILS_ADVOCATE', 'REPORT_WRITER'];
         genConfig.thinkingConfig = {
           thinkingLevel: deepReasoningBrains.includes(brainKey) ? 'high' : 'medium'
         };
@@ -791,46 +790,168 @@ Return ONLY valid JSON:
 }`,
 
       // ── BRAIN 10: Report Writer ──────────────────────────────
-      REPORT_WRITER: () => `You are a PROFESSIONAL CONSTRUCTION ESTIMATING REPORT WRITER.
+      REPORT_WRITER: () => {
+        const matMarkup = context.markup?.material || 25;
+        const labMarkup = context.markup?.labor || 30;
+        const eqMarkup = context.markup?.equipment || 15;
+        const subMarkup = context.markup?.subcontractor || 10;
+        return `You are a SENIOR CONSTRUCTION ESTIMATOR producing a COMPLETE BID PACKAGE.
 
-Compile the validated data below into a comprehensive, professionally formatted markdown report.
-This report will be used for projects valued up to $50 BILLION — it must be impeccable.
+This is a REAL BID that will be submitted to win a construction project. It MUST contain:
+- EVERY material item with description, quantity, unit, unit cost, and extended cost
+- EVERY labor task with hours, rate, and cost
+- Markup columns so the estimator can adjust pricing
+- A complete Schedule of Values with real dollar amounts
 
-USE THIS EXACT SECTION ORDER:
-1. ## CODE & STANDARDS COMPLIANCE REVIEW
-2. ## MDF/IDF MATERIAL BREAKDOWN (per room with tables)
-3. ## OVERALL MATERIAL SUMMARY (with unit prices and extended costs in tables)
-4. ## LABOR SUMMARY (hours by discipline, by phase, with loaded rates and dollar totals)
-5. ## PREVAILING WAGE DETERMINATION (if applicable)
-6. ## SPECIAL EQUIPMENT & CONDITIONS (with ⚠️ flags and cost impact $/$$/$$$/$$$$)
-7. ## TRAVEL & PER DIEM ESTIMATE (if applicable)
-8. ## SCHEDULE OF VALUES (SOV) — AIA G703 format table with dollar amounts
-9. ## PRICED ESTIMATE SUMMARY (material + labor + equipment + sub + markup = total price)
-10. ## CODE COMPLIANCE SUMMARY (issue counts: 🔴 Critical / 🟡 Warning / 🔵 Info)
-11. ## OBSERVATIONS & ANALYSIS
-12. ## RFIs
+PROJECT: ${context.projectName || 'Project'}
+TYPE: ${context.projectType || 'Low Voltage'}
+LOCATION: ${context.projectLocation || 'TBD'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+MARKUP CONFIG: Material ${matMarkup}% | Labor ${labMarkup}% | Equipment ${eqMarkup}% | Subcontractor ${subMarkup}%
 
-FORMATTING RULES:
-- Use markdown tables with actual dollar amounts — NO placeholders
-- Tag code issues: 🔴 CRITICAL, 🟡 WARNING, 🔵 INFO
-- Tag special equipment: ⚠️ with cost impact ($, $$, $$$, $$$$)
-- Include confidence percentage for each major count
-- Reference sheet numbers and room numbers
-- All math must be verifiable (Qty × Unit Cost = Extended Cost)
+USE THIS EXACT SECTION ORDER — EVERY section is MANDATORY:
 
-VALIDATED DATA FROM ALL BRAINS:
+## 1. CODE & STANDARDS COMPLIANCE REVIEW
+List every code/standard that applies. Tag: 🔴 CRITICAL, 🟡 WARNING, 🔵 INFO
 
-SYMBOL COUNTS: ${JSON.stringify(context.wave1?.SYMBOL_SCANNER || {}, null, 2).substring(0, 3000)}
-CODE COMPLIANCE: ${JSON.stringify(context.wave1?.CODE_COMPLIANCE || {}, null, 2).substring(0, 3000)}
-MDF/IDF ROOMS: ${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 3000)}
-CABLE & PATHWAY: ${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 3000)}
-SPECIAL CONDITIONS: ${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 2000)}
-MATERIAL COSTS: ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 4000)}
-LABOR COSTS: ${JSON.stringify(context.wave2?.LABOR_CALCULATOR || {}, null, 2).substring(0, 4000)}
-FINANCIALS: ${JSON.stringify(context.wave2?.FINANCIAL_ENGINE || {}, null, 2).substring(0, 4000)}
-VALIDATION: ${JSON.stringify(context.wave3?.CROSS_VALIDATOR || {}, null, 2).substring(0, 2000)}
+## 2. MDF/IDF/TR MATERIAL BREAKDOWN
+For EACH telecom room, create a table:
+| Item | Description | Qty | Unit | Unit Cost | Ext Cost |
+Include: racks, patch panels, switches, UPS, PDU, cable management, grounding, fiber panels
 
-Generate the COMPLETE report in markdown format. Every section must have real data.`,
+## 3. MATERIAL TAKEOFF — DETAILED BID
+This is the MAIN MATERIAL BID TABLE. It must be EXHAUSTIVE — every single material item.
+Group by discipline. Use this EXACT table format:
+
+### Structured Cabling Materials
+| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
+|--------|-------------|-----|------|-----------|----------|------------|------------|
+| SC-001 | Cat 6A Plenum Cable | 30000 | ft | $0.52 | $15,600 | $3,900 | $19,500 |
+
+### CCTV Materials
+(same format)
+
+### Access Control Materials
+(same format)
+
+### Fire Alarm Materials
+(same format)
+
+### Audio Visual Materials
+(same format)
+
+### Intrusion Detection Materials
+(same format)
+
+**Material Subtotals Table:**
+| Discipline | Material Cost | Markup ${matMarkup}% | Sell Price |
+
+## 4. LABOR BREAKDOWN — DETAILED BID
+Break labor into phases. Use this EXACT table format:
+
+### Phase 1: Rough-In
+| Task # | Description | Classification | Hours | Rate/Hr | Labor Cost | Markup ${labMarkup}% | Sell Price |
+|--------|-------------|----------------|-------|---------|------------|------------|------------|
+| L-001 | Install cable tray - 500 LF | Journeyman | 100 | $65.00 | $6,500 | $1,950 | $8,450 |
+
+### Phase 2: Trim & Termination
+(same format)
+
+### Phase 3: Programming & Configuration
+(same format)
+
+### Phase 4: Testing & Commissioning
+(same format)
+
+**Labor Subtotals Table:**
+| Phase | Hours | Labor Cost | Markup ${labMarkup}% | Sell Price |
+
+## 5. SPECIAL EQUIPMENT & CONDITIONS
+| Item | Duration | Daily/Unit Cost | Total Cost | Markup ${eqMarkup}% | Sell Price |
+Include: lifts, scaffolding, tools, certifiers, splicers
+
+## 6. SUBCONTRACTOR COSTS
+| Trade | Scope | Cost | Markup ${subMarkup}% | Sell Price |
+Include: core drilling, trenching, firestopping, electrical
+
+## 7. TRAVEL & PER DIEM
+If project is distant from Rancho Cordova, CA. Otherwise state "Local Project — No Travel Required"
+
+## 8. SCHEDULE OF VALUES (SOV)
+AIA G703 format:
+| SOV # | Description | Material | Labor | Equipment | Subcontractor | Total |
+
+## 9. PROJECT COST SUMMARY
+| Category | Base Cost | Markup | Sell Price |
+|----------|-----------|--------|------------|
+| Materials | $XXX | ${matMarkup}% | $XXX |
+| Labor | $XXX | ${labMarkup}% | $XXX |
+| Equipment | $XXX | ${eqMarkup}% | $XXX |
+| Subcontractors | $XXX | ${subMarkup}% | $XXX |
+| Travel | $XXX | — | $XXX |
+| **SUBTOTAL** | | | **$XXX** |
+| Contingency 10% | | | $XXX |
+| **GRAND TOTAL** | | | **$XXX** |
+
+## 10. PREVAILING WAGE DETERMINATION
+If applicable, list wage classifications. Otherwise "Not Applicable"
+
+## 11. OBSERVATIONS & RECOMMENDATIONS
+Key findings from the analysis
+
+## 12. RECOMMENDED RFIs
+Gaps that need architect/engineer clarification
+
+CRITICAL RULES:
+- EVERY table must have REAL dollar amounts — NEVER use placeholders like "TBD" or "$XXX"
+- EVERY material item must have a unit cost and extended cost
+- EVERY labor task must have hours, rate, and cost
+- EVERY row must include the markup column showing the markup dollar amount
+- EVERY row must include the sell price (cost + markup)
+- ALL math must be correct: Qty × Unit Cost = Extended Cost, Ext Cost × Markup% = Markup Amount
+- Use the EXACT prices from the pricing database provided
+- Number every item (SC-001, CC-001, AC-001, FA-001, L-001, etc.)
+
+VALIDATED DATA FROM ALL 18 BRAINS:
+
+SYMBOL COUNTS:
+${JSON.stringify(context.wave1?.SYMBOL_SCANNER || {}, null, 2).substring(0, 6000)}
+
+CONSENSUS COUNTS:
+${JSON.stringify(context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 3000)}
+
+CODE COMPLIANCE:
+${JSON.stringify(context.wave1?.CODE_COMPLIANCE || {}, null, 2).substring(0, 4000)}
+
+MDF/IDF ROOMS:
+${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 5000)}
+
+CABLE & PATHWAY:
+${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)}
+
+SPECIAL CONDITIONS:
+${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 3000)}
+
+MATERIAL PRICING (use these exact numbers):
+${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000)}
+
+LABOR CALCULATIONS (use these exact numbers):
+${JSON.stringify(context.wave2?.LABOR_CALCULATOR || {}, null, 2).substring(0, 8000)}
+
+FINANCIALS & SOV:
+${JSON.stringify(context.wave2?.FINANCIAL_ENGINE || {}, null, 2).substring(0, 6000)}
+
+CROSS-VALIDATION:
+${JSON.stringify(context.wave3?.CROSS_VALIDATOR || {}, null, 2).substring(0, 3000)}
+
+DEVIL'S ADVOCATE CHALLENGES:
+${JSON.stringify(context.wave3?.DEVILS_ADVOCATE || {}, null, 2).substring(0, 3000)}
+
+PRICING DATABASE REFERENCE:
+${context.pricingContext?.substring(0, 4000) || 'Use industry standard pricing'}
+
+Generate the COMPLETE BID REPORT now. Every section must have real data with real dollar amounts. This is not a template — it is an actual bid.`;
+      },
 
       // ── BRAIN 0: Legend Decoder (Wave 0 — Pre-Processing) ─────
       LEGEND_DECODER: () => `You are a CONSTRUCTION SYMBOL LEGEND EXPERT. Your ONLY job is to decode the symbol legend and build a structured dictionary BEFORE any counting begins.
@@ -1245,7 +1366,7 @@ Return ONLY valid JSON:
   async runFullAnalysis(state, progressCallback) {
     console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
     console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
-    console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — 2× reasoning, thinking mode enabled`);
+    console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
 
     // Reset brain status
     this._brainStatus = {};
@@ -1420,7 +1541,7 @@ Return ONLY valid JSON:
 
     const finalReport = (typeof report === 'string' ? report : JSON.stringify(report, null, 2)) + validationAppendix;
 
-    progressCallback(100, '🎯 Gemini 3.1 Pro analysis complete — 18 brains finished!', this._brainStatus);
+    progressCallback(100, '🎯 Analysis complete — 18 brains finished!', this._brainStatus);
 
     return {
       report: finalReport,
