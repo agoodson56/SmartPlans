@@ -124,19 +124,34 @@ Output ONLY the proposal body text. Use markdown headers (##) for sections. Be s
 
   // ─── Render proposal to PDF and download ──────────────────
   async renderAndDownload(state, progressCallback) {
+    // Open window IMMEDIATELY during user click (before async) to avoid popup blocker
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+      alert('Please allow popups to generate the proposal PDF.');
+      return;
+    }
+
+    // Show loading state in the new window
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Generating Proposal…</title>
+      <style>body{font-family:'Inter',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;}
+      .loader{text-align:center;}.spinner{width:48px;height:48px;border:4px solid rgba(255,255,255,0.1);border-top-color:#38bdf8;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 20px;}
+      @keyframes spin{to{transform:rotate(360deg)}}h2{font-size:18px;font-weight:600;margin-bottom:8px;}p{color:#94a3b8;font-size:14px;}</style></head>
+      <body><div class="loader"><div class="spinner"></div><h2>Generating Professional Proposal</h2><p>AI is crafting your Fortune 500 proposal…</p></div></body></html>`);
+
     try {
       const proposalText = await this.generateProposal(state, progressCallback);
       progressCallback(70, 'Building PDF layout…');
-      this._buildPDF(state, proposalText, progressCallback);
+      this._buildPDF(state, proposalText, progressCallback, printWindow);
     } catch (err) {
       console.error('[ProposalGen] Error:', err);
+      printWindow.document.body.innerHTML = `<div style="text-align:center;padding:40px;color:#ef4444;font-family:system-ui;"><h2>Proposal Generation Failed</h2><p>${err.message}</p><button onclick="window.close()" style="margin-top:20px;padding:10px 24px;border:none;border-radius:6px;background:#334155;color:#fff;cursor:pointer;">Close</button></div>`;
       if (typeof spToast === 'function') spToast('Proposal generation failed: ' + err.message, 'error');
       throw err;
     }
   },
 
   // ─── Build the PDF using browser print ────────────────────
-  _buildPDF(state, proposalText, progressCallback) {
+  _buildPDF(state, proposalText, progressCallback, printWindow) {
     const co = this.COMPANY;
     const projName = state.projectName || 'Untitled Project';
     const today = new Date();
@@ -146,12 +161,6 @@ Output ONLY the proposal body text. Use markdown headers (##) for sections. Be s
     let bodyHtml = this._markdownToHtml(proposalText);
 
     progressCallback(85, 'Formatting proposal document…');
-
-    const printWindow = window.open('', '_blank', 'width=900,height=700');
-    if (!printWindow) {
-      alert('Please allow popups to generate the proposal PDF.');
-      return;
-    }
 
     printWindow.document.write(`<!DOCTYPE html>
 <html lang="en">
