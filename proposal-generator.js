@@ -45,6 +45,10 @@ const ProposalGenerator = {
     // Pull the FULL analysis — the bid report has the real numbers
     const analysisSummary = (state.aiAnalysis || '').substring(0, 20000);
 
+    // Extract the grand total from the analysis for explicit reference
+    const grandTotalMatch = analysisSummary.match(/GRAND\s*TOTAL[\s\S]*?\$([\d,]+\.?\d*)/i);
+    const grandTotal = grandTotalMatch ? '$' + grandTotalMatch[1] : 'as calculated in the analysis';
+
     progressCallback(5, 'Crafting executive proposal with AI…');
 
     const prompt = `You are the Senior Proposal Manager at ${co.name}, a premier low-voltage technology integrator with 20+ years of excellence. You are writing a WINNING proposal that will be submitted to a real client. This must be the most professional, compelling, and detailed proposal the client has ever received.
@@ -114,13 +118,17 @@ Provide a realistic phased schedule with estimated durations:
 Adjust the timeline based on project complexity from the analysis data.
 
 ## 6. Investment Summary
-Create a professional pricing summary using the EXACT numbers from the analysis. Include:
-- Material costs by category with line items
-- Labor costs by phase  
-- Equipment and tool costs
-- Subtotals for each category
-- Grand total
-USE THE REAL NUMBERS FROM THE ANALYSIS DATA ABOVE. Do not use placeholder amounts.
+This section MUST contain the EXACT pricing from the analysis. The GRAND TOTAL from the analysis is ${grandTotal}.
+
+Create a **Project Cost Summary** table with these EXACT columns:
+| Category | Base Cost | Markup | Sell Price |
+Include rows for: Materials, Labor, Equipment, Subcontractors, Travel
+Then show: SUBTOTAL, Contingency 10%, and GRAND TOTAL
+
+The GRAND TOTAL in this proposal MUST match ${grandTotal}. Use the EXACT numbers from the 9. PROJECT COST SUMMARY in the analysis data.
+
+Also include material subtotals by discipline and labor subtotals by phase — but the bottom-line GRAND TOTAL must be ${grandTotal}.
+Do NOT invent or round numbers. Copy them exactly from the analysis.
 
 ## 7. Terms & Conditions
 Write comprehensive professional terms:
@@ -553,12 +561,80 @@ ACCEPTANCE & SIGNATURE BLOCK
 
   _markdownToHtml(md) {
     if (!md) return '';
-    let html = this._esc(md);
+
+    // ── Step 1: Extract and convert tables BEFORE escaping ──
+    // This prevents _esc from destroying pipe characters
+    const tablePlaceholders = [];
+    let processed = md.replace(/((?:^\|.+\|$\n?){2,})/gm, (tableBlock) => {
+      const rows = tableBlock.trim().split('\n').filter(r => r.trim());
+      if (rows.length < 2) return tableBlock;
+
+      let tHtml = '<table width="100%" cellpadding="6" cellspacing="0" border="0" style="border-collapse:collapse;margin:10pt 0 16pt 0;font-size:9.5pt;">';
+      let rowNum = 0;
+      let isFirstDataRow = true;
+
+      rows.forEach((row, idx) => {
+        const cells = row.split('|').filter(c => c.trim() !== '');
+
+        // Skip separator rows (---|---|---)
+        if (cells.every(c => /^[\s\-:]+$/.test(c))) return;
+
+        if (idx === 0) {
+          // Header row
+          tHtml += '<tr>';
+          cells.forEach(cell => {
+            tHtml += `<td bgcolor="#1B2A4A" style="color:white;padding:7pt 10pt;font-size:8.5pt;text-transform:uppercase;font-weight:bold;letter-spacing:0.5pt;border:1pt solid #1B2A4A;">${this._escText(cell.trim())}</td>`;
+          });
+          tHtml += '</tr>';
+        } else {
+          rowNum++;
+          const cellValues = cells.map(c => c.trim());
+          const cellText = cellValues.join(' ').toLowerCase();
+          const isTotal = cellText.includes('subtotal') || cellText.includes('grand total');
+          const isSubtotal = cellText.includes('subtotal') && !cellText.includes('grand');
+
+          if (isTotal) {
+            // Grand total / subtotal rows — navy background
+            tHtml += '<tr>';
+            cellValues.forEach(cell => {
+              const isMoney = /\$/.test(cell);
+              const align = isMoney ? 'text-align:right;' : '';
+              tHtml += `<td bgcolor="${isSubtotal ? '#2B4A6A' : '#1B2A4A'}" style="color:white;padding:8pt 10pt;font-weight:bold;font-size:${isSubtotal ? '9.5pt' : '11pt'};${align}border:1pt solid #1B2A4A;">${this._escText(cell)}</td>`;
+            });
+            tHtml += '</tr>';
+          } else {
+            const bgColor = rowNum % 2 === 0 ? '#F4F6F8' : '#FFFFFF';
+            tHtml += '<tr>';
+            cellValues.forEach(cell => {
+              const isMoney = /\$/.test(cell) || /^\d+%$/.test(cell);
+              const align = isMoney ? 'text-align:right;' : '';
+              tHtml += `<td bgcolor="${bgColor}" style="padding:6pt 10pt;${align}border:1pt solid #E2E8F0;">${this._escText(cell)}</td>`;
+            });
+            tHtml += '</tr>';
+          }
+        }
+      });
+      tHtml += '</table>';
+
+      const placeholder = `%%TABLE_${tablePlaceholders.length}%%`;
+      tablePlaceholders.push(tHtml);
+      return placeholder;
+    });
+
+    // ── Step 2: Escape the remaining text (tables already extracted) ──
+    let html = this._escText(processed);
+
+    // ── Step 3: Restore tables ──
+    tablePlaceholders.forEach((table, i) => {
+      html = html.replace(`%%TABLE_${i}%%`, table);
+    });
+
+    // ── Step 4: Process markdown formatting ──
 
     // Horizontal rules
-    html = html.replace(/^-{3,}$/gm, '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16pt 0;"><tr><td bgcolor="#D1D5DB" style="height:1pt;font-size:1pt;">&nbsp;</td></tr></table>');
+    html = html.replace(/^-{3,}$/gm, '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:14pt 0;"><tr><td bgcolor="#D1D5DB" style="height:1pt;font-size:1pt;">&nbsp;</td></tr></table>');
 
-    // Headers
+    // Headers — each ## section starts on a new page
     html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
     html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
     html = html.replace(/^## (.+)$/gm, '<div class="page-break"></div><h2>$1</h2>');
@@ -568,40 +644,6 @@ ACCEPTANCE & SIGNATURE BLOCK
     html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<b><i>$1</i></b>');
     html = html.replace(/\*\*(.+?)\*\*/g, '<b style="color:#1B2A4A;">$1</b>');
     html = html.replace(/\*(.+?)\*/g, '<i>$1</i>');
-
-    // Tables → Word-native tables
-    html = html.replace(/((?:^\|.+\|$\n?)+)/gm, (tableBlock) => {
-      const rows = tableBlock.trim().split('\n').filter(r => r.trim());
-      if (rows.length < 2) return tableBlock;
-      let tHtml = '<table class="data-table" width="100%" cellpadding="5" cellspacing="0" border="1" bordercolor="#D1D5DB">';
-      let rowNum = 0;
-      rows.forEach((row, idx) => {
-        const cells = row.split('|').filter(c => c.trim() !== '');
-        if (cells.every(c => /^[\s\-:]+$/.test(c))) return;
-        if (idx === 0) {
-          tHtml += '<tr>';
-          cells.forEach(cell => { tHtml += `<th bgcolor="#1B2A4A" style="color:white;padding:6pt 8pt;font-size:8pt;text-transform:uppercase;font-weight:bold;">${cell.trim()}</th>`; });
-          tHtml += '</tr>';
-        } else {
-          rowNum++;
-          const bgColor = rowNum % 2 === 0 ? ' bgcolor="#F4F6F8"' : '';
-          // Check if this is a total/grand total row
-          const cellText = cells.map(c => c.trim().toLowerCase()).join(' ');
-          const isTotal = cellText.includes('total') || cellText.includes('grand');
-          if (isTotal) {
-            tHtml += '<tr>';
-            cells.forEach(cell => { tHtml += `<td bgcolor="#1B2A4A" style="color:white;padding:6pt 8pt;font-weight:bold;font-size:10pt;">${cell.trim()}</td>`; });
-            tHtml += '</tr>';
-          } else {
-            tHtml += `<tr${bgColor}>`;
-            cells.forEach(cell => { tHtml += `<td style="padding:5pt 8pt;font-size:9pt;">${cell.trim()}</td>`; });
-            tHtml += '</tr>';
-          }
-        }
-      });
-      tHtml += '</table>';
-      return tHtml;
-    });
 
     // Lists
     html = html.replace(/^(\s*)[-*] (.+)$/gm, '<li style="margin-bottom:3pt;">$2</li>');
@@ -614,6 +656,10 @@ ACCEPTANCE & SIGNATURE BLOCK
     if (!html.endsWith('>')) html += '</p>';
 
     return html;
+  },
+
+  _escText(str) {
+    return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   },
 
   _esc(str) {
