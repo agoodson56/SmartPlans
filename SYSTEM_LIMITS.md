@@ -19,8 +19,9 @@
 
 | Parameter | Limit |
 |-----------|-------|
-| **AI brains (parallel processors)** | 18 |
-| **Processing waves** | 7 (sequential waves, brains run in parallel within each wave) |
+| **AI brains (parallel processors)** | 21 |
+| **Processing waves** | 10 (sequential waves, brains run in parallel within each wave) |
+| **Plan reading passes** | 6 (6-Read Consensus architecture) |
 | **API keys** | 18 (one per brain for true parallelism) |
 | **Flash model** | Gemini 2.5 Flash (lightweight brains) |
 | **Pro model** | Gemini 3.1 Pro Preview (deep reasoning brains) |

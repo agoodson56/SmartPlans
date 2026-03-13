@@ -89,6 +89,11 @@ const SmartBrains = {
     // ── Wave 3: Adversarial Audit (Gemini 3.1 Pro deep reasoning) ──
     CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 16384, useProModel: true },
     DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 16384, useProModel: true },
+    // ── Wave 3.5: 4th, 5th, 6th Read — Deep Accuracy Pass (3 brains, Pro model) ──
+    DETAIL_VERIFIER: { id: 18, name: 'Detail Verifier', wave: 3.5, emoji: '🔎', needsFiles: ['legends', 'plans'], maxTokens: 16384, useProModel: true },
+    CROSS_SHEET_ANALYZER: { id: 19, name: 'Cross-Sheet Analyzer', wave: 3.5, emoji: '📊', needsFiles: ['plans'], maxTokens: 16384, useProModel: true },
+    // ── Wave 3.75: Final Reconciliation (1 brain, Pro deep reasoning) ──
+    FINAL_RECONCILIATION: { id: 20, name: 'Final Reconciliation', wave: 3.75, emoji: '🏁', needsFiles: ['legends', 'plans'], maxTokens: 16384, useProModel: true },
     // ── Wave 4: Final Report (Gemini 3.1 Pro for comprehensive bid generation) ──
     REPORT_WRITER: { id: 17, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 65536, useProModel: true },
   },
@@ -336,6 +341,9 @@ const SmartBrains = {
     REVERSE_VERIFIER: ['verified_items', 'discrepancies'],
     CROSS_VALIDATOR: ['status', 'issues', 'confidence_score'],
     DEVILS_ADVOCATE: ['challenges', 'risk_score', 'missed_items'],
+    DETAIL_VERIFIER: ['area_audits', 'corrections', 'verified_counts'],
+    CROSS_SHEET_ANALYZER: ['sheet_comparisons', 'inconsistencies', 'adjusted_counts'],
+    FINAL_RECONCILIATION: ['final_counts', 'adjustment_log', 'confidence_score'],
     // REPORT_WRITER returns markdown, no JSON schema
   },
 
@@ -891,13 +899,24 @@ CRITICAL RULES:
 - Use the EXACT prices from the pricing database provided
 - Number every item (SC-001, CC-001, AC-001, FA-001, L-001, etc.)
 
-VALIDATED DATA FROM ALL 18 BRAINS:
+VALIDATED DATA FROM ALL 21 BRAINS (6-READ CONSENSUS):
 
-SYMBOL COUNTS:
+SYMBOL COUNTS (1st Read):
 ${JSON.stringify(context.wave1?.SYMBOL_SCANNER || {}, null, 2).substring(0, 6000)}
 
-CONSENSUS COUNTS:
+TRIPLE-READ CONSENSUS COUNTS (Reads 1-3):
 ${JSON.stringify(context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 3000)}
+
+DETAIL VERIFIER (4th Read — precision area audit):
+${JSON.stringify(context.wave3_5?.DETAIL_VERIFIER?.verified_counts || context.wave3_5?.DETAIL_VERIFIER?.corrections || {}, null, 2).substring(0, 3000)}
+
+CROSS-SHEET ANALYZER (5th Read — inter-sheet consistency):
+${JSON.stringify(context.wave3_5?.CROSS_SHEET_ANALYZER?.adjusted_counts || {}, null, 2).substring(0, 3000)}
+
+FINAL RECONCILIATION (6th Read — AUTHORITATIVE counts — USE THESE):
+${JSON.stringify(context.wave3_75?.FINAL_RECONCILIATION?.final_counts || {}, null, 2).substring(0, 4000)}
+
+IMPORTANT: If Final Reconciliation counts are available, use THOSE as the definitive quantities. They represent 6 independent reads.
 
 CODE COMPLIANCE:
 ${JSON.stringify(context.wave1?.CODE_COMPLIANCE || {}, null, 2).substring(0, 4000)}
@@ -1189,6 +1208,156 @@ Return ONLY valid JSON:
   "overall_assessment": "string"
 }`,
 
+      // ── BRAIN 18: Detail Verifier (Wave 3.5 — 4th Read) ──────
+      DETAIL_VERIFIER: () => {
+        const consensus = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || {};
+        const crossVal = context.wave3?.CROSS_VALIDATOR?.issues || [];
+        const devilItems = context.wave3?.DEVILS_ADVOCATE?.missed_items || [];
+        return `You are a DETAIL VERIFICATION SPECIALIST performing a FOURTH READ of the construction plans. Your job is to ZOOM INTO specific areas and provide PRECISE COUNTS.
+
+PROJECT: ${context.projectName || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+PREVIOUS CONSENSUS COUNTS (from 3 prior reads):
+${JSON.stringify(consensus, null, 2).substring(0, 5000)}
+
+CROSS-VALIDATOR ISSUES FLAGGED:
+${JSON.stringify(crossVal, null, 2).substring(0, 3000)}
+
+DEVIL'S ADVOCATE ITEMS POTENTIALLY MISSED:
+${JSON.stringify(devilItems, null, 2).substring(0, 3000)}
+
+LEGEND DICTIONARY:
+${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 3000)}
+
+YOUR METHODOLOGY — PRECISION AREA AUDIT:
+1. Focus on EVERY AREA where previous reads disagreed or flagged low confidence
+2. For each area: count every device symbol TWICE (count, reset, recount)
+3. Pay special attention to dense areas (open offices, corridors, ceilings)
+4. Verify symbol identification matches the legend exactly
+5. Count devices near sheet boundaries that may have been double-counted or missed
+6. Check for symbols hidden behind text labels, dimensions, or other annotations
+
+CRITICAL: Your counts must be PRECISE. If your count differs from consensus, explain exactly why.
+
+Return ONLY valid JSON:
+{
+  "area_audits": [
+    { "area": "Sheet E1.01 - Open Office West", "device_type": "data_outlet", "first_count": 42, "recount": 42, "consensus_had": 38, "discrepancy_reason": "4 outlets behind furniture symbols near columns C3-C6" }
+  ],
+  "corrections": [
+    { "device_type": "data_outlet", "old_count": 200, "new_count": 208, "reason": "Found 8 additional outlets in areas obscured by annotation text" }
+  ],
+  "verified_counts": { "data_outlet": 208, "camera": 48 },
+  "confidence": 97
+}`;
+      },
+
+      // ── BRAIN 19: Cross-Sheet Analyzer (Wave 3.5 — 5th Read) ──
+      CROSS_SHEET_ANALYZER: () => {
+        const wave1Data = context.wave1?.SYMBOL_SCANNER?.sheets || [];
+        const shadowData = context.wave1_5?.SHADOW_SCANNER?.sheets || [];
+        const quadData = context.wave1_5?.QUADRANT_SCANNER?.quadrants || [];
+        return `You are a CROSS-SHEET CONSISTENCY ANALYZER performing a FIFTH READ. Your job is to compare different sheets AGAINST EACH OTHER to find inconsistencies, overlaps, and missing coverage.
+
+PROJECT: ${context.projectName || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+SHEET DATA FROM FIRST READ:
+${JSON.stringify(wave1Data, null, 2).substring(0, 5000)}
+
+SHEET DATA FROM SECOND READ:
+${JSON.stringify(shadowData, null, 2).substring(0, 5000)}
+
+QUADRANT DATA:
+${JSON.stringify(quadData, null, 2).substring(0, 3000)}
+
+YOUR METHODOLOGY — CROSS-SHEET ANALYSIS:
+1. Compare EACH pair of adjacent floor plan sheets for boundary overlap
+   - Are devices at sheet boundaries counted on BOTH sheets? (double-counting risk)
+   - Are devices at sheet boundaries counted on NEITHER sheet? (missed items)
+2. Compare floor-to-floor consistency
+   - If Floor 1 has 50 data outlets per floor section, does Floor 2 have a similar density?
+   - Flag major density differences (>30%) between similar floor sections
+3. Compare detail sheets against plan sheets
+   - Do enlarged detail views show devices NOT on the main plan? (or vice versa)
+4. Check riser diagrams against floor plans
+   - Does the backbone cable count match the floor plan MDF/IDF connections?
+5. Verify sheet count totals match the overall legend or schedule (if provided)
+
+Return ONLY valid JSON:
+{
+  "sheet_comparisons": [
+    { "sheet1": "E1.01", "sheet2": "E1.02", "issue": "boundary_overlap", "device_type": "data_outlet", "count_adjustment": -3, "reason": "3 outlets at column line G appear on both sheets" }
+  ],
+  "inconsistencies": [
+    { "type": "density_mismatch", "sheet": "E2.01", "expected_range": "40-50", "actual": 22, "note": "Floor 2 east wing has significantly fewer outlets than Floor 1 equivalent" }
+  ],
+  "adjusted_counts": { "data_outlet": 205, "camera": 47 },
+  "boundary_checks_performed": 0,
+  "floors_compared": 0,
+  "confidence": 95
+}`;
+      },
+
+      // ── BRAIN 20: Final Reconciliation (Wave 3.75 — 6th Read) ──
+      FINAL_RECONCILIATION: () => {
+        const consensus = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || {};
+        const detailVerifier = context.wave3_5?.DETAIL_VERIFIER || {};
+        const crossSheet = context.wave3_5?.CROSS_SHEET_ANALYZER || {};
+        const reverseVerifier = context.wave2_5?.REVERSE_VERIFIER || {};
+        const devil = context.wave3?.DEVILS_ADVOCATE || {};
+        return `You are the FINAL RECONCILIATION ENGINE performing the SIXTH AND FINAL READ of the construction plans. You have access to ALL previous data from 5 prior reads. Your job is to produce the AUTHORITATIVE, DEFINITIVE device counts.
+
+PROJECT: ${context.projectName || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+═══ DATA FROM ALL 5 PRIOR READS ═══
+
+TRIPLE-READ CONSENSUS (Reads 1-3):
+${JSON.stringify(consensus, null, 2).substring(0, 4000)}
+
+DETAIL VERIFIER (Read 4 — precision area audit):
+${JSON.stringify(detailVerifier, null, 2).substring(0, 4000)}
+
+CROSS-SHEET ANALYZER (Read 5 — inter-sheet consistency):
+${JSON.stringify(crossSheet, null, 2).substring(0, 4000)}
+
+REVERSE VERIFIER (BOQ-to-plan validation):
+${JSON.stringify(reverseVerifier, null, 2).substring(0, 3000)}
+
+DEVIL'S ADVOCATE (adversarial audit):
+${JSON.stringify(devil, null, 2).substring(0, 3000)}
+
+LEGEND DICTIONARY:
+${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 2000)}
+
+═══ YOUR FINAL MISSION ═══
+1. Perform ONE COMPLETE FINAL SWEEP of every plan sheet
+2. For EACH device type, compare your count against ALL 5 previous readings
+3. If all 6 reads agree (±5%), use the median value
+4. If there's significant disagreement, ZOOM IN and count manually with extreme precision
+5. Apply cross-sheet boundary corrections (from Read 5)
+6. Apply detail verifier corrections (from Read 4)
+7. Produce FINAL AUTHORITATIVE COUNTS — these are the numbers that go into the bid
+
+CRITICAL: This is the LAST CHANCE to get counts right. The bid price depends on these numbers. If you are uncertain about any count, round UP slightly (it's better to over-quote than under-quote).
+
+Return ONLY valid JSON:
+{
+  "final_counts": {
+    "data_outlet": { "count": 208, "confidence": 98, "reads_agreed": 5, "range_across_reads": [195, 200, 205, 208, 205, 208] },
+    "camera": { "count": 48, "confidence": 99, "reads_agreed": 6, "range_across_reads": [48, 48, 47, 48, 47, 48] }
+  },
+  "adjustment_log": [
+    { "device_type": "data_outlet", "original_consensus": 200, "final_count": 208, "adjustment": "+8", "reason": "Detail Verifier found 4 behind annotations + Cross-Sheet caught 4 missed at boundaries" }
+  ],
+  "confidence_score": 97,
+  "total_devices_counted": 0,
+  "reading_methodology": "6-read consensus with precision verification"
+}`;
+      },
+
     };
 
     return prompts[brainKey] ? prompts[brainKey]() : '';
@@ -1378,7 +1547,7 @@ Return ONLY valid JSON:
       knownQuantities: state.knownQuantities,
       pricingContext: this._buildPricingContext(state),
       wave0: null, wave1: null, wave1_5: null, wave1_75: null,
-      wave2: null, wave2_5: null, wave3: null,
+      wave2: null, wave2_5: null, wave3: null, wave3_5: null, wave3_75: null,
     };
 
     // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) ═══
@@ -1448,8 +1617,21 @@ Return ONLY valid JSON:
     context.wave3 = wave3Results;
     console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
 
+    // ═══ WAVE 3.5: 4th & 5th Read — Deep Accuracy (2 parallel brains, Pro) ═══
+    progressCallback(80, '🔎 Wave 3.5: 4th & 5th Read — Detail Verifier + Cross-Sheet Analyzer…', this._brainStatus);
+    const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER'];
+    const wave35Results = await this._runWave(3.5, wave35Keys, encodedFiles, state, context, progressCallback);
+    context.wave3_5 = wave35Results;
+    console.log('[SmartBrains] ═══ Wave 3.5 Complete — 4th & 5th Read done ═══');
+
+    // ═══ WAVE 3.75: 6th Read — Final Reconciliation (1 brain, Pro deep reasoning) ═══
+    progressCallback(85, '🏁 Wave 3.75: 6th Read — Final Reconciliation sweep…', this._brainStatus);
+    const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], encodedFiles, state, context, progressCallback);
+    context.wave3_75 = wave375Results;
+    console.log('[SmartBrains] ═══ Wave 3.75 Complete — 6th Read done ═══');
+
     // ═══ WAVE 4: Report Synthesis (1 brain) ═══
-    progressCallback(88, '📝 Wave 4: Writing final report…', this._brainStatus);
+    progressCallback(90, '📝 Wave 4: Writing final report…', this._brainStatus);
     const wave4Results = await this._runWave(4, ['REPORT_WRITER'], encodedFiles, state, context, progressCallback);
     console.log('[SmartBrains] ═══ Wave 4 Complete ═══');
 
