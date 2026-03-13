@@ -91,6 +91,8 @@ Output ONLY the proposal body text. Use markdown headers (##) for sections. Be s
         temperature: 0.4,
         maxOutputTokens: 8192,
       },
+      _model: GEMINI_CONFIG.model,
+      _brainSlot: 17,  // Use Report Writer's key slot
     };
 
     progressCallback(15, 'AI is drafting your proposal…');

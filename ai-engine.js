@@ -46,34 +46,16 @@ const SmartBrains = {
   // ═══════════════════════════════════════════════════════════
 
   config: {
-    // 18 API keys — one per brain for true parallel execution
-    apiKeys: [
-      'AIzaSyAmP2pnHqMvHe960AvxhGRmWr21Xb7Wpxw',  // 0: Legend Decoder
-      'AIzaSyCh6EA9MaR7Y1MjyjR7MCxPiGVzmGELBlQ',  // 1: Symbol Scanner
-      'AIzaSyCP5H4QTimW7BtPJ8hSKVwb1SSdcOl6Yn0',  // 2: Code Compliance
-      'AIzaSyD3psR7vaKT-iT8kMogICvhhsTne4Vbf9k',  // 3: MDF/IDF Analyzer
-      'AIzaSyB3_d0qstDxwBDIEbLBlBB-_NbVzscHrp4',  // 4: Cable & Pathway
-      'AIzaSyAcTkAiy4x6Lg3a2zudSaK4iBbtEqB1B34',  // 5: Special Conditions
-      'AIzaSyAAN3Wlq3SCFrSoPo5lB9SGZuL6JxZvbj8',  // 6: Shadow Scanner
-      'AIzaSyCgfEYz8tctigTM1_MkezeTBgzz92Rq8x4',   // 7: Discipline Deep-Dive
-      'AIzaSyDhf3K_y9HIQNYKvcdR2HEZSzPOQBmdh9w',  // 8: Quadrant Scanner
-      'AIzaSyB84NuoTxXeUz6gMHxEFpZFmyYrOIpLe4g',  // 9: Consensus Arbitrator
-      'AIzaSyDemI1nvir7gW8SAw0MvgmmJizChbQNV68',  // 10: Targeted Re-Scanner
-      'AIzaSyCYYcIMdT231K5LHtIrfImsA29qvRLNG0E',  // 11: Material Pricer
-      'AIzaSyD4ijF1RPUZ63sNwfbpart2Y1OijT_TJsA',  // 12: Labor Calculator
-      'AIzaSyAtbJTCE8KGNW2hYZGL_M-NRX-vblZZXRE',  // 13: Financial Engine
-      'AIzaSyByZqnUylJZxv--24laA55j_Tw3QNR34G8',  // 14: Reverse Verifier
-      'AIzaSyA4L8T4NH58R3ND6X88aKbsUhTzHEKNrTU',  // 15: Cross Validator
-      'AIzaSyBVtuHuOGsy2tb-KjO463MZzI0siX47lOg',  // 16: Devil's Advocate
-      'AIzaSyBzG6iaQ3R5hl-qJIs2Sxj-vuxl3fho1E8',  // 17: Report Writer
-    ],
+    // API keys are stored server-side as Cloudflare secrets (GEMINI_KEY_0 … GEMINI_KEY_17)
+    // No keys in client code — all calls go through /api/ai/invoke proxy
+    apiKeys: [],  // Empty — proxy handles key selection
     model: 'gemini-2.5-flash',              // Flash model for lightweight brains
     accuracyModel: 'gemini-2.5-pro',         // Pro model for report writing (accuracy-critical)
     proModel: 'gemini-3.1-pro-preview',      // Gemini 3.1 Pro — released Feb 19, 2026
-    useProxy: false,
+    useProxy: true,                          // ENABLED — route all calls through server-side proxy
     proxyEndpoint: '/api/ai/invoke',
-    maxRetries: 4,                           // Extra retry for Pro model rate limits
-    retryBaseDelay: 1500,                    // Slightly longer base delay for Pro quotas
+    maxRetries: 4,
+    retryBaseDelay: 1500,
     timeout: 150000,                         // 2.5 min for Flash brains
     proTimeout: 300000,                      // 5 min for Gemini 3.1 Pro (deep reasoning)
   },
@@ -231,14 +213,13 @@ const SmartBrains = {
 
   async _invokeBrain(brainKey, brainDef, promptText, fileParts, useJsonMode) {
     const maxRetries = this.config.maxRetries;
-    const keyCount = this.config.apiKeys.length;
-    let keyIndex = brainDef.id % keyCount;
     let lastError = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const apiKey = this.config.apiKeys[keyIndex];
       const modelName = brainDef.useProModel ? (this.config.proModel || this.config.model) : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+      // Always use proxy — keys are server-side
+      const url = this.config.proxyEndpoint;
 
       const parts = [{ text: promptText }, ...fileParts];
       // Low temperature for deterministic construction analysis
@@ -260,6 +241,8 @@ const SmartBrains = {
       const body = {
         contents: [{ parts }],
         generationConfig: genConfig,
+        _model: modelName,       // Proxy reads this to select the right Gemini model
+        _brainSlot: brainDef.id, // Proxy reads this to select the right API key
       };
 
       try {
@@ -275,9 +258,8 @@ const SmartBrains = {
         clearTimeout(timer);
 
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
-          keyIndex = (keyIndex + 1) % keyCount;
           const delay = this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500;
-          console.warn(`[Brain:${brainDef.name}] API ${response.status}, retrying in ${Math.round(delay)}ms (key ${keyIndex})`);
+          console.warn(`[Brain:${brainDef.name}] API ${response.status}, retrying in ${Math.round(delay)}ms`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
@@ -288,8 +270,6 @@ const SmartBrains = {
         }
 
         const data = await response.json();
-        // Gemini 3.1 Pro with thinking mode returns both "thought" parts and "text" parts
-        // We only want the actual text output, not the internal reasoning chain
         const allParts = data?.candidates?.[0]?.content?.parts || [];
         const text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
 
@@ -305,7 +285,6 @@ const SmartBrains = {
         if (err.name === 'AbortError') {
           console.warn(`[Brain:${brainDef.name}] Timeout, attempt ${attempt + 1}`);
         }
-        keyIndex = (keyIndex + 1) % keyCount;
         if (attempt < maxRetries - 1) {
           await new Promise(r => setTimeout(r, this.config.retryBaseDelay * Math.pow(2, attempt)));
         }

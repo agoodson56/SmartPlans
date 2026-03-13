@@ -4,40 +4,22 @@
    ================================================================ */
 
 // ═══════════════════════════════════════════════════════════════
-// GEMINI API CONFIG — Dual Key Failover
+// GEMINI API CONFIG — Server-Side Proxy (keys in Cloudflare secrets)
 // ═══════════════════════════════════════════════════════════════
 
 const GEMINI_CONFIG = {
-  // Primary and backup API keys — auto-rotates on quota/rate limit errors
-  // Full 10-key pool for maximum failover resilience
-  apiKeys: [
-    "AIzaSyAmP2pnHqMvHe960AvxhGRmWr21Xb7Wpxw",
-    "AIzaSyCh6EA9MaR7Y1MjyjR7MCxPiGVzmGELBlQ",
-    "AIzaSyCP5H4QTimW7BtPJ8hSKVwb1SSdcOl6Yn0",
-    "AIzaSyD3psR7vaKT-iT8kMogICvhhsTne4Vbf9k",
-    "AIzaSyB3_d0qstDxwBDIEbLBlBB-_NbVzscHrp4",
-    "AIzaSyAcTkAiy4x6Lg3a2zudSaK4iBbtEqB1B34",
-    "AIzaSyAAN3Wlq3SCFrSoPo5lB9SGZuL6JxZvbj8",
-    "AIzaSyCgfEYz8tctigTM1_MkezeTBgzz92Rq8x4",
-    "AIzaSyDhf3K_y9HIQNYKvcdR2HEZSzPOQBmdh9w",
-    "AIzaSyB84NuoTxXeUz6gMHxEFpZFmyYrOIpLe4g",
-  ],
-  _currentKeyIndex: 0,
+  // No API keys in client code — all calls route through /api/ai/invoke
+  // Keys are stored as Cloudflare environment secrets (GEMINI_KEY_0 … GEMINI_KEY_17)
+  _proxyEndpoint: '/api/ai/invoke',
+  _currentSlot: 0,
   model: "gemini-2.5-flash",
-  verificationModel: "gemini-2.5-flash", // Can use a different model for cross-validation
-  get apiKey() { return this.apiKeys[this._currentKeyIndex]; },
-  get endpoint() {
-    return `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
-  },
-  get verificationEndpoint() {
-    // Use the alternate key for verification if available
-    const altIdx = (this._currentKeyIndex + 1) % this.apiKeys.length;
-    const altKey = this.apiKeys[altIdx];
-    return `https://generativelanguage.googleapis.com/v1beta/models/${this.verificationModel}:generateContent?key=${altKey}`;
-  },
+  verificationModel: "gemini-2.5-flash",
+  get apiKey() { return 'PROXY'; },
+  get endpoint() { return this._proxyEndpoint; },
+  get verificationEndpoint() { return this._proxyEndpoint; },
   rotateKey() {
-    this._currentKeyIndex = (this._currentKeyIndex + 1) % this.apiKeys.length;
-    console.log(`[SmartPlans] Rotated to API key ${this._currentKeyIndex + 1}/${this.apiKeys.length}`);
+    this._currentSlot = (this._currentSlot + 1) % 18;
+    console.log(`[SmartPlans] Rotated to brain slot ${this._currentSlot}`);
   },
 };
 
@@ -1428,19 +1410,17 @@ const MAX_RETRIES = 3;
 
 async function fetchWithRetry(url, options, maxRetries = MAX_RETRIES) {
   let lastError;
-  let currentUrl = url;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), options._timeout || 30000);
-      const res = await fetch(currentUrl, { ...options, signal: controller.signal });
+      const res = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeout);
       if (res.ok || res.status === 400 || res.status === 404) return res;
-      // Quota/rate limit — rotate API key before retry
+      // Quota/rate limit — rotate slot for next retry
       if ([429, 403].includes(res.status) && options._apiKeyRotator) {
         options._apiKeyRotator();
-        currentUrl = url.replace(/key=[^&]+/, `key=${GEMINI_CONFIG.apiKey}`);
-        console.warn(`[SmartPlans] API key rotated due to ${res.status}`);
+        console.warn(`[SmartPlans] Brain slot rotated due to ${res.status}`);
       }
       // Retryable server errors (429, 403, 500, 502, 503, 504)
       if ([429, 403, 500, 502, 503, 504].includes(res.status)) {
@@ -1456,10 +1436,8 @@ async function fetchWithRetry(url, options, maxRetries = MAX_RETRIES) {
     } catch (err) {
       lastError = err;
       if (err.name === 'AbortError') lastError = new Error('Request timed out');
-      // On network error, also try rotating key (different IP/quota pool)
       if (options._apiKeyRotator && attempt < maxRetries) {
         options._apiKeyRotator();
-        currentUrl = url.replace(/key=[^&]+/, `key=${GEMINI_CONFIG.apiKey}`);
       }
       if (attempt < maxRetries) {
         const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000) + Math.random() * 500;
@@ -2425,9 +2403,11 @@ async function callGeminiAPI(progressCallback) {
       temperature: 0.3,
       maxOutputTokens: 32768,
     },
+    _model: GEMINI_CONFIG.model,
+    _brainSlot: GEMINI_CONFIG._currentSlot,
   };
 
-  // ── Retry with exponential backoff + timeout + API key rotation ──
+  // ── Retry with exponential backoff + timeout ──
   const response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2608,6 +2588,8 @@ ${primaryAnalysis.substring(0, 28000)}
       temperature: 0.1, // Very low temp for precise verification
       maxOutputTokens: 4096,
     },
+    _model: GEMINI_CONFIG.verificationModel,
+    _brainSlot: 1,
   };
 
   const response = await fetchWithRetry(GEMINI_CONFIG.verificationEndpoint, {
