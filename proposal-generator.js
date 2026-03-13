@@ -619,7 +619,7 @@ ACCEPTANCE & SIGNATURE BLOCK
           // Header row
           tHtml += '<tr>';
           cells.forEach(cell => {
-            tHtml += `<td bgcolor="#1B2A4A" style="color:white;padding:7pt 10pt;font-size:8.5pt;text-transform:uppercase;font-weight:bold;letter-spacing:0.5pt;border:1pt solid #1B2A4A;">${this._escText(cell.trim())}</td>`;
+            tHtml += `<td bgcolor="#1B2A4A" style="color:#FFFFFF;padding:7pt 10pt;font-size:8.5pt;text-transform:uppercase;font-weight:bold;letter-spacing:0.5pt;border:1pt solid #1B2A4A;"><font color="#FFFFFF"><b>${this._escText(cell.trim())}</b></font></td>`;
           });
           tHtml += '</tr>';
         } else {
@@ -635,7 +635,7 @@ ACCEPTANCE & SIGNATURE BLOCK
             cellValues.forEach(cell => {
               const isMoney = /\$/.test(cell);
               const align = isMoney ? 'text-align:right;' : '';
-              tHtml += `<td bgcolor="${isSubtotal ? '#2B4A6A' : '#1B2A4A'}" style="color:white;padding:8pt 10pt;font-weight:bold;font-size:${isSubtotal ? '9.5pt' : '11pt'};${align}border:1pt solid #1B2A4A;">${this._escText(cell)}</td>`;
+              tHtml += `<td bgcolor="${isSubtotal ? '#2B4A6A' : '#1B2A4A'}" style="color:#FFFFFF;padding:8pt 10pt;font-weight:bold;font-size:${isSubtotal ? '9.5pt' : '11pt'};${align}border:1pt solid #1B2A4A;"><font color="#FFFFFF"><b>${this._escText(cell)}</b></font></td>`;
             });
             tHtml += '</tr>';
           } else {
