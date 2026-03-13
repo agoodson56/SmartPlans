@@ -1402,8 +1402,8 @@ function renderFileUpload(container, { label, description, files, onFilesChange,
 // RELIABILITY UTILITIES — Retry, Backoff, File Validation
 // ═══════════════════════════════════════════════════════════════
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB per file (Gemini 3.1 Pro handles large files)
-const MAX_TOTAL_PAYLOAD = 200 * 1024 * 1024; // 200 MB total payload
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB per file (Gemini 3.1 Pro handles large files)
+const MAX_TOTAL_PAYLOAD = 400 * 1024 * 1024; // 400 MB total payload
 const API_TIMEOUT_MS = 120000; // 120 seconds
 const MAX_RETRIES = 3;
 

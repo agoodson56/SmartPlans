@@ -4,8 +4,8 @@
 
 | Parameter | Limit |
 |-----------|-------|
-| **Max file size (per file)** | 50 MB |
-| **Max total payload (all files combined)** | 200 MB |
+| **Max file size (per file)** | 200 MB |
+| **Max total payload (all files combined)** | 400 MB |
 | **Best format for plans** | PDF (highest accuracy) |
 | **Supported plan formats** | PDF, DWG, DXF, IFC, RVT, PNG, JPG, JPEG, TIF, TIFF |
 | **Supported spec formats** | PDF, DOC, DOCX, TXT |
