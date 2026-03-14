@@ -648,11 +648,37 @@ Return ONLY valid JSON:
           || context.wave1?.SYMBOL_SCANNER?.totals
           || {};
 
+        // ── Build explicit discipline checklist from consensus data ──
+        // This prevents the Pricer from silently dropping entire systems
+        const disciplineChecklist = (context.disciplines || []).map(d => {
+          const dLower = d.toLowerCase();
+          // Find matching keys in consensus counts
+          const matchingKeys = Object.keys(consensusCounts).filter(k => {
+            const kl = k.toLowerCase();
+            if (dLower.includes('cabling') && (kl.includes('data') || kl.includes('cable') || kl.includes('outlet') || kl.includes('wap') || kl.includes('keystone'))) return true;
+            if (dLower.includes('cctv') && (kl.includes('camera') || kl.includes('cctv') || kl.includes('nvr'))) return true;
+            if (dLower.includes('access') && (kl.includes('reader') || kl.includes('access') || kl.includes('door') || kl.includes('rex') || kl.includes('contact') || kl.includes('strike') || kl.includes('maglock'))) return true;
+            if (dLower.includes('fire') && (kl.includes('smoke') || kl.includes('fire') || kl.includes('pull') || kl.includes('horn') || kl.includes('strobe') || kl.includes('duct') || kl.includes('heat'))) return true;
+            if (dLower.includes('audio') && (kl.includes('speaker') || kl.includes('display') || kl.includes('av') || kl.includes('projector') || kl.includes('microphone'))) return true;
+            if (dLower.includes('intrusion') && (kl.includes('motion') || kl.includes('glass') || kl.includes('intrusion') || kl.includes('siren') || kl.includes('keypad'))) return true;
+            return false;
+          });
+          const items = matchingKeys.map(k => {
+            const val = consensusCounts[k];
+            const count = typeof val === 'object' ? (val.consensus || val.count || val) : val;
+            return `${k}=${typeof count === 'number' ? count : JSON.stringify(count)}`;
+          }).join(', ');
+          return `  - ${d}: ${items || 'CHECK SYMBOL DATA FOR EXACT COUNTS'}`;
+        }).join('\n');
+
         return `You are a CONSTRUCTION MATERIAL PRICING SPECIALIST. Calculate exact material costs.
 
 PROJECT: ${context.projectName}
 PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}× multiplier)
 MATERIAL MARKUP: ${context.markup?.material || 25}%
+
+═══ SELECTED DISCIPLINES (you MUST price ALL of these) ═══
+${disciplineChecklist}
 
 ═══ VERIFIED DEVICE COUNTS (from Triple-Read Consensus — USE THESE EXACT QUANTITIES) ═══
 ${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
@@ -670,16 +696,21 @@ PRICING DATABASE (use these exact prices):
 ${context.pricingContext || 'Use industry standard pricing'}
 
 CRITICAL RULES:
-1. Use the CONSENSUS DEVICE COUNTS above as your EXACT quantities — do NOT invent different numbers
+1. You MUST create a category for EVERY discipline listed above — do NOT skip any discipline that has devices in the consensus counts or symbol data
 2. If consensus says 24 cameras, price EXACTLY 24 cameras — not 20, not 30
 3. If consensus says 200 data outlets, price EXACTLY 200 data outlets
-4. Use the EXACT prices from the pricing database
-5. Apply the ${regionMult}× regional multiplier to all prices
-6. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost (verify your math)
-7. Group by category: Structured Cabling, CCTV, Access Control, Fire Alarm, Audio Visual, Intrusion Detection
-8. ONLY include categories that have devices in the consensus counts — do NOT add categories with zero devices
-9. Include ALL mounting hardware, connectors, cable, and accessories for each device
+4. For Access Control: include controllers, card readers, door contacts, REX devices, electric strikes/maglocks, door position switches, cabling, and power supplies
+5. For each camera or access point, include mounting hardware, cable, connectors, and associated head-end equipment (NVR, switches, license)
+6. Use the EXACT prices from the pricing database. Apply the ${regionMult}× regional multiplier to all unit costs
+7. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost (VERIFY YOUR MATH on every single row)
+8. Include ALL MDF/IDF equipment: racks, patch panels, UPS, grounding busbars (TMGB/TGB), cable management
+9. Include backbone/riser cables from CABLE QUANTITIES section — do NOT omit fiber or copper backbone
 10. Cable quantities: use ~150ft average per data drop, verify against CABLE_PATHWAY data
+
+═══ MANDATORY SELF-CHECK (do this before returning) ═══
+Before responding, verify that your output includes a category for EACH selected discipline listed above.
+If ANY selected discipline is missing from your categories array, ADD IT NOW with all required materials.
+Missing an entire discipline is a FATAL ERROR that will cause catastrophic underestimation.
 
 Return ONLY valid JSON:
 {
@@ -788,11 +819,12 @@ SPECIAL CONDITIONS:
 ${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 3000)}
 
 CRITICAL RULES:
-1. Your total_materials MUST EXACTLY EQUAL the Material Pricer's grand_total — do NOT estimate independently
-2. Your total_labor MUST EXACTLY EQUAL the Labor Calculator's total — do NOT estimate independently
-3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total
+1. Your total_materials MUST EXACTLY EQUAL the Material Pricer's "total_with_markup" value (NOT "grand_total" — that is the base cost before markup). The sell price is what goes into the SOV and project summary.
+2. Your total_labor MUST EXACTLY EQUAL the Labor Calculator's "total_with_markup" value (NOT the base cost)
+3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total — all values must be SELL PRICES (with markup applied)
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total
+6. The project_summary grand_total must include: total_materials + total_labor + total_equipment + total_subcontractors + total_travel + contingency
 
 GENERATE:
 1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
@@ -1037,14 +1069,34 @@ ${JSON.stringify(context.wave2_25?.LABOR_CALCULATOR || {}, null, 2).substring(0,
 FINANCIALS & SOV:
 ${JSON.stringify(context.wave2_5_fin?.FINANCIAL_ENGINE || {}, null, 2).substring(0, 6000)}
 
-CROSS-VALIDATION:
-${JSON.stringify(context.wave3?.CROSS_VALIDATOR || {}, null, 2).substring(0, 3000)}
+CROSS-VALIDATION RESULTS (MUST FIX ALL CRITICAL ISSUES):
+${JSON.stringify(context.wave3?.CROSS_VALIDATOR || {}, null, 2).substring(0, 4000)}
 
-DEVIL'S ADVOCATE CHALLENGES:
-${JSON.stringify(context.wave3?.DEVILS_ADVOCATE || {}, null, 2).substring(0, 3000)}
+DEVIL'S ADVOCATE CHALLENGES (MUST ADDRESS ALL CRITICAL CHALLENGES):
+${JSON.stringify(context.wave3?.DEVILS_ADVOCATE || {}, null, 2).substring(0, 4000)}
 
 PRICING DATABASE REFERENCE:
 ${context.pricingContext?.substring(0, 4000) || 'Use industry standard pricing'}
+
+═══ MANDATORY CORRECTIONS ═══
+The Cross Validator and Devil's Advocate have identified issues with the estimate.
+You MUST apply these corrections in the final bid report:
+${context._missingDisciplines?.length > 0 ? `
+🔴 CRITICAL — MATERIAL PRICER DROPPED THESE DISCIPLINES: ${context._missingDisciplines.join(', ')}
+These disciplines have devices in the consensus counts but ZERO materials/labor were allocated.
+You MUST calculate and add materials + labor for ALL missing disciplines using the consensus counts and pricing database.
+` : ''}
+1. **MISSING SCOPE**: If the Cross Validator or Devil's Advocate reports that a discipline (e.g., Access Control, Data Outlets, AV) is MISSING from the Material Pricer, you MUST add those materials and labor to the bid. Use the consensus device counts and pricing database to calculate costs.
+
+2. **QUANTITY CORRECTIONS**: If the validator found quantity mismatches (e.g., 25 cameras in consensus but 24 in pricer), use the HIGHER count from the consensus. Include all exterior/outdoor devices identified.
+
+3. **MARKUP CORRECTIONS**: If the validator found that markup was dropped (e.g., Financial Engine used base cost instead of sell price), recalculate using the correct total_with_markup values from Material Pricer and Labor Calculator.
+
+4. **MISSING INFRASTRUCTURE**: Add any missing items flagged by the Devil's Advocate: backbone cables, grounding busbars (TMGB/TGB), UPS units for MDF/IDF racks, and any other items that standard ELV practice requires.
+
+5. **LABOR RATE VERIFICATION**: If the project location has prevailing wage requirements or is in a high-cost region, ensure labor rates reflect actual market rates for that region — not national averages. Northern California journeyman rates should be $85-$160/hr burdened.
+
+The final bid MUST incorporate ALL corrections. Do NOT just report the errors — FIX them in the actual tables and totals.
 
 Generate the COMPLETE BID REPORT now. Every section must have real data with real dollar amounts. This is not a template — it is an actual bid.`;
       },
@@ -1701,6 +1753,30 @@ Return ONLY valid JSON:
     progressCallback(56, '💰 Wave 2: Material Pricer — computing material costs…', this._brainStatus);
     const wave2Results = await this._runWave(2, ['MATERIAL_PRICER'], encodedFiles, state, context, progressCallback);
     context.wave2 = wave2Results;
+
+    // ── Post-Pricer Discipline Coverage Check ──
+    // Verify Material Pricer didn't silently drop entire disciplines
+    const pricerCategories = (wave2Results.MATERIAL_PRICER?.categories || []).map(c => (c.name || '').toLowerCase());
+    const selectedDisciplines = state.disciplines || [];
+    const missingDisciplines = [];
+    for (const disc of selectedDisciplines) {
+      const dl = disc.toLowerCase();
+      const found = pricerCategories.some(cat => {
+        if (dl.includes('cabling') && (cat.includes('cabling') || cat.includes('cable') || cat.includes('data'))) return true;
+        if (dl.includes('cctv') && (cat.includes('cctv') || cat.includes('camera') || cat.includes('video') || cat.includes('surveillance'))) return true;
+        if (dl.includes('access') && (cat.includes('access') || cat.includes('card') || cat.includes('reader'))) return true;
+        if (dl.includes('fire') && (cat.includes('fire') || cat.includes('alarm'))) return true;
+        if (dl.includes('audio') && (cat.includes('audio') || cat.includes('av') || cat.includes('visual'))) return true;
+        if (dl.includes('intrusion') && (cat.includes('intrusion') || cat.includes('detection') || cat.includes('burglar'))) return true;
+        return false;
+      });
+      if (!found) missingDisciplines.push(disc);
+    }
+    if (missingDisciplines.length > 0) {
+      console.warn(`[SmartBrains] ⚠️ Material Pricer DROPPED ${missingDisciplines.length} discipline(s): ${missingDisciplines.join(', ')}`);
+      console.warn('[SmartBrains] Report Writer will be instructed to add missing scope');
+      context._missingDisciplines = missingDisciplines;
+    }
     console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
 
     // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
