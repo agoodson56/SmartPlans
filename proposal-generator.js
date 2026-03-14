@@ -258,6 +258,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
   }
 
   @page Section1 { mso-header: h1; mso-footer: f1; }
+  div.Section1 { page: Section1; }
 
   body {
     font-family: Calibri, Arial, sans-serif;
@@ -358,6 +359,9 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     3D CONFIDENTIAL
   </p>
 </div>
+
+<!-- Section1 wrapper — binds all content to @page Section1 which includes the footer -->
+<div class="Section1">
 
 <!--
 ═══════════════════════════════════════════════════════════
@@ -592,6 +596,7 @@ ACCEPTANCE & SIGNATURE BLOCK
   <span style="font-size:7pt;color:#aaa;">&copy; ${year} ${co.name}. All rights reserved. This document contains confidential and proprietary information.</span>
 </p>
 
+</div><!-- /Section1 -->
 </body>
 </html>`;
 
