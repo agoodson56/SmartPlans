@@ -2441,51 +2441,85 @@ async function callGeminiAPI(progressCallback) {
 // ═══════════════════════════════════════════════════════════════
 
 // ── 1. Automated Math Validation ──────────────────────────────
-// Scans the AI analysis for tables containing quantities + costs
-// and verifies that Qty × Unit Cost = Extended Cost within $1 tolerance.
+// Scans the AI analysis for material/labor tables and verifies
+// that Qty × Unit Cost = Extended Cost within $1 tolerance.
+// Uses header-aware column detection to avoid false positives
+// from markup and sell price columns.
 function validateAnalysisMath(analysisText) {
   if (!analysisText) return { issues: [], passed: true };
 
   const issues = [];
   const lines = analysisText.split('\n');
 
+  // ── Parse tables by detecting header rows and mapping columns ──
+  let currentHeader = null; // { qtyCol, unitCostCol, extCostCol }
+  let headerRowIdx = -1;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!line.includes('|') || line.match(/^[\s|:-]+$/)) continue;
+    if (!line.includes('|')) { currentHeader = null; continue; }
+    if (line.match(/^[\s|:-]+$/)) continue; // separator row
 
     const cells = line.split('|').map(c => c.trim()).filter(Boolean);
     if (cells.length < 3) continue;
 
-    // Look for rows with numeric values that look like cost calculations
-    const dollarCells = cells.filter(c => c.match(/\$[\d,]+/));
-    const numCells = cells.filter(c => c.match(/^\d+$/));
+    // ── Detect header rows by looking for column labels ──
+    const upperCells = cells.map(c => c.toUpperCase().replace(/[^A-Z0-9 /]/g, ''));
+    const qtyColIdx = upperCells.findIndex(c => /^QTY$/.test(c.trim()));
+    const unitCostIdx = upperCells.findIndex(c => /UNIT\s*(COST|PRICE)|COST.*UNIT|RATE.*HR|RATE\/HR|DAILY.*COST|UNIT.*COST/.test(c.trim()));
+    const extCostIdx = upperCells.findIndex(c => /^EXT\s*(COST)?$|EXTENDED|LABOR\s*COST|TOTAL\s*COST/.test(c.trim()));
 
-    if (dollarCells.length >= 2 && numCells.length >= 1) {
-      const qty = parseInt(numCells[0]);
-      const costValues = dollarCells.map(c => {
-        const m = c.match(/\$?([\d,]+(?:\.\d{1,2})?)/);
-        return m ? parseFloat(m[1].replace(/,/g, '')) : null;
-      }).filter(v => v !== null);
+    if (qtyColIdx >= 0 && unitCostIdx >= 0 && extCostIdx >= 0) {
+      currentHeader = { qtyCol: qtyColIdx, unitCostCol: unitCostIdx, extCostCol: extCostIdx };
+      headerRowIdx = i;
+      continue;
+    }
 
-      // If we have qty, unitCost, extCost — verify multiplication
-      if (qty && costValues.length >= 2 && qty > 0) {
-        const unitCost = costValues[0];
-        const extCost = costValues[costValues.length - 1]; // Last dollar value is typically extended
-        const expected = qty * unitCost;
+    // ── If no header context, skip — don't guess ──
+    if (!currentHeader) continue;
 
-        // Allow $1 tolerance for rounding
-        if (Math.abs(expected - extCost) > 1.0 && expected > 0) {
-          issues.push({
-            line: i + 1,
-            content: line.substring(0, 120),
-            qty,
-            unitCost,
-            extCost,
-            expected: Math.round(expected * 100) / 100,
-            difference: Math.round((extCost - expected) * 100) / 100,
-          });
-        }
-      }
+    // Skip the separator row directly after header
+    if (i === headerRowIdx + 1 && line.match(/[:-]{2,}/)) continue;
+
+    // ── Skip summary/subtotal/total rows — they use different math ──
+    const rowText = cells.join(' ').toLowerCase();
+    if (/subtotal|grand\s*total|total|contingency/.test(rowText)) continue;
+
+    // ── Extract values from known columns ──
+    const qtyStr = cells[currentHeader.qtyCol];
+    const unitStr = cells[currentHeader.unitCostCol];
+    const extStr = cells[currentHeader.extCostCol];
+    if (!qtyStr || !unitStr || !extStr) continue;
+
+    // Parse qty — allow comma-formatted numbers, but skip non-numeric
+    const qtyMatch = qtyStr.match(/^([\d,]+)$/);
+    if (!qtyMatch) continue;
+    const qty = parseInt(qtyMatch[1].replace(/,/g, ''));
+    if (!qty || qty <= 0) continue;
+
+    // Parse unit cost — extract dollar value
+    const unitMatch = unitStr.match(/\$?([\d,]+(?:\.\d{1,2})?)/);
+    if (!unitMatch) continue;
+    const unitCost = parseFloat(unitMatch[1].replace(/,/g, ''));
+
+    // Parse ext cost — extract dollar value
+    const extMatch = extStr.match(/\$?([\d,]+(?:\.\d{1,2})?)/);
+    if (!extMatch) continue;
+    const extCost = parseFloat(extMatch[1].replace(/,/g, ''));
+
+    const expected = qty * unitCost;
+
+    // Allow $1 tolerance for rounding
+    if (Math.abs(expected - extCost) > 1.0 && expected > 0) {
+      issues.push({
+        line: i + 1,
+        content: line.substring(0, 120),
+        qty,
+        unitCost,
+        extCost,
+        expected: Math.round(expected * 100) / 100,
+        difference: Math.round((extCost - expected) * 100) / 100,
+      });
     }
   }
 
@@ -2506,11 +2540,11 @@ function checkSectionCompleteness(analysisText) {
   const requiredSections = [
     { key: 'code_compliance', patterns: ['CODE & STANDARDS', 'CODE COMPLIANCE'] },
     { key: 'mdf_idf', patterns: ['MDF/IDF', 'MDF/IDF/TR', 'INFRASTRUCTURE'] },
-    { key: 'material_summary', patterns: ['MATERIAL SUMMARY', 'OVERALL MATERIAL'] },
-    { key: 'labor_summary', patterns: ['LABOR SUMMARY', 'LABOR COST'] },
-    { key: 'special_equipment', patterns: ['SPECIAL EQUIPMENT', 'EQUIPMENT & CONDITIONS'] },
+    { key: 'material_summary', patterns: ['MATERIAL SUMMARY', 'OVERALL MATERIAL', 'MATERIAL TAKEOFF', 'MATERIAL BREAKDOWN'] },
+    { key: 'labor_summary', patterns: ['LABOR SUMMARY', 'LABOR COST', 'LABOR BREAKDOWN'] },
+    { key: 'special_equipment', patterns: ['SPECIAL EQUIPMENT', 'EQUIPMENT & CONDITIONS', 'SUBCONTRACTOR'] },
     { key: 'schedule_of_values', patterns: ['SCHEDULE OF VALUES', 'SOV'] },
-    { key: 'cost_summary', patterns: ['PRICED ESTIMATE', 'PROJECT COST', 'ESTIMATE SUMMARY'] },
+    { key: 'cost_summary', patterns: ['PRICED ESTIMATE', 'PROJECT COST', 'ESTIMATE SUMMARY', 'COST SUMMARY'] },
     { key: 'observations', patterns: ['OBSERVATIONS', 'ANALYSIS'] },
     { key: 'rfis', patterns: ['RFI'] },
   ];
