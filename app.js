@@ -1155,6 +1155,16 @@ function renderStep6(container) {
             <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Download JSON + Excel + Markdown at once</div>
           </div>
         </button>
+      </div>
+      <div style="margin-top:14px;">
+        <button class="export-pkg-btn" id="export-bom" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(20,184,166,0.35);background:linear-gradient(135deg,rgba(20,184,166,0.10),rgba(6,182,212,0.06));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;width:100%;">
+          <span style="font-size:24px;">📋</span>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:14px;">Download Detailed Bill of Materials</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Complete BOM with all items, quantities, unit costs & extended costs — Excel spreadsheet</div>
+          </div>
+          <span style="font-size:18px;color:rgba(20,184,166,0.7);">⬇</span>
+        </button>
       </div>` : `
       <div class="info-card-body" style="line-height:1.8;">
         AI analysis did not complete. Re-run analysis with valid API keys to enable full export.
@@ -1300,6 +1310,9 @@ function renderStep6(container) {
 
   const allBtn = document.getElementById("export-all");
   if (allBtn) allBtn.addEventListener("click", () => SmartPlansExport.exportAll(state));
+
+  const bomBtn = document.getElementById("export-bom");
+  if (bomBtn) bomBtn.addEventListener("click", () => SmartPlansExport.exportBOM(state));
 
   // Proposal Generator button — downloads .doc file directly, no popup needed
   const proposalBtn = document.getElementById("btn-generate-proposal");

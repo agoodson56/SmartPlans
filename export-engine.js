@@ -405,6 +405,368 @@ const SmartPlansExport = {
 
 
     // ═══════════════════════════════════════════════════════════
+    // BILL OF MATERIALS (BOM) EXPORT — Detailed Excel/CSV
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Extract all material line items from the AI analysis markdown.
+     * Parses tables organized by category/discipline headings and
+     * returns structured BOM data.
+     */
+    _extractBOMFromAnalysis(aiAnalysis) {
+        if (!aiAnalysis) return { categories: [], grandTotal: 0 };
+
+        const categories = [];
+        let currentCategory = null;
+
+        // Split analysis into lines for processing
+        const lines = aiAnalysis.split('\n');
+        let inTable = false;
+        let headersParsed = false;
+        let colMap = {}; // maps column purposes to indices
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+
+            // Detect category headings (## or ### or **BOLD**)
+            const h2Match = line.match(/^#{1,3}\s+(.+)/);
+            const boldMatch = !h2Match && line.match(/^\*\*([^*]{3,80})\*\*\s*$/);
+            const heading = h2Match ? h2Match[1].replace(/\*+/g, '').trim() : (boldMatch ? boldMatch[1].trim() : null);
+
+            if (heading) {
+                // Check if this heading looks like a material/cost category
+                const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|summary|breakdown|bill|bom/i.test(heading);
+                const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step/i.test(heading);
+
+                if (isCategory && !isNonCategory) {
+                    // Save previous category if it has items
+                    if (currentCategory && currentCategory.items.length > 0) {
+                        categories.push(currentCategory);
+                    }
+                    currentCategory = { name: heading, items: [], subtotal: 0 };
+                    inTable = false;
+                    headersParsed = false;
+                    colMap = {};
+                } else if (isNonCategory) {
+                    // Close and save current category
+                    if (currentCategory && currentCategory.items.length > 0) {
+                        categories.push(currentCategory);
+                    }
+                    currentCategory = null;
+                    inTable = false;
+                }
+                continue;
+            }
+
+            // Detect markdown table rows (pipe-delimited)
+            if (line.startsWith('|') && line.includes('|')) {
+                const cells = line.split('|').map(c => c.trim()).filter(Boolean);
+                if (cells.length < 2) continue;
+
+                // Skip separator rows like |---|---|
+                if (cells.every(c => /^[-:]+$/.test(c))) {
+                    headersParsed = true; // Next rows are data
+                    continue;
+                }
+
+                // Detect header row
+                if (!headersParsed && !inTable) {
+                    // Map column headers to roles
+                    colMap = {};
+                    cells.forEach((cell, idx) => {
+                        const cl = cell.toLowerCase();
+                        if (cl.includes('item') || cl.includes('description') || cl.includes('material') || cl.includes('equipment') || cl.includes('component') || cl.includes('product')) colMap.item = idx;
+                        else if (cl === 'qty' || cl === 'quantity' || cl.includes('qty')) colMap.qty = idx;
+                        else if (cl.includes('unit cost') || cl.includes('unit price') || cl.includes('rate') || cl.includes('unit$')) colMap.unitCost = idx;
+                        else if (cl.includes('ext') || cl.includes('total') || cl.includes('amount') || cl.includes('cost')) {
+                            if (colMap.extCost === undefined) colMap.extCost = idx;
+                        }
+                        else if (cl === 'unit' || cl === 'uom') colMap.unit = idx;
+                    });
+                    inTable = true;
+                    continue;
+                }
+
+                // Data row
+                if (inTable && headersParsed && currentCategory) {
+                    // Skip total/subtotal rows
+                    const firstCell = cells[0] || '';
+                    if (/^(total|subtotal|grand total|sum|markup|margin|tax)/i.test(firstCell.replace(/\*+/g, '').trim())) {
+                        // Try to capture subtotal value
+                        const lastCell = cells[cells.length - 1];
+                        const subtMatch = lastCell.match(/\$?([\d,]+\.?\d*)/);
+                        if (subtMatch) {
+                            currentCategory.subtotal = parseFloat(subtMatch[1].replace(/,/g, ''));
+                        }
+                        continue;
+                    }
+                    if (firstCell.includes('continue') || firstCell.includes('...') || firstCell.replace(/\*+/g, '').trim() === '') continue;
+
+                    // Extract values based on column mapping
+                    const itemName = cells[colMap.item !== undefined ? colMap.item : 0] || '';
+                    let qty = 1, unit = 'ea', unitCost = 0, extCost = 0;
+
+                    // Try to extract quantity
+                    if (colMap.qty !== undefined && cells[colMap.qty]) {
+                        const qv = cells[colMap.qty].replace(/[,\s]/g, '');
+                        qty = parseFloat(qv) || parseInt(qv) || 1;
+                    }
+
+                    // Try to extract unit
+                    if (colMap.unit !== undefined && cells[colMap.unit]) {
+                        unit = cells[colMap.unit].toLowerCase().trim() || 'ea';
+                    }
+
+                    // Try to extract unit cost
+                    if (colMap.unitCost !== undefined && cells[colMap.unitCost]) {
+                        const ucMatch = cells[colMap.unitCost].match(/\$?([\d,]+\.?\d*)/);
+                        if (ucMatch) unitCost = parseFloat(ucMatch[1].replace(/,/g, ''));
+                    }
+
+                    // Try to extract extended cost
+                    if (colMap.extCost !== undefined && cells[colMap.extCost]) {
+                        const ecMatch = cells[colMap.extCost].match(/\$?([\d,]+\.?\d*)/);
+                        if (ecMatch) extCost = parseFloat(ecMatch[1].replace(/,/g, ''));
+                    }
+
+                    // Calculate missing values
+                    if (extCost === 0 && unitCost > 0 && qty > 0) extCost = qty * unitCost;
+                    if (unitCost === 0 && extCost > 0 && qty > 0) unitCost = extCost / qty;
+
+                    // Fallback: try parsing cells positionally if column mapping missed
+                    if (qty === 1 && unitCost === 0 && extCost === 0 && cells.length >= 3) {
+                        for (let ci = 1; ci < cells.length; ci++) {
+                            const val = cells[ci].replace(/[,\s$]/g, '');
+                            const num = parseFloat(val);
+                            if (!isNaN(num)) {
+                                if (qty === 1 && num === Math.floor(num) && num < 100000 && ci < cells.length - 1) { qty = num; }
+                                else if (unitCost === 0 && num > 0) { unitCost = num; }
+                                else if (extCost === 0 && num > 0) { extCost = num; break; }
+                            }
+                        }
+                        if (extCost === 0 && unitCost > 0) extCost = qty * unitCost;
+                    }
+
+                    // Clean item name — remove markdown bold markers
+                    const cleanName = itemName.replace(/\*+/g, '').trim();
+                    if (cleanName.length < 2 || /^[-:]+$/.test(cleanName)) continue;
+
+                    currentCategory.items.push({
+                        item: cleanName,
+                        qty: qty,
+                        unit: unit,
+                        unitCost: Math.round(unitCost * 100) / 100,
+                        extCost: Math.round(extCost * 100) / 100,
+                        category: this._guessCategory(cleanName),
+                    });
+                }
+            } else {
+                // Non-table line — reset table state if we were in one
+                if (inTable && headersParsed) {
+                    inTable = false;
+                    headersParsed = false;
+                }
+            }
+        }
+
+        // Push the last category
+        if (currentCategory && currentCategory.items.length > 0) {
+            categories.push(currentCategory);
+        }
+
+        // Calculate subtotals & grand total
+        let grandTotal = 0;
+        for (const cat of categories) {
+            if (cat.subtotal === 0) {
+                cat.subtotal = cat.items.reduce((sum, item) => sum + (item.extCost || 0), 0);
+            }
+            grandTotal += cat.subtotal;
+        }
+
+        return { categories, grandTotal: Math.round(grandTotal * 100) / 100 };
+    },
+
+    /**
+     * Export a detailed Bill of Materials as an Excel workbook.
+     * Sheets: 1) Project Info, 2) Full BOM, 3) Category Summary
+     */
+    exportBOM(state) {
+        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+
+        if (bom.categories.length === 0) {
+            // Fallback: try infrastructure data
+            const infra = this._extractInfrastructure(state);
+            if (infra.locations && infra.locations.length > 0) {
+                for (const loc of infra.locations) {
+                    if (loc.items && loc.items.length > 0) {
+                        bom.categories.push({
+                            name: loc.name || 'Infrastructure',
+                            items: loc.items.map(item => ({
+                                item: item.item_name,
+                                qty: item.budgeted_qty || 1,
+                                unit: item.unit || 'ea',
+                                unitCost: item.unit_cost || 0,
+                                extCost: item.budgeted_cost || 0,
+                                category: item.category || 'other',
+                            })),
+                            subtotal: loc.items.reduce((s, it) => s + (it.budgeted_cost || 0), 0),
+                        });
+                    }
+                }
+                bom.grandTotal = bom.categories.reduce((s, c) => s + c.subtotal, 0);
+            }
+        }
+
+        if (bom.categories.length === 0) {
+            alert('No material data found in the AI analysis. Please run the analysis first.');
+            return;
+        }
+
+        if (typeof XLSX === "undefined") {
+            this._exportBOMCSVFallback(state, bom);
+            return;
+        }
+
+        try {
+            const wb = XLSX.utils.book_new();
+            const now = new Date();
+            const regionKey = state.regionalMultiplier || "national_average";
+            const regionMult = PRICING_DB.regionalMultipliers[regionKey] || 1.0;
+
+            // ── Sheet 1: Project Info ──
+            const infoData = [
+                ["BILL OF MATERIALS — DETAILED REPORT"],
+                [],
+                ["3D Technology Services, Inc."],
+                [],
+                ["Generated", now.toLocaleString()],
+                ["Project Name", state.projectName || "Untitled Project"],
+                ["Project Type", state.projectType || ""],
+                ["Location", state.projectLocation || "Not specified"],
+                ["Disciplines", (state.disciplines || []).join(", ")],
+                ["Pricing Tier", (state.pricingTier || "mid").toUpperCase()],
+                ["Regional Multiplier", `${regionKey.replace(/_/g, " ")} (${regionMult}×)`],
+                ["Material Markup", `${state.markup.material}%`],
+                [],
+                ["IMPORTANT: Quantities are derived from AI analysis of construction documents."],
+                ["Verify all quantities against original drawings before procurement."],
+            ];
+            const ws1 = XLSX.utils.aoa_to_sheet(infoData);
+            ws1["!cols"] = [{ wch: 24 }, { wch: 50 }];
+            XLSX.utils.book_append_sheet(wb, ws1, "Project Info");
+
+            // ── Sheet 2: Full BOM (all items, organized by category) ──
+            const bomData = [
+                ["DETAILED BILL OF MATERIALS"],
+                [`${state.projectName || 'Project'} — ${now.toLocaleDateString()}`],
+                [],
+                ["Category", "Item / Description", "Qty", "Unit", "Unit Cost ($)", "Extended Cost ($)"],
+            ];
+
+            let runningTotal = 0;
+            let totalLineItems = 0;
+            let totalQuantity = 0;
+
+            for (const cat of bom.categories) {
+                // Category header row
+                bomData.push([]);
+                bomData.push([cat.name.toUpperCase(), "", "", "", "", ""]);
+
+                for (const item of cat.items) {
+                    bomData.push([
+                        "",
+                        item.item,
+                        item.qty,
+                        item.unit,
+                        item.unitCost,
+                        item.extCost,
+                    ]);
+                    totalLineItems++;
+                    totalQuantity += item.qty;
+                }
+
+                // Category subtotal row
+                bomData.push(["", `SUBTOTAL — ${cat.name}`, "", "", "", cat.subtotal]);
+                runningTotal += cat.subtotal;
+            }
+
+            // Grand total section
+            bomData.push([]);
+            bomData.push(["", "", "", "", "", ""]);
+            bomData.push(["", "MATERIAL GRAND TOTAL", "", "", "", runningTotal]);
+            if (state.markup && state.markup.material > 0) {
+                const markupAmt = runningTotal * (state.markup.material / 100);
+                bomData.push(["", `MARKUP (${state.markup.material}%)`, "", "", "", Math.round(markupAmt * 100) / 100]);
+                bomData.push(["", "TOTAL WITH MARKUP", "", "", "", Math.round((runningTotal + markupAmt) * 100) / 100]);
+            }
+            bomData.push([]);
+            bomData.push(["", `Total Line Items: ${totalLineItems}`, `Total Qty: ${totalQuantity}`, "", "", ""]);
+
+            const ws2 = XLSX.utils.aoa_to_sheet(bomData);
+            ws2["!cols"] = [{ wch: 24 }, { wch: 50 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 16 }];
+            XLSX.utils.book_append_sheet(wb, ws2, "Bill of Materials");
+
+            // ── Sheet 3: Category Summary ──
+            const summaryData = [
+                ["CATEGORY SUMMARY"],
+                [],
+                ["Category", "Line Items", "Total Quantity", "Subtotal ($)", "% of Total"],
+            ];
+            for (const cat of bom.categories) {
+                const itemCount = cat.items.length;
+                const catQty = cat.items.reduce((s, it) => s + it.qty, 0);
+                const pctOfTotal = runningTotal > 0 ? ((cat.subtotal / runningTotal) * 100).toFixed(1) + '%' : '0%';
+                summaryData.push([cat.name, itemCount, catQty, cat.subtotal, pctOfTotal]);
+            }
+            summaryData.push([]);
+            summaryData.push(["TOTAL", totalLineItems, totalQuantity, runningTotal, "100%"]);
+
+            const ws3 = XLSX.utils.aoa_to_sheet(summaryData);
+            ws3["!cols"] = [{ wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 12 }];
+            XLSX.utils.book_append_sheet(wb, ws3, "Category Summary");
+
+            // Write and download
+            const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+            const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+            this._download(blob, `SmartPlans_BOM_${this._safeName(state)}.xlsx`);
+
+            if (typeof spToast === 'function') spToast(`Bill of Materials exported — ${totalLineItems} items ✓`);
+
+        } catch (err) {
+            console.error('[SmartPlans] BOM Excel export failed:', err);
+            this._exportBOMCSVFallback(state, bom);
+        }
+    },
+
+    // CSV fallback for BOM export
+    _exportBOMCSVFallback(state, bom) {
+        try {
+            const rows = [
+                ['BILL OF MATERIALS — ' + (state.projectName || 'Project')],
+                ['Generated', new Date().toLocaleString()],
+                [],
+                ['Category', 'Item', 'Qty', 'Unit', 'Unit Cost', 'Extended Cost'],
+            ];
+            for (const cat of bom.categories) {
+                rows.push([cat.name]);
+                for (const item of cat.items) {
+                    rows.push(['', item.item, item.qty, item.unit, item.unitCost, item.extCost]);
+                }
+                rows.push(['', `Subtotal — ${cat.name}`, '', '', '', cat.subtotal]);
+                rows.push([]);
+            }
+            rows.push(['', 'GRAND TOTAL', '', '', '', bom.grandTotal]);
+
+            const csv = rows.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+            this._download(csv, `SmartPlans_BOM_${this._safeName(state)}.csv`, 'text/csv');
+        } catch (err) {
+            console.error('[SmartPlans] BOM CSV fallback failed:', err);
+            alert('BOM export failed. Please try the Excel or JSON export instead.');
+        }
+    },
+
+
+    // ═══════════════════════════════════════════════════════════
     // JSON EXPORT
     // ═══════════════════════════════════════════════════════════
     exportJSON(state) {
