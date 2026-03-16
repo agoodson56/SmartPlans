@@ -74,6 +74,10 @@ const SmartPlansExport = {
             // Structured MDF/IDF data for SmartPM Infrastructure module
             // AI-generated budgets — locked from field manipulation
             infrastructure: this._extractInfrastructure(state),
+
+            // Work Breakdown Structure — auto-generated from bid data
+            // Produces a hierarchical task tree for PM tracking
+            workBreakdown: this._buildWorkBreakdown(state),
         };
     },
 
@@ -401,6 +405,158 @@ const SmartPlansExport = {
         if (n.includes('speaker') || n.includes('display') || n.includes('projector')) return 'av';
         if (n.includes('detector') || n.includes('pull station') || n.includes('strobe')) return 'fire_alarm';
         return 'other';
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // WORK BREAKDOWN STRUCTURE GENERATOR
+    // Produces a hierarchical WBS from infrastructure data for PM tracking
+    // ═══════════════════════════════════════════════════════════
+    _buildWorkBreakdown(state) {
+        const infra = this._extractInfrastructure(state);
+        if (!infra.locations || infra.locations.length === 0) {
+            return { phases: [], source: 'none' };
+        }
+
+        // Standard ELV construction phases with labor/material split ratios
+        const phaseTemplates = [
+            {
+                code: '1',
+                name: 'Rough-In',
+                description: 'Pathway installation, cable tray, conduit, backboards, and cable pulling',
+                materialPct: 0.15,  // 15% of material budget for pathways/hardware
+                laborPct: 0.40,     // 40% of labor budget — most labor-intensive phase
+                tasks: ['pathway_install', 'backboard_mount', 'cable_pull', 'firestop']
+            },
+            {
+                code: '2',
+                name: 'Trim-Out',
+                description: 'Equipment mounting, rack builds, device installation',
+                materialPct: 0.60,  // 60% of material budget — equipment and devices
+                laborPct: 0.25,     // 25% of labor budget
+                tasks: ['rack_build', 'equipment_mount', 'device_install']
+            },
+            {
+                code: '3',
+                name: 'Termination & Testing',
+                description: 'Cable terminations, patching, testing, and certification',
+                materialPct: 0.15,  // 15% — patch cords, connectors, labels
+                laborPct: 0.25,     // 25% — skilled termination/testing work
+                tasks: ['termination', 'testing', 'certification']
+            },
+            {
+                code: '4',
+                name: 'Closeout',
+                description: 'Labeling, as-builts, documentation, and owner training',
+                materialPct: 0.10,  // 10% — labels, documentation supplies
+                laborPct: 0.10,     // 10% — documentation and training
+                tasks: ['labeling', 'as_builts', 'documentation', 'training']
+            }
+        ];
+
+        const taskLabels = {
+            pathway_install: 'Pathway & Conduit Installation',
+            backboard_mount: 'Backboard / Wall Mount Installation',
+            cable_pull: 'Cable Pulling',
+            firestop: 'Firestopping',
+            rack_build: 'Rack / Cabinet Build',
+            equipment_mount: 'Equipment Mounting',
+            device_install: 'End Device Installation',
+            termination: 'Cable Terminations',
+            testing: 'Testing & Certification',
+            certification: 'Fluke Test Reports',
+            labeling: 'Cable & Port Labeling',
+            as_builts: 'As-Built Documentation',
+            documentation: 'O&M Manuals',
+            training: 'Owner / End-User Training',
+        };
+
+        // Calculate per-location budgets from equipment items + cable runs
+        const locationBudgets = infra.locations.map(loc => {
+            const matTotal = (loc.items || []).reduce((s, i) => s + (i.budgeted_cost || 0), 0);
+            const cableQty = (loc.cable_runs || []).reduce((s, r) => s + (r.budgeted_qty || 0), 0);
+            // Estimate labor: 0.15 hrs per cable drop + 0.5 hrs per equipment item
+            const equipCount = (loc.items || []).length;
+            const laborHrs = (cableQty * 0.15) + (equipCount * 0.5);
+            return {
+                ...loc,
+                totalMaterial: matTotal,
+                totalCableQty: cableQty,
+                totalEquipCount: equipCount,
+                estimatedLaborHrs: laborHrs,
+            };
+        });
+
+        const projectTotalMaterial = locationBudgets.reduce((s, l) => s + l.totalMaterial, 0);
+        const projectTotalLabor = locationBudgets.reduce((s, l) => s + l.estimatedLaborHrs, 0);
+
+        // Build hierarchical WBS
+        const phases = phaseTemplates.map((phase, phaseIdx) => {
+            const phaseWBS = {
+                code: phase.code,
+                name: phase.name,
+                description: phase.description,
+                phase: phase.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
+                task_type: 'phase',
+                budgeted_material: Math.round(projectTotalMaterial * phase.materialPct * 100) / 100,
+                budgeted_labor_hrs: Math.round(projectTotalLabor * phase.laborPct * 10) / 10,
+                children: [],
+            };
+
+            // Create per-location tasks within each phase
+            locationBudgets.forEach((loc, locIdx) => {
+                const locCode = `${phase.code}.${locIdx + 1}`;
+                const locMatBudget = loc.totalMaterial * phase.materialPct;
+                const locLaborBudget = loc.estimatedLaborHrs * phase.laborPct;
+
+                const locTask = {
+                    code: locCode,
+                    name: `${loc.name} — ${phase.name}`,
+                    description: `${phase.description} for ${loc.name}`,
+                    location_name: loc.name,
+                    location_type: loc.type,
+                    floor: loc.floor,
+                    room_number: loc.room_number,
+                    building: loc.building,
+                    task_type: 'location_task',
+                    phase: phaseWBS.phase,
+                    budgeted_material: Math.round(locMatBudget * 100) / 100,
+                    budgeted_labor_hrs: Math.round(locLaborBudget * 10) / 10,
+                    children: [],
+                };
+
+                // Create individual task items within each location-phase
+                phase.tasks.forEach((taskKey, taskIdx) => {
+                    const taskCode = `${locCode}.${taskIdx + 1}`;
+                    const taskCount = phase.tasks.length;
+                    locTask.children.push({
+                        code: taskCode,
+                        name: taskLabels[taskKey] || taskKey,
+                        task_type: 'task',
+                        phase: phaseWBS.phase,
+                        budgeted_material: Math.round((locMatBudget / taskCount) * 100) / 100,
+                        budgeted_labor_hrs: Math.round((locLaborBudget / taskCount) * 10) / 10,
+                    });
+                });
+
+                phaseWBS.children.push(locTask);
+            });
+
+            return phaseWBS;
+        });
+
+        return {
+            phases,
+            source: 'auto_generated',
+            generated_at: new Date().toISOString(),
+            stats: {
+                total_phases: phases.length,
+                total_locations: locationBudgets.length,
+                total_tasks: phases.reduce((s, p) =>
+                    s + p.children.reduce((s2, loc) => s2 + loc.children.length, 0) + p.children.length, 0) + phases.length,
+                project_material_budget: Math.round(projectTotalMaterial * 100) / 100,
+                project_labor_hrs: Math.round(projectTotalLabor * 10) / 10,
+            },
+        };
     },
 
 
