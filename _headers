@@ -1,7 +1,21 @@
 /*
   X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
 
 /app.js
+  Content-Type: application/javascript; charset=utf-8
+
+/ai-engine.js
+  Content-Type: application/javascript; charset=utf-8
+
+/export-engine.js
+  Content-Type: application/javascript; charset=utf-8
+
+/pricing-database.js
+  Content-Type: application/javascript; charset=utf-8
+
+/proposal-generator.js
   Content-Type: application/javascript; charset=utf-8
 
 /styles.css

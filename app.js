@@ -24,6 +24,182 @@ const GEMINI_CONFIG = {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// API QUOTA MONITOR — Warns users before hitting rate limits
+// ═══════════════════════════════════════════════════════════════
+
+const QuotaMonitor = {
+  _status: null,        // Last check result
+  _checkInterval: null, // Periodic check timer
+  _countdownInterval: null, // Reset countdown timer
+  _bannerEl: null,      // DOM reference to warning banner
+  CHECK_INTERVAL_MS: 5 * 60 * 1000, // Re-check every 5 minutes
+
+  // ── Start monitoring on app load ──
+  start() {
+    this.check(); // Immediate first check
+    this._checkInterval = setInterval(() => this.check(), this.CHECK_INTERVAL_MS);
+  },
+
+  // ── Check API quota health ──
+  async check() {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch('/api/ai/quota-check', { signal: controller.signal });
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        console.warn('[QuotaMonitor] Health check returned', res.status);
+        return;
+      }
+
+      this._status = await res.json();
+      console.log(`[QuotaMonitor] Health: ${this._status.health} | Available: ${this._status.availableKeys}/${this._status.testedKeys} tested keys`);
+      this.updateBanner();
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.warn('[QuotaMonitor] Check failed:', err.message);
+      }
+    }
+  },
+
+  // ── Update the warning banner in the UI ──
+  updateBanner() {
+    const status = this._status;
+    if (!status) return;
+
+    // Remove existing banner
+    if (this._bannerEl) {
+      this._bannerEl.remove();
+      this._bannerEl = null;
+    }
+    if (this._countdownInterval) {
+      clearInterval(this._countdownInterval);
+      this._countdownInterval = null;
+    }
+
+    // No banner needed if healthy
+    if (status.severity === 'none') return;
+
+    // Create banner
+    const banner = document.createElement('div');
+    banner.id = 'quota-warning-banner';
+
+    const isCritical = status.severity === 'critical';
+    const bgColor = isCritical
+      ? 'linear-gradient(135deg, rgba(239,68,68,0.15), rgba(239,68,68,0.08))'
+      : 'linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.08))';
+    const borderColor = isCritical ? 'rgba(239,68,68,0.4)' : 'rgba(245,158,11,0.4)';
+    const accentColor = isCritical ? '#f43f5e' : '#f59e0b';
+    const icon = isCritical ? '🚫' : '⚠️';
+    const title = isCritical ? 'API Limits Reached — Analysis Unavailable' : 'API Rate Limit Warning';
+
+    let resetInfo = '';
+    if (status.resetHint) {
+      const resetTime = new Date(Date.now() + status.resetHint * 1000);
+      resetInfo = `<span id="quota-reset-countdown" style="font-weight:600;color:${accentColor};"></span>`;
+    }
+
+    let detailLine = '';
+    if (isCritical) {
+      detailLine = `<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px;">` +
+        `${status.rateLimitedKeys} of ${status.testedKeys} tested keys are rate-limited. ` +
+        `Wait for Gemini API quotas to reset (usually 1-2 minutes for RPM, or the daily limit resets at midnight PT). ` +
+        resetInfo +
+        `</div>`;
+    } else {
+      detailLine = `<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px;">` +
+        `${status.availableKeys} of ${status.testedKeys} tested keys are available. ` +
+        `Analysis may run slower than normal. ` +
+        resetInfo +
+        `</div>`;
+    }
+
+    banner.style.cssText = `
+      background: ${bgColor};
+      border: 1px solid ${borderColor};
+      border-radius: 12px;
+      padding: 14px 20px;
+      margin: 0 16px 0 16px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      animation: quotaBannerSlideIn 0.4s ease-out;
+      position: relative;
+    `;
+
+    banner.innerHTML = `
+      <span style="font-size:24px;line-height:1;flex-shrink:0;">${icon}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-size:14px;color:${accentColor};">${title}</div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.7);margin-top:2px;line-height:1.5;">${status.message}</div>
+        ${detailLine}
+      </div>
+      <button onclick="QuotaMonitor.dismissBanner()" style="
+        background:none;border:none;color:rgba(255,255,255,0.4);cursor:pointer;
+        font-size:18px;padding:0 4px;flex-shrink:0;line-height:1;
+      " title="Dismiss">✕</button>
+      <button onclick="QuotaMonitor.check()" style="
+        background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);
+        color:rgba(255,255,255,0.6);cursor:pointer;font-size:11px;padding:4px 10px;
+        border-radius:6px;flex-shrink:0;transition:all 0.2s;
+      " title="Re-check API status now">🔄 Re-check</button>
+    `;
+
+    // Insert after the header
+    const appShell = document.getElementById('app-shell');
+    const header = document.getElementById('app-header');
+    if (appShell && header) {
+      header.after(banner);
+    }
+
+    this._bannerEl = banner;
+
+    // Start countdown if we have a reset hint
+    if (status.resetHint) {
+      let remaining = status.resetHint;
+      const countdownEl = document.getElementById('quota-reset-countdown');
+      if (countdownEl) {
+        const updateCountdown = () => {
+          if (remaining <= 0) {
+            countdownEl.textContent = 'Limits should be resetting now — re-checking...';
+            this.check();
+            return;
+          }
+          const mins = Math.floor(remaining / 60);
+          const secs = remaining % 60;
+          countdownEl.textContent = `Estimated reset: ${mins > 0 ? mins + 'm ' : ''}${secs}s`;
+          remaining--;
+        };
+        updateCountdown();
+        this._countdownInterval = setInterval(updateCountdown, 1000);
+      }
+    }
+  },
+
+  // ── Dismiss the banner ──
+  dismissBanner() {
+    if (this._bannerEl) {
+      this._bannerEl.style.animation = 'quotaBannerSlideOut 0.3s ease-in forwards';
+      setTimeout(() => {
+        if (this._bannerEl) this._bannerEl.remove();
+        this._bannerEl = null;
+      }, 300);
+    }
+  },
+
+  // ── Check if analysis should be blocked ──
+  isBlocked() {
+    return this._status && this._status.health === 'blocked';
+  },
+
+  // ── Get current severity for UI decisions ──
+  getSeverity() {
+    return this._status ? this._status.severity : 'none';
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════
 // DATA & CONFIG
 // ═══════════════════════════════════════════════════════════════
 
@@ -365,7 +541,7 @@ function renderFooter() {
       ${showSave ? '<button class="footer-btn footer-btn--back" id="btn-save-draft" style="border-color:rgba(129,140,248,0.3);color:var(--accent-indigo);">💾 Save</button>' : ''}
       <span class="footer-step-indicator">Step ${state.currentStep + 1} of ${STEPS.length}</span>
     </div>
-    <button class="footer-btn footer-btn--next" id="btn-next" ${!can ? "disabled" : ""}>
+    <button class="footer-btn footer-btn--next" id="btn-next" ${!can || (state.currentStep === 5 && QuotaMonitor.isBlocked()) ? "disabled" : ""}>
       ${state.currentStep === 5 ? "🔍 Begin Analysis" : "Next →"}
     </button>
   `;
@@ -379,7 +555,7 @@ function renderFooter() {
   });
 
   document.getElementById("btn-next").addEventListener("click", () => {
-    if (!canProceed()) return;
+    if (!canProceed() || (state.currentStep === 5 && QuotaMonitor.isBlocked())) return;
     const stepId = STEPS[state.currentStep].id;
     state.completedSteps.add(stepId);
 
@@ -1942,7 +2118,7 @@ INSTRUCTIONS:
    HEAVY EQUIPMENT / RENTALS:
    - Scissor lift — interior ceiling work above 10 ft (note: check floor load capacity for slab-on-grade vs elevated decks)
    - Boom lift / articulating lift — exterior camera mounts, exterior cable runs, building-mounted equipment above 20 ft
-   - Bucket truck — pole-mounted cameras, aerial cable runs, exterior building mounts
+   - Bucket truck — pole-mounted cameras, aerial cable runs, building-mounted equipment
    - Forklift — equipment delivery, rack staging, material handling
    - Trencher — underground conduit runs between buildings, parking lot crossings
    - Directional boring / horizontal directional drill (HDD) — road crossings, parking lot crossings, landscaped areas (no-dig requirement)
@@ -2116,7 +2292,7 @@ INSTRUCTIONS:
 
    LABOR COST SUMMARY — Apply loaded rates to all labor hours:
    | Classification | Hours | Loaded Rate | Total Cost |
-   |----------------|-------|-------------|------------|
+   |----------------|-------------|-------------|------------|
    | Electrician | X hrs | $XX.XX/hr | $X,XXX |
    | Sound & Comm | X hrs | $XX.XX/hr | $X,XXX |
    | Laborer | X hrs | $XX.XX/hr | $X,XXX |
@@ -2807,7 +2983,7 @@ async function runGeminiAnalysis(updateProgress) {
     console.error("[SmartBrains] Multi-Brain Analysis Error:", err);
 
     // ─── FALLBACK: Try legacy single-brain call ───
-    console.warn('[SmartBrains] Falling back to legacy single-brain analysis…');
+    console.warn('[SmartPlans] Falling back to legacy single-brain analysis…');
     try {
       updateProgress(10, "Fallback: single-brain analysis…", null);
       const legacyResult = await callGeminiAPI(updateProgress);
@@ -3292,4 +3468,6 @@ async function showSavedEstimates() {
 
 document.addEventListener("DOMContentLoaded", () => {
   render();
+  // Start API quota monitoring — warns users before they hit limits
+  QuotaMonitor.start();
 });
