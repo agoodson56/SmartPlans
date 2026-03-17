@@ -294,14 +294,9 @@ const SmartBrains = {
       if (useJsonMode) {
         genConfig.responseMimeType = 'application/json';
       }
-      // Enable thinking/reasoning for Gemini 3.1 Pro — BUT NOT with JSON mode
-      // thinkingConfig and responseMimeType are MUTUALLY EXCLUSIVE in the Gemini API
-      if (brainDef.useProModel && modelName.includes('3.1') && !useJsonMode) {
-        const deepReasoningBrains = ['CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR', 'DEVILS_ADVOCATE', 'REPORT_WRITER'];
-        genConfig.thinkingConfig = {
-          thinkingLevel: deepReasoningBrains.includes(brainKey) ? 'high' : 'medium'
-        };
-      }
+      // NOTE: thinkingConfig disabled — causes Cloudflare 524 timeouts (>100s)
+      // Gemini 3.1 Pro produces excellent results without thinking mode
+      // thinkingConfig is also MUTUALLY EXCLUSIVE with JSON mode (responseMimeType)
 
       const body = {
         contents: [{ parts }],
