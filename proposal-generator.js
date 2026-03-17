@@ -171,13 +171,29 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
 
     progressCallback(15, 'AI is drafting your Fortune 500 proposal…');
 
-    const response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      _timeout: 180000,
-      _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
-    }, 3);
+    let response;
+    try {
+      response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        _timeout: 300000, // 5 minutes for Pro model
+        _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
+      }, 3);
+    } catch (primaryErr) {
+      // Fallback to Flash model if Pro fails
+      console.warn('[ProposalGen] Pro model failed, falling back to Flash:', primaryErr.message);
+      progressCallback(15, 'Retrying with alternate AI model…');
+      requestBody._model = 'gemini-2.5-flash';
+      requestBody._brainSlot = 0;
+      response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        _timeout: 180000,
+        _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
+      }, 3);
+    }
 
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
@@ -195,6 +211,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     progressCallback(60, 'Building Word document…');
     return proposalText;
   },
+
 
   async renderAndDownload(state, progressCallback, _unused) {
     try {

@@ -354,6 +354,48 @@ const SmartBrains = {
         }
       }
     }
+
+    // ── Model Fallback: If Pro model failed, retry once with Flash ──
+    if (brainDef.useProModel && modelName !== this.config.model) {
+      console.warn(`[Brain:${brainDef.name}] Pro model failed — falling back to ${this.config.model}`);
+      try {
+        const fallbackBody = { ...body };
+        fallbackBody._model = this.config.model;
+        fallbackBody._brainSlot = brainDef.id;
+
+        const fbBody = {
+          contents: body.contents,
+          generationConfig: { ...body.generationConfig },
+          _model: this.config.model,
+          _brainSlot: brainDef.id,
+        };
+        // Remove thinking config for flash model
+        delete fbBody.generationConfig.thinkingConfig;
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.config.timeout);
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fbBody),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+
+        if (response.ok) {
+          const data = await response.json();
+          const allParts = data?.candidates?.[0]?.content?.parts || [];
+          const text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+          if (text && text.length >= 20) {
+            console.log(`[Brain:${brainDef.name}] ✓ Fallback complete (${text.length} chars)`);
+            return text;
+          }
+        }
+      } catch (fbErr) {
+        console.warn(`[Brain:${brainDef.name}] Fallback also failed:`, fbErr.message);
+      }
+    }
+
     throw new Error(`Brain "${brainDef.name}" failed after ${maxRetries} attempts: ${lastError?.message}`);
   },
 
@@ -1701,11 +1743,18 @@ Return ONLY valid JSON:
       wave3: null, wave3_5: null, wave3_75: null,
     };
 
-    // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) ═══
+    // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) — NON-FATAL ═══
     progressCallback(5, '📖 Wave 0: Decoding symbol legend…', this._brainStatus);
-    const wave0Results = await this._runWave(0, ['LEGEND_DECODER'], encodedFiles, state, context, progressCallback);
+    let wave0Results = {};
+    try {
+      wave0Results = await this._runWave(0, ['LEGEND_DECODER'], encodedFiles, state, context, progressCallback);
+      console.log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded ═══');
+    } catch (wave0Err) {
+      console.warn('[SmartBrains] ⚠️ Wave 0 (Legend) failed — continuing without legend context:', wave0Err.message);
+      this._brainStatus['LEGEND_DECODER'] = { status: 'failed', progress: 0, result: null, error: wave0Err.message };
+      wave0Results = { LEGEND_DECODER: { _failed: true, _error: wave0Err.message } };
+    }
     context.wave0 = wave0Results;
-    console.log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded ═══');
 
     // ═══ WAVE 1: First Read — Document Intelligence (5 parallel brains) ═══
     progressCallback(12, '🔍 Wave 1: First Read — 5 brains scanning…', this._brainStatus);

@@ -1214,8 +1214,35 @@ function renderStep6(container) {
     `;
   }).join("");
 
+  // Build failed brains banner
+  let failedBrainsBanner = '';
+  if (state.failedBrains && state.failedBrains.length > 0) {
+    const brainList = state.failedBrains.map(b =>
+      `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(245,158,11,0.1);">
+        <span style="font-size:16px;">❌</span>
+        <div>
+          <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.85);">${esc(b.name)}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:1px;">${esc(b.error || 'Unknown error')}</div>
+        </div>
+      </div>`
+    ).join('');
+    failedBrainsBanner = `
+      <div class="info-card info-card--amber" style="margin-bottom:16px;">
+        <div class="info-card-title">⚠️ ${state.failedBrains.length} Brain(s) Failed During Analysis</div>
+        <div class="info-card-body" style="padding:8px 0;">
+          ${brainList}
+        </div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-top:8px;line-height:1.5;">
+          The analysis continued with remaining brains. Results may be less accurate for the affected areas.
+          You can retry the analysis or proceed with partial results.
+        </div>
+      </div>
+    `;
+  }
+
   // Build AI analysis section
   let aiSection = "";
+
   if (state.aiError) {
     aiSection = `
       <div class="info-card info-card--amber" style="margin-bottom:22px;">
@@ -1297,11 +1324,21 @@ function renderStep6(container) {
     `;
   }
 
-  // Export panel — show export buttons only if analysis succeeded, but ALWAYS show proposal button
-  const exportButtons = state.aiAnalysis ? `
+  // Export panel — ALWAYS show download buttons + proposal button
+  const noAnalysisWarning = !state.aiAnalysis ? `
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px;margin-bottom:14px;">
+        <span style="font-size:20px;">⚠️</span>
+        <div style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.5;">
+          AI analysis did not complete. Exports will contain project setup data only (no AI-generated counts or pricing).
+          You can still generate a professional proposal below, or re-run the analysis.
+        </div>
+      </div>` : '';
+
+  const exportButtons = `
       <div class="info-card-body" style="line-height:1.8;">
-        Export your complete analysis for use in project management, client proposals, or record keeping.
+        Export your ${state.aiAnalysis ? 'complete analysis' : 'project data'} for use in project management, client proposals, or record keeping.
       </div>
+      ${noAnalysisWarning}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;">
         <button class="export-pkg-btn" id="export-json" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(56,189,248,0.25);background:rgba(56,189,248,0.06);color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;">
           <span style="font-size:24px;">🔗</span>
@@ -1341,10 +1378,6 @@ function renderStep6(container) {
           </div>
           <span style="font-size:18px;color:rgba(20,184,166,0.7);">⬇</span>
         </button>
-      </div>` : `
-      <div class="info-card-body" style="line-height:1.8;">
-        AI analysis did not complete. Re-run analysis with valid API keys to enable full export.
-        You can still generate a professional proposal below.
       </div>`;
 
   const exportPanel = `
@@ -1407,6 +1440,7 @@ function renderStep6(container) {
       </div>
     </div>
 
+    ${failedBrainsBanner}
     ${aiSection}
 
     ${exportPanel}
@@ -1503,14 +1537,31 @@ function renderStep6(container) {
         proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
       }).catch(e => {
         console.error('[ProposalGen] Failed:', e);
-      }).finally(() => {
-        proposalBtn.disabled = false;
+        // Show the error clearly on the button
+        proposalBtn.querySelector('.proposal-gen-btn__title').textContent = '❌ Proposal Generation Failed';
+        proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = e.message || 'Unknown error — check console for details';
         proposalBtn.classList.remove('generating');
-        proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Professional Proposal';
-        proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Fortune 500-grade client proposal from 3D Technology Services Inc.';
+        proposalBtn.classList.add('error');
+        if (typeof spToast === 'function') spToast('Proposal failed: ' + (e.message || 'Unknown error'), 'error');
+        // Reset after 5 seconds so user can retry
+        setTimeout(() => {
+          proposalBtn.disabled = false;
+          proposalBtn.classList.remove('error');
+          proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Professional Proposal';
+          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Fortune 500-grade client proposal from 3D Technology Services Inc.';
+        }, 5000);
+      }).then(result => {
+        // Only reset the button if the promise succeeded (result is undefined for catch path)
+        if (result !== undefined || !proposalBtn.classList.contains('error')) {
+          proposalBtn.disabled = false;
+          proposalBtn.classList.remove('generating');
+          proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Professional Proposal';
+          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Fortune 500-grade client proposal from 3D Technology Services Inc.';
+        }
       });
     });
   }
+
 }
 
 
@@ -2967,6 +3018,18 @@ async function runGeminiAnalysis(updateProgress) {
     state.mathValidation = validateAnalysisMath(result.report);
     state.sectionCompleteness = checkSectionCompleteness(result.report);
 
+    // ─── Brain Failure Notifications ───
+    const failedBrains = Object.entries(result.brainStatus || {})
+      .filter(([, s]) => s.status === 'failed')
+      .map(([key, s]) => ({ key, name: SmartBrains.BRAINS[key]?.name || key, error: s.error }));
+    state.failedBrains = failedBrains;
+
+    if (failedBrains.length > 0) {
+      const names = failedBrains.map(b => b.name).join(', ');
+      console.warn(`[SmartBrains] ⚠️ ${failedBrains.length} brain(s) failed: ${names}`);
+      spToast(`⚠️ ${failedBrains.length} brain(s) had errors: ${names}`, 'warning');
+    }
+
     updateProgress(100, `🎯 Analysis complete — ${result.stats.successfulBrains}/${result.stats.totalBrains} brains succeeded!`, result.brainStatus);
 
     setTimeout(() => {
@@ -2978,6 +3041,7 @@ async function runGeminiAnalysis(updateProgress) {
       scrollContentTop();
       saveEstimate(true);
     }, 800);
+
 
   } catch (err) {
     console.error("[SmartBrains] Multi-Brain Analysis Error:", err);
