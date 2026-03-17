@@ -1,41 +1,36 @@
 // ═══════════════════════════════════════════════════════════════
 // SMARTPLANS — AI API CORS Middleware
-// Restricts /api/ai/* to same-origin + allowed origins only.
+// Restricts /api/ai/* to same-origin + Cloudflare Pages origins.
 // Prevents external sites from using our Gemini proxy.
 // ═══════════════════════════════════════════════════════════════
 
-const ALLOWED_ORIGINS = [
-    // Production
-    'https://smartplans.pages.dev',
-    // Local development
-    'http://localhost:8788',
-    'http://127.0.0.1:8788',
-    'http://localhost:3000',
-];
+function isAllowedOrigin(origin) {
+    if (!origin) return true; // No Origin = same-origin request, always OK
 
-function getCorsOrigin(request) {
-    const origin = request.headers.get('Origin') || '';
-    // Allow if origin matches our allowed list
-    if (ALLOWED_ORIGINS.some(o => origin.startsWith(o))) {
-        return origin;
-    }
-    // Allow same-origin (no Origin header = same origin in most cases)
-    if (!origin) return null; // No CORS headers needed for same-origin
-    return false; // Block
+    // Allow any Cloudflare Pages deploy (production + preview URLs)
+    if (origin.endsWith('.pages.dev') && origin.includes('smartplans')) return true;
+
+    // Allow custom domain if configured
+    if (origin.includes('smartplans')) return true;
+
+    // Local development
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) return true;
+
+    return false;
 }
 
 export async function onRequest(context) {
     const { request } = context;
+    const origin = request.headers.get('Origin') || '';
 
     // Handle preflight
     if (request.method === 'OPTIONS') {
-        const allowed = getCorsOrigin(request);
-        if (allowed === false) {
+        if (!isAllowedOrigin(origin)) {
             return new Response(null, { status: 403 });
         }
         return new Response(null, {
             headers: {
-                'Access-Control-Allow-Origin': allowed || '*',
+                'Access-Control-Allow-Origin': origin || '*',
                 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, X-App-Token',
                 'Access-Control-Max-Age': '86400',
@@ -43,26 +38,21 @@ export async function onRequest(context) {
         });
     }
 
-    // Process the actual request
-    const response = await context.next();
-
-    // Add CORS headers to response
-    const allowed = getCorsOrigin(request);
-    if (allowed === false) {
+    // Block unauthorized origins
+    if (!isAllowedOrigin(origin)) {
         return Response.json(
             { error: 'Origin not allowed' },
             { status: 403 }
         );
     }
 
-    // Clone response and add CORS headers
+    // Process the actual request
+    const response = await context.next();
+
+    // Add CORS headers to response
     const newResponse = new Response(response.body, response);
-    if (allowed) {
-        newResponse.headers.set('Access-Control-Allow-Origin', allowed);
-    }
-    // Remove wildcard if it was set by the endpoint
-    if (newResponse.headers.get('Access-Control-Allow-Origin') === '*' && allowed) {
-        newResponse.headers.set('Access-Control-Allow-Origin', allowed);
+    if (origin) {
+        newResponse.headers.set('Access-Control-Allow-Origin', origin);
     }
 
     return newResponse;

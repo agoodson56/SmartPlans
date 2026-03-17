@@ -5,18 +5,24 @@
 
 /app.js
   Content-Type: application/javascript; charset=utf-8
+  Cache-Control: no-cache, must-revalidate
 
 /ai-engine.js
   Content-Type: application/javascript; charset=utf-8
+  Cache-Control: no-cache, must-revalidate
 
 /export-engine.js
   Content-Type: application/javascript; charset=utf-8
+  Cache-Control: no-cache, must-revalidate
 
 /pricing-database.js
   Content-Type: application/javascript; charset=utf-8
+  Cache-Control: no-cache, must-revalidate
 
 /proposal-generator.js
   Content-Type: application/javascript; charset=utf-8
+  Cache-Control: no-cache, must-revalidate
 
 /styles.css
   Content-Type: text/css; charset=utf-8
+  Cache-Control: no-cache, must-revalidate

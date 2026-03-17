@@ -57,8 +57,9 @@ const SmartBrains = {
     maxRetries: 4,
     retryBaseDelay: 1500,
     timeout: 150000,                         // 2.5 min for Flash brains
-    proTimeout: 300000,                      // 5 min for Gemini 3.1 Pro (deep reasoning)
+    proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
   },
+
 
   // ═══════════════════════════════════════════════════════════
   // BRAIN REGISTRY — Each brain is a domain specialist
