@@ -1,7 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
-// SMARTPLANS — Server-Side Gemini API Proxy v3.0
+// SMARTPLANS — Server-Side Gemini API Proxy v3.1
 // Supports Gemini 3.1 Pro Preview + 18-key brain pool
 // Hides API keys from client code, distributes across 18 key slots
+// Now with: detailed error surfacing, model fallback, and logging
 // ═══════════════════════════════════════════════════════════════
 
 export async function onRequestPost(context) {
@@ -19,7 +20,7 @@ export async function onRequestPost(context) {
 
         // Extract SmartBrains metadata
         const brainSlot = body._brainSlot || 0;
-        const model = body._model || 'gemini-2.5-flash';
+        const requestedModel = body._model || 'gemini-2.5-flash';
 
         // Remove custom fields before forwarding
         delete body._brainSlot;
@@ -35,6 +36,7 @@ export async function onRequestPost(context) {
 
         // Find an available key — try the requested slot first, then fallback
         let apiKey = null;
+        let usedSlot = -1;
         const slotIndex = brainSlot % keyNames.length;
 
         for (let i = 0; i < keyNames.length; i++) {
@@ -42,6 +44,7 @@ export async function onRequestPost(context) {
             const key = env[keyNames[idx]];
             if (key) {
                 apiKey = key;
+                usedSlot = idx;
                 break;
             }
         }
@@ -53,8 +56,11 @@ export async function onRequestPost(context) {
             );
         }
 
-        // Forward to Gemini API (supports all model variants including gemini-3.1-pro-preview)
+        // ── Try requested model first ──
+        let model = requestedModel;
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+        console.log(`[Proxy] Brain ${brainSlot} → slot ${usedSlot} → model: ${model}`);
 
         const geminiResponse = await fetch(url, {
             method: 'POST',
@@ -62,7 +68,63 @@ export async function onRequestPost(context) {
             body: JSON.stringify(body),
         });
 
-        // Stream the response back
+        // ── If model fails with 404/400, try fallback model ──
+        if (!geminiResponse.ok && [404, 400].includes(geminiResponse.status)) {
+            const errBody = await geminiResponse.text();
+            console.warn(`[Proxy] Model "${model}" returned ${geminiResponse.status}: ${errBody.substring(0, 300)}`);
+
+            // Fallback: try gemini-2.5-flash if we weren't already using it
+            if (model !== 'gemini-2.5-flash') {
+                const fallbackModel = 'gemini-2.5-flash';
+                console.log(`[Proxy] Retrying brain ${brainSlot} with fallback model: ${fallbackModel}`);
+
+                // Remove thinkingConfig if present (not supported on Flash)
+                if (body.generationConfig?.thinkingConfig) {
+                    delete body.generationConfig.thinkingConfig;
+                }
+
+                const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${fallbackModel}:generateContent?key=${apiKey}`;
+                const fallbackResponse = await fetch(fallbackUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+
+                if (fallbackResponse.ok) {
+                    console.log(`[Proxy] ✓ Fallback to ${fallbackModel} succeeded for brain ${brainSlot}`);
+                    return new Response(fallbackResponse.body, {
+                        status: fallbackResponse.status,
+                        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+                    });
+                }
+
+                // Fallback also failed — return the fallback error
+                const fbErrBody = await fallbackResponse.text();
+                console.error(`[Proxy] Fallback also failed: ${fallbackResponse.status} — ${fbErrBody.substring(0, 300)}`);
+                return new Response(fbErrBody, {
+                    status: fallbackResponse.status,
+                    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+                });
+            }
+
+            // Already using flash and it failed — return the error
+            return new Response(errBody, {
+                status: geminiResponse.status,
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            });
+        }
+
+        // ── Log non-OK responses for debugging ──
+        if (!geminiResponse.ok) {
+            const errText = await geminiResponse.text();
+            console.error(`[Proxy] Gemini ${geminiResponse.status} for brain ${brainSlot} (model: ${model}): ${errText.substring(0, 500)}`);
+            return new Response(errText, {
+                status: geminiResponse.status,
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            });
+        }
+
+        // Stream successful response back
         return new Response(geminiResponse.body, {
             status: geminiResponse.status,
             headers: {
@@ -72,6 +134,7 @@ export async function onRequestPost(context) {
         });
 
     } catch (err) {
+        console.error(`[Proxy] Fatal error: ${err.message}`);
         return Response.json(
             { error: 'Proxy error: ' + err.message },
             { status: 500, headers: corsHeaders }
