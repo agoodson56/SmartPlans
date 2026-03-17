@@ -68,8 +68,9 @@ export async function onRequestPost(context) {
             body: JSON.stringify(body),
         });
 
-        // ── If model fails with 404/400, try fallback model ──
-        if (!geminiResponse.ok && [404, 400].includes(geminiResponse.status)) {
+        // ── If model fails with 403/404/400, try fallback model ──
+        // 403 = API key lacks access to model, 404 = model not found, 400 = bad request
+        if (!geminiResponse.ok && [403, 404, 400].includes(geminiResponse.status)) {
             const errBody = await geminiResponse.text();
             console.warn(`[Proxy] Model "${model}" returned ${geminiResponse.status}: ${errBody.substring(0, 300)}`);
 

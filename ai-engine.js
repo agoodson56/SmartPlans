@@ -279,12 +279,11 @@ const SmartBrains = {
     const maxRetries = this.config.maxRetries;
     let lastError = null;
 
+    // Determine model and URL up front (accessible in fallback block)
+    const modelName = brainDef.useProModel ? (this.config.proModel || this.config.model) : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
+    const url = this.config.proxyEndpoint;
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const modelName = brainDef.useProModel ? (this.config.proModel || this.config.model) : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
-
-      // Always use proxy — keys are server-side
-      const url = this.config.proxyEndpoint;
-
       const parts = [{ text: promptText }, ...fileParts];
       // Low temperature for deterministic construction analysis
       const genConfig = {
@@ -294,8 +293,9 @@ const SmartBrains = {
       if (useJsonMode) {
         genConfig.responseMimeType = 'application/json';
       }
-      // Enable thinking/reasoning for Gemini 3.1 Pro on complex brains
-      if (brainDef.useProModel && modelName.includes('3.1')) {
+      // Enable thinking/reasoning for Gemini 3.1 Pro — BUT NOT with JSON mode
+      // thinkingConfig and responseMimeType are MUTUALLY EXCLUSIVE in the Gemini API
+      if (brainDef.useProModel && modelName.includes('3.1') && !useJsonMode) {
         const deepReasoningBrains = ['CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR', 'DEVILS_ADVOCATE', 'REPORT_WRITER'];
         genConfig.thinkingConfig = {
           thinkingLevel: deepReasoningBrains.includes(brainKey) ? 'high' : 'medium'
@@ -359,18 +359,22 @@ const SmartBrains = {
     if (brainDef.useProModel && modelName !== this.config.model) {
       console.warn(`[Brain:${brainDef.name}] Pro model failed — falling back to ${this.config.model}`);
       try {
-        const fallbackBody = { ...body };
-        fallbackBody._model = this.config.model;
-        fallbackBody._brainSlot = brainDef.id;
+        const fbParts = [{ text: promptText }, ...fileParts];
+        const fbGenConfig = {
+          temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
+          maxOutputTokens: brainDef.maxTokens,
+        };
+        if (useJsonMode) {
+          fbGenConfig.responseMimeType = 'application/json';
+        }
+        // No thinkingConfig for Flash model
 
         const fbBody = {
-          contents: body.contents,
-          generationConfig: { ...body.generationConfig },
+          contents: [{ parts: fbParts }],
+          generationConfig: fbGenConfig,
           _model: this.config.model,
           _brainSlot: brainDef.id,
         };
-        // Remove thinking config for flash model
-        delete fbBody.generationConfig.thinkingConfig;
 
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), this.config.timeout);
