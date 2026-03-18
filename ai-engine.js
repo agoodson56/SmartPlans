@@ -822,7 +822,45 @@ YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment r
     - Generator rental (if no permanent power available)
     - Portable restroom (remote locations)
 
+15. TRAVEL & PER DIEM (if project location is NOT local — over 60 miles from Rancho Cordova, CA):
+    - Hotel/lodging: estimate $150-$250/night per worker (use GSA rates for location)
+    - Per diem meals: $60-$79/day per worker (GSA M&IE rate)
+    - Vehicle mileage or rental: truck rental + fuel for crew and materials
+    - Airfare (if 500+ miles) for crew rotation
+    - Number of workers × number of project days = TOTAL TRAVEL COST
+    - Weekend trips home (if project > 2 weeks, budget 1 round-trip/worker/2 weeks)
+    - Parking, tolls, and incidental expenses
+    - CALCULATE: (hotel + per_diem) × workers × project_days = travel subtotal
+    - This is often 15-25% OF TOTAL PROJECT COST on out-of-town work
+
+16. TRANSIT / RAILROAD / INFRASTRUCTURE-SPECIFIC (for Amtrak, BNSF, UP, light rail, metro, airport, DOT):
+    - Railroad flagmen/RWIC (Railroad Worker in Charge): $1,000-$1,500/DAY — MANDATORY for any track-side work
+    - Railroad safety orientation/training: 4-8 hrs per worker, $200-$500/person
+    - TSA/TWIC background checks: $100-$200/worker, 2-4 week lead time
+    - Railroad Protective Liability (RPL) insurance: $15,000-$50,000+ per project
+    - Restricted work windows: track time limited to 2-4 hour windows (dramatically increases duration)
+    - Night/weekend shift differential: 15-25% labor premium
+    - Right-of-Way access agreements and permits
+    - Safety equipment: track-rated PPE, flagging equipment, radio communication
+    - Escort requirements: railroad escort may be required at $800-$1,200/day
+    - Station shutdowns/platform closures: coordination fees
+    - DOT/transit authority review and approval fees
+    - Long conduit corridor runs typical in railroad/transit work (1,000-10,000+ LF)
+
+17. SPECIALTY INSURANCE & BONDING:
+    - Railroad Protective Liability (RPL) insurance
+    - Owners Protective Liability (OPL)
+    - Additional insured endorsements
+    - Performance bond (if required, typically 1-3% of contract)
+    - Payment bond
+    - Builder's risk insurance
+    - Umbrella/excess liability (if project requires higher limits)
+
 CRITICAL: Be EXHAUSTIVE. If you see ANY exterior conduit runs, underground pathways, parking lot crossings, road crossings, or rooftop equipment on the plans, you MUST include the associated civil work, trenching, boring, traffic control, and restoration. Missing these items leads to MASSIVE cost overruns.
+
+CRITICAL — OUT-OF-TOWN PROJECTS: If the project location is NOT within 60 miles of Rancho Cordova, CA, travel & per diem is MANDATORY. Calculate: crew_size × daily_rate × project_duration_days. This is typically $150K-$400K+ on large out-of-town projects and is the #1 reason estimates come in too low.
+
+CRITICAL — TRANSIT/RAILROAD PROJECTS: If the project is for Amtrak, BNSF, a transit authority, or any railroad, you MUST include RWIC/flagman costs, RPL insurance, safety training, and work window restrictions. Railroad flagmen alone can cost $30,000-$80,000+ on a multi-week project.
 
 Return ONLY valid JSON:
 {
@@ -859,6 +897,35 @@ Return ONLY valid JSON:
   "site_conditions": [
     { "condition": "Occupied building", "impact": "Work restricted to nights/weekends in patient areas", "cost_impact": "$$" }
   ],
+  "travel_per_diem": {
+    "applicable": true,
+    "crew_size": 5,
+    "project_duration_days": 40,
+    "hotel_per_night": 180,
+    "per_diem_per_day": 69,
+    "vehicle_rental_monthly": 2500,
+    "hotel_total": 36000,
+    "per_diem_total": 13800,
+    "vehicle_total": 5000,
+    "travel_subtotal": 54800,
+    "note": "5 crew × 40 days out of town"
+  },
+  "transit_railroad": {
+    "applicable": false,
+    "rwic_flagman_days": 0,
+    "rwic_daily_rate": 1200,
+    "rwic_total": 0,
+    "safety_training_cost": 0,
+    "rpl_insurance": 0,
+    "work_window_premium_pct": 0,
+    "note": ""
+  },
+  "specialty_insurance": {
+    "rpl_insurance": 0,
+    "performance_bond": 0,
+    "additional_insured": 0,
+    "total": 0
+  },
   "risks": [
     { "risk": "Pre-1980 building — potential asbestos", "mitigation": "Environmental survey before penetrations", "severity": "high" }
   ]
@@ -996,6 +1063,26 @@ NECA LABOR UNIT GUIDELINES:
 - AV display mounting: 1.5-3.0 hrs/display
 - Speaker install: 0.5-1.0 hrs/speaker
 
+CONDUIT LABOR UNITS (do NOT skip conduit labor — it is a major cost driver):
+- EMT conduit 3/4": 0.08-0.12 hrs/ft (measure, cut, bend, strap, pull wire)
+- EMT conduit 1": 0.10-0.15 hrs/ft
+- EMT conduit 1-1/4" to 2": 0.15-0.25 hrs/ft
+- Rigid/IMC conduit: 0.20-0.35 hrs/ft (threading adds time)
+- PVC conduit underground: 0.12-0.20 hrs/ft (not counting trenching)
+- Liquid-tight flex: 0.10-0.15 hrs/ft
+- Pull boxes/junction boxes: 1.0-2.0 hrs each
+- Cable pulling through conduit: 0.03-0.08 hrs/ft depending on fill
+
+SHIFT DIFFERENTIALS (apply if work shift is not Standard):
+- Night shift: add 15% to base labor rates
+- Weekend shift: add 25% to base labor rates
+- Overtime (>8 hrs/day or >40 hrs/wk): 1.5× rate
+- Double-time (holidays, 7th day): 2.0× rate
+- Railroad/transit restricted windows: add 20-30% for productivity loss
+
+SPECIAL CONDITIONS DATA (use for conduit quantities and site-specific labor):
+${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 4000)}
+
 CRITICAL RULES:
 1. Your device quantities MUST EXACTLY MATCH the consensus counts and Material Pricer
 2. If Material Pricer has 24 cameras, your labor must cover EXACTLY 24 cameras
@@ -1003,9 +1090,12 @@ CRITICAL RULES:
 4. If consensus has AV devices, you MUST include AV installation labor
 5. ONLY include labor for categories that exist in the consensus counts
 6. If consensus shows 0 fire alarm devices, do NOT add fire alarm labor
+7. You MUST include conduit installation labor if Special Conditions or Cable Pathway shows conduit runs
+8. Apply shift differential if work shift is not Standard
+9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
 
 Calculate labor by PROJECT PHASE:
-1. Rough-In (45-50% of total) — pathway, conduit, cable pulling, backboxes
+1. Rough-In (45-50% of total) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
 2. Trim/Termination (25-30%) — device mounting, terminations, rack dress
 3. Programming (10-15%) — system programming, configuration
 4. Testing/Commissioning (10-15%) — certification, verification, punch list
@@ -1064,9 +1154,28 @@ CRITICAL RULES:
 
 GENERATE:
 1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
-2. Travel & Per Diem estimate (if project location is 100+ miles from Rancho Cordova, CA, use GSA rates)
-3. Prevailing wage determination (if applicable)
-4. Complete project cost summary with markups — totals MUST come from Material Pricer + Labor Calculator
+2. Travel & Per Diem calculation — MANDATORY if project is 60+ miles from Rancho Cordova, CA
+3. Transit/Railroad costs — MANDATORY if project involves Amtrak, BNSF, transit authority, railroad, airport, or DOT
+4. Prevailing wage determination (if applicable)
+5. Complete project cost summary with markups — totals MUST come from Material Pricer + Labor Calculator
+
+═══ TRAVEL & PER DIEM CALCULATION RULES ═══
+If the project location is 60+ miles from Rancho Cordova, CA (Sacramento area):
+- Crew size: use the Labor Calculator's crew_recommendation
+- Project duration: use the Labor Calculator's duration_weeks × 5 working days
+- Hotel: use GSA rate for the city (typically $150-$250/night)
+- Per diem: use GSA M&IE rate for the city (typically $60-$79/day)
+- Vehicle: $2,000-$3,500/month for truck rental + fuel
+- Weekend trips home: 1 round-trip per worker per 2 weeks if project > 2 weeks
+- FORMULA: travel_total = (hotel_rate + per_diem_rate) × crew_size × working_days + vehicle_costs + weekend_trips
+- Travel is typically 15-25% of total project cost on out-of-town work — if your travel is less than 10%, you are probably UNDERESTIMATING
+
+═══ TRANSIT / RAILROAD COST RULES ═══
+If Special Conditions flagged transit/railroad work:
+- RWIC/Flagman costs: $1,000-$1,500/day × number of track-side work days → add to Subcontractor column
+- RPL Insurance: $15,000-$50,000+ → add to project_summary
+- Safety training: $200-$500/worker → add to Labor column
+- Work window premium: 20-30% increase to labor hours (reduced productivity) → should already be in Labor Calculator
 
 Return ONLY valid JSON:
 {
@@ -1074,10 +1183,31 @@ Return ONLY valid JSON:
     { "item_num": "01-001", "description": "Mobilization/Demobilization", "material": 0, "labor": 2500, "equipment": 500, "subcontractor": 0, "total": 3000 }
   ],
   "travel": {
+    "applicable": true,
+    "crew_size": 5,
+    "duration_days": 40,
+    "hotel_rate": 180,
+    "per_diem_rate": 69,
+    "vehicle_monthly": 2500,
+    "breakdown": {
+      "hotel_total": 36000,
+      "per_diem_total": 13800,
+      "vehicle_total": 5000,
+      "weekend_trips": 3000,
+      "incidentals": 2000
+    },
+    "total": 59800,
+    "note": "5 crew × 40 days, GSA rates for [city]"
+  },
+  "transit_infrastructure": {
     "applicable": false,
-    "phases": [],
+    "rwic_flagman": { "days": 0, "daily_rate": 1200, "total": 0 },
+    "rpl_insurance": 0,
+    "safety_training": { "workers": 0, "cost_per": 350, "total": 0 },
+    "work_window_premium": 0,
+    "escort_costs": 0,
     "total": 0,
-    "note": "Project location not specified"
+    "note": ""
   },
   "prevailing_wage": {
     "applicable": false,
@@ -1090,6 +1220,8 @@ Return ONLY valid JSON:
     "total_equipment": 0,
     "total_subcontractors": 0,
     "total_travel": 0,
+    "total_transit_costs": 0,
+    "total_insurance": 0,
     "subtotal": 0,
     "contingency_pct": 10,
     "contingency": 0,
