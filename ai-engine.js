@@ -298,13 +298,25 @@ const SmartBrains = {
       // Gemini 3.1 Pro produces excellent results without thinking mode
       // thinkingConfig is also MUTUALLY EXCLUSIVE with JSON mode (responseMimeType)
 
+      // ── Key Slot Selection ──
+      // Files uploaded via Gemini File API are owned by the uploading project (slot 0).
+      // Brains referencing fileUri MUST use keys from the same project or get 403.
+      // Upload uses brainSlot 0, so pin file-referencing brains to slots 0-4 (same project).
+      const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
+      let keySlot;
+      if (hasUploadedFiles) {
+        // Pin to upload project — rotate within slots 0-4 only
+        keySlot = attempt % 5;
+      } else {
+        // No uploaded files — safe to rotate across all projects
+        keySlot = (brainDef.id + attempt) % 18;
+      }
+
       const body = {
         contents: [{ parts }],
         generationConfig: genConfig,
         _model: modelName,       // Proxy reads this to select the right Gemini model
-        // Rotate key slot on retries — each attempt tries a different API key/project
-        // This spreads load across different Google Cloud projects with separate quotas
-        _brainSlot: (brainDef.id + attempt) % 18,
+        _brainSlot: keySlot,
       };
 
       try {
@@ -372,7 +384,8 @@ const SmartBrains = {
           contents: [{ parts: fbParts }],
           generationConfig: fbGenConfig,
           _model: this.config.model,
-          _brainSlot: brainDef.id,
+          // Pin to upload project if file URIs are referenced
+          _brainSlot: hasUploadedFiles ? 0 : brainDef.id,
         };
 
         const controller = new AbortController();
