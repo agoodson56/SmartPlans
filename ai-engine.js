@@ -1008,18 +1008,44 @@ Before responding, verify that your output includes a category for EACH selected
 If ANY selected discipline is missing from your categories array, ADD IT NOW with all required materials.
 Missing an entire discipline is a FATAL ERROR that will cause catastrophic underestimation.
 
+═══ WASTE FACTOR, SPARE PARTS & CONSUMABLES ═══
+You MUST add these to your output — they are REAL costs that every project incurs:
+1. CABLE WASTE FACTOR: Add 12% to all cable quantities. Cable gets cut, pulled wrong, rejected, damaged. Price the waste.
+2. CONDUIT WASTE: Add 8% to all conduit quantities. Mis-cuts, damaged sticks, offcuts.
+3. SPARE PARTS / ATTIC STOCK: Add a category called "Spare Parts & Attic Stock" with 5% of each device type quantity (cameras, readers, detectors, outlets, etc.) rounded up. Most specs REQUIRE attic stock delivery to owner.
+4. SMALL TOOLS & CONSUMABLES: Add a line item "Small Tools & Consumables" = 2.5% of total material cost. This covers drill bits, saw blades, anchors, screws, bolts, zip ties, tape, markers, velcro, cable lube, etc.
+5. CONNECTOR & TERMINATION SUPPLIES: Ensure you have enough RJ45 connectors, splice cassettes, heat shrink, crimp connectors, wire nuts, etc. (at least 15% overage on connectors).
+
 Return ONLY valid JSON:
 {
   "categories": [
     {
       "name": "Structured Cabling",
       "items": [
-        { "item": "Cat 6A Plenum Cable", "qty": 30000, "unit": "ft", "unit_cost": 0.52, "ext_cost": 15600.00 }
+        { "item": "Cat 6A Plenum Cable", "qty": 30000, "unit": "ft", "unit_cost": 0.52, "ext_cost": 15600.00 },
+        { "item": "Cat 6A Cable — Waste Factor (12%)", "qty": 3600, "unit": "ft", "unit_cost": 0.52, "ext_cost": 1872.00 }
       ],
       "subtotal": 45200.00
+    },
+    {
+      "name": "Spare Parts & Attic Stock",
+      "items": [
+        { "item": "Spare cameras (5%)", "qty": 2, "unit": "ea", "unit_cost": 380.00, "ext_cost": 760.00 }
+      ],
+      "subtotal": 0
+    },
+    {
+      "name": "Small Tools & Consumables",
+      "items": [
+        { "item": "Misc consumables (drill bits, anchors, screws, ties, tape, markers)", "qty": 1, "unit": "lot", "unit_cost": 0, "ext_cost": 0 }
+      ],
+      "subtotal": 0
     }
   ],
   "grand_total": 125000.00,
+  "waste_factor_total": 0,
+  "spare_parts_total": 0,
+  "consumables_total": 0,
   "markup_pct": ${context.markup?.material || 25},
   "total_with_markup": 156250.00
 }`;
@@ -1093,31 +1119,85 @@ CRITICAL RULES:
 7. You MUST include conduit installation labor if Special Conditions or Cable Pathway shows conduit runs
 8. Apply shift differential if work shift is not Standard
 9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
+10. You MUST include all NON-INSTALLATION phases below — these are real labor costs
 
 Calculate labor by PROJECT PHASE:
-1. Rough-In (45-50% of total) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
-2. Trim/Termination (25-30%) — device mounting, terminations, rack dress
-3. Programming (10-15%) — system programming, configuration
-4. Testing/Commissioning (10-15%) — certification, verification, punch list
+1. Rough-In (35-40% of field labor) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
+2. Trim/Termination (20-25%) — device mounting, terminations, rack dress
+3. Programming (8-12%) — system programming, configuration, database entry
+4. Testing/Commissioning (8-12%) — cable certification, device verification, punch list
+5. Commissioning & Owner Training (3-5%) — AHJ walkthroughs, camera aiming sessions with owner, access control enrollment, system integration testing with existing infrastructure, owner staff training (2-4 sessions)
+6. As-Built Drawings & Closeout (2-3%) — red-line markups, CAD/Revit as-builts, O&M manual compilation, warranty documentation, closeout binder assembly. Typically 40-80 hours for a large project.
+
+NON-INSTALLATION LABOR (you MUST include these as separate phases — they are NOT optional):
+7. Engineering & Submittals (3-5% of total labor cost):
+   - Submittal preparation: product data, shop drawings, cut sheets
+   - Engineer review coordination and resubmittals
+   - Riser diagram and pathway design
+   - Typically 60-200 hours on a large project ($50K-$200K+)
+   - Use PM rate ($65-$85/hr) for this work
+
+8. Project Management (dedicated PM for duration):
+   - 1 PM at $65-$85/hr × 40 hrs/wk × project duration in weeks
+   - Includes: scheduling, procurement, RFIs, change orders, meetings, daily reports
+   - For an 8-12 week project: $20,800-$40,800
+   - This is NOT included in field labor — it is additional
+
+9. Coordination & Idle Time (10-15% of total field labor hours):
+   - Waiting for other trades (electrician, drywall, ceiling grid)
+   - GC schedule delays and re-sequencing
+   - Elevator/lift access wait times
+   - Material delivery delays
+   - Safety stand-downs and orientation time
+   - This is REAL cost — crews get paid whether working or waiting
 
 Return ONLY valid JSON:
 {
   "phases": [
     {
       "name": "Rough-In",
-      "pct_of_total": 45,
+      "pct_of_total": 37,
       "tasks": [
         { "description": "Install cable tray — 500 LF", "classification": "journeyman", "hours": 100, "rate": 65.00, "cost": 6500.00 }
       ],
       "phase_hours": 500,
       "phase_cost": 32500.00
+    },
+    {
+      "name": "Engineering & Submittals",
+      "pct_of_total": 4,
+      "tasks": [
+        { "description": "Submittal preparation and coordination", "classification": "pm", "hours": 80, "rate": 75.00, "cost": 6000.00 }
+      ],
+      "phase_hours": 80,
+      "phase_cost": 6000.00
+    },
+    {
+      "name": "Project Management",
+      "pct_of_total": 0,
+      "tasks": [
+        { "description": "Dedicated PM for project duration", "classification": "pm", "hours": 0, "rate": 75.00, "cost": 0 }
+      ],
+      "phase_hours": 0,
+      "phase_cost": 0
+    },
+    {
+      "name": "Coordination & Idle Time",
+      "pct_of_total": 12,
+      "tasks": [
+        { "description": "Trade coordination, GC delays, access waits", "classification": "journeyman", "hours": 0, "rate": 65.00, "cost": 0 }
+      ],
+      "phase_hours": 0,
+      "phase_cost": 0
     }
   ],
+  "total_field_hours": 0,
+  "total_non_field_hours": 0,
   "total_hours": 1200,
   "total_base_cost": 78000.00,
   "markup_pct": ${context.markup?.labor || 30},
   "total_with_markup": 101400.00,
-  "crew_recommendation": { "journeyman": 3, "apprentice": 2, "foreman": 1, "duration_weeks": 8 }
+  "crew_recommendation": { "journeyman": 3, "apprentice": 2, "foreman": 1, "pm": 1, "duration_weeks": 8 }
 }`;
       },
 
@@ -1146,18 +1226,32 @@ CRITICAL RULES:
 3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total — all values must be SELL PRICES (with markup applied)
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total
-6. The project_summary grand_total must include: total_materials + total_labor + total_equipment + total_subcontractors + total_travel + contingency
+6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + G&A + profit + warranty + contingency
 7. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
 8. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
 9. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
 10. Include a separate SOV line item for "Civil Work & Site Restoration" if underground/exterior work exists
+11. G&A OVERHEAD is MANDATORY: Apply 15% to (materials + labor + equipment + subcontractors) subtotal. This covers company overhead (office, trucks, insurance, admin staff). This is separate from markup.
+12. PROFIT MARGIN is MANDATORY: Apply 10% to the subtotal after G&A. This is the company's profit. Without this, you are bidding at cost.
+13. WARRANTY RESERVE: Add 1.5% of total project cost for warranty callback labor during the 1-year warranty period.
+
+═══ COST BUILD-UP ORDER (follow this EXACTLY) ═══
+1. Direct Costs: total_materials + total_labor + total_equipment + total_subcontractors
+2. Add: total_travel + total_transit_costs + total_insurance
+3. = PROJECT DIRECT COST SUBTOTAL
+4. Add: G&A Overhead (15% of direct costs) → this covers company operating expenses
+5. = TOTAL COST WITH OVERHEAD
+6. Add: Profit (10% of cost with overhead) → this is the company's earnings
+7. Add: Warranty Reserve (1.5% of total)
+8. Add: Contingency (10% of total) → for unknowns and scope changes
+9. = GRAND TOTAL (this is the BID PRICE)
 
 GENERATE:
 1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
 2. Travel & Per Diem calculation — MANDATORY if project is 60+ miles from Rancho Cordova, CA
 3. Transit/Railroad costs — MANDATORY if project involves Amtrak, BNSF, transit authority, railroad, airport, or DOT
 4. Prevailing wage determination (if applicable)
-5. Complete project cost summary with markups — totals MUST come from Material Pricer + Labor Calculator
+5. Complete project cost summary with G&A, profit, warranty, and contingency
 
 ═══ TRAVEL & PER DIEM CALCULATION RULES ═══
 If the project location is 60+ miles from Rancho Cordova, CA (Sacramento area):
@@ -1222,7 +1316,14 @@ Return ONLY valid JSON:
     "total_travel": 0,
     "total_transit_costs": 0,
     "total_insurance": 0,
-    "subtotal": 0,
+    "direct_cost_subtotal": 0,
+    "ga_overhead_pct": 15,
+    "ga_overhead": 0,
+    "cost_with_overhead": 0,
+    "profit_pct": 10,
+    "profit": 0,
+    "warranty_reserve_pct": 1.5,
+    "warranty_reserve": 0,
     "contingency_pct": 10,
     "contingency": 0,
     "grand_total": 0
