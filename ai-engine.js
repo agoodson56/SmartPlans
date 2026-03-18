@@ -302,7 +302,9 @@ const SmartBrains = {
         contents: [{ parts }],
         generationConfig: genConfig,
         _model: modelName,       // Proxy reads this to select the right Gemini model
-        _brainSlot: brainDef.id, // Proxy reads this to select the right API key
+        // Rotate key slot on retries — each attempt tries a different API key/project
+        // This spreads load across different Google Cloud projects with separate quotas
+        _brainSlot: (brainDef.id + attempt) % 18,
       };
 
       try {
@@ -318,8 +320,9 @@ const SmartBrains = {
         clearTimeout(timer);
 
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
+          const nextSlot = (brainDef.id + attempt + 1) % 18;
           const delay = this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500;
-          console.warn(`[Brain:${brainDef.name}] API ${response.status}, retrying in ${Math.round(delay)}ms`);
+          console.warn(`[Brain:${brainDef.name}] API ${response.status}, rotating to key slot ${nextSlot}, retrying in ${Math.round(delay)}ms`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
