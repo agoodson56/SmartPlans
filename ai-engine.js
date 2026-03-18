@@ -321,7 +321,9 @@ const SmartBrains = {
 
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), brainDef.useProModel ? (this.config.proTimeout || this.config.timeout) : this.config.timeout);
+        // Increase timeout for streaming — data arrives in chunks, so we need more wall-clock time
+        const timeoutMs = brainDef.useProModel ? (this.config.proTimeout || this.config.timeout) * 2 : this.config.timeout * 2;
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
 
         const response = await fetch(url, {
           method: 'POST',
@@ -344,9 +346,49 @@ const SmartBrains = {
           throw new Error(errData?.error?.message || `API ${response.status}`);
         }
 
-        const data = await response.json();
-        const allParts = data?.candidates?.[0]?.content?.parts || [];
-        const text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+        // ── Read SSE stream and assemble response ──
+        const contentType = response.headers.get('content-type') || '';
+        let text = '';
+
+        if (contentType.includes('text/event-stream')) {
+          // Streaming response — read SSE chunks
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete SSE lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const jsonStr = line.slice(6).trim();
+                if (!jsonStr || jsonStr === '[DONE]') continue;
+                try {
+                  const chunk = JSON.parse(jsonStr);
+                  const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
+                  for (const p of chunkParts) {
+                    if (p.text && !p.thought) {
+                      text += p.text;
+                    }
+                  }
+                } catch (e) {
+                  // Skip malformed SSE chunks
+                }
+              }
+            }
+          }
+        } else {
+          // Non-streaming fallback (plain JSON response)
+          const data = await response.json();
+          const allParts = data?.candidates?.[0]?.content?.parts || [];
+          text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+        }
 
         if (!text || text.length < 20) {
           throw new Error('Empty response from AI');
@@ -399,9 +441,36 @@ const SmartBrains = {
         clearTimeout(timer);
 
         if (response.ok) {
-          const data = await response.json();
-          const allParts = data?.candidates?.[0]?.content?.parts || [];
-          const text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+          // Handle SSE streaming in fallback too
+          const ct = response.headers.get('content-type') || '';
+          let text = '';
+          if (ct.includes('text/event-stream')) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += decoder.decode(value, { stream: true });
+              const lines = buf.split('\n');
+              buf = lines.pop();
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const js = line.slice(6).trim();
+                  if (!js || js === '[DONE]') continue;
+                  try {
+                    const chunk = JSON.parse(js);
+                    const cp = chunk?.candidates?.[0]?.content?.parts || [];
+                    for (const p of cp) { if (p.text && !p.thought) text += p.text; }
+                  } catch (e) {}
+                }
+              }
+            }
+          } else {
+            const data = await response.json();
+            const allParts = data?.candidates?.[0]?.content?.parts || [];
+            text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+          }
           if (text && text.length >= 20) {
             console.log(`[Brain:${brainDef.name}] ✓ Fallback complete (${text.length} chars)`);
             return text;

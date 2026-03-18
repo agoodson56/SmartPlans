@@ -1,14 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
-// SMARTPLANS — Server-Side Gemini API Proxy v3.1
-// Supports Gemini 3.1 Pro Preview + 18-key brain pool
-// Hides API keys from client code, distributes across 18 key slots
-// Now with: detailed error surfacing, model fallback, and logging
+// SMARTPLANS — Server-Side Gemini API Proxy v3.2 (STREAMING)
+// Uses streamGenerateContent to avoid Cloudflare 524 timeouts
+// Pipes SSE stream from Gemini → client, keeping connection alive
 // ═══════════════════════════════════════════════════════════════
 
 export async function onRequestPost(context) {
     const { env, request } = context;
 
-    // CORS headers
     const corsHeaders = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -26,7 +24,7 @@ export async function onRequestPost(context) {
         delete body._brainSlot;
         delete body._model;
 
-        // Select API key for this brain slot — supports up to 18 keys (one per brain)
+        // Select API key for this brain slot
         const keyNames = [
             'GEMINI_KEY_0', 'GEMINI_KEY_1', 'GEMINI_KEY_2', 'GEMINI_KEY_3', 'GEMINI_KEY_4',
             'GEMINI_KEY_5', 'GEMINI_KEY_6', 'GEMINI_KEY_7', 'GEMINI_KEY_8', 'GEMINI_KEY_9',
@@ -34,7 +32,6 @@ export async function onRequestPost(context) {
             'GEMINI_KEY_15', 'GEMINI_KEY_16', 'GEMINI_KEY_17',
         ];
 
-        // Find an available key — try the requested slot first, then fallback
         let apiKey = null;
         let usedSlot = -1;
         const slotIndex = brainSlot % keyNames.length;
@@ -56,11 +53,13 @@ export async function onRequestPost(context) {
             );
         }
 
-        // ── Try requested model first ──
+        // ── Use streaming endpoint to avoid 524 timeouts ──
+        // streamGenerateContent sends chunks every few seconds,
+        // keeping the Cloudflare proxy connection alive
         let model = requestedModel;
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-        console.log(`[Proxy] Brain ${brainSlot} → slot ${usedSlot} → model: ${model}`);
+        console.log(`[Proxy] Brain ${brainSlot} → slot ${usedSlot} → model: ${model} (streaming)`);
 
         const geminiResponse = await fetch(url, {
             method: 'POST',
@@ -68,23 +67,20 @@ export async function onRequestPost(context) {
             body: JSON.stringify(body),
         });
 
-        // ── If model fails with 403/404/400, try fallback model ──
-        // 403 = API key lacks access to model, 404 = model not found, 400 = bad request
+        // ── If model fails with 403/404/400, try fallback ──
         if (!geminiResponse.ok && [403, 404, 400].includes(geminiResponse.status)) {
             const errBody = await geminiResponse.text();
             console.warn(`[Proxy] Model "${model}" returned ${geminiResponse.status}: ${errBody.substring(0, 300)}`);
 
-            // Fallback: try gemini-2.5-flash if we weren't already using it
             if (model !== 'gemini-2.5-flash') {
                 const fallbackModel = 'gemini-2.5-flash';
                 console.log(`[Proxy] Retrying brain ${brainSlot} with fallback model: ${fallbackModel}`);
 
-                // Remove thinkingConfig if present (not supported on Flash)
                 if (body.generationConfig?.thinkingConfig) {
                     delete body.generationConfig.thinkingConfig;
                 }
 
-                const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${fallbackModel}:generateContent?key=${apiKey}`;
+                const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${fallbackModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
                 const fallbackResponse = await fetch(fallbackUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -95,11 +91,10 @@ export async function onRequestPost(context) {
                     console.log(`[Proxy] ✓ Fallback to ${fallbackModel} succeeded for brain ${brainSlot}`);
                     return new Response(fallbackResponse.body, {
                         status: fallbackResponse.status,
-                        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+                        headers: { 'Content-Type': 'text/event-stream', ...corsHeaders },
                     });
                 }
 
-                // Fallback also failed — return the fallback error
                 const fbErrBody = await fallbackResponse.text();
                 console.error(`[Proxy] Fallback also failed: ${fallbackResponse.status} — ${fbErrBody.substring(0, 300)}`);
                 return new Response(fbErrBody, {
@@ -108,14 +103,13 @@ export async function onRequestPost(context) {
                 });
             }
 
-            // Already using flash and it failed — return the error
             return new Response(errBody, {
                 status: geminiResponse.status,
                 headers: { 'Content-Type': 'application/json', ...corsHeaders },
             });
         }
 
-        // ── Log non-OK responses for debugging ──
+        // ── Log non-OK responses ──
         if (!geminiResponse.ok) {
             const errText = await geminiResponse.text();
             console.error(`[Proxy] Gemini ${geminiResponse.status} for brain ${brainSlot} (model: ${model}): ${errText.substring(0, 500)}`);
@@ -125,11 +119,15 @@ export async function onRequestPost(context) {
             });
         }
 
-        // Stream successful response back
+        // ── Stream SSE response back to client ──
+        // This keeps the connection alive — Cloudflare sees data flowing
+        // and won't trigger a 524 timeout
         return new Response(geminiResponse.body, {
-            status: geminiResponse.status,
+            status: 200,
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
                 ...corsHeaders,
             },
         });
