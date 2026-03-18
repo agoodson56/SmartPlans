@@ -413,6 +413,68 @@ const PRICING_DB = {
         "hawaii": 1.40,
         "alaska": 1.35,
     },
+
+    // ═══════════════════════════════════════════════════════════
+    // PROJECT TYPE MULTIPLIERS — Equipment & labor cost factors
+    // Transit/railroad equipment is vandal-rated, extreme-temp,
+    // and requires specialized mounting, increasing costs 2-3×
+    // ═══════════════════════════════════════════════════════════
+    projectTypeMultipliers: {
+        "transit_railroad": {
+            label: "Transit / Railroad (Amtrak, BART, Metro, BNSF, UP)",
+            equipment_multiplier: 2.5,   // Transit-rated cameras, vandal-proof, IK10/IP67
+            labor_multiplier: 1.8,       // Restricted work windows, flagmen waits, safety protocols
+            min_camera_cost: 1500,       // Minimum cost per camera (transit-rated IK10 dome minimum)
+            min_nvr_cost: 3000,          // Minimum cost per NVR (enterprise-grade with RAID)
+            min_switch_cost: 800,        // Minimum cost per managed switch
+            notes: "All equipment must be transit-rated. Labor includes RWIC wait time, safety briefings, restricted access."
+        },
+        "government_institutional": {
+            label: "Government / Institutional (federal, state, municipal, courthouse)",
+            equipment_multiplier: 1.5,
+            labor_multiplier: 1.3,
+            min_camera_cost: 800,
+            min_nvr_cost: 2000,
+            min_switch_cost: 500,
+            notes: "NDAA-compliant equipment required. Background checks, security clearances add to labor."
+        },
+        "healthcare": {
+            label: "Healthcare (hospital, clinic, medical center)",
+            equipment_multiplier: 1.4,
+            labor_multiplier: 1.2,
+            min_camera_cost: 600,
+            min_nvr_cost: 1500,
+            min_switch_cost: 400,
+            notes: "HIPAA considerations, infection control protocols, after-hours work requirements."
+        },
+        "education_k12": {
+            label: "Education K-12 (school district)",
+            equipment_multiplier: 1.2,
+            labor_multiplier: 1.1,
+            min_camera_cost: 400,
+            min_nvr_cost: 1200,
+            min_switch_cost: 350,
+            notes: "Summer/break installation windows, CIPA compliance."
+        },
+        "data_center": {
+            label: "Data Center / Mission Critical",
+            equipment_multiplier: 1.6,
+            labor_multiplier: 1.4,
+            min_camera_cost: 800,
+            min_nvr_cost: 4000,
+            min_switch_cost: 1200,
+            notes: "Hot/cold aisle considerations, redundant systems, N+1 design."
+        },
+        "commercial_standard": {
+            label: "Standard Commercial (office, retail, warehouse)",
+            equipment_multiplier: 1.0,
+            labor_multiplier: 1.0,
+            min_camera_cost: 0,
+            min_nvr_cost: 0,
+            min_switch_cost: 0,
+            notes: "Standard pricing applies."
+        },
+    },
 };
 
 // Make available for import in app.js (loaded via <script> tag)

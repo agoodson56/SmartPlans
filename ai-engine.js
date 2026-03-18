@@ -2010,6 +2010,34 @@ Return ONLY valid JSON:
     const regionMult = PRICING_DB.regionalMultipliers?.[regionKey] || 1.0;
     let ctx = `PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}×)\n\n`;
 
+    // ── Detect project type and apply multiplier ──
+    const projectText = `${state.projectName || ''} ${state.projectType || ''}`.toLowerCase();
+    let projectTypeKey = 'commercial_standard';
+    
+    if (/amtrak|bnsf|union pacific|transit|railroad|railway|metro|bart|caltrain|light rail|commuter rail|rail station|train station/.test(projectText)) {
+      projectTypeKey = 'transit_railroad';
+    } else if (/government|federal|state|county|municipal|courthouse|city hall|military|dod|va hospital|gsa/.test(projectText)) {
+      projectTypeKey = 'government_institutional';
+    } else if (/hospital|medical|clinic|healthcare|surgery center|urgent care/.test(projectText)) {
+      projectTypeKey = 'healthcare';
+    } else if (/school|k-12|university|college|campus|education/.test(projectText)) {
+      projectTypeKey = 'education_k12';
+    } else if (/data center|datacenter|colocation|server farm|mission critical/.test(projectText)) {
+      projectTypeKey = 'data_center';
+    }
+
+    const ptMult = PRICING_DB.projectTypeMultipliers?.[projectTypeKey];
+    if (ptMult && projectTypeKey !== 'commercial_standard') {
+      ctx += `⚠️ PROJECT TYPE: ${ptMult.label}\n`;
+      ctx += `  EQUIPMENT MULTIPLIER: ${ptMult.equipment_multiplier}× — apply to ALL cameras, NVRs, switches, panels, readers\n`;
+      ctx += `  LABOR MULTIPLIER: ${ptMult.labor_multiplier}× — apply to ALL labor hours and rates\n`;
+      ctx += `  MINIMUM CAMERA COST: $${ptMult.min_camera_cost}/each (do NOT price cameras below this)\n`;
+      ctx += `  MINIMUM NVR COST: $${ptMult.min_nvr_cost}/each (do NOT price NVRs below this)\n`;
+      ctx += `  MINIMUM SWITCH COST: $${ptMult.min_switch_cost}/each (do NOT price switches below this)\n`;
+      ctx += `  NOTE: ${ptMult.notes}\n`;
+      ctx += `  THIS IS MANDATORY — prices BELOW these minimums will result in a losing bid.\n\n`;
+    }
+
     const categories = {
       'Structured Cabling': PRICING_DB.structuredCabling,
       'CCTV': PRICING_DB.cctv,
@@ -2025,8 +2053,18 @@ Return ONLY valid JSON:
       for (const [subCat, items] of Object.entries(catData)) {
         for (const [key, item] of Object.entries(items)) {
           if (typeof item === 'object' && item[tier] !== undefined) {
-            const adjusted = +(item[tier] * regionMult).toFixed(2);
-            ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'} (${item.description || ''})\n`;
+            let adjusted = +(item[tier] * regionMult).toFixed(2);
+            // Apply project type equipment multiplier to device prices
+            if (ptMult && ptMult.equipment_multiplier > 1.0 && 
+                (key.includes('camera') || key.includes('ptz') || key.includes('multisensor') || 
+                 key.includes('nvr') || key.includes('lpr') || key.includes('thermal') ||
+                 key.includes('reader') || key.includes('panel') || key.includes('poe_switch') ||
+                 key.includes('monitor') || key.includes('dome') || key.includes('bullet'))) {
+              adjusted = +(adjusted * ptMult.equipment_multiplier).toFixed(2);
+              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'} (${item.description || ''}) [${ptMult.equipment_multiplier}× transit-rated]\n`;
+            } else {
+              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'} (${item.description || ''})\n`;
+            }
           }
         }
       }
