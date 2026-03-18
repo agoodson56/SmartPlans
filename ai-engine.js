@@ -2021,8 +2021,81 @@ Return ONLY valid JSON:
 
 
   // ═══════════════════════════════════════════════════════════
-  // WAVE ORCHESTRATION — Parallel execution engine
+  // SINGLE BRAIN EXECUTION — Extracted for batched orchestration
   // ═══════════════════════════════════════════════════════════
+
+  async _runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback) {
+    const brain = this.BRAINS[key];
+
+    try {
+      // Build prompt with context
+      const prompt = this._getPrompt(key, context);
+      const fileParts = brain.needsFiles.length > 0 ? this._buildFileParts(brain, encodedFiles) : [];
+      const useJsonMode = key !== 'REPORT_WRITER';
+
+      this._brainStatus[key].status = 'running';
+      progressCallback(baseProgress, `${brain.emoji} ${brain.name} analyzing…`, this._brainStatus);
+
+      let rawResult = await this._invokeBrain(key, brain, prompt, fileParts, useJsonMode);
+
+      // Parse JSON for non-report brains
+      let parsed;
+      if (useJsonMode) {
+        parsed = this._parseJSON(rawResult);
+        if (!parsed) {
+          console.warn(`[Brain:${brain.name}] JSON parse failed, using raw text`);
+          parsed = { _raw: rawResult, _parseFailed: true };
+        }
+      } else {
+        parsed = rawResult; // Report writer returns markdown
+      }
+
+      // ── Schema Validation + Auto-Retry ──
+      const validation = this._validateBrainOutput(key, parsed);
+      if (!validation.valid) {
+        console.warn(`[Brain:${brain.name}] Validation failed: ${validation.reason}. Auto-retrying…`);
+        this._brainStatus[key].status = 'retrying';
+        progressCallback(baseProgress, `🔄 ${brain.name} retrying (${validation.reason})…`, this._brainStatus);
+
+        try {
+          // Retry with enhanced prompt prefix
+          const retryPrefix = 'IMPORTANT: Your previous response was incomplete or had issues. STRICTLY follow the JSON schema. Include ALL required fields. Be thorough.\n\n';
+          rawResult = await this._invokeBrain(key, brain, retryPrefix + prompt, fileParts, useJsonMode);
+          if (useJsonMode) {
+            const retryParsed = this._parseJSON(rawResult);
+            if (retryParsed) {
+              const retryValidation = this._validateBrainOutput(key, retryParsed);
+              if (retryValidation.valid) {
+                parsed = retryParsed;
+                console.log(`[Brain:${brain.name}] ✓ Retry succeeded — validation passed`);
+              } else {
+                console.warn(`[Brain:${brain.name}] Retry still invalid: ${retryValidation.reason}. Using best result.`);
+                parsed = retryParsed; // Use retry result even if imperfect — it's likely better
+              }
+            }
+          }
+        } catch (retryErr) {
+          console.warn(`[Brain:${brain.name}] Retry failed: ${retryErr.message}. Using original result.`);
+        }
+      }
+
+      this._brainStatus[key] = { status: 'done', progress: 100, result: parsed, error: null };
+      results[key] = parsed;
+      const completed = incrementCompleted();
+
+      const pct = baseProgress + (completed / totalBrains) * (endProgress - baseProgress);
+      progressCallback(pct, `✅ ${brain.name} complete`, this._brainStatus);
+
+    } catch (err) {
+      console.error(`[Brain:${brain.name}] FAILED:`, err.message);
+      this._brainStatus[key] = { status: 'failed', progress: 0, result: null, error: err.message };
+      results[key] = { _error: err.message, _failed: true };
+      const completed = incrementCompleted();
+
+      const pct = baseProgress + (completed / totalBrains) * (endProgress - baseProgress);
+      progressCallback(pct, `⚠️ ${brain.name} failed — continuing…`, this._brainStatus);
+    }
+  },
 
   async _runWave(waveNum, brainKeys, encodedFiles, state, context, progressCallback) {
     const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 4: 90 };
@@ -2041,81 +2114,36 @@ Return ONLY valid JSON:
       progressCallback(baseProgress, `Wave ${waveNum}: ${waveNames[waveNum]}`, this._brainStatus);
     }
 
-    // Build promises for all brains in this wave
-    const promises = brainKeys.map(async (key) => {
-      const brain = this.BRAINS[key];
+    // ── Batched execution to avoid API rate limiting ──
+    // Waves with 4+ brains: run in batches of 2 with stagger delay
+    // Waves with 1-3 brains: run all in parallel (no rate limit risk)
+    const BATCH_SIZE = 2;
+    const STAGGER_DELAY_MS = 2000; // 2 seconds between batches
 
-      try {
-        // Build prompt with context
-        const prompt = this._getPrompt(key, context);
-        const fileParts = brain.needsFiles.length > 0 ? this._buildFileParts(brain, encodedFiles) : [];
-        const useJsonMode = key !== 'REPORT_WRITER';
+    if (brainKeys.length <= 3) {
+      // Small wave — run all in parallel (safe)
+      const promises = brainKeys.map(async (key) => {
+        await this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, brainKeys.length, results, () => ++completed, progressCallback);
+      });
+      await Promise.allSettled(promises);
+    } else {
+      // Large wave — stagger in batches of 2 to avoid rate limits
+      for (let i = 0; i < brainKeys.length; i += BATCH_SIZE) {
+        const batch = brainKeys.slice(i, i + BATCH_SIZE);
+        console.log(`[SmartBrains] Wave ${waveNum}: Starting batch ${Math.floor(i/BATCH_SIZE) + 1} — ${batch.map(k => this.BRAINS[k].name).join(', ')}`);
 
-        this._brainStatus[key].status = 'running';
-        progressCallback(baseProgress, `${brain.emoji} ${brain.name} analyzing…`, this._brainStatus);
+        const batchPromises = batch.map(async (key) => {
+          await this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, brainKeys.length, results, () => ++completed, progressCallback);
+        });
+        await Promise.allSettled(batchPromises);
 
-        let rawResult = await this._invokeBrain(key, brain, prompt, fileParts, useJsonMode);
-
-        // Parse JSON for non-report brains
-        let parsed;
-        if (useJsonMode) {
-          parsed = this._parseJSON(rawResult);
-          if (!parsed) {
-            console.warn(`[Brain:${brain.name}] JSON parse failed, using raw text`);
-            parsed = { _raw: rawResult, _parseFailed: true };
-          }
-        } else {
-          parsed = rawResult; // Report writer returns markdown
+        // Stagger delay between batches (not after the last batch)
+        if (i + BATCH_SIZE < brainKeys.length) {
+          console.log(`[SmartBrains] Wave ${waveNum}: Stagger delay ${STAGGER_DELAY_MS}ms before next batch…`);
+          await new Promise(r => setTimeout(r, STAGGER_DELAY_MS));
         }
-
-        // ── Schema Validation + Auto-Retry ──
-        const validation = this._validateBrainOutput(key, parsed);
-        if (!validation.valid) {
-          console.warn(`[Brain:${brain.name}] Validation failed: ${validation.reason}. Auto-retrying…`);
-          this._brainStatus[key].status = 'retrying';
-          progressCallback(baseProgress, `🔄 ${brain.name} retrying (${validation.reason})…`, this._brainStatus);
-
-          try {
-            // Retry with enhanced prompt prefix
-            const retryPrefix = 'IMPORTANT: Your previous response was incomplete or had issues. STRICTLY follow the JSON schema. Include ALL required fields. Be thorough.\n\n';
-            rawResult = await this._invokeBrain(key, brain, retryPrefix + prompt, fileParts, useJsonMode);
-            if (useJsonMode) {
-              const retryParsed = this._parseJSON(rawResult);
-              if (retryParsed) {
-                const retryValidation = this._validateBrainOutput(key, retryParsed);
-                if (retryValidation.valid) {
-                  parsed = retryParsed;
-                  console.log(`[Brain:${brain.name}] ✓ Retry succeeded — validation passed`);
-                } else {
-                  console.warn(`[Brain:${brain.name}] Retry still invalid: ${retryValidation.reason}. Using best result.`);
-                  parsed = retryParsed; // Use retry result even if imperfect — it's likely better
-                }
-              }
-            }
-          } catch (retryErr) {
-            console.warn(`[Brain:${brain.name}] Retry failed: ${retryErr.message}. Using original result.`);
-          }
-        }
-
-        this._brainStatus[key] = { status: 'done', progress: 100, result: parsed, error: null };
-        results[key] = parsed;
-        completed++;
-
-        const pct = baseProgress + (completed / brainKeys.length) * (endProgress - baseProgress);
-        progressCallback(pct, `✅ ${brain.name} complete`, this._brainStatus);
-
-      } catch (err) {
-        console.error(`[Brain:${brain.name}] FAILED:`, err.message);
-        this._brainStatus[key] = { status: 'failed', progress: 0, result: null, error: err.message };
-        results[key] = { _error: err.message, _failed: true };
-        completed++;
-
-        const pct = baseProgress + (completed / brainKeys.length) * (endProgress - baseProgress);
-        progressCallback(pct, `⚠️ ${brain.name} failed — continuing…`, this._brainStatus);
       }
-    });
-
-    await Promise.allSettled(promises);
+    }
 
     const failedCount = Object.values(results).filter(r => r?._failed).length;
     if (failedCount === brainKeys.length) {
