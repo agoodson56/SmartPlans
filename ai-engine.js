@@ -54,7 +54,7 @@ const SmartBrains = {
     proModel: 'gemini-3.1-pro-preview',      // Gemini 3.1 Pro — released Feb 19, 2026
     useProxy: true,                          // ENABLED — route all calls through server-side proxy
     proxyEndpoint: '/api/ai/invoke',
-    maxRetries: 4,
+    maxRetries: 8,
     retryBaseDelay: 1500,
     timeout: 150000,                         // 2.5 min for Flash brains
     proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
@@ -429,8 +429,8 @@ const SmartBrains = {
     SYMBOL_SCANNER: ['sheets', 'totals'],
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
-    CABLE_PATHWAY: ['horizontal_cables', 'pathways'],
-    SPECIAL_CONDITIONS: ['equipment_rentals', 'permits'],
+    CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
+    SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits'],
     SHADOW_SCANNER: ['sheets', 'totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
     QUADRANT_SCANNER: ['quadrants', 'totals'],
@@ -607,21 +607,34 @@ Return ONLY valid JSON:
 }`,
 
       // ── BRAIN 4: Cable & Pathway ─────────────────────────────
-      CABLE_PATHWAY: () => `You are a CABLE & PATHWAY ENGINEER analyzing cable runs and pathway infrastructure.
+      CABLE_PATHWAY: () => `You are a CABLE & PATHWAY ENGINEER analyzing cable runs, conduit systems, and pathway infrastructure for ELV construction.
 
 PROJECT: ${context.projectName} | Type: ${context.projectType}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
-YOUR MISSION: Analyze all cable pathways, conduit, cable tray, and estimate cable quantities.
+YOUR MISSION: Analyze ALL cable pathways, conduit (every type and size), cable tray, underground routes, and estimate cable/conduit quantities.
 
-ANALYZE:
-1. Horizontal cable runs — type (Cat5e/6/6A), estimated average length
+ANALYZE THOROUGHLY:
+1. Horizontal cable runs — type (Cat5e/6/6A), estimated average length per drop
 2. Backbone/riser cables — fiber (SM/MM) and copper between rooms
-3. Pathway types — J-hooks, cable tray, conduit (EMT/rigid/PVC), innerduct
-4. Conduit sizing and fill calculations
-5. Vertical risers and sleeve sizes
-6. Underground/exterior pathways
-7. Special pathway requirements (plenum, riser, LSZH)
+3. Pathway types — J-hooks, cable tray, conduit (EMT/rigid/PVC/liquid-tight), innerduct
+4. ALL conduit runs with exact type and size:
+   - EMT: 3/4", 1", 1-1/4", 1-1/2", 2" (indoor, above ceiling, exposed walls)
+   - Rigid/IMC: outdoor, wet, exposed (specify gauge)
+   - PVC Schedule 40/80: underground, direct burial, exterior
+   - Liquid-tight flexible: equipment whips, transitions
+   - Include all fittings: couplings, connectors, elbows, LBs, pull boxes
+5. Conduit sizing and fill calculations (NEC Chapter 9)
+6. Vertical risers and sleeve sizes
+7. UNDERGROUND/EXTERIOR PATHWAYS — This is critical:
+   - Direct-buried conduit runs (measure distances from site plans)
+   - Duct bank configurations
+   - Handholes and underground pull boxes
+   - Boring paths under roads, parking lots, sidewalks
+   - Trenching routes through landscape areas
+   - Depth requirements per NEC/local code
+8. Special pathway requirements (plenum, riser, LSZH, outdoor UV)
+9. Conduit support: Unistrut/channel, straps, trapeze hangers, threaded rod
 
 Return ONLY valid JSON:
 {
@@ -636,38 +649,212 @@ Return ONLY valid JSON:
     { "type": "j_hooks", "count": 250, "spacing": "5ft OC" },
     { "type": "conduit_emt", "size": "1 inch", "length_ft": 200, "location": "Exposed walls" }
   ],
+  "conduit_runs": [
+    { "type": "EMT", "size": "1 inch", "length_ft": 200, "location": "Above ceiling - MDF to IDF", "purpose": "backbone fiber" },
+    { "type": "EMT", "size": "3/4 inch", "length_ft": 400, "location": "Stub-ups to device locations", "purpose": "camera/reader drops" },
+    { "type": "PVC Sch 40", "size": "2 inch", "length_ft": 150, "location": "Underground parking lot to bldg entry", "purpose": "exterior camera feeds" },
+    { "type": "Rigid", "size": "1 inch", "length_ft": 80, "location": "Exposed exterior wall", "purpose": "outdoor camera pathway" }
+  ],
+  "underground_pathways": [
+    { "route": "Building A to Building B", "distance_ft": 200, "conduit_type": "PVC Sch 40", "conduit_size": "2 inch", "conduit_qty": 2, "depth_in": 24, "surface": "parking lot", "method": "directional_boring" },
+    { "route": "Main building to gate", "distance_ft": 150, "conduit_type": "PVC Sch 40", "conduit_size": "2 inch", "conduit_qty": 1, "depth_in": 24, "surface": "landscape", "method": "open_trench" }
+  ],
+  "exterior_conduit": [
+    { "type": "Rigid 1-inch", "length_ft": 120, "location": "Exterior walls for cameras", "weatherproof": true },
+    { "type": "PVC Sch 40 2-inch", "length_ft": 200, "location": "Underground to parking structure", "underground": true }
+  ],
   "firestopping": { "penetrations": 24, "type": "EZ-Path or Hilti firestop" },
   "notes": []
 }`,
 
       // ── BRAIN 5: Special Conditions ──────────────────────────
-      SPECIAL_CONDITIONS: () => `You are a CONSTRUCTION SPECIAL CONDITIONS ANALYST for ELV projects.
+      SPECIAL_CONDITIONS: () => `You are a CONSTRUCTION SPECIAL CONDITIONS ANALYST for ELV (Extra Low Voltage) projects. You must identify EVERY item that requires subcontracting, renting, purchasing, or coordinating beyond standard ELV technician labor.
 
 PROJECT: ${context.projectName} | Type: ${context.projectType}
 LOCATION: ${context.projectLocation || 'Not specified'}
 PREVAILING WAGE: ${context.prevailingWage || 'Not specified'}
 WORK SHIFT: ${context.workShift || 'Standard'}
 
-YOUR MISSION: Identify ALL special conditions, equipment needs, subcontractors, permits, and risk factors.
+YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment rental, civil work, traffic control, site preparation, and specialty item needed to COMPLETE this installation from start to finish.
 
-CHECK FOR:
-1. Equipment Rentals: scissor lifts, boom lifts, scaffolding, trenchers
-2. Subcontractors: core drilling, trenching, electrical, firestopping, structural
-3. Permits: fire alarm, low voltage, excavation, right-of-way, hot work
-4. Site Conditions: asbestos, occupied building, high security, weather exposure
-5. Special Materials: underground conduit, bollards, seismic bracing, plenum cable
-6. Tools: cable certifier, fusion splicer, thermal imager, OTDR
+═══ CHECK EVERY CATEGORY BELOW — DO NOT SKIP ANY ═══
+
+1. CONDUIT & RACEWAY (identify ALL conduit runs on plans):
+   - EMT conduit (3/4", 1", 1-1/4", 1-1/2", 2", 3", 4") — indoor exposed/concealed runs
+   - Rigid/IMC conduit — outdoor/wet locations, exposed areas
+   - PVC Schedule 40/80 — underground, direct burial, outdoor
+   - Liquid-tight flexible conduit (LFMC) — equipment connections, transitions
+   - Flex/FMC — short equipment whips
+   - Conduit fittings: couplings, connectors, elbows, LBs, condulets, expansion fittings
+   - Conduit straps, hangers, trapeze supports, Unistrut/channel
+   - Pull boxes, junction boxes (NEMA 1, 3R, 4X)
+   - Innerduct/microduct for fiber pathways
+
+2. UNDERGROUND & CIVIL WORK (check site plans, exterior routes):
+   - Trenching: open-cut trenching for conduit runs (depth, length, surface type)
+   - Backfilling: sand bedding, compacted backfill, soil disposal
+   - Directional boring/drilling: under roadways, parking lots, sidewalks, landscaping
+   - Backhoe/mini-excavator rental or subcontractor
+   - Handholes & pull boxes: polymer/concrete (underground splice points)
+   - Direct-buried conduit: PVC schedule 40/80 with warning tape
+   - Concrete encasement (if required by specs or crossing utilities)
+   - Utility locating (811/USA North) before any excavation
+   - Saw cutting: asphalt, concrete (for trench routing)
+   - Asphalt/concrete patching & restoration after trenching
+   - Landscape restoration: sod, irrigation repair, hardscape repair
+   - Bollard installation for equipment protection
+
+3. TRAFFIC CONTROL & SAFETY (for any work in roads, parking, or public areas):
+   - Flagmen/flaggers (certified, per shift — REQUIRED for roadway work)
+   - Traffic cones, delineators, barricades, channelizers
+   - Arrow boards, variable message signs (VMS)
+   - Traffic control plan (TCP) — engineering/design by licensed engineer
+   - Lane closure permits, encroachment permits
+   - High-visibility vests, signage, temporary striping
+   - Police escort/detail (if required by jurisdiction)
+
+4. SETUP, MOBILIZATION & TEARDOWN:
+   - Mobilization/demobilization of tools, materials, equipment
+   - Job trailer or storage container rental (if long-duration project)
+   - Temporary power setup and removal
+   - Temporary lighting for after-hours work
+   - Material staging area setup
+   - Daily cleanup and debris removal
+   - Final cleanup and demobilization
+   - Dumpster/waste container rental
+
+5. EQUIPMENT RENTALS:
+   - Scissor lifts (electric indoor, rough-terrain outdoor)
+   - Boom lifts / articulating lifts (for high exterior work)
+   - Scaffolding (stationary, rolling, suspended)
+   - Telehandler/forklift (for heavy material handling)
+   - Backhoe/mini-excavator (for trenching)
+   - Trencher (ride-on or walk-behind)
+   - Directional drill rig (for horizontal boring)
+   - Concrete saw / asphalt saw
+   - Cable puller/tugger (for long conduit pulls)
+   - Vacuum truck (for potholing/utility locating)
+
+6. SUBCONTRACTORS TO PRICE:
+   - Core drilling (concrete floors, walls, foundations) — price per hole by diameter
+   - Directional boring/drilling — price per linear foot by diameter
+   - Trenching & backfilling — price per linear foot by depth and surface
+   - Electrical contractor (for dedicated circuits, new panels, grounding)
+   - Firestopping (rated penetration seals per UL listing)
+   - Concrete/masonry (patching, new pads, bollard bases)
+   - Asphalt paving/patching
+   - Painting/patching (wall restoration after surface-mount work)
+   - Roofing (for any roof penetrations — weatherproofing)
+   - Structural engineer (for heavy equipment mounting, seismic)
+   - General contractor/GC coordination fees
+   - Crane service (for heavy rooftop equipment placement)
+   - Fencing contractor (for perimeter security installations)
+   - Landscaping (restoration after underground work)
+
+7. PERMITS & INSPECTIONS:
+   - Fire alarm permit (AHJ)
+   - Low voltage/telecom permit
+   - Building permit (if structural modifications)
+   - Excavation/grading permit
+   - Right-of-way / encroachment permit
+   - Hot work permit (welding near combustibles)
+   - AHJ fire alarm inspection fees
+   - City/county inspection fees
+   - Utility crossing permits (water, gas, sewer, power)
+
+8. SPECIALTY TOOLS & TESTING EQUIPMENT:
+   - Cable certifier (Fluke DSX/Versiv) — rental or technician time
+   - Fusion splicer + cleaver (for fiber termination)
+   - OTDR (optical time-domain reflectometer)
+   - Thermal imager (for cable tray/pathway routing)
+   - Pipe/cable locator (for underground detection)
+   - Concrete scanner (GPR for rebar/conduit detection before drilling)
+   - Hydraulic knockout punch set
+   - Conduit bender (hand, electric, hydraulic by size)
+   - Wire/cable pulling equipment (tugger, swivels, pulling eyes, lubricant)
+
+9. SITE CONDITIONS & CONSTRAINTS:
+   - Asbestos/lead paint (pre-1980 buildings — environmental survey REQUIRED)
+   - Occupied building restrictions (work hours, noise, dust containment)
+   - High-security facility (background checks, escorts, clearance wait times)
+   - Hazardous locations (Class I/II/III div 1/2 — explosion-proof equipment)
+   - Clean room / data center (anti-static, limited access windows)
+   - Weather exposure (outdoor work — rain days, heat, cold)
+   - Height work (OSHA fall protection for work >6ft)
+   - Confined space entry
+   - Union requirements (if applicable)
+
+10. SAFETY & COMPLIANCE:
+    - OSHA 10/30 certification requirements
+    - Site-specific safety orientation/training
+    - Drug testing / background checks
+    - PPE beyond standard (hard hats, harnesses, respirators)
+    - Safety barriers and caution tape
+
+11. FIBER OPTIC SPECIALTY:
+    - Fusion splicing services
+    - Fiber testing and certification
+    - Fiber entrance facility equipment
+    - Telephone company coordination for DEMARC
+    - ISP/carrier circuit ordering lead time
+
+12. PROJECT MANAGEMENT & COORDINATION:
+    - GC coordination meetings and schedule alignment
+    - As-built documentation and closeout packages
+    - O&M manual preparation
+    - Training for building staff/owner
+    - Warranty administration
+    - Project management software/tools
+
+13. SPECIALTY MATERIALS (not in standard ELV takeoff):
+    - Underground warning tape ("Caution: Buried Cable")
+    - Pull string/mule tape for conduit
+    - Conduit spacers for duct bank
+    - Cable pulling lubricant
+    - Weatherproof boxes and covers (NEMA 3R/4X)
+    - UV-rated cable ties and supports (outdoor)
+    - Seismic bracing (anchors, bracing wire, clips)
+    - Plenum-rated materials (where required by code)
+
+14. TEMPORARY SERVICES:
+    - Temporary internet/network for commissioning and programming
+    - Temporary phone/radio communication
+    - Generator rental (if no permanent power available)
+    - Portable restroom (remote locations)
+
+CRITICAL: Be EXHAUSTIVE. If you see ANY exterior conduit runs, underground pathways, parking lot crossings, road crossings, or rooftop equipment on the plans, you MUST include the associated civil work, trenching, boring, traffic control, and restoration. Missing these items leads to MASSIVE cost overruns.
 
 Return ONLY valid JSON:
 {
   "equipment_rentals": [
     { "item": "Scissor Lift", "duration_days": 20, "daily_rate": 185, "reason": "Ceiling height 15ft+" }
   ],
+  "conduit_infrastructure": [
+    { "type": "EMT 1-inch", "quantity_ft": 500, "location": "Above ceiling corridors", "install_method": "straps on unistrut" },
+    { "type": "PVC Schedule 40 2-inch", "quantity_ft": 200, "location": "Underground parking lot to building", "install_method": "direct burial 24-inch depth" }
+  ],
+  "civil_work": [
+    { "scope": "Directional boring", "distance_ft": 150, "diameter": "2-inch", "surface": "Under parking lot", "est_cost_range": "$3000-$5000" },
+    { "scope": "Open-cut trenching", "distance_ft": 300, "depth_in": 24, "surface": "Grass/landscape", "est_cost_range": "$2000-$3500" }
+  ],
+  "traffic_control": [
+    { "item": "Certified Flaggers", "duration_days": 3, "daily_rate": 450, "reason": "Road crossing boring operation" },
+    { "item": "Traffic Control Plan", "est_cost": 1500, "reason": "Required by city for lane closure" },
+    { "item": "Cones/barricades/arrow board", "duration_days": 3, "daily_rate": 200, "reason": "Parking lot work zone safety" }
+  ],
   "subcontractors": [
-    { "trade": "Core Drilling", "scope": "12 penetrations through concrete floors", "est_cost_range": "$3000-$5000" }
+    { "trade": "Core Drilling", "scope": "12 penetrations through concrete floors", "est_cost_range": "$3000-$5000" },
+    { "trade": "Directional Boring", "scope": "150ft bore under parking lot for 2-inch conduit", "est_cost_range": "$4500-$7000" },
+    { "trade": "Asphalt Patching", "scope": "Restore 2 saw cuts in parking lot", "est_cost_range": "$800-$1500" }
+  ],
+  "setup_teardown": [
+    { "item": "Mobilization", "est_cost": 2500, "details": "Initial delivery of tools, lifts, materials" },
+    { "item": "Demobilization", "est_cost": 1500, "details": "Final cleanup, equipment return, site restoration" },
+    { "item": "Daily cleanup", "duration_days": 30, "daily_cost": 150, "details": "Debris removal, work area maintenance" }
   ],
   "permits": [
-    { "type": "Fire Alarm Permit", "jurisdiction": "City", "est_cost": 500, "lead_time_days": 14 }
+    { "type": "Fire Alarm Permit", "jurisdiction": "City", "est_cost": 500, "lead_time_days": 14 },
+    { "type": "Excavation Permit", "jurisdiction": "City", "est_cost": 300, "lead_time_days": 7 }
   ],
   "site_conditions": [
     { "condition": "Occupied building", "impact": "Work restricted to nights/weekends in patient areas", "cost_impact": "$$" }
@@ -857,8 +1044,11 @@ ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 600
 ═══ LABOR CALCULATOR OUTPUT (USE THESE EXACT TOTALS) ═══
 ${JSON.stringify(context.wave2_25?.LABOR_CALCULATOR || {}, null, 2).substring(0, 6000)}
 
-SPECIAL CONDITIONS:
-${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 3000)}
+SPECIAL CONDITIONS (includes subcontractors, civil work, traffic control, setup/teardown):
+${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 6000)}
+
+CABLE & PATHWAY DATA (includes conduit runs, underground pathways):
+${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)}
 
 CRITICAL RULES:
 1. Your total_materials MUST EXACTLY EQUAL the Material Pricer's "total_with_markup" value (NOT "grand_total" — that is the base cost before markup). The sell price is what goes into the SOV and project summary.
@@ -867,6 +1057,10 @@ CRITICAL RULES:
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total
 6. The project_summary grand_total must include: total_materials + total_labor + total_equipment + total_subcontractors + total_travel + contingency
+7. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
+8. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
+9. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
+10. Include a separate SOV line item for "Civil Work & Site Restoration" if underground/exterior work exists
 
 GENERATE:
 1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
