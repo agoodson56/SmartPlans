@@ -702,12 +702,53 @@ function renderStep0(container) {
     <div class="info-card info-card--amber" style="margin-bottom:16px;">
       <div class="info-card-title">⚖️ Prevailing Wage Active</div>
       <div class="info-card-body">
-        Labor costs will be calculated using DOL wage determinations. The analysis will include:<br>
-        <div>• Correct wage classifications per ELV trade</div>
-        <div>• Base hourly rate + fringe benefits = loaded rate</div>
-        <div>• Certified payroll requirements</div>
-        <div>• Apprentice ratio guidelines</div>
-        <div style="margin-top:6px;color:var(--accent-amber);font-weight:600;">💡 Tip: Enter the project location above so the correct county/locality wage rates can be applied.</div>
+        Labor costs will be calculated using ${state.prevailingWage === 'davis-bacon' ? 'federal Davis-Bacon' : state.prevailingWage === 'state-prevailing' ? 'CA DIR' : 'PLA'} wage determinations.<br>
+
+        <div class="form-group" style="margin-top:12px;margin-bottom:8px;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="pw-county">📍 California County</label>
+          <select class="form-select" id="pw-county" style="font-size:13px;">
+            <option value="">— Select county for auto-rates —</option>
+            ${typeof CA_PREVAILING_WAGES !== 'undefined' ? CA_PREVAILING_WAGES.getCounties().map(c =>
+              `<option value="${c}" ${state._pwCounty === c ? 'selected' : ''}>${c} County</option>`
+            ).join('') : ''}
+          </select>
+        </div>
+
+        ${state._pwCounty && typeof CA_PREVAILING_WAGES !== 'undefined' ? (() => {
+          const wageType = state.prevailingWage === 'davis-bacon' ? 'davis-bacon' : 'dir';
+          const rates = CA_PREVAILING_WAGES.getRates(state._pwCounty, wageType);
+          const zoneLabel = CA_PREVAILING_WAGES.getZoneLabel(state._pwCounty);
+          const blended = CA_PREVAILING_WAGES.getBlendedRate(state._pwCounty, wageType);
+          if (!rates) return '';
+          const fmt = n => '$' + n.toFixed(2);
+          return `
+        <div style="margin-top:8px;padding:10px 14px;background:rgba(235,179,40,0.08);border-radius:8px;border:1px solid rgba(235,179,40,0.2);font-size:11px;">
+          <div style="font-weight:700;color:var(--accent-amber);margin-bottom:6px;">${zoneLabel}</div>
+          <div style="display:grid;grid-template-columns:1fr auto auto;gap:2px 10px;font-size:11px;">
+            <div style="font-weight:600;color:var(--text-muted);">Classification</div>
+            <div style="font-weight:600;color:var(--text-muted);text-align:right;">Base</div>
+            <div style="font-weight:600;color:var(--text-muted);text-align:right;">Loaded</div>
+            <div>Comm Installer → Journeyman</div><div style="text-align:right;">${fmt(rates.comm_installer.base)}</div><div style="text-align:right;font-weight:600;color:var(--accent-amber);">${fmt(rates.comm_installer.total)}</div>
+            <div>Comm Technician → Lead</div><div style="text-align:right;">${fmt(rates.comm_tech.base)}</div><div style="text-align:right;font-weight:600;color:var(--accent-amber);">${fmt(rates.comm_tech.total)}</div>
+            <div>Foreman (Tech +${rates.foreman_pct}%)</div><div style="text-align:right;">—</div><div style="text-align:right;font-weight:600;color:var(--accent-amber);">${fmt(rates.comm_tech.total * (1 + rates.foreman_pct/100))}</div>
+            <div>Apprentice (${rates.apprentice_pct}%)</div><div style="text-align:right;">—</div><div style="text-align:right;font-weight:600;color:var(--accent-amber);">${fmt(rates.comm_installer.total * rates.apprentice_pct/100)}</div>
+            <div>Electrician (PM/Programmer)</div><div style="text-align:right;">${fmt(rates.electrician.base)}</div><div style="text-align:right;font-weight:600;color:var(--accent-amber);">${fmt(rates.electrician.total)}</div>
+          </div>
+          <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(235,179,40,0.2);font-weight:700;color:var(--accent-amber);">
+            Blended Crew Rate: ${fmt(blended.blended)}/hr
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Mix: 60% Installer + 25% Tech + 10% Foreman + 5% Apprentice</div>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--accent-amber);font-weight:600;">✓ Labor rates auto-populated from ${wageType === 'davis-bacon' ? 'Davis-Bacon' : 'CA DIR'} determination</div>`;
+        })() : `
+        <div style="margin-top:6px;color:var(--accent-amber);font-weight:600;">💡 Select a county above to auto-populate labor rates</div>`}
+
+        <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">
+          <div>• Correct wage classifications per ELV trade</div>
+          <div>• Base hourly rate + fringe benefits = loaded rate</div>
+          <div>• Certified payroll requirements</div>
+          <div>• Apprentice ratio guidelines</div>
+        </div>
       </div>
     </div>
     ` : ""}
@@ -968,6 +1009,30 @@ function renderStep0(container) {
   const pwSelect = document.getElementById("prevailing-wage");
   pwSelect.value = state.prevailingWage;
   pwSelect.addEventListener("change", () => { state.prevailingWage = pwSelect.value; renderStep0(container); renderFooter(); });
+
+  // County prevailing wage dropdown
+  const pwCounty = document.getElementById("pw-county");
+  if (pwCounty) {
+    pwCounty.addEventListener("change", () => {
+      state._pwCounty = pwCounty.value;
+      if (pwCounty.value && typeof CA_PREVAILING_WAGES !== 'undefined') {
+        const wageType = state.prevailingWage === 'davis-bacon' ? 'davis-bacon' : 'dir';
+        const rates = CA_PREVAILING_WAGES.getRates(pwCounty.value, wageType);
+        if (rates) {
+          // Auto-populate labor rates with loaded (total) rates
+          state.laborRates.journeyman = rates.comm_installer.total;
+          state.laborRates.lead = rates.comm_tech.total;
+          state.laborRates.foreman = Math.round(rates.comm_tech.total * (1 + rates.foreman_pct / 100) * 100) / 100;
+          state.laborRates.apprentice = Math.round(rates.comm_installer.total * (rates.apprentice_pct / 100) * 100) / 100;
+          state.laborRates.pm = rates.electrician.total;
+          state.laborRates.programmer = rates.electrician.total;
+          // Fringes are already included in loaded rate, so disable burden
+          state.includeBurden = false;
+        }
+      }
+      renderStep0(container);
+    });
+  }
 
   const shiftSelect = document.getElementById("work-shift");
   shiftSelect.value = state.workShift;
