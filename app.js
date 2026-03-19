@@ -336,8 +336,8 @@ const state = {
   burdenRate: 35, // percentage
   includeBurden: true,
   markup: {
-    material: 25,
-    labor: 30,
+    material: 50,
+    labor: 50,
     equipment: 15,
     subcontractor: 10,
   },
