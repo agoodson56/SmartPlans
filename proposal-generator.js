@@ -196,13 +196,50 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     }
 
     if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData?.error?.message || `API Error: ${response.status}`);
+      const errText = await response.text().catch(() => '');
+      throw new Error(`API Error: ${response.status} — ${errText.substring(0, 200)}`);
     }
 
-    const data = await response.json();
-    const allParts = data?.candidates?.[0]?.content?.parts || [];
-    const proposalText = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+    // ── Read response (SSE streaming or JSON) ──
+    const contentType = response.headers.get('content-type') || '';
+    let proposalText = '';
+
+    if (contentType.includes('text/event-stream')) {
+      // Streaming SSE response — read chunks
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr || jsonStr === '[DONE]') continue;
+            try {
+              const chunk = JSON.parse(jsonStr);
+              const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
+              for (const p of chunkParts) {
+                if (p.text && !p.thought) proposalText += p.text;
+              }
+            } catch (e) {
+              // Skip malformed chunks
+            }
+          }
+        }
+      }
+    } else {
+      // Plain JSON response (fallback)
+      const data = await response.json();
+      const allParts = data?.candidates?.[0]?.content?.parts || [];
+      proposalText = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+    }
 
     if (!proposalText || proposalText.length < 500) {
       throw new Error('AI returned insufficient proposal content. Please try again.');

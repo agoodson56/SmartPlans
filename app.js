@@ -2658,17 +2658,44 @@ async function callGeminiAPI(progressCallback) {
   progressCallback(80, "Processing AI response…");
 
   if (!response.ok) {
-    const errData = await response.json().catch(() => ({}));
-    const msg = errData?.error?.message || `API Error: ${response.status} ${response.statusText}`;
-    throw new Error(msg);
+    const errText = await response.text().catch(() => '');
+    throw new Error(`API Error: ${response.status} — ${errText.substring(0, 200)}`);
   }
 
-  const data = await response.json();
-  progressCallback(95, "Compiling results…");
+  // ── Read response (SSE streaming or JSON) ──
+  const contentType = response.headers.get('content-type') || '';
+  let text = '';
 
-  // Extract text and validate response quality
-  const allParts = data?.candidates?.[0]?.content?.parts || [];
-  const text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join("\n") || "";
+  if (contentType.includes('text/event-stream')) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr || jsonStr === '[DONE]') continue;
+          try {
+            const chunk = JSON.parse(jsonStr);
+            const cp = chunk?.candidates?.[0]?.content?.parts || [];
+            for (const p of cp) { if (p.text && !p.thought) text += p.text; }
+          } catch (e) {}
+        }
+      }
+    }
+  } else {
+    const data = await response.json();
+    progressCallback(95, "Compiling results…");
+    const allParts = data?.candidates?.[0]?.content?.parts || [];
+    text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join("\n") || "";
+  }
+
+  progressCallback(95, "Compiling results…");
   if (!text || text.length < 100) {
     throw new Error("AI returned an empty or incomplete response. Please try again.");
   }
@@ -2877,9 +2904,37 @@ ${primaryAnalysis.substring(0, 28000)}
     return null;
   }
 
-  const data = await response.json();
-  const allParts = data?.candidates?.[0]?.content?.parts || [];
-  const text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join("\n") || "";
+  // ── Read response (SSE streaming or JSON) ──
+  const vContentType = response.headers.get('content-type') || '';
+  let text = '';
+
+  if (vContentType.includes('text/event-stream')) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr || jsonStr === '[DONE]') continue;
+          try {
+            const chunk = JSON.parse(jsonStr);
+            const cp = chunk?.candidates?.[0]?.content?.parts || [];
+            for (const p of cp) { if (p.text && !p.thought) text += p.text; }
+          } catch (e) {}
+        }
+      }
+    }
+  } else {
+    const data = await response.json();
+    const allParts = data?.candidates?.[0]?.content?.parts || [];
+    text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join("\n") || "";
+  }
 
   if (text && text.length > 50) {
     console.log('[SmartPlans] ✓ Verification pass completed');
