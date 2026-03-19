@@ -250,10 +250,29 @@ const SmartBrains = {
   // ═══════════════════════════════════════════════════════════
 
   _buildFileParts(brainDef, encodedFiles) {
+    // Supported MIME types for Gemini API
+    const SUPPORTED_MIMES = new Set([
+      'application/pdf',
+      'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
+      'text/plain', 'text/csv', 'text/html', 'text/css', 'text/javascript',
+      'application/json', 'application/xml',
+    ]);
+
     const parts = [];
     for (const category of brainDef.needsFiles) {
       const files = encodedFiles[category] || [];
       for (const f of files) {
+        // Skip unsupported file types (Word, Excel, PowerPoint, etc.)
+        if (f.mimeType && !SUPPORTED_MIMES.has(f.mimeType) && !f.fileUri) {
+          console.warn(`[SmartBrains] Skipping unsupported file: ${f.name} (${f.mimeType})`);
+          // Still include extracted text if available
+          if (f.extractedText) {
+            parts.push({ text: `\n--- FILE: ${f.name} (${f.category}) ---` });
+            parts.push({ text: `\n[EXTRACTED TEXT FROM ${f.name}]\n${f.extractedText}` });
+          }
+          continue;
+        }
+
         parts.push({ text: `\n--- FILE: ${f.name} (${f.category}) ---` });
 
         if (f.fileUri) {
@@ -284,6 +303,9 @@ const SmartBrains = {
     const modelName = brainDef.useProModel ? (this.config.proModel || this.config.model) : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
     const url = this.config.proxyEndpoint;
 
+    // Check for uploaded file URIs — needed for key pinning in both main loop and fallback
+    const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const parts = [{ text: promptText }, ...fileParts];
       // Low temperature for deterministic construction analysis
@@ -302,7 +324,6 @@ const SmartBrains = {
       // Files uploaded via Gemini File API are owned by the uploading project (slot 0).
       // Brains referencing fileUri MUST use keys from the same project or get 403.
       // Upload uses brainSlot 0, so pin file-referencing brains to slots 0-4 (same project).
-      const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
       let keySlot;
       if (hasUploadedFiles) {
         // Pin to upload project — rotate within slots 0-4 only
