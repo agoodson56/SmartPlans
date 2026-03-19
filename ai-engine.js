@@ -1056,7 +1056,7 @@ Return ONLY valid JSON:
 
 PROJECT: ${context.projectName}
 PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}× multiplier)
-MATERIAL MARKUP: ${context.markup?.material || 25}%
+MATERIAL MARKUP: ${context.markup?.material || 50}%
 
 ═══ SELECTED DISCIPLINES (you MUST price ALL of these) ═══
 ${disciplineChecklist}
@@ -1131,7 +1131,7 @@ Return ONLY valid JSON:
   "waste_factor_total": 0,
   "spare_parts_total": 0,
   "consumables_total": 0,
-  "markup_pct": ${context.markup?.material || 25},
+  "markup_pct": ${context.markup?.material || 50},
   "total_with_markup": 156250.00
 }`;
       },
@@ -1148,7 +1148,7 @@ Return ONLY valid JSON:
         return `You are a CONSTRUCTION LABOR ESTIMATOR using NECA labor standards.
 
 PROJECT: ${context.projectName} | Type: ${context.projectType}
-LABOR MARKUP: ${context.markup?.labor || 30}%
+LABOR MARKUP: ${context.markup?.labor || 50}%
 BURDEN RATE: ${context.includeBurden ? context.burdenRate + '%' : 'Not applied'}
 PREVAILING WAGE: ${context.prevailingWage || 'No'}
 WORK SHIFT: ${context.workShift || 'Standard'}
@@ -1280,7 +1280,7 @@ Return ONLY valid JSON:
   "total_non_field_hours": 0,
   "total_hours": 1200,
   "total_base_cost": 78000.00,
-  "markup_pct": ${context.markup?.labor || 30},
+  "markup_pct": ${context.markup?.labor || 50},
   "total_with_markup": 101400.00,
   "crew_recommendation": { "journeyman": 3, "apprentice": 2, "foreman": 1, "pm": 1, "duration_weeks": 8 }
 }`;
@@ -1291,7 +1291,7 @@ Return ONLY valid JSON:
 
 PROJECT: ${context.projectName} | Location: ${context.projectLocation || 'Not specified'}
 PREVAILING WAGE: ${context.prevailingWage || 'No'}
-MARKUP: Material ${context.markup?.material || 25}% | Labor ${context.markup?.labor || 30}% | Equipment ${context.markup?.equipment || 15}% | Subcontractor ${context.markup?.subcontractor || 10}%
+MARKUP: Material ${context.markup?.material || 50}% | Labor ${context.markup?.labor || 50}% | Equipment ${context.markup?.equipment || 15}% | Subcontractor ${context.markup?.subcontractor || 10}%
 
 ═══ MATERIAL PRICER OUTPUT (USE THESE EXACT TOTALS) ═══
 ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 6000)}
@@ -1462,8 +1462,8 @@ Return ONLY valid JSON:
 
       // ── BRAIN 10: Report Writer ──────────────────────────────
       REPORT_WRITER: () => {
-        const matMarkup = context.markup?.material || 25;
-        const labMarkup = context.markup?.labor || 30;
+        const matMarkup = context.markup?.material || 50;
+        const labMarkup = context.markup?.labor || 50;
         const eqMarkup = context.markup?.equipment || 15;
         const subMarkup = context.markup?.subcontractor || 10;
         return `You are a SENIOR CONSTRUCTION ESTIMATOR producing a COMPLETE BID PACKAGE.

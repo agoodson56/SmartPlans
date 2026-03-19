@@ -380,8 +380,8 @@ const PRICING_DB = {
             },
         },
         markup: {
-            material: 25, // percentage markup
-            labor: 30,
+            material: 50, // percentage markup
+            labor: 50,
             equipment: 15,
             subcontractor: 10,
         },
