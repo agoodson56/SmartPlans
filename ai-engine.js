@@ -1326,6 +1326,28 @@ ${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 
 CABLE & PATHWAY DATA (includes conduit runs, underground pathways):
 ${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)}
 
+═══ TRAVEL & PER DIEM COSTS ═══
+${context.travel?.enabled ? (() => {
+  const t = context.travel;
+  const totalNights = t.crewSize * t.numTrips * t.daysPerTrip;
+  const hotel = totalNights * t.hotelPerNight;
+  const perdiem = totalNights * t.perDiemPerDay;
+  const mileage = t.numTrips * (t.mileageRoundTrip || 0) * t.mileageRate;
+  const airfare = t.crewSize * t.numTrips * (t.airfarePerPerson || 0);
+  const rental = t.numTrips * t.daysPerTrip * (t.rentalCarPerDay || 0);
+  const parking = t.numTrips * t.daysPerTrip * (t.parkingPerDay || 0);
+  const total = hotel + perdiem + mileage + airfare + rental + parking;
+  return `TRAVEL IS REQUIRED — use these EXACT pre-calculated amounts:
+Hotel: $${hotel.toFixed(2)} (${totalNights} nights × $${t.hotelPerNight}/night)
+Per Diem (meals): $${perdiem.toFixed(2)} (${totalNights} person-days × $${t.perDiemPerDay}/day)
+Mileage: $${mileage.toFixed(2)}
+Airfare: $${airfare.toFixed(2)}
+Rental Car: $${rental.toFixed(2)}
+Parking: $${parking.toFixed(2)}
+TOTAL TRAVEL: $${total.toFixed(2)}
+⚠️ YOU MUST include this $${total.toFixed(2)} as "total_travel" in the project summary. Do NOT skip it.`;
+})() : 'No travel costs — local project.'}
+
 CRITICAL RULES:
 1. Your total_materials MUST EXACTLY EQUAL the Material Pricer's "total_with_markup" value (NOT "grand_total" — that is the base cost before markup). The sell price is what goes into the SOV and project summary.
 2. Your total_labor MUST EXACTLY EQUAL the Labor Calculator's "total_with_markup" value (NOT the base cost)
@@ -2336,6 +2358,7 @@ Return ONLY valid JSON:
       workShift: state.workShift,
       specificItems: state.specificItems,
       knownQuantities: state.knownQuantities,
+      travel: state.travel,
       pricingContext: this._buildPricingContext(state),
       wave0: null, wave1: null, wave1_5: null, wave1_75: null,
       wave2: null, wave2_25: null, wave2_5_fin: null, wave2_75: null,

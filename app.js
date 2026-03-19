@@ -322,6 +322,22 @@ const state = {
   workShift: "",
   priorEstimate: "",
 
+  // Travel & Per Diem
+  travel: {
+    enabled: false,
+    crewSize: 4,
+    numTrips: 1,
+    daysPerTrip: 10,
+    hotelPerNight: 175,
+    perDiemPerDay: 79,     // GSA per diem rate
+    mileageRoundTrip: 0,   // miles
+    mileageRate: 0.70,     // IRS rate $/mile
+    airfarePerPerson: 0,
+    rentalCarPerDay: 85,
+    parkingPerDay: 25,
+  },
+  _travelOpen: false,
+
   // Pricing Configuration (loaded from PRICING_DB defaults)
   pricingTier: "mid",  // "budget", "mid", "premium"
   regionalMultiplier: "national_average",
@@ -730,6 +746,98 @@ function renderStep0(container) {
     </div>
 
     <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0 8px;"></div>
+    <div style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 0;" id="travel-toggle">
+      <span style="font-size:22px;">✈️</span>
+      <div>
+        <div style="font-weight:700;font-size:15px;color:var(--text-primary);">Travel & Per Diem</div>
+        <div style="font-size:12px;color:var(--text-muted);">Hotel, meals, mileage, airfare — for out-of-town projects</div>
+      </div>
+      <span style="margin-left:auto;font-size:18px;color:var(--text-muted);transition:transform 0.2s;" id="travel-chevron">${state._travelOpen ? '▼' : '▶'}</span>
+    </div>
+
+    <div id="travel-panel" style="display:${state._travelOpen ? 'block' : 'none'};margin-top:12px;">
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);">
+          <input type="checkbox" id="travel-enabled" ${state.travel.enabled ? 'checked' : ''} style="width:16px;height:16px;">
+          Include travel costs in estimate
+        </label>
+      </div>
+
+      ${state.travel.enabled ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-crew">Crew Size</label>
+          <input class="form-input travel-input" type="number" min="1" max="20" id="travel-crew" value="${state.travel.crewSize}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-trips">Number of Trips</label>
+          <input class="form-input travel-input" type="number" min="1" max="50" id="travel-trips" value="${state.travel.numTrips}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-days">Days Per Trip</label>
+          <input class="form-input travel-input" type="number" min="1" max="365" id="travel-days" value="${state.travel.daysPerTrip}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-hotel">Hotel $/night</label>
+          <input class="form-input travel-input" type="number" min="0" step="5" id="travel-hotel" value="${state.travel.hotelPerNight}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-perdiem">Per Diem $/day (meals)</label>
+          <input class="form-input travel-input" type="number" min="0" step="1" id="travel-perdiem" value="${state.travel.perDiemPerDay}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA rate: $79/day (most CA counties)</div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-mileage">Mileage (round trip miles)</label>
+          <input class="form-input travel-input" type="number" min="0" id="travel-mileage" value="${state.travel.mileageRoundTrip}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@ $${state.travel.mileageRate}/mile (IRS 2024)</div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-airfare">Airfare $/person</label>
+          <input class="form-input travel-input" type="number" min="0" step="25" id="travel-airfare" value="${state.travel.airfarePerPerson}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-rental">Rental Car $/day</label>
+          <input class="form-input travel-input" type="number" min="0" step="5" id="travel-rental" value="${state.travel.rentalCarPerDay}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-parking">Parking $/day</label>
+          <input class="form-input travel-input" type="number" min="0" step="5" id="travel-parking" value="${state.travel.parkingPerDay}" style="font-size:14px;padding:8px 10px;">
+        </div>
+      </div>
+
+      ${(() => {
+        const t = state.travel;
+        const totalNights = t.crewSize * t.numTrips * t.daysPerTrip;
+        const hotel = totalNights * t.hotelPerNight;
+        const perdiem = totalNights * t.perDiemPerDay;
+        const mileage = t.numTrips * t.mileageRoundTrip * t.mileageRate;
+        const airfare = t.crewSize * t.numTrips * t.airfarePerPerson;
+        const rental = t.numTrips * t.daysPerTrip * t.rentalCarPerDay;
+        const parking = t.numTrips * t.daysPerTrip * t.parkingPerDay;
+        const total = hotel + perdiem + mileage + airfare + rental + parking;
+        const fmt = n => '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        return `
+      <div class="info-card info-card--amber" style="margin-top:16px;">
+        <div class="info-card-title">🧮 Travel Cost Estimate</div>
+        <div class="info-card-body" style="font-size:12px;">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;">
+            <div>🏨 Hotel (${totalNights} nights × ${fmt(t.hotelPerNight)})</div><div style="text-align:right;font-weight:600;">${fmt(hotel)}</div>
+            <div>🍽️ Per Diem (${totalNights} person-days × ${fmt(t.perDiemPerDay)})</div><div style="text-align:right;font-weight:600;">${fmt(perdiem)}</div>
+            ${t.mileageRoundTrip > 0 ? `<div>🚗 Mileage (${t.numTrips} trips × ${t.mileageRoundTrip} mi)</div><div style="text-align:right;font-weight:600;">${fmt(mileage)}</div>` : ''}
+            ${t.airfarePerPerson > 0 ? `<div>✈️ Airfare (${t.crewSize} × ${t.numTrips} trips)</div><div style="text-align:right;font-weight:600;">${fmt(airfare)}</div>` : ''}
+            ${t.rentalCarPerDay > 0 ? `<div>🚙 Rental Car (${t.numTrips * t.daysPerTrip} days)</div><div style="text-align:right;font-weight:600;">${fmt(rental)}</div>` : ''}
+            ${t.parkingPerDay > 0 ? `<div>🅿️ Parking (${t.numTrips * t.daysPerTrip} days)</div><div style="text-align:right;font-weight:600;">${fmt(parking)}</div>` : ''}
+            <div style="border-top:1px solid rgba(255,255,255,0.15);padding-top:4px;font-weight:700;color:var(--accent-amber);">TOTAL TRAVEL</div>
+            <div style="border-top:1px solid rgba(255,255,255,0.15);padding-top:4px;text-align:right;font-weight:700;color:var(--accent-amber);font-size:14px;">${fmt(total)}</div>
+          </div>
+        </div>
+      </div>`;
+      })()}
+      ` : ''}
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0 8px;"></div>
     <div style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 0;" id="pricing-toggle">
       <span style="font-size:22px;">💲</span>
       <div>
@@ -866,6 +974,32 @@ function renderStep0(container) {
   shiftSelect.addEventListener("change", () => { state.workShift = shiftSelect.value; renderStep0(container); renderFooter(); });
 
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
+
+  // Travel panel toggle
+  document.getElementById('travel-toggle').addEventListener('click', () => {
+    state._travelOpen = !state._travelOpen;
+    renderStep0(container);
+  });
+
+  // Travel enabled checkbox
+  const travelEnabled = document.getElementById('travel-enabled');
+  if (travelEnabled) {
+    travelEnabled.addEventListener('change', () => { state.travel.enabled = travelEnabled.checked; renderStep0(container); });
+  }
+
+  // Travel inputs
+  const travelMap = {
+    'travel-crew': 'crewSize', 'travel-trips': 'numTrips', 'travel-days': 'daysPerTrip',
+    'travel-hotel': 'hotelPerNight', 'travel-perdiem': 'perDiemPerDay',
+    'travel-mileage': 'mileageRoundTrip', 'travel-airfare': 'airfarePerPerson',
+    'travel-rental': 'rentalCarPerDay', 'travel-parking': 'parkingPerDay',
+  };
+  document.querySelectorAll('.travel-input').forEach(input => {
+    input.addEventListener('change', e => {
+      const key = travelMap[e.target.id];
+      if (key) { state.travel[key] = parseFloat(e.target.value) || 0; renderStep0(container); }
+    });
+  });
 
   // Pricing panel toggle
   document.getElementById("pricing-toggle").addEventListener("click", () => {
