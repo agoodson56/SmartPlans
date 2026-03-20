@@ -519,7 +519,7 @@ const SmartPlansExport = {
                 code: phase.code,
                 name: phase.name,
                 description: phase.description,
-                phase: phase.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
+                phase: phase.name.toLowerCase().replace(/[-\s]+/g, '_').replace(/[^a-z0-9_]/g, '').replace(/_+/g, '_'),
                 task_type: 'phase',
                 budgeted_material: Math.round(projectTotalMaterial * phase.materialPct * 100) / 100,
                 budgeted_labor_hrs: Math.round(projectTotalLabor * phase.laborPct * 10) / 10,
