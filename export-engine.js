@@ -13,10 +13,13 @@ const SmartPlansExport = {
         const regionMult = PRICING_DB.regionalMultipliers[regionKey] || 1.0;
         const burdenMult = state.includeBurden ? (1 + state.burdenRate / 100) : 1.0;
 
+        // Pre-extract BOM for financials section
+        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+
         return {
             _meta: {
                 format: "smartplans-export",
-                version: "2.0",
+                version: "3.0",
                 generatedAt: now.toISOString(),
                 generatedBy: "SmartPlans — AI-Powered ELV Estimation",
                 appVersion: PRICING_DB.version,
@@ -67,6 +70,27 @@ const SmartPlansExport = {
                 rawMarkdown: state.aiAnalysis || "",
                 sections: this._parseAnalysisSections(state.aiAnalysis || ""),
                 error: state.aiError || null,
+            },
+
+            // ── Pre-structured financial data for SmartPM SOV import ──
+            // Each category becomes an SOV line item with material & labor costs.
+            // Every individual item has qty, unit cost, and extended cost for tracking.
+            financials: {
+                grandTotal: bom.grandTotal,
+                markup: { ...state.markup },
+                categories: bom.categories.map(cat => ({
+                    name: cat.name,
+                    subtotal: cat.subtotal,
+                    items: cat.items.map(item => ({
+                        name: item.item,
+                        qty: item.qty,
+                        unit: item.unit,
+                        unitCost: item.unitCost,
+                        extCost: item.extCost,
+                        category: item.category || 'other',
+                    })),
+                })),
+                totalLineItems: bom.categories.reduce((s, c) => s + c.items.length, 0),
             },
 
             rfis: this._extractRFIs(state),
