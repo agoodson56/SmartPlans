@@ -3631,6 +3631,41 @@ function _restoreStateFromPayload(id, pkg, est) {
   state.prevailingWage = pkg?.project?.prevailingWage || '';
   state.workShift = pkg?.project?.workShift || '';
 
+  // ── Restore file format (critical for confidence score) ──
+  state.fileFormat = pkg?.project?.fileFormat || '';
+
+  // ── Restore file metadata as placeholder objects ──
+  // Actual file blobs can't be serialized, but we preserve count/names
+  // so the confidence calculation and results stats are correct.
+  const docs = pkg?.documents || {};
+  if (docs.legendFiles && docs.legendFiles.length > 0 && state.legendFiles.length === 0) {
+    state.legendFiles = docs.legendFiles.map(f => ({ name: f.name, size: f.size || 0, type: f.type || '' }));
+  }
+  if (docs.planFiles && docs.planFiles.length > 0 && state.planFiles.length === 0) {
+    state.planFiles = docs.planFiles.map(f => ({ name: f.name, size: f.size || 0, type: f.type || '' }));
+  }
+  if (docs.specFiles && docs.specFiles.length > 0 && state.specFiles.length === 0) {
+    state.specFiles = docs.specFiles.map(f => ({ name: f.name, size: f.size || 0, type: f.type || '' }));
+  }
+  if (docs.addendaFiles && docs.addendaFiles.length > 0 && state.addendaFiles.length === 0) {
+    state.addendaFiles = docs.addendaFiles.map(f => ({ name: f.name, size: f.size || 0, type: f.type || '' }));
+  }
+  if (docs.totalSheets > 0 && state.planFiles.length === 0) {
+    // Fallback: create placeholder entries if we know the count
+    state.planFiles = Array.from({ length: docs.totalSheets }, (_, i) => ({ name: `Sheet ${i + 1}`, size: 0, type: '' }));
+  }
+  if (docs.totalSpecs > 0 && state.specFiles.length === 0) {
+    state.specFiles = Array.from({ length: docs.totalSpecs }, (_, i) => ({ name: `Spec Section ${i + 1}`, size: 0, type: '' }));
+  }
+
+  // ── Restore user inputs (affect accuracy score) ──
+  if (pkg?.userInputs) {
+    state.specificItems = pkg.userInputs.specificItems || '';
+    state.knownQuantities = pkg.userInputs.knownQuantities || '';
+    state.priorEstimate = pkg.userInputs.priorEstimate || '';
+    state.notes = pkg.userInputs.notes || '';
+  }
+
   if (pkg?.pricingConfig) {
     state.regionalMultiplier = pkg.pricingConfig.region || pkg.pricingConfig.regionalMultiplier || 'national_average';
     state.includeBurden = pkg.pricingConfig.burdenIncluded !== false && pkg.pricingConfig.includeBurden !== false;
