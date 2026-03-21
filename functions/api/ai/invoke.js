@@ -21,13 +21,18 @@ export async function onRequestPost(context) {
         delete body._brainSlot;
         delete body._model;
 
-        // Select API key for this brain slot
-        const keyNames = [
+        // Select API key — Tier 2 keys first (higher rate limits), then Tier 1 fallback
+        // Tier 2 (2000 RPM): keys 10-17 (SmartP3, SmartP4)
+        // Tier 1 (15 RPM):   keys 0-9  (SmartP1, SmartP2) — low-limit fallback
+        const tier2Keys = [
+            'GEMINI_KEY_10', 'GEMINI_KEY_11', 'GEMINI_KEY_12', 'GEMINI_KEY_13',
+            'GEMINI_KEY_14', 'GEMINI_KEY_15', 'GEMINI_KEY_16', 'GEMINI_KEY_17',
+        ];
+        const tier1Keys = [
             'GEMINI_KEY_0', 'GEMINI_KEY_1', 'GEMINI_KEY_2', 'GEMINI_KEY_3', 'GEMINI_KEY_4',
             'GEMINI_KEY_5', 'GEMINI_KEY_6', 'GEMINI_KEY_7', 'GEMINI_KEY_8', 'GEMINI_KEY_9',
-            'GEMINI_KEY_10', 'GEMINI_KEY_11', 'GEMINI_KEY_12', 'GEMINI_KEY_13', 'GEMINI_KEY_14',
-            'GEMINI_KEY_15', 'GEMINI_KEY_16', 'GEMINI_KEY_17',
         ];
+        const keyNames = [...tier2Keys, ...tier1Keys]; // Tier 2 always tried first
 
         let apiKey = null;
         let usedSlot = -1;
