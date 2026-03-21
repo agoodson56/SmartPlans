@@ -1600,10 +1600,22 @@ function renderStep6(container) {
         <div class="proposal-gen-btn__content">
           <span class="proposal-gen-btn__icon">📋</span>
           <div>
-            <div class="proposal-gen-btn__title">Generate Professional Proposal</div>
-            <div class="proposal-gen-btn__sub">Fortune 500-grade client proposal from 3D Technology Services Inc.</div>
+            <div class="proposal-gen-btn__title">Generate Full Proposal (10+ pages)</div>
+            <div class="proposal-gen-btn__sub">Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications</div>
           </div>
           <span class="proposal-gen-btn__arrow">→</span>
+        </div>
+      </button>
+
+      <button class="proposal-gen-btn" id="btn-generate-exec-proposal" style="margin-top:10px;background:linear-gradient(135deg,rgba(191,144,0,0.12),rgba(235,179,40,0.04));border:2px solid rgba(191,144,0,0.4);">
+        <div class="proposal-gen-btn__shine" style="background:linear-gradient(90deg,transparent,rgba(235,179,40,0.15),transparent);"></div>
+        <div class="proposal-gen-btn__content">
+          <span class="proposal-gen-btn__icon">⭐</span>
+          <div>
+            <div class="proposal-gen-btn__title" style="color:#BF9000;">Generate Executive Proposal (3 pages)</div>
+            <div class="proposal-gen-btn__sub">High-impact executive summary — visually stunning, concise, designed to impress decision-makers</div>
+          </div>
+          <span class="proposal-gen-btn__arrow" style="color:#BF9000;">→</span>
         </div>
       </button>
 
@@ -1765,17 +1777,48 @@ function renderStep6(container) {
         setTimeout(() => {
           proposalBtn.disabled = false;
           proposalBtn.classList.remove('error');
-          proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Professional Proposal';
-          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Fortune 500-grade client proposal from 3D Technology Services Inc.';
+          proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Full Proposal (10+ pages)';
+          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications';
         }, 5000);
       }).then(result => {
         // Only reset the button if the promise succeeded (result is undefined for catch path)
         if (result !== undefined || !proposalBtn.classList.contains('error')) {
           proposalBtn.disabled = false;
           proposalBtn.classList.remove('generating');
-          proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Professional Proposal';
-          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Fortune 500-grade client proposal from 3D Technology Services Inc.';
+          proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Full Proposal (10+ pages)';
+          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications';
         }
+      });
+    });
+  }
+
+  // Executive (3-page) Proposal Generator button
+  const execBtn = document.getElementById("btn-generate-exec-proposal");
+  if (execBtn) {
+    execBtn.addEventListener("click", () => {
+      execBtn.disabled = true;
+      execBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generating Executive Proposal…';
+      execBtn.querySelector('.proposal-gen-btn__sub').textContent = 'AI is crafting your 3-page executive summary — please wait';
+      execBtn.classList.add('generating');
+
+      ProposalGenerator.renderExecutiveProposal(state, (pct, msg) => {
+        execBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
+      }).catch(e => {
+        console.error('[ExecProposal] Failed:', e);
+        execBtn.querySelector('.proposal-gen-btn__title').textContent = '❌ Generation Failed';
+        execBtn.querySelector('.proposal-gen-btn__sub').textContent = e.message || 'Unknown error';
+        execBtn.classList.remove('generating');
+        if (typeof spToast === 'function') spToast('Executive proposal failed: ' + (e.message || 'Unknown error'), 'error');
+        setTimeout(() => {
+          execBtn.disabled = false;
+          execBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Executive Proposal (3 pages)';
+          execBtn.querySelector('.proposal-gen-btn__sub').textContent = 'High-impact executive summary — visually stunning, concise, designed to impress decision-makers';
+        }, 5000);
+      }).then(() => {
+        execBtn.disabled = false;
+        execBtn.classList.remove('generating');
+        execBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Executive Proposal (3 pages)';
+        execBtn.querySelector('.proposal-gen-btn__sub').textContent = 'High-impact executive summary — visually stunning, concise, designed to impress decision-makers';
       });
     });
   }

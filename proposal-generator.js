@@ -838,6 +838,337 @@ ACCEPTANCE & SIGNATURE BLOCK
     if (!amount || isNaN(amount)) return null;
     return '$' + Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
+
+  // ═══════════════════════════════════════════════════════════════
+  // EXECUTIVE PROPOSAL — Beautiful 3-page Fortune 500 summary
+  // ═══════════════════════════════════════════════════════════════
+
+  async renderExecutiveProposal(state, progressCallback) {
+    try {
+      const co = this.COMPANY;
+      const b = this.BRAND;
+      const projName = state.projectName || 'Untitled Project';
+      const projLoc = state.projectLocation || 'As Specified';
+      const preparedFor = state.preparedFor || projName;
+      const disciplines = (state.disciplines || []).join(', ') || 'Low Voltage Systems';
+      const today = new Date();
+      const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      const validUntil = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
+        .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      const refNum = `3DTSI-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 9000 + 1000)}`;
+      const year = today.getFullYear();
+      const analysisSummary = (state.aiAnalysis || '').substring(0, 12000);
+      const grandTotal = this._extractGrandTotal(state);
+      const grandTotalDisplay = grandTotal ? this._formatMoney(grandTotal) : 'See Detailed Proposal';
+
+      progressCallback(10, 'Crafting concise executive summary with AI…');
+
+      const prompt = `You are the Senior Proposal Manager at ${co.name}. Write a CONCISE, HIGH-IMPACT executive proposal summary for a client. This must be short but powerful — designed for busy executives.
+
+PROJECT: "${projName}"
+TYPE: ${state.projectType || 'Low Voltage Installation'}
+LOCATION: ${projLoc}
+DISCIPLINES: ${disciplines}
+DATE: ${dateStr}
+
+═══ BID ANALYSIS DATA ═══
+${analysisSummary}
+
+═══ RULES ═══
+- NEVER show internal costs, markups, or cost breakdowns. Show ONLY sell prices.
+- Be concise but compelling. Every word must earn its place.
+- Use specific quantities and data from the analysis — do NOT make up numbers.
+
+Write EXACTLY this structure in markdown:
+
+## Executive Summary
+Write 2-3 powerful paragraphs. Open with a compelling hook about the project. State the total scope concisely. Close with why ${co.name} is the best choice. Reference BICSI RCDD, NICET, and 20+ years.
+
+## Scope of Work
+A concise bullet list of what's included, organized by discipline. Use real quantities from the analysis data. Keep to 10-15 key items max.
+
+## Investment Summary
+Create a markdown table with these columns: | System | Description | Investment |
+Include 4-8 line items that summarize the major cost categories from the analysis. Add a TOTAL row at the bottom.
+
+## Key Differentiators
+3-4 bullet points on why ${co.name} is the best choice. Keep each to 1-2 sentences max.
+
+IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity.`;
+
+      const apiKey = window.__SMARTPLANS_KEY || '';
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 3000 },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`AI request failed (${response.status}): ${err.substring(0, 200)}`);
+      }
+
+      const data = await response.json();
+      const aiText = (data?.candidates?.[0]?.content?.parts || [])
+        .filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+
+      if (!aiText || aiText.length < 200) {
+        throw new Error('AI returned insufficient content. Please try again.');
+      }
+
+      progressCallback(60, 'Building executive Word document…');
+
+      const bodyHtml = this._markdownToHtml(aiText);
+
+      // ─── Build the 3-page Word document ───
+      const wordHtml = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns:v="urn:schemas-microsoft-com:vml"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="UTF-8">
+<meta name="ProgId" content="Word.Document">
+<meta name="Generator" content="SmartPlans v3.0 Executive">
+<title>${this._esc(projName)} — Executive Proposal | ${co.name}</title>
+<!--[if gte mso 9]>
+<xml>
+  <w:WordDocument>
+    <w:View>Print</w:View>
+    <w:Zoom>100</w:Zoom>
+    <w:DoNotOptimizeForBrowser/>
+  </w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+  @page { size: 8.5in 11in; margin: 0.7in 0.85in 0.8in 0.85in; mso-header-margin: 0.3in; mso-footer-margin: 0.4in; }
+  @page Section1 { mso-footer: f1; }
+  div.Section1 { page: Section1; }
+  body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.65; color: #222; margin: 0; padding: 0; }
+  .page-break { page-break-before: always; }
+  h2 { font-family: Calibri, Arial, sans-serif; font-size: 16pt; font-weight: bold; color: ${b.navy}; margin-top: 20pt; margin-bottom: 8pt; padding-bottom: 4pt; border-bottom: 3pt solid ${b.teal}; page-break-after: avoid; }
+  h3 { font-family: Calibri, Arial, sans-serif; font-size: 13pt; font-weight: bold; color: ${b.teal}; margin-top: 14pt; margin-bottom: 6pt; }
+  p { margin-top: 0; margin-bottom: 8pt; line-height: 1.65; }
+  ul, ol { margin-top: 4pt; margin-bottom: 8pt; }
+  li { margin-bottom: 3pt; line-height: 1.5; }
+  strong { color: ${b.navy}; }
+  em { color: ${b.teal}; }
+  table.data-table { width: 100%; border-collapse: collapse; margin: 8pt 0 14pt 0; font-size: 9.5pt; page-break-inside: avoid; }
+  table.data-table th { background: ${b.navy}; color: white; padding: 7pt 10pt; text-align: left; font-weight: bold; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5pt; border: 1pt solid ${b.navy}; }
+  table.data-table td { padding: 6pt 10pt; border: 1pt solid ${b.border}; vertical-align: top; }
+  .sig-line { border-bottom: 1pt solid #333; height: 28pt; margin-bottom: 3pt; }
+  .sig-label { font-size: 7.5pt; color: #888; text-transform: uppercase; letter-spacing: 1pt; font-weight: bold; margin-bottom: 14pt; }
+</style>
+</head>
+<body>
+
+<!-- Footer -->
+<div style="mso-element:footer" id="f1">
+  <p style="text-align:center;font-size:8pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding-top:4pt;border-top:1pt solid ${b.teal};">
+    3D CONFIDENTIAL
+  </p>
+</div>
+
+<div class="Section1">
+
+<!--
+═══════════════════════════════════════════════════════════
+PAGE 1 — STUNNING COVER PAGE
+═══════════════════════════════════════════════════════════
+-->
+
+<!-- Full-width navy header bar -->
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:-0.7in -0.85in 0 -0.85in;width:calc(100% + 1.7in);">
+  <tr><td bgcolor="${b.navy}" style="height:10pt;font-size:1pt;">&nbsp;</td></tr>
+  <tr><td bgcolor="${b.gold}" style="height:5pt;font-size:1pt;">&nbsp;</td></tr>
+</table>
+
+<br><br><br><br><br>
+
+<!-- Company Name -->
+<p style="font-size:36pt;font-weight:bold;color:${b.navy};margin-bottom:0;font-family:Calibri,Arial,sans-serif;letter-spacing:-0.5pt;">
+  ${co.name}
+</p>
+<p style="font-size:11pt;color:${b.teal};text-transform:uppercase;letter-spacing:5pt;font-weight:bold;margin-bottom:0;">
+  Systems Integration &amp; Technology Solutions
+</p>
+
+<!-- Gold divider -->
+<table width="250" cellpadding="0" cellspacing="0" border="0" style="margin:20pt 0;">
+  <tr><td bgcolor="${b.gold}" style="height:4pt;font-size:1pt;">&nbsp;</td></tr>
+</table>
+
+<!-- Document Type -->
+<p style="font-size:9pt;color:${b.gray};text-transform:uppercase;letter-spacing:6pt;font-weight:bold;margin-bottom:10pt;">
+  Executive Proposal
+</p>
+
+<!-- Project Name with gold accent -->
+<table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:6pt;">
+  <tr>
+    <td bgcolor="${b.gold}" style="width:6pt;">&nbsp;</td>
+    <td style="padding-left:18pt;">
+      <span style="font-size:28pt;font-weight:bold;color:${b.navy};font-family:Calibri,Arial,sans-serif;">${this._esc(projName)}</span>
+    </td>
+  </tr>
+</table>
+<p style="font-size:13pt;color:${b.gray};margin-left:24pt;margin-bottom:0;">${this._esc(projLoc)}</p>
+
+<br><br><br><br><br><br>
+
+<!-- Info Grid -->
+<table width="100%" cellpadding="12" cellspacing="0" border="0">
+  <tr>
+    <td bgcolor="${b.navy}" width="50%" style="color:white;vertical-align:top;border-right:3pt solid ${b.gold};">
+      <p style="font-size:7pt;color:${b.gold};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Prepared For</p>
+      <p style="font-size:13pt;color:white;font-weight:bold;margin-bottom:10pt;">${this._esc(preparedFor)}</p>
+      <p style="font-size:7pt;color:${b.gold};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Date</p>
+      <p style="font-size:11pt;color:white;margin-bottom:10pt;">${dateStr}</p>
+      <p style="font-size:7pt;color:${b.gold};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Reference</p>
+      <p style="font-size:11pt;color:white;margin-bottom:0;">${refNum}</p>
+    </td>
+    <td bgcolor="${b.navy}" width="50%" style="color:white;vertical-align:top;">
+      <p style="font-size:7pt;color:${b.gold};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Prepared By</p>
+      <p style="font-size:13pt;color:white;font-weight:bold;margin-bottom:1pt;">${co.consultant}</p>
+      <p style="font-size:9pt;color:rgba(255,255,255,0.7);margin-bottom:10pt;">${co.title}</p>
+      <p style="font-size:7pt;color:${b.gold};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Contact</p>
+      <p style="font-size:11pt;color:white;margin-bottom:1pt;">${co.email}</p>
+      <p style="font-size:11pt;color:white;margin-bottom:1pt;">${co.phone}</p>
+      <p style="font-size:9pt;color:rgba(255,255,255,0.7);margin-bottom:0;">${co.website}</p>
+    </td>
+  </tr>
+</table>
+
+<!-- Valid until -->
+<p style="font-size:8pt;color:${b.gray};text-align:center;margin-top:10pt;">
+  This proposal is valid for thirty (30) calendar days from ${dateStr} &middot; Valid until ${validUntil}
+</p>
+
+<!--
+═══════════════════════════════════════════════════════════
+PAGE 2 — EXECUTIVE SUMMARY, SCOPE & PRICING TABLE
+═══════════════════════════════════════════════════════════
+-->
+<div class="page-break"></div>
+
+<!-- Teal header bar for page 2 -->
+<table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:16pt;">
+  <tr>
+    <td bgcolor="${b.navy}" style="border-bottom:3pt solid ${b.gold};">
+      <span style="font-size:10pt;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-weight:bold;">${this._esc(projName)}</span>
+      <span style="font-size:9pt;color:rgba(255,255,255,0.6);float:right;">${co.name}</span>
+    </td>
+  </tr>
+</table>
+
+${bodyHtml}
+
+<!--
+═══════════════════════════════════════════════════════════
+PAGE 3 — TOTAL INVESTMENT & SIGNATURE
+═══════════════════════════════════════════════════════════
+-->
+<div class="page-break"></div>
+
+<!-- Header bar -->
+<table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:20pt;">
+  <tr>
+    <td bgcolor="${b.navy}" style="border-bottom:3pt solid ${b.gold};">
+      <span style="font-size:10pt;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-weight:bold;">Total Investment</span>
+      <span style="font-size:9pt;color:rgba(255,255,255,0.6);float:right;">${co.name}</span>
+    </td>
+  </tr>
+</table>
+
+<!-- Grand Total Box -->
+<table width="100%" cellpadding="24" cellspacing="0" border="0" style="margin-bottom:16pt;">
+  <tr>
+    <td bgcolor="${b.navy}" style="text-align:center;border:3pt solid ${b.gold};">
+      <p style="font-size:9pt;color:${b.gold};text-transform:uppercase;letter-spacing:4pt;font-weight:bold;margin-bottom:8pt;font-family:Calibri,Arial,sans-serif;">Total Project Investment</p>
+      <p style="font-size:36pt;font-weight:bold;color:white;margin-bottom:6pt;font-family:Calibri,Arial,sans-serif;">${grandTotalDisplay}</p>
+      <p style="font-size:9pt;color:rgba(255,255,255,0.7);margin-bottom:0;">Includes all materials, labor, equipment, and project management</p>
+    </td>
+  </tr>
+</table>
+
+<p style="font-size:9pt;color:${b.gray};text-align:center;margin-bottom:20pt;">
+  Pricing valid for thirty (30) calendar days from ${dateStr}.<br>
+  All prices subject to material availability at time of contract execution.
+</p>
+
+<!-- Acceptance Section -->
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8pt;">
+  <tr><td bgcolor="${b.teal}" style="height:3pt;font-size:1pt;">&nbsp;</td></tr>
+</table>
+<h2 style="border-bottom:none;margin-top:12pt;">Acceptance &amp; Authorization</h2>
+
+<p style="font-size:10pt;">By executing this document, the authorized representative accepts this proposal in its entirety. This constitutes a binding contract upon signature by both parties.</p>
+
+<br>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top">
+    <td width="47%">
+      <p style="font-size:9pt;color:${b.teal};font-weight:bold;text-transform:uppercase;letter-spacing:2pt;margin-bottom:4pt;">${co.name}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:4pt;"><tr><td bgcolor="${b.gold}" style="height:2pt;font-size:1pt;">&nbsp;</td></tr></table>
+      <br><br>
+      <div class="sig-line"></div><div class="sig-label">Authorized Signature</div>
+      <div class="sig-line"></div><div class="sig-label">Printed Name &amp; Title</div>
+      <div class="sig-line"></div><div class="sig-label">Date</div>
+    </td>
+    <td width="6%">&nbsp;</td>
+    <td width="47%">
+      <p style="font-size:9pt;color:${b.teal};font-weight:bold;text-transform:uppercase;letter-spacing:2pt;margin-bottom:4pt;">Client</p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:4pt;"><tr><td bgcolor="${b.gold}" style="height:2pt;font-size:1pt;">&nbsp;</td></tr></table>
+      <br><br>
+      <div class="sig-line"></div><div class="sig-label">Authorized Signature</div>
+      <div class="sig-line"></div><div class="sig-label">Printed Name &amp; Title</div>
+      <div class="sig-line"></div><div class="sig-label">Date</div>
+    </td>
+  </tr>
+</table>
+
+<br>
+
+<!-- Bottom bar -->
+<table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-top:20pt;">
+  <tr><td bgcolor="${b.navy}" align="center" style="font-size:7.5pt;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:2pt;font-family:Calibri,Arial,sans-serif;">
+    <span style="color:${b.gold};font-weight:bold;">${co.name}</span>
+    &nbsp;&nbsp;&middot;&nbsp;&nbsp;${co.address}, ${co.cityStateZip}
+    &nbsp;&nbsp;&middot;&nbsp;&nbsp;${co.website}
+  </td></tr>
+</table>
+
+</div></body></html>`;
+
+      progressCallback(90, 'Creating downloadable document…');
+
+      // Download
+      const blob = new Blob([wordHtml], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const safeName = projName.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
+      a.href = url;
+      a.download = `${safeName}_Executive_Proposal.doc`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
+
+      progressCallback(100, 'Executive proposal downloaded!');
+      if (typeof spToast === 'function') spToast('Executive proposal downloaded successfully!', 'success');
+
+    } catch (err) {
+      console.error('[ExecProposal] Error:', err);
+      if (typeof spToast === 'function') spToast('Executive proposal failed: ' + err.message, 'error');
+      throw err;
+    }
+  },
 };
 
 if (typeof window !== 'undefined') {
