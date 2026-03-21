@@ -211,8 +211,31 @@ const UsageStats = {
   start() {
     this.fetch();
     this._refreshInterval = setInterval(() => this.fetch(), 30000); // Refresh every 30s
-    // Show reset button only for estimator (admin) role
-    // This gets called again after login via the role system
+    
+    // Admin mode: tap logo 5 times to show reset button
+    this._adminClicks = 0;
+    this._adminTimer = null;
+    const logo = document.querySelector('.header-logo');
+    if (logo) {
+      logo.style.cursor = 'pointer';
+      logo.addEventListener('click', () => {
+        this._adminClicks++;
+        clearTimeout(this._adminTimer);
+        if (this._adminClicks >= 5) {
+          const btn = document.getElementById('btn-reset-stats');
+          if (btn) {
+            const isVisible = btn.style.display !== 'none';
+            btn.style.display = isVisible ? 'none' : 'inline-flex';
+            if (typeof spToast === 'function') {
+              spToast(isVisible ? '🔒 Admin tools hidden' : '🔓 Admin tools enabled', 'info');
+            }
+          }
+          this._adminClicks = 0;
+        } else {
+          this._adminTimer = setTimeout(() => { this._adminClicks = 0; }, 3000);
+        }
+      });
+    }
   },
 
   // ── Fetch stats from D1 ──
