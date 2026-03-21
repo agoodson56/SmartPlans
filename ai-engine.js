@@ -360,6 +360,17 @@ const SmartBrains = {
         });
         clearTimeout(timer);
 
+        if (response.status === 524) {
+          // Cloudflare timeout — request too heavy for 100s proxy limit
+          // Retry once with same key (transient), then give up (fundamental timeout)
+          if (attempt < 1) {
+            console.warn(`[Brain:${brainDef.name}] Cloudflare 524 timeout, retrying once…`);
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+          throw new Error(`Cloudflare 524 timeout — request exceeds 100s proxy limit. Brain skipped.`);
+        }
+
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
           const nextSlot = (brainDef.id + attempt + 1) % 18;
           const delay = this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500;
