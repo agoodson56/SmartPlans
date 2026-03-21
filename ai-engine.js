@@ -2452,46 +2452,34 @@ Return ONLY valid JSON:
 }`,
 
       // ── BRAIN 24: Zoom Scanner (Wave 1.5) ───────────────────────
-      ZOOM_SCANNER: () => `You are a HIGH-MAGNIFICATION ZOOM SCANNER performing a PRECISION SCAN of ELV device symbols. Unlike a standard full-sheet scan, you must mentally ZOOM INTO each area and count with extreme precision.
+      ZOOM_SCANNER: () => `You are a HIGH-MAGNIFICATION ZOOM SCANNER for ELV device symbols. Divide each sheet into 4 quadrants and count with extreme precision.
 
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
-LEGEND DICTIONARY (from Legend Decoder):
-${JSON.stringify(context.wave0?.LEGEND_DECODER || {}, null, 2).substring(0, 4000)}
+LEGEND (key symbols only):
+${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 2000)}
 
-FIRST READ COUNTS (from Wave 1 — for comparison only, do NOT copy these):
-${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 2000)}
-
-YOUR METHOD — ZOOM-AND-COUNT:
-For EACH sheet, divide it into 4 quadrants:
-- TOP-LEFT: Count every device symbol
-- TOP-RIGHT: Count every device symbol
-- BOTTOM-LEFT: Count every device symbol
-- BOTTOM-RIGHT: Count every device symbol
-Then add all 4 quadrants for the sheet total.
-
-PRECISION RULES:
-1. ZOOM mentally into dense areas — conference rooms, open offices, corridors
-2. Count devices at CORNERS and EDGES between quadrants carefully (don't double-count)
-3. Look for STACKED symbols (multiple devices at the same location)
-4. Check behind text annotations and dimensions that might obscure symbols
-5. Note any symbols that are partially cut off at sheet edges
+METHOD — For EACH sheet, divide into 4 quadrants (top-left, top-right, bottom-left, bottom-right):
+- Count every device symbol in each quadrant independently
+- Add all 4 quadrants for the sheet total
+- Pay special attention to: dense areas, stacked symbols, devices behind text
+- Don't double-count at quadrant boundaries
 
 Return ONLY valid JSON:
 {
   "quadrant_counts": [
     {
       "sheet_id": "E1.01",
-      "top_left": { "data_outlet": 12, "camera": 3, "card_reader": 2 },
-      "top_right": { "data_outlet": 15, "camera": 2, "card_reader": 1 },
-      "bottom_left": { "data_outlet": 8, "camera": 4, "card_reader": 3 },
-      "bottom_right": { "data_outlet": 10, "camera": 2, "card_reader": 1 },
-      "sheet_total": { "data_outlet": 45, "camera": 11, "card_reader": 7 }
+      "top_left": { "data_outlet": 12, "camera": 3 },
+      "top_right": { "data_outlet": 15, "camera": 2 },
+      "bottom_left": { "data_outlet": 8, "camera": 4 },
+      "bottom_right": { "data_outlet": 10, "camera": 2 },
+      "sheet_total": { "data_outlet": 45, "camera": 11 }
     }
   ],
   "zoom_findings": [
-    { "sheet_id": "E1.01", "description": "3 stacked WAPs behind title block text in bottom-right quadrant", "device_type": "wap", "additional_count": 3 }
+    { "sheet_id": "E1.01", "description": "3 stacked WAPs behind title block", "device_type": "wap", "additional_count": 3 }
   ],
   "grand_totals": {},
   "methodology": "4-quadrant zoom scan"

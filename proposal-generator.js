@@ -7,7 +7,7 @@
 const ProposalGenerator = {
 
   COMPANY: {
-    name: '3D Technology Services Inc.',
+    name: '3D Technology Services, Inc.',
     address: '11365 Sunrise Gold Circle',
     cityStateZip: 'Rancho Cordova, CA 95742',
     consultant: 'Justin Whitton',
@@ -147,7 +147,7 @@ Write comprehensive professional terms:
 - Prevailing wage: If applicable, all labor rates comply with DIR determinations
 - Force majeure: Neither party liable for delays beyond reasonable control
 
-## 8. Why Choose 3D Technology Services
+## 8. Why Choose 3D Technology Services, Inc.
 Write a compelling closing (3-4 paragraphs) covering:
 - Single-source accountability from design through ongoing support
 - Dedicated project manager and superintendent for every project  
@@ -253,6 +253,22 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
 
   async renderAndDownload(state, progressCallback, _unused) {
     try {
+      // Pre-load company logo as base64 for Word embedding
+      try {
+        const logoRes = await fetch('company-logo.png');
+        if (logoRes.ok) {
+          const blob = await logoRes.blob();
+          this._logoDataUri = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+          });
+        }
+      } catch (e) {
+        console.warn('[ProposalGen] Could not load logo, using text fallback');
+        this._logoDataUri = null;
+      }
+
       const proposalText = await this.generateProposal(state, progressCallback);
       progressCallback(70, 'Formatting Word document…');
       this._downloadWordDoc(state, proposalText, progressCallback);
@@ -431,23 +447,30 @@ COVER PAGE — Word-native table layout (renders perfectly)
   <tr><td bgcolor="${b.teal}" style="height:4pt;font-size:1pt;">&nbsp;</td></tr>
 </table>
 
-<br><br><br><br>
+<br>
 
-<!-- Company Name — Large, commanding -->
-<p style="font-size:32pt;font-weight:bold;color:${b.navy};margin-bottom:2pt;font-family:Calibri,Arial,sans-serif;">
-  ${co.name}
+<!-- Company Logo - loaded from hosted site -->
+${this._logoDataUri ? `<p style="margin-bottom:2pt;"><img src="${this._logoDataUri}" width="280" style="display:block;" alt="3D Technology Services, Inc."></p>` : `<p style="font-size:38pt;font-weight:bold;color:${b.gold};font-family:Calibri,Arial,sans-serif;margin-bottom:0;line-height:1.1;">3D</p>
+<p style="font-size:12pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:4pt;font-family:Calibri,Arial,sans-serif;">TECHNOLOGY SERVICES, Inc.</p>`}
+
+<!-- Company Name — Full text -->
+<p style="font-size:28pt;font-weight:bold;color:${b.navy};margin-bottom:2pt;margin-top:6pt;font-family:Calibri,Arial,sans-serif;">
+  3D Technology Services, Inc.
 </p>
-<p style="font-size:11pt;color:${b.teal};text-transform:uppercase;letter-spacing:4pt;font-weight:bold;margin-bottom:0;">
+<p style="font-size:10pt;color:${b.teal};text-transform:uppercase;letter-spacing:4pt;font-weight:bold;margin-bottom:0;">
   Systems Integration &amp; Technology Solutions
 </p>
 
-<!-- Gold divider line -->
-<table width="200" cellpadding="0" cellspacing="0" border="0" style="margin:16pt 0 24pt 0;">
-  <tr><td bgcolor="${b.gold}" style="height:3pt;font-size:1pt;">&nbsp;</td></tr>
+<!-- Gold accent block + Project Proposal label -->
+<table cellpadding="0" cellspacing="0" border="0" style="margin:16pt 0 24pt 0;">
+  <tr>
+    <td bgcolor="${b.gold}" style="width:60pt;height:42pt;">&nbsp;</td>
+    <td style="padding-left:0;vertical-align:bottom;">&nbsp;</td>
+  </tr>
 </table>
 
 <!-- Document Type -->
-<p style="font-size:10pt;color:${b.teal};text-transform:uppercase;letter-spacing:5pt;font-weight:bold;margin-bottom:8pt;">
+<p style="font-size:10pt;color:${b.teal};text-transform:uppercase;letter-spacing:5pt;font-weight:bold;margin-bottom:8pt;margin-top:-16pt;">
   Project Proposal
 </p>
 
@@ -532,7 +555,7 @@ TABLE OF CONTENTS
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">05</span> <span style="font-size:11pt;color:#222;">Project Timeline &amp; Milestones</span></td></tr>
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">06</span> <span style="font-size:11pt;color:#222;">Investment Summary</span></td></tr>
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">07</span> <span style="font-size:11pt;color:#222;">Terms &amp; Conditions</span></td></tr>
-  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">08</span> <span style="font-size:11pt;color:#222;">Why Choose 3D Technology Services</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">08</span> <span style="font-size:11pt;color:#222;">Why Choose 3D Technology Services, Inc.</span></td></tr>
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">09</span> <span style="font-size:11pt;color:#222;">Acceptance &amp; Authorization</span></td></tr>
 </table>
 
