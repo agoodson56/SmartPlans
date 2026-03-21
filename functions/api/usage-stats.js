@@ -69,11 +69,11 @@ export async function onRequestDelete(context) {
         const adminKey = url.searchParams.get('key');
 
         // Admin key MUST come from Cloudflare secret — no fallback
-        const serverKey = env.STATS_ADMIN_KEY;
+        const serverKey = (env.STATS_ADMIN_KEY || '').trim();
         if (!serverKey) {
             return Response.json({ error: 'Admin key not configured on server' }, { status: 500 });
         }
-        if (!adminKey || adminKey !== serverKey) {
+        if (!adminKey || adminKey.trim() !== serverKey) {
             return Response.json({ error: 'Unauthorized' }, { status: 403 });
         }
 
