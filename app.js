@@ -1606,6 +1606,15 @@ function renderStep6(container) {
           <span class="proposal-gen-btn__arrow">→</span>
         </div>
       </button>
+
+      <a href="https://smartpm.pages.dev/" target="_blank" rel="noopener" id="btn-open-smartpm" style="display:flex;align-items:center;gap:14px;padding:16px 20px;margin-top:14px;border-radius:12px;border:2px solid rgba(13,148,136,0.4);background:linear-gradient(135deg,rgba(13,148,136,0.08),rgba(13,148,136,0.02));color:var(--text-primary);text-decoration:none;cursor:pointer;transition:all 0.2s;">
+        <span style="font-size:28px;">🏗️</span>
+        <div style="flex:1;">
+          <div style="font-weight:700;font-size:14px;color:#0D9488;">Open SmartPM — Project Manager</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Import this estimate into SmartPM to track installation progress, labor hours, and material usage across your project.</div>
+        </div>
+        <span style="font-size:18px;color:#0D9488;">→</span>
+      </a>
     </div>
   `;
 
