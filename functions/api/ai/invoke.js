@@ -61,11 +61,17 @@ export async function onRequestPost(context) {
         // Return SSE stream to client IMMEDIATELY with keepalive comments.
         // Gemini fetch runs in background and pipes data when ready.
         // This prevents Cloudflare 524 timeouts no matter how long Gemini thinks.
-        const { readable, writable } = new TransformStream();
+        const encoder = new TextEncoder();
+        const { readable, writable } = new TransformStream({
+            start(controller) {
+                // CRITICAL: Enqueue first byte IMMEDIATELY so Cloudflare sees data
+                // right away — prevents any first-byte timeout
+                controller.enqueue(encoder.encode(': smartplans-proxy-connected\n\n'));
+            }
+        });
 
         const pipeTask = (async () => {
             const writer = writable.getWriter();
-            const encoder = new TextEncoder();
 
             // Send keepalive comment every 15 seconds — SSE spec ignores lines starting with ':'
             // This keeps the Cloudflare proxy connection alive
