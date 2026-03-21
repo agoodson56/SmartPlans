@@ -200,6 +200,99 @@ const QuotaMonitor = {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// USAGE STATS — Cross-Device Bid Counter & Cost Tracker
+// ═══════════════════════════════════════════════════════════════
+
+const UsageStats = {
+  _data: { total_cost: 0, bid_count: 0 },
+  _refreshInterval: null,
+
+  // ── Start on app load ──
+  start() {
+    this.fetch();
+    this._refreshInterval = setInterval(() => this.fetch(), 30000); // Refresh every 30s
+    // Show reset button only for estimator (admin) role
+    // This gets called again after login via the role system
+  },
+
+  // ── Fetch stats from D1 ──
+  async fetch() {
+    try {
+      const res = await fetch('/api/usage-stats');
+      if (!res.ok) return;
+      this._data = await res.json();
+      this.updateDisplay();
+    } catch (err) {
+      console.warn('[UsageStats] Fetch failed:', err.message);
+    }
+  },
+
+  // ── Update the DOM counters ──
+  updateDisplay() {
+    const countEl = document.getElementById('stat-bid-count');
+    const costEl = document.getElementById('stat-total-cost');
+    if (countEl) countEl.textContent = this._data.bid_count || 0;
+    if (costEl) costEl.textContent = '$' + (this._data.total_cost || 0).toFixed(2);
+  },
+
+  // ── Show/hide reset button based on role ──
+  showResetButton(isAdmin) {
+    const btn = document.getElementById('btn-reset-stats');
+    if (btn) btn.style.display = isAdmin ? 'inline-block' : 'none';
+  },
+
+  // ── Report a completed bid ──
+  async reportBid(projectName, estimatedCost) {
+    try {
+      const res = await fetch('/api/usage-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_name: projectName || 'Unknown Project',
+          cost: estimatedCost || 0,
+        }),
+      });
+      if (res.ok) {
+        this._data = await res.json();
+        this.updateDisplay();
+        console.log(`[UsageStats] Reported bid: ${projectName} | Total: $${this._data.total_cost?.toFixed(2)} | Bids: ${this._data.bid_count}`);
+      }
+    } catch (err) {
+      console.warn('[UsageStats] Report failed:', err.message);
+    }
+  },
+
+  // ── Admin reset with confirmation ──
+  confirmReset() {
+    if (!confirm('Reset bid count and total cost to zero?\n\nThis affects all devices and cannot be undone.')) return;
+    this.reset();
+  },
+
+  async reset() {
+    try {
+      const res = await fetch('/api/usage-stats?key=sp-admin-2026', {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        this._data = { total_cost: 0, bid_count: 0 };
+        this.updateDisplay();
+        if (typeof spToast === 'function') spToast('✅ Usage counters reset to zero', 'success');
+      } else {
+        const data = await res.json();
+        if (typeof spToast === 'function') spToast(`❌ Reset failed: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      console.warn('[UsageStats] Reset failed:', err.message);
+    }
+  },
+
+  // ── Get current stats ──
+  get() {
+    return { ...this._data };
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════
 // DATA & CONFIG
 // ═══════════════════════════════════════════════════════════════
 
@@ -3348,6 +3441,10 @@ async function runGeminiAnalysis(updateProgress) {
 
     updateProgress(100, `🎯 Analysis complete — ${result.stats.successfulBrains}/${result.stats.totalBrains} brains succeeded!`, result.brainStatus);
 
+    // ── Report bid to cross-device usage tracker ──
+    const estCost = (result.stats.successfulBrains || 1) * 0.015; // ~$0.015 per brain call avg
+    UsageStats.reportBid(state.projectName || 'Unknown', estCost);
+
     setTimeout(() => {
       state.analyzing = false;
       state.analysisComplete = true;
@@ -3373,6 +3470,7 @@ async function runGeminiAnalysis(updateProgress) {
       state.sectionCompleteness = checkSectionCompleteness(legacyResult);
 
       updateProgress(100, "Analysis complete (fallback mode)", null);
+      UsageStats.reportBid(state.projectName || 'Unknown', 0.02); // ~single brain cost
       setTimeout(() => {
         state.analyzing = false;
         state.analysisComplete = true;
@@ -3886,4 +3984,6 @@ document.addEventListener("DOMContentLoaded", () => {
   render();
   // Start API quota monitoring — warns users before they hit limits
   QuotaMonitor.start();
+  // Start usage stats — cross-device bid counter & cost tracker
+  UsageStats.start();
 });

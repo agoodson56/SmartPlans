@@ -79,9 +79,13 @@ body {
   background: rgba(13, 148, 136, 0.2);
 }
 
-option:checked,
-option:hover {
+option:checked {
   background: #0D9488 !important;
+  color: #FFFFFF !important;
+}
+
+option:hover {
+  background: #2563EB !important;
   color: #FFFFFF !important;
 }
 

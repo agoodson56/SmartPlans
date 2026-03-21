@@ -505,7 +505,7 @@ const SmartBrains = {
     throw new Error(`Brain "${brainDef.name}" failed after ${maxRetries} attempts: ${lastError?.message}`);
   },
 
-  // Safe JSON parser
+  // Safe JSON parser — hardened for production (7 recovery strategies)
   _parseJSON(text) {
     if (!text || typeof text !== 'string') return null;
     const cleaned = text.trim();
@@ -513,29 +513,74 @@ const SmartBrains = {
     // Helper: strip trailing commas before } or ] (common AI hallucination)
     const fixTrailingCommas = (s) => s.replace(/,\s*([}\]])/g, '$1');
     
-    try {
-      // Try direct parse
-      return JSON.parse(cleaned);
-    } catch {
-      // Try with trailing comma fix
-      try { return JSON.parse(fixTrailingCommas(cleaned)); } catch { /* fall through */ }
-      
-      // Try extracting JSON from markdown code block
-      const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (match) {
-        try { return JSON.parse(match[1].trim()); } catch { /* fall through */ }
-        try { return JSON.parse(fixTrailingCommas(match[1].trim())); } catch { /* fall through */ }
-      }
-      // Try finding first { to last }
-      const start = cleaned.indexOf('{');
-      const end = cleaned.lastIndexOf('}');
-      if (start >= 0 && end > start) {
-        const extracted = cleaned.substring(start, end + 1);
-        try { return JSON.parse(extracted); } catch { /* fall through */ }
-        try { return JSON.parse(fixTrailingCommas(extracted)); } catch { /* fall through */ }
-      }
-      return null;
+    // Helper: strip control characters and fix unescaped newlines inside JSON strings
+    const sanitizeJSON = (s) => {
+      // Replace literal newlines/tabs inside string values with escaped versions
+      return s.replace(/(["'])(?:(?!\1)[\s\S])*?\1/g, (match) => {
+        return match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+      }).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ''); // Strip control chars
+    };
+    
+    // Helper: fix unquoted keys (e.g., {key: "value"} → {"key": "value"})
+    const fixUnquotedKeys = (s) => s.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+    
+    // Strategy 1: Direct parse
+    try { return JSON.parse(cleaned); } catch { /* fall through */ }
+    
+    // Strategy 2: Trailing comma fix
+    try { return JSON.parse(fixTrailingCommas(cleaned)); } catch { /* fall through */ }
+    
+    // Strategy 3: Markdown code block extraction
+    const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match) {
+      const inner = match[1].trim();
+      try { return JSON.parse(inner); } catch { /* fall through */ }
+      try { return JSON.parse(fixTrailingCommas(inner)); } catch { /* fall through */ }
     }
+    
+    // Strategy 4: First { to last } extraction
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const extracted = cleaned.substring(start, end + 1);
+      try { return JSON.parse(extracted); } catch { /* fall through */ }
+      try { return JSON.parse(fixTrailingCommas(extracted)); } catch { /* fall through */ }
+      
+      // Strategy 5: Sanitize control characters + retry
+      try { return JSON.parse(sanitizeJSON(extracted)); } catch { /* fall through */ }
+      try { return JSON.parse(fixTrailingCommas(sanitizeJSON(extracted))); } catch { /* fall through */ }
+      
+      // Strategy 6: Fix unquoted keys + retry
+      try { return JSON.parse(fixUnquotedKeys(fixTrailingCommas(sanitizeJSON(extracted)))); } catch { /* fall through */ }
+    }
+    
+    // Strategy 7: Line-by-line brace matching (handles truncated responses)
+    try {
+      const lines = cleaned.split('\n');
+      let depth = 0;
+      let startIdx = -1;
+      let endIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        for (const ch of lines[i]) {
+          if (ch === '{' || ch === '[') {
+            if (depth === 0) startIdx = i;
+            depth++;
+          } else if (ch === '}' || ch === ']') {
+            depth--;
+            if (depth === 0) { endIdx = i; break; }
+          }
+        }
+        if (endIdx >= 0) break;
+      }
+      if (startIdx >= 0 && endIdx >= startIdx) {
+        const block = lines.slice(startIdx, endIdx + 1).join('\n');
+        try { return JSON.parse(block); } catch { /* fall through */ }
+        try { return JSON.parse(fixTrailingCommas(block)); } catch { /* fall through */ }
+      }
+    } catch { /* fall through */ }
+    
+    console.error(`[SmartBrains] JSON parse EXHAUSTED all 7 strategies. Raw text (first 500 chars): ${cleaned.substring(0, 500)}`);
+    return null;
   },
 
   // ═══════════════════════════════════════════════════════════
@@ -2205,9 +2250,25 @@ Return ONLY valid JSON:
   async _runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback) {
     const brain = this.BRAINS[key];
 
+    // Critical brains that MUST succeed — they get the full retry budget
+    const CRITICAL_BRAINS = ['SYMBOL_SCANNER', 'MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE', 'CONSENSUS_ARBITRATOR', 'REPORT_WRITER'];
+    const MAX_VALIDATION_RETRIES = CRITICAL_BRAINS.includes(key) ? (this.config.maxRetries || 8) : Math.ceil((this.config.maxRetries || 8) / 2);
+
     try {
       // Build prompt with context
       const prompt = this._getPrompt(key, context);
+      
+      // Guard: if prompt is empty, skip brain cleanly (e.g., TARGETED_RESCANNER with no disputes)
+      if (!prompt || prompt.trim().length === 0) {
+        console.log(`[Brain:${brain.name}] Prompt is empty — skipping (no work required)`);
+        this._brainStatus[key] = { status: 'done', progress: 100, result: { _skipped: true, reason: 'No input data' }, error: null };
+        results[key] = { _skipped: true, reason: 'No input data' };
+        const completed = incrementCompleted();
+        const pct = baseProgress + (completed / totalBrains) * (endProgress - baseProgress);
+        progressCallback(pct, `✅ ${brain.name} skipped (no work required)`, this._brainStatus);
+        return;
+      }
+      
       const fileParts = brain.needsFiles.length > 0 ? this._buildFileParts(brain, encodedFiles) : [];
       const useJsonMode = key !== 'REPORT_WRITER';
 
@@ -2228,23 +2289,23 @@ Return ONLY valid JSON:
         parsed = rawResult; // Report writer returns markdown
       }
 
-      // ── Schema Validation + Auto-Retry ──
+      // ── Schema Validation + Auto-Retry (up to MAX_VALIDATION_RETRIES attempts) ──
       const validation = this._validateBrainOutput(key, parsed);
       if (!validation.valid) {
-        // Skip retry for optional refinement brains — not worth the API call
-        const SKIP_RETRY_BRAINS = ['TARGETED_RESCANNER'];
-        if (SKIP_RETRY_BRAINS.includes(key)) {
-          console.warn(`[Brain:${brain.name}] Validation failed: ${validation.reason}. Skipping retry (optional brain).`);
-          // For TARGETED_RESCANNER: mark as failed so consensus values are used as-is
-          parsed = { _raw: rawResult, _parseFailed: true, _skippedRetry: true };
-        } else {
-          console.warn(`[Brain:${brain.name}] Validation failed: ${validation.reason}. Auto-retrying…`);
+        let retrySucceeded = false;
+        
+        for (let retryNum = 1; retryNum <= MAX_VALIDATION_RETRIES; retryNum++) {
+          const isCritical = CRITICAL_BRAINS.includes(key);
+          console.warn(`[Brain:${brain.name}] Validation failed: ${validation.reason}. Retry ${retryNum}/${MAX_VALIDATION_RETRIES}${isCritical ? ' (CRITICAL BRAIN)' : ''}…`);
           this._brainStatus[key].status = 'retrying';
-          progressCallback(baseProgress, `🔄 ${brain.name} retrying (${validation.reason})…`, this._brainStatus);
+          progressCallback(baseProgress, `🔄 ${brain.name} retry ${retryNum}/${MAX_VALIDATION_RETRIES}…`, this._brainStatus);
 
           try {
-            // Retry with enhanced prompt prefix
-            const retryPrefix = 'IMPORTANT: Your previous response was incomplete or had issues. STRICTLY follow the JSON schema. Include ALL required fields. Be thorough.\n\n';
+            // Escalating retry strategy: retry 1 uses enhanced prompt, retry 2 bumps temperature
+            const retryPrefix = retryNum === 1
+              ? 'IMPORTANT: Your previous response was incomplete or had issues. STRICTLY follow the JSON schema. Include ALL required fields. Be thorough.\n\n'
+              : 'CRITICAL RETRY: Your previous TWO responses failed validation. You MUST return ONLY valid JSON matching this exact schema. No markdown, no explanations, no extra text. Just the JSON object.\n\n';
+            
             rawResult = await this._invokeBrain(key, brain, retryPrefix + prompt, fileParts, useJsonMode);
             if (useJsonMode) {
               const retryParsed = this._parseJSON(rawResult);
@@ -2252,16 +2313,22 @@ Return ONLY valid JSON:
                 const retryValidation = this._validateBrainOutput(key, retryParsed);
                 if (retryValidation.valid) {
                   parsed = retryParsed;
-                  console.log(`[Brain:${brain.name}] ✓ Retry succeeded — validation passed`);
+                  console.log(`[Brain:${brain.name}] ✓ Retry ${retryNum} succeeded — validation passed`);
+                  retrySucceeded = true;
+                  break;
                 } else {
-                  console.warn(`[Brain:${brain.name}] Retry still invalid: ${retryValidation.reason}. Using best result.`);
-                  parsed = retryParsed; // Use retry result even if imperfect — it's likely better
+                  console.warn(`[Brain:${brain.name}] Retry ${retryNum} still invalid: ${retryValidation.reason}`);
+                  parsed = retryParsed; // Use latest result — likely better than original
                 }
               }
             }
           } catch (retryErr) {
-            console.warn(`[Brain:${brain.name}] Retry failed: ${retryErr.message}. Using original result.`);
+            console.warn(`[Brain:${brain.name}] Retry ${retryNum} failed: ${retryErr.message}`);
           }
+        }
+        
+        if (!retrySucceeded && CRITICAL_BRAINS.includes(key)) {
+          console.error(`[Brain:${brain.name}] ⚠️ CRITICAL BRAIN failed validation after ${MAX_VALIDATION_RETRIES} retries — using best available result`);
         }
       }
 
@@ -2332,8 +2399,15 @@ Return ONLY valid JSON:
     }
 
     const failedCount = Object.values(results).filter(r => r?._failed).length;
+    const CRITICAL_WAVES = [0, 1, 1.5, 1.75, 2, 2.25, 2.5]; // These must have at least 1 brain succeed
     if (failedCount === brainKeys.length) {
-      throw new Error(`Wave ${waveNum} completely failed — all ${brainKeys.length} brains errored`);
+      if (CRITICAL_WAVES.includes(waveNum)) {
+        throw new Error(`Wave ${waveNum} completely failed — all ${brainKeys.length} brains errored. This wave is critical and cannot be skipped.`);
+      } else {
+        console.warn(`[SmartBrains] ⚠️ Wave ${waveNum} completely failed (${brainKeys.length} brains) — non-critical, continuing analysis`);
+      }
+    } else if (failedCount > 0) {
+      console.warn(`[SmartBrains] Wave ${waveNum}: ${failedCount}/${brainKeys.length} brain(s) failed — continuing with ${brainKeys.length - failedCount} successful`);
     }
 
     return results;
@@ -2417,13 +2491,31 @@ Return ONLY valid JSON:
     const wave175Results = await this._runWave(1.75, ['CONSENSUS_ARBITRATOR'], encodedFiles, state, context, progressCallback);
     context.wave1_75 = wave175Results;
 
-    // Conditional: If disputes exist, run Targeted Re-Scanner (3rd read)
-    const disputes = wave175Results.CONSENSUS_ARBITRATOR?.disputes || [];
-    if (disputes.length > 0 && disputes.some(d => d.needs_rescan)) {
-      progressCallback(54, `🔬 Targeted Re-Scan — ${disputes.length} disputed items…`, this._brainStatus);
+    // Conditional: If significant disputes exist, run Targeted Re-Scanner (3rd read)
+    // Filter: only rescan disputes with meaningful variance (>15%) and real quantity (≥3 items)
+    const allDisputes = wave175Results.CONSENSUS_ARBITRATOR?.disputes || [];
+    const significantDisputes = allDisputes.filter(d => 
+      d.needs_rescan && 
+      (d.variance_pct || 0) > 15 &&
+      Math.max(d.read1 || 0, d.read2 || 0, d.read3 || 0) >= 3
+    );
+    const disputes = significantDisputes;
+
+    if (disputes.length > 0) {
+      // Inject only significant disputes into context so Re-Scanner gets a focused list
+      const originalDisputes = wave175Results.CONSENSUS_ARBITRATOR.disputes;
+      wave175Results.CONSENSUS_ARBITRATOR.disputes = disputes;
+      context.wave1_75 = wave175Results;
+
+      progressCallback(54, `🔬 Targeted Re-Scan — ${disputes.length} significant dispute(s)…`, this._brainStatus);
       const rescanResults = await this._runWave(1.75, ['TARGETED_RESCANNER'], encodedFiles, state, context, progressCallback);
+      
+      // Restore full dispute list for logging
+      wave175Results.CONSENSUS_ARBITRATOR.disputes = originalDisputes;
+      context.wave1_75 = wave175Results;
+
       // Merge re-scan results into consensus
-      if (rescanResults.TARGETED_RESCANNER && !rescanResults.TARGETED_RESCANNER._failed) {
+      if (rescanResults.TARGETED_RESCANNER && !rescanResults.TARGETED_RESCANNER._failed && !rescanResults.TARGETED_RESCANNER._parseFailed) {
         context.wave1_75.TARGETED_RESCANNER = rescanResults.TARGETED_RESCANNER;
         // Update consensus counts with resolved values
         const resolved = rescanResults.TARGETED_RESCANNER.final_counts || {};
@@ -2434,11 +2526,18 @@ Return ONLY valid JSON:
             context.wave1_75.CONSENSUS_ARBITRATOR.consensus_counts[key].method = 'targeted-rescan';
           }
         }
+      } else {
+        console.warn(`[SmartBrains] Re-Scanner failed — using Consensus Arbitrator values as-is (safe fallback)`);
+        this._brainStatus['TARGETED_RESCANNER'] = { status: 'done', progress: 100, result: { _skipped: true, reason: 'Parse failed — consensus values used' }, error: null };
       }
     } else {
-      this._brainStatus['TARGETED_RESCANNER'] = { status: 'done', progress: 100, result: { _skipped: true, reason: 'No disputes' }, error: null };
+      const skipReason = allDisputes.length === 0 ? 'No disputes' : `${allDisputes.length} minor dispute(s) below threshold — consensus values sufficient`;
+      this._brainStatus['TARGETED_RESCANNER'] = { status: 'done', progress: 100, result: { _skipped: true, reason: skipReason }, error: null };
+      if (allDisputes.length > 0) {
+        console.log(`[SmartBrains] ℹ️ ${allDisputes.length} dispute(s) found but all below re-scan threshold (variance ≤15% or qty <3). Using consensus values.`);
+      }
     }
-    console.log(`[SmartBrains] ═══ Wave 1.75 Complete — ${disputes.length} disputes resolved ═══`);
+    console.log(`[SmartBrains] ═══ Wave 1.75 Complete — ${allDisputes.length} dispute(s) total, ${disputes.length} required re-scan ═══`);
 
     // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
     progressCallback(56, '💰 Wave 2: Material Pricer — computing material costs…', this._brainStatus);

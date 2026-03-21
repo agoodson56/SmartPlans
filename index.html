@@ -35,7 +35,20 @@
                 <h1>SmartPlans</h1>
                 <p>AI-Powered Construction Document Analysis</p>
             </div>
-            <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+            <div id="usage-stats" style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+                <div style="display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:8px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);" title="Total bids processed">
+                    <span style="font-size:13px;">#️⃣</span>
+                    <span id="stat-bid-count" style="font-size:13px;font-weight:700;color:#10b981;">0</span>
+                    <span style="font-size:11px;color:rgba(16,185,129,0.6);">bids</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:8px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);" title="Total AI API cost">
+                    <span style="font-size:13px;">💰</span>
+                    <span id="stat-total-cost" style="font-size:13px;font-weight:700;color:#f59e0b;">$0.00</span>
+                    <span style="font-size:11px;color:rgba(245,158,11,0.6);">spent</span>
+                </div>
+                <button id="btn-reset-stats" onclick="UsageStats.confirmReset()" style="display:none;padding:4px 8px;border-radius:6px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:#f43f5e;cursor:pointer;font-size:13px;transition:all 0.2s;" title="Reset counters (Admin only)">↺</button>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
                 <a href="user-guide.html" target="_blank" rel="noopener" class="saved-est-btn" title="User Guide" style="text-decoration:none;">
                     📖 <span class="saved-est-label">User Guide</span>
                 </a>
