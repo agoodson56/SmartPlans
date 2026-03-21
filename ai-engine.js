@@ -672,7 +672,7 @@ const SmartBrains = {
 
   _SCHEMAS: {
     LEGEND_DECODER: ['symbols', 'legend_quality'],
-    SYMBOL_SCANNER: ['sheets', 'totals'],
+    SYMBOL_SCANNER: ['sheets', 'totals', 'device_inventory'],
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
@@ -680,7 +680,7 @@ const SmartBrains = {
     SHADOW_SCANNER: ['sheets', 'totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
     QUADRANT_SCANNER: ['quadrants', 'totals'],
-    CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence'],
+    CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence', 'typical_multiplications', 'schedule_overrides'],
     TARGETED_RESCANNER: ['resolved_items', 'final_counts'],
     MATERIAL_PRICER: ['categories', 'grand_total'],
     LABOR_CALCULATOR: ['phases', 'total_hours'],
@@ -692,7 +692,7 @@ const SmartBrains = {
     CROSS_SHEET_ANALYZER: ['sheet_comparisons', 'inconsistencies', 'adjusted_counts'],
     FINAL_RECONCILIATION: ['final_counts', 'adjustment_log', 'confidence_score'],
     SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies'],
-    ANNOTATION_READER: ['annotations', 'referenced_details'],
+    ANNOTATION_READER: ['annotations', 'referenced_details', 'schedule_data', 'typical_multiplications'],
     RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
     ZOOM_SCANNER: ['quadrant_counts', 'zoom_findings'],
     PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
@@ -762,6 +762,14 @@ INSTRUCTIONS:
 3. Count carefully — zoom into dense areas
 4. Note any symbols you cannot identify
 5. For each count, provide your confidence (0-100)
+6. LOCATION TAG EVERY DEVICE — list the specific room or area name for each device
+
+LOCATION TAGGING RULES:
+- For EVERY device counted, record WHICH ROOM or AREA it is in
+- Use room names from the drawings (e.g., "Room 101", "Lobby", "Corridor A", "MDF", "Mechanical Room")
+- If a room has no label, use a description (e.g., "Unlabeled office NE corner")
+- For corridor/hallway devices, note which corridor section
+- This data flows to the project management system for installation tracking
 
 Return ONLY valid JSON:
 {
@@ -770,11 +778,15 @@ Return ONLY valid JSON:
       "sheet_id": "E1.01",
       "sheet_name": "First Floor Plan",
       "symbols": [
-        { "type": "camera", "subtype": "fixed_dome", "count": 12, "confidence": 95, "locations": ["Lobby","Corridor A"] }
+        { "type": "camera", "subtype": "fixed_dome", "count": 12, "confidence": 95, "locations": ["Lobby","Corridor A","Office 101"], "device_locations": [{"room": "Lobby", "qty": 3}, {"room": "Corridor A", "qty": 5}, {"room": "Office 101", "qty": 4}] }
       ]
     }
   ],
   "totals": { "camera": 48, "data_outlet": 200 },
+  "device_inventory": [
+    { "type": "camera", "subtype": "fixed_dome", "room": "Lobby", "floor": "1st Floor", "sheet": "E1.01", "qty": 3 },
+    { "type": "camera", "subtype": "fixed_dome", "room": "Corridor A", "floor": "1st Floor", "sheet": "E1.01", "qty": 5 }
+  ],
   "unidentified_symbols": [],
   "notes": "string with any observations"
 }`,
@@ -1974,7 +1986,7 @@ Return ONLY valid JSON:
 }`,
 
       // ── BRAIN 9: Consensus Arbitrator (Wave 1.75) ─────────────
-      CONSENSUS_ARBITRATOR: () => `You are a SENIOR CONSENSUS ANALYST. Three independent teams just counted every device symbol on the same construction drawings using different methodologies. Your job is to find the TRUTH.
+      CONSENSUS_ARBITRATOR: () => `You are a SENIOR CONSENSUS ANALYST. Multiple independent teams just counted every device symbol on the same construction drawings using different methodologies. Your job is to find the TRUTH.
 
 READ 1 — Systematic Scan (Symbol Scanner):
 ${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2)}
@@ -1985,20 +1997,62 @@ ${JSON.stringify(context.wave1_5?.SHADOW_SCANNER?.totals || {}, null, 2)}
 READ 3 — Quadrant Scan:
 ${JSON.stringify(context.wave1_5?.QUADRANT_SCANNER?.totals || {}, null, 2)}
 
+READ 4 — Zoom Scanner (4-quadrant precision):
+${JSON.stringify(context.wave1_5?.ZOOM_SCANNER?.grand_totals || {}, null, 2).substring(0, 2000)}
+
+READ 5 — Per-Floor Analyzer:
+${JSON.stringify(context.wave1_5?.PER_FLOOR_ANALYZER?.floor_breakdown || [], null, 2).substring(0, 2000)}
+
 DISCIPLINE SPECIALIST COUNT:
 ${JSON.stringify(context.wave1_5?.DISCIPLINE_DEEP_DIVE?.discipline_counts || {}, null, 2).substring(0, 2000)}
 
+═══ ANNOTATION & SCHEDULE DATA (from Annotation Reader) ═══
+TYPICAL NOTES (these multiply device counts):
+${JSON.stringify(context.wave1?.ANNOTATION_READER?.annotations?.filter(a => a.type === 'typical_note') || [], null, 2).substring(0, 2000)}
+
+EQUIPMENT SCHEDULES FOUND ON DRAWINGS:
+${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || [], null, 2).substring(0, 2000)}
+
+EXCLUSIONS (BY OTHERS / NIC — DO NOT COUNT):
+${JSON.stringify(context.wave1?.ANNOTATION_READER?.exclusions || [], null, 2).substring(0, 1000)}
+
+═══ SPEC CROSS-REFERENCE DATA ═══
+${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.discrepancies || [], null, 2).substring(0, 1500)}
+
+═══ RISER DIAGRAM DATA ═══
+${JSON.stringify(context.wave1?.RISER_DIAGRAM_ANALYZER?.headend_equipment || [], null, 2).substring(0, 1500)}
+
 CONSENSUS RULES:
-1. If ALL 3 reads agree within 5% → HIGH CONFIDENCE. Use the average.
-2. If 2 of 3 agree within 5% → MODERATE CONFIDENCE. Use the agreeing pair's average.
-3. If ALL 3 disagree by >10% → DISPUTE. Flag for targeted re-scan.
+1. If ALL reads agree within 5% → HIGH CONFIDENCE. Use the average.
+2. If 2+ reads agree within 5% → MODERATE CONFIDENCE. Use the agreeing group's average.
+3. If ALL reads disagree by >10% → DISPUTE. Flag for targeted re-scan.
 4. For disputed items, identify WHICH sheets/areas likely caused the disagreement.
+
+═══ CRITICAL: TYPICAL NOTE MULTIPLICATION ═══
+When an annotation says "TYP" or "TYPICAL" (e.g., "Card reader TYP at each secure door"):
+- Check the Per-Floor Analyzer for the count of matching locations (e.g., how many "secure doors" exist)
+- MULTIPLY the device by the number of matching locations
+- If the TYPICAL count is HIGHER than the symbol count, USE THE TYPICAL COUNT (the symbols may not be drawn on every door)
+- Document each TYPICAL multiplication in the output
+
+═══ CRITICAL: EQUIPMENT SCHEDULE CROSS-CHECK ═══
+When the Annotation Reader found equipment schedules (tables on drawings):
+- These schedules are AUTHORITATIVE — they were created by the design engineer
+- If a schedule says "48 cameras" but the symbol count says 42, THE SCHEDULE IS CORRECT
+- Use schedule data to OVERRIDE symbol counts when schedules exist
+- Document each schedule override in the output
 
 Return ONLY valid JSON:
 {
   "consensus_counts": {
-    "camera": { "read1": 48, "read2": 46, "read3": 49, "consensus": 48, "confidence": "high", "method": "3-way average" }
+    "camera": { "read1": 48, "read2": 46, "read3": 49, "read4_zoom": 47, "read5_floor": 48, "consensus": 48, "confidence": "high", "method": "5-way average" }
   },
+  "typical_multiplications": [
+    { "device": "card_reader", "note": "TYP at each secure door", "locations_counted": 14, "result": 14, "source": "Annotation Reader + Per-Floor Analyzer" }
+  ],
+  "schedule_overrides": [
+    { "device": "camera", "schedule_name": "Camera Schedule on ES650", "schedule_qty": 82, "symbol_count_qty": 70, "used": 82, "reason": "Schedule is authoritative" }
+  ],
   "disputes": [
     { "device_type": "data_outlet", "read1": 200, "read2": 180, "read3": 210, "variance_pct": 15, "likely_problem_area": "Sheet E1.02 open office zone", "needs_rescan": true }
   ],
@@ -2295,31 +2349,68 @@ YOUR MISSION: Capture every piece of text information on the drawings that descr
 WHAT TO CAPTURE:
 1. General notes and keynotes (numbered or lettered notes)
 2. Detail callout bubbles (e.g., "See Detail 3/E6.01")
-3. Equipment schedules and tables shown on drawings
+3. Equipment schedules and tables shown on drawings — READ EVERY ROW
 4. Typical installation notes (e.g., "TYP." or "TYPICAL — provide at each door")
 5. "NIC" (Not In Contract) or "BY OTHERS" annotations — these exclude scope
 6. Quantity notes like "QTY: 4" or "(x3)" next to symbols
 7. Demolition notes (items to be removed or replaced)
 8. References to addenda changes
 
-CRITICAL: "TYPICAL" notes often mean the device is repeated at EVERY similar location. Count how many similar locations exist.
+═══ CRITICAL: EQUIPMENT SCHEDULE EXTRACTION ═══
+Many ELV drawings include EQUIPMENT SCHEDULES — tables that list every device with its tag, type, location, and specifications. These are the MOST ACCURATE source of device counts because the design engineer created them.
+
+WHEN YOU FIND A SCHEDULE TABLE:
+- Read EVERY ROW of the table
+- Extract: Tag number, device type, location/room, model/specs
+- Count the total number of rows = total devices of that type
+- Note the sheet ID where the schedule appears
+- THIS DATA WILL OVERRIDE symbol counts in consensus
+
+Common schedule types:
+- Camera Schedule (lists every camera with type, location, resolution)
+- Door Hardware Schedule (lists every controlled door)
+- Device Schedule (fire alarm devices by zone/location)
+- Panel Schedule (access control panels and readers)
+- Data Outlet Schedule (outlet locations and types)
+
+═══ CRITICAL: TYPICAL NOTE MULTIPLICATION ═══
+When you find "TYP" or "TYPICAL" notes:
+- Count how many MATCHING LOCATIONS exist for that note
+- Example: "Card reader TYP at each secure door" → count all secure doors on all floors
+- Example: "Smoke detector TYP in each office" → count all offices across all sheets
+- Example: "Data outlet TYP 2 per office" → count offices × 2
+- Provide the multiplication calculation in the output
 
 Return ONLY valid JSON:
 {
   "annotations": [
     { "sheet_id": "E1.01", "type": "keynote", "text": "1. Provide CAT6A cable to each data outlet location", "impacts": "cable_specification", "quantity_implied": null },
-    { "sheet_id": "E1.01", "type": "typical_note", "text": "TYP card reader at each secure door", "impacts": "access_control", "quantity_implied": 12, "basis": "12 secure doors identified" }
+    { "sheet_id": "E1.01", "type": "typical_note", "text": "TYP card reader at each secure door", "impacts": "access_control", "quantity_implied": 14, "basis": "14 secure doors counted across all floors", "multiplication": "1 reader × 14 doors = 14 total" }
   ],
   "referenced_details": [
     { "reference": "Detail 3/E6.01", "description": "Camera mounting detail", "devices_in_detail": ["dome_camera", "junction_box"], "sheet_id": "E1.02" }
   ],
   "schedule_data": [
-    { "schedule_name": "Camera Schedule", "sheet_id": "E6.01", "total_items": 48, "columns": ["Tag", "Type", "Location", "Resolution"] }
+    {
+      "schedule_name": "Camera Schedule",
+      "sheet_id": "ES650",
+      "total_items": 82,
+      "columns": ["Tag", "Type", "Location", "Resolution"],
+      "line_items": [
+        { "tag": "CAM-01", "type": "Fixed Dome Indoor", "location": "Lobby", "specs": "4MP" },
+        { "tag": "CAM-02", "type": "Fixed Dome Outdoor", "location": "Loading Dock", "specs": "8MP IP67" }
+      ],
+      "summary_by_type": { "Fixed Dome Indoor": 24, "Fixed Dome Outdoor": 18, "PTZ": 6, "Multi-Lens": 12, "Fisheye 360": 4, "Dual-Lens": 9, "LPR": 3 }
+    }
+  ],
+  "typical_multiplications": [
+    { "note_text": "TYP card reader at secure doors", "device_type": "card_reader", "per_location_qty": 1, "total_locations": 14, "calculated_total": 14, "sheets_checked": ["E1.01", "E2.01", "E3.01"] }
   ],
   "exclusions": [
     { "item": "PA/Paging System", "note": "BY OTHERS — see Division 27", "sheet_id": "E1.01" }
   ],
-  "total_annotations_found": 0
+  "total_annotations_found": 0,
+  "total_schedule_items_extracted": 0
 }`,
 
       // ── BRAIN 23: Riser Diagram Analyzer (Wave 1) ───────────────
