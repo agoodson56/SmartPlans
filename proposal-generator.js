@@ -896,27 +896,59 @@ Include 4-8 line items that summarize the major cost categories from the analysi
 
 IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity.`;
 
-      const apiKey = window.__SMARTPLANS_KEY || '';
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 3000 },
-          }),
-        }
-      );
+      const requestBody = {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 4000 },
+        _model: 'gemini-2.5-flash',
+        _brainSlot: 0,
+      };
+
+      const response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        _timeout: 60000,
+        _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
+      }, 3);
 
       if (!response.ok) {
         const err = await response.text();
         throw new Error(`AI request failed (${response.status}): ${err.substring(0, 200)}`);
       }
 
-      const data = await response.json();
-      const aiText = (data?.candidates?.[0]?.content?.parts || [])
-        .filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+      // Handle both streaming and JSON responses
+      const contentType = response.headers.get('content-type') || '';
+      let aiText = '';
+
+      if (contentType.includes('text/event-stream')) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const jsonStr = line.slice(6).trim();
+              if (!jsonStr || jsonStr === '[DONE]') continue;
+              try {
+                const chunk = JSON.parse(jsonStr);
+                const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
+                for (const p of chunkParts) {
+                  if (p.text && !p.thought) aiText += p.text;
+                }
+              } catch (e) { /* skip malformed */ }
+            }
+          }
+        }
+      } else {
+        const data = await response.json();
+        aiText = (data?.candidates?.[0]?.content?.parts || [])
+          .filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+      }
 
       if (!aiText || aiText.length < 200) {
         throw new Error('AI returned insufficient content. Please try again.');
