@@ -507,20 +507,32 @@ const SmartBrains = {
 
   // Safe JSON parser
   _parseJSON(text) {
+    if (!text || typeof text !== 'string') return null;
+    const cleaned = text.trim();
+    
+    // Helper: strip trailing commas before } or ] (common AI hallucination)
+    const fixTrailingCommas = (s) => s.replace(/,\s*([}\]])/g, '$1');
+    
     try {
       // Try direct parse
-      return JSON.parse(text);
+      return JSON.parse(cleaned);
     } catch {
+      // Try with trailing comma fix
+      try { return JSON.parse(fixTrailingCommas(cleaned)); } catch { /* fall through */ }
+      
       // Try extracting JSON from markdown code block
-      const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+      const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (match) {
         try { return JSON.parse(match[1].trim()); } catch { /* fall through */ }
+        try { return JSON.parse(fixTrailingCommas(match[1].trim())); } catch { /* fall through */ }
       }
       // Try finding first { to last }
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
+      const start = cleaned.indexOf('{');
+      const end = cleaned.lastIndexOf('}');
       if (start >= 0 && end > start) {
-        try { return JSON.parse(text.substring(start, end + 1)); } catch { /* fall through */ }
+        const extracted = cleaned.substring(start, end + 1);
+        try { return JSON.parse(extracted); } catch { /* fall through */ }
+        try { return JSON.parse(fixTrailingCommas(extracted)); } catch { /* fall through */ }
       }
       return null;
     }
@@ -2219,29 +2231,37 @@ Return ONLY valid JSON:
       // ── Schema Validation + Auto-Retry ──
       const validation = this._validateBrainOutput(key, parsed);
       if (!validation.valid) {
-        console.warn(`[Brain:${brain.name}] Validation failed: ${validation.reason}. Auto-retrying…`);
-        this._brainStatus[key].status = 'retrying';
-        progressCallback(baseProgress, `🔄 ${brain.name} retrying (${validation.reason})…`, this._brainStatus);
+        // Skip retry for optional refinement brains — not worth the API call
+        const SKIP_RETRY_BRAINS = ['TARGETED_RESCANNER'];
+        if (SKIP_RETRY_BRAINS.includes(key)) {
+          console.warn(`[Brain:${brain.name}] Validation failed: ${validation.reason}. Skipping retry (optional brain).`);
+          // For TARGETED_RESCANNER: mark as failed so consensus values are used as-is
+          parsed = { _raw: rawResult, _parseFailed: true, _skippedRetry: true };
+        } else {
+          console.warn(`[Brain:${brain.name}] Validation failed: ${validation.reason}. Auto-retrying…`);
+          this._brainStatus[key].status = 'retrying';
+          progressCallback(baseProgress, `🔄 ${brain.name} retrying (${validation.reason})…`, this._brainStatus);
 
-        try {
-          // Retry with enhanced prompt prefix
-          const retryPrefix = 'IMPORTANT: Your previous response was incomplete or had issues. STRICTLY follow the JSON schema. Include ALL required fields. Be thorough.\n\n';
-          rawResult = await this._invokeBrain(key, brain, retryPrefix + prompt, fileParts, useJsonMode);
-          if (useJsonMode) {
-            const retryParsed = this._parseJSON(rawResult);
-            if (retryParsed) {
-              const retryValidation = this._validateBrainOutput(key, retryParsed);
-              if (retryValidation.valid) {
-                parsed = retryParsed;
-                console.log(`[Brain:${brain.name}] ✓ Retry succeeded — validation passed`);
-              } else {
-                console.warn(`[Brain:${brain.name}] Retry still invalid: ${retryValidation.reason}. Using best result.`);
-                parsed = retryParsed; // Use retry result even if imperfect — it's likely better
+          try {
+            // Retry with enhanced prompt prefix
+            const retryPrefix = 'IMPORTANT: Your previous response was incomplete or had issues. STRICTLY follow the JSON schema. Include ALL required fields. Be thorough.\n\n';
+            rawResult = await this._invokeBrain(key, brain, retryPrefix + prompt, fileParts, useJsonMode);
+            if (useJsonMode) {
+              const retryParsed = this._parseJSON(rawResult);
+              if (retryParsed) {
+                const retryValidation = this._validateBrainOutput(key, retryParsed);
+                if (retryValidation.valid) {
+                  parsed = retryParsed;
+                  console.log(`[Brain:${brain.name}] ✓ Retry succeeded — validation passed`);
+                } else {
+                  console.warn(`[Brain:${brain.name}] Retry still invalid: ${retryValidation.reason}. Using best result.`);
+                  parsed = retryParsed; // Use retry result even if imperfect — it's likely better
+                }
               }
             }
+          } catch (retryErr) {
+            console.warn(`[Brain:${brain.name}] Retry failed: ${retryErr.message}. Using original result.`);
           }
-        } catch (retryErr) {
-          console.warn(`[Brain:${brain.name}] Retry failed: ${retryErr.message}. Using original result.`);
         }
       }
 
