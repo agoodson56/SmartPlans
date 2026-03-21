@@ -69,18 +69,18 @@ const SmartBrains = {
     // ── Wave 0: Legend Pre-Processing (Gemini 3.1 Pro) ──
     LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 16384, useProModel: true },
     // ── Wave 1: First Read — Document Intelligence ──
-    SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 16384, useProModel: true },
+    SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 32768, useProModel: true },
     CODE_COMPLIANCE: { id: 2, name: 'Code Compliance', wave: 1, emoji: '📋', needsFiles: ['plans', 'specs'], maxTokens: 12288, useProModel: true },
     MDF_IDF_ANALYZER: { id: 3, name: 'MDF/IDF Analyzer', wave: 1, emoji: '🏗️', needsFiles: ['plans', 'specs'], maxTokens: 12288, useProModel: true },
     CABLE_PATHWAY: { id: 4, name: 'Cable & Pathway', wave: 1, emoji: '🔌', needsFiles: ['plans', 'specs'], maxTokens: 16384, useProModel: true },
     SPECIAL_CONDITIONS: { id: 5, name: 'Special Conditions', wave: 1, emoji: '⚠️', needsFiles: ['plans', 'specs'], maxTokens: 16384, useProModel: true },
     // ── Wave 1.5: Second Read — Independent Verification (all Gemini 3.1 Pro) ──
     SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 16384, useProModel: true },
-    DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 12288, useProModel: true },
-    QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 12288, useProModel: true },
+    DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 32768, useProModel: true },
+    QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
     // ── Wave 1.75: Consensus Resolution (Gemini 3.1 Pro deep reasoning) ──
     CONSENSUS_ARBITRATOR: { id: 9, name: 'Consensus Arbitrator', wave: 1.75, emoji: '⚖️', needsFiles: [], maxTokens: 16384, useProModel: true },
-    TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 12288, useProModel: true },
+    TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 32768, useProModel: true },
     // ── Wave 2: Material Pricing (must run BEFORE labor so labor can use material qtys) ──
     MATERIAL_PRICER: { id: 11, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 16384, useProModel: true },
     // ── Wave 2.25: Labor Calculator (runs AFTER Material Pricer to use its quantities) ──
@@ -580,12 +580,28 @@ const SmartBrains = {
     } catch { /* fall through */ }
     
     // Strategy 8: Truncation recovery — auto-close braces for truncated responses
+    // Handles: missing values after colons, partial strings, partial numbers, etc.
     try {
       const truncStart = cleaned.indexOf('{');
       if (truncStart >= 0) {
         let truncated = cleaned.substring(truncStart);
-        // Remove trailing incomplete string values or keys
-        truncated = truncated.replace(/,\s*"[^"]*$/, '').replace(/,\s*$/, '');
+        
+        // Aggressively strip trailing broken content (iterate until stable)
+        let prev = '';
+        while (prev !== truncated) {
+          prev = truncated;
+          truncated = truncated
+            .replace(/,\s*"[^"]*$/, '')            // trailing incomplete string: , "partial...
+            .replace(/,\s*$/, '')                   // trailing comma
+            .replace(/"[^"]*":\s*$/, '')            // trailing key with no value: "key":
+            .replace(/"[^"]*":\s*"[^"]*$/, '')      // trailing key with incomplete string value: "key": "val...
+            .replace(/"[^"]*":\s*\d+\.?\d*$/, '')   // trailing key with partial number: "key": 12
+            .replace(/,\s*$/, '')                   // cleanup any new trailing commas
+            .replace(/:\s*$/, '')                   // orphaned colon
+            .replace(/"[^"]*$/, '')                 // trailing partial key name
+            .replace(/,\s*$/, '');                  // final comma cleanup
+        }
+        
         // Count open brackets/braces and close them
         let openBraces = 0, openBrackets = 0;
         let inString = false, escape = false;
@@ -600,7 +616,7 @@ const SmartBrains = {
           else if (ch === ']') openBrackets--;
         }
         if (openBraces > 0 || openBrackets > 0) {
-          // Close any unclosed brackets then braces
+          // Close unclosed brackets then braces
           const closers = ']'.repeat(Math.max(0, openBrackets)) + '}'.repeat(Math.max(0, openBraces));
           const recovered = truncated + closers;
           try {
@@ -608,7 +624,6 @@ const SmartBrains = {
             console.warn(`[SmartBrains] JSON recovered via truncation repair (closed ${openBraces} braces, ${openBrackets} brackets)`);
             return result;
           } catch { /* fall through */ }
-          // Try with trailing comma fix too
           try {
             const result = JSON.parse(fixTrailingCommas(recovered));
             console.warn(`[SmartBrains] JSON recovered via truncation repair + comma fix`);
