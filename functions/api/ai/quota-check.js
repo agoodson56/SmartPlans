@@ -11,12 +11,16 @@ export async function onRequestGet(context) {
     const corsHeaders = {};
 
     try {
-        const keyNames = [
+        // Must match invoke.js and upload.js key ordering
+        const tier2Keys = [
+            'GEMINI_KEY_10', 'GEMINI_KEY_11', 'GEMINI_KEY_12', 'GEMINI_KEY_13',
+            'GEMINI_KEY_14', 'GEMINI_KEY_15', 'GEMINI_KEY_16', 'GEMINI_KEY_17',
+        ];
+        const tier1Keys = [
             'GEMINI_KEY_0', 'GEMINI_KEY_1', 'GEMINI_KEY_2', 'GEMINI_KEY_3', 'GEMINI_KEY_4',
             'GEMINI_KEY_5', 'GEMINI_KEY_6', 'GEMINI_KEY_7', 'GEMINI_KEY_8', 'GEMINI_KEY_9',
-            'GEMINI_KEY_10', 'GEMINI_KEY_11', 'GEMINI_KEY_12', 'GEMINI_KEY_13', 'GEMINI_KEY_14',
-            'GEMINI_KEY_15', 'GEMINI_KEY_16', 'GEMINI_KEY_17',
         ];
+        const keyNames = [...tier2Keys, ...tier1Keys];
 
         // Count configured keys
         let configuredKeys = 0;
@@ -25,8 +29,8 @@ export async function onRequestGet(context) {
         let errorKeys = 0;
         let resetHint = null;
 
-        // Test a subset of keys (first, middle, last) to avoid hammering API
-        const testSlots = [0, 6, 12, 17];
+        // Test a subset: 2 Tier 2 keys + 2 Tier 1 keys
+        const testSlots = [0, 4, 8, 14];
         const results = [];
 
         for (const slot of testSlots) {

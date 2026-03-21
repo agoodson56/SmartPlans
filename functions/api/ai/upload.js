@@ -22,13 +22,18 @@ export async function onRequestPost(context) {
             );
         }
 
-        // Select API key (same logic as invoke.js)
-        const keyNames = [
+        // Select API key — MUST match invoke.js ordering exactly!
+        // Files uploaded here are owned by the uploading project.
+        // invoke.js must use the same project's key when referencing these files.
+        const tier2Keys = [
+            'GEMINI_KEY_10', 'GEMINI_KEY_11', 'GEMINI_KEY_12', 'GEMINI_KEY_13',
+            'GEMINI_KEY_14', 'GEMINI_KEY_15', 'GEMINI_KEY_16', 'GEMINI_KEY_17',
+        ];
+        const tier1Keys = [
             'GEMINI_KEY_0', 'GEMINI_KEY_1', 'GEMINI_KEY_2', 'GEMINI_KEY_3', 'GEMINI_KEY_4',
             'GEMINI_KEY_5', 'GEMINI_KEY_6', 'GEMINI_KEY_7', 'GEMINI_KEY_8', 'GEMINI_KEY_9',
-            'GEMINI_KEY_10', 'GEMINI_KEY_11', 'GEMINI_KEY_12', 'GEMINI_KEY_13', 'GEMINI_KEY_14',
-            'GEMINI_KEY_15', 'GEMINI_KEY_16', 'GEMINI_KEY_17',
         ];
+        const keyNames = [...tier2Keys, ...tier1Keys];
 
         let apiKey = null;
         const slotIndex = (brainSlot || 0) % keyNames.length;
