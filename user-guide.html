@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartPlans — User Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Inter',sans-serif;background:#FFFFFF;color:#1a1a2e;line-height:1.7}
+    .guide-header{background:linear-gradient(135deg,#0D9488,#0f766e);color:white;padding:40px 0;border-bottom:3px solid #BF9000}
+    .guide-header .container{display:flex;align-items:center;gap:20px}
+    .guide-header h1{font-size:28px;font-weight:800}
+    .guide-header p{font-size:14px;opacity:0.85;margin-top:4px}
+    .container{max-width:900px;margin:0 auto;padding:0 24px}
+    .guide-nav{background:#f8fafb;border-bottom:2px solid rgba(191,144,0,0.3);padding:20px 0;position:sticky;top:0;z-index:10}
+    .guide-nav .container{display:flex;flex-wrap:wrap;gap:8px}
+    .guide-nav a{padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;text-decoration:none;color:#0D9488;border:1px solid rgba(13,148,136,0.2);background:white;transition:all 0.15s}
+    .guide-nav a:hover{background:#0D9488;color:white}
+    .guide-body{padding:40px 0 80px}
+    h2{font-size:22px;font-weight:800;color:#0D9488;margin:48px 0 16px;padding-bottom:8px;border-bottom:2px solid rgba(191,144,0,0.3)}
+    h3{font-size:17px;font-weight:700;color:#1a1a2e;margin:28px 0 10px}
+    h4{font-size:14px;font-weight:700;color:#0D9488;margin:20px 0 8px}
+    p,li{font-size:14px;margin-bottom:10px}
+    ul,ol{padding-left:24px;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+    th{background:#0D9488;color:white;padding:10px 14px;text-align:left;font-weight:600}
+    td{padding:8px 14px;border:1px solid #e5e7eb}
+    tr:nth-child(even){background:#f8fafb}
+    .callout{padding:14px 18px;border-radius:8px;margin:16px 0;font-size:13px;border-left:4px solid}
+    .callout-tip{background:rgba(13,148,136,0.06);border-color:#0D9488}
+    .callout-warn{background:rgba(245,158,11,0.06);border-color:#f59e0b}
+    .callout-info{background:rgba(59,130,246,0.06);border-color:#3b82f6}
+    code{background:rgba(13,148,136,0.08);padding:2px 6px;border-radius:4px;font-size:12px;font-family:'JetBrains Mono',monospace}
+    .footer{background:#1a1a2e;color:rgba(255,255,255,0.6);padding:30px 0;text-align:center;font-size:12px;border-top:3px solid #BF9000}
+    .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+    .badge-teal{background:rgba(13,148,136,0.1);color:#0D9488}
+    .badge-gold{background:rgba(191,144,0,0.1);color:#BF9000}
+    .step-list{counter-reset:steps;list-style:none;padding-left:0}
+    .step-list li{counter-increment:steps;padding:10px 0 10px 40px;position:relative;border-left:2px solid rgba(13,148,136,0.2);margin-left:14px}
+    .step-list li::before{content:counter(steps);position:absolute;left:-14px;top:8px;width:28px;height:28px;background:#0D9488;color:white;border-radius:50%;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  </style>
+</head>
+<body>
+
+<div class="guide-header">
+  <div class="container">
+    <div>
+      <h1>📐 SmartPlans — User Guide</h1>
+      <p>AI-Powered Construction Document Analysis & Estimation · 3D Technology Services Inc.</p>
+      <p style="margin-top:8px;font-size:12px;opacity:0.7">Version 3.0 · Last Updated: March 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
+    </div>
+  </div>
+</div>
+
+<nav class="guide-nav">
+  <div class="container">
+    <a href="#overview">Overview</a>
+    <a href="#getting-started">Getting Started</a>
+    <a href="#step1">Step 1: Project Setup</a>
+    <a href="#step2">Step 2: Upload</a>
+    <a href="#step3">Step 3: AI Analysis</a>
+    <a href="#step4">Step 4: Results</a>
+    <a href="#exports">Exports</a>
+    <a href="#proposal">Proposals</a>
+    <a href="#rfis">RFIs</a>
+    <a href="#saved">Saved Estimates</a>
+    <a href="#smartpm">SmartPM Integration</a>
+    <a href="#troubleshooting">Troubleshooting</a>
+  </div>
+</nav>
+
+<div class="guide-body">
+  <div class="container">
+
+    <h2 id="overview">1. Overview</h2>
+    <p>SmartPlans is an AI-powered construction document analysis platform built by <strong>3D Technology Services Inc.</strong> It uses Google Gemini AI to scan your construction blueprints, count devices and infrastructure components, estimate materials and labor costs, and generate professional client proposals — all in minutes instead of days.</p>
+
+    <h3>Key Capabilities</h3>
+    <table>
+      <tr><th>Feature</th><th>Description</th></tr>
+      <tr><td>📄 Blueprint Analysis</td><td>AI scans uploaded drawing pages to identify devices, symbols, and infrastructure</td></tr>
+      <tr><td>🔢 Symbol Counting</td><td>Automated counting of outlets, cameras, access points, panels, and more</td></tr>
+      <tr><td>💰 Cost Estimation</td><td>Material pricing and labor hours calculated using industry-standard databases</td></tr>
+      <tr><td>📋 Proposal Generation</td><td>One-click professional proposal document in Microsoft Word format</td></tr>
+      <tr><td>📧 RFI Generation</td><td>AI identifies gaps in drawings and generates industry-standard RFIs</td></tr>
+      <tr><td>📊 Multi-Format Export</td><td>JSON, Excel, Markdown, and Bill of Materials exports</td></tr>
+      <tr><td>🏗️ SmartPM Integration</td><td>Direct handoff to project management for installation tracking</td></tr>
+    </table>
+
+    <h3>Supported Disciplines</h3>
+    <ul>
+      <li><strong>Structured Cabling</strong> — Cat6/6A, fiber optic, patch panels, MDF/IDF rooms</li>
+      <li><strong>CCTV</strong> — IP cameras, NVRs, video management systems</li>
+      <li><strong>Access Control</strong> — Card readers, controllers, electric locks, REX devices</li>
+      <li><strong>Audio Visual</strong> — Displays, speakers, amplifiers, control systems</li>
+      <li><strong>Intrusion Detection</strong> — Motion sensors, door contacts, keypads, alarm panels</li>
+      <li><strong>Fire Alarm</strong> — Smoke detectors, pull stations, notification appliances, FACP</li>
+    </ul>
+
+    <h2 id="getting-started">2. Getting Started</h2>
+    <p>SmartPlans runs entirely in your web browser. No installation is required.</p>
+    <h4>Access URL</h4>
+    <p><code>https://smartplans-4g5.pages.dev/</code></p>
+    <h4>Requirements</h4>
+    <ul>
+      <li>Modern web browser (Chrome, Edge, Firefox, Safari)</li>
+      <li>Construction drawings in <strong>PDF</strong> or <strong>image format</strong> (JPG, PNG)</li>
+      <li>Internet connection for AI analysis</li>
+    </ul>
+    <div class="callout callout-tip">💡 <strong>Tip:</strong> PDF files work best. The AI can extract both visual content and text layers from PDFs for maximum accuracy.</div>
+
+    <h2 id="step1">3. Step 1 — Project Setup</h2>
+    <p>The first screen asks you to describe your project. The more detail you provide, the more accurate the AI analysis will be.</p>
+    <table>
+      <tr><th>Field</th><th>Required</th><th>Description</th></tr>
+      <tr><td><strong>Project Name</strong></td><td>✅ Yes</td><td>A name to identify this analysis (e.g., "Sunrise Medical Phase 2")</td></tr>
+      <tr><td><strong>Prepared For (GC / Agency)</strong></td><td>❌ Optional</td><td>The General Contractor, agency, or client this proposal is addressed to. Appears on the proposal cover page.</td></tr>
+      <tr><td><strong>Project Type</strong></td><td>✅ Yes</td><td>New Construction, Renovation/Retrofit, or Tenant Improvement. This affects how the AI interprets existing vs. new work.</td></tr>
+      <tr><td><strong>Disciplines</strong></td><td>✅ Yes</td><td>Select which trades to focus on. Focusing on specific trades reduces false positives from similar-looking symbols across disciplines.</td></tr>
+      <tr><td><strong>File Format</strong></td><td>✅ Yes</td><td>PDF Blueprints or Scanned Images. This tells the AI which analysis pipeline to use.</td></tr>
+      <tr><td><strong>Specific Items to Count</strong></td><td>❌ Optional</td><td>Enter specific counting instructions for higher accuracy (e.g., "Count all duplex receptacles on sheets E-101 through E-105").</td></tr>
+      <tr><td><strong>Project Location</strong></td><td>❌ Optional</td><td>City, State — used for prevailing wage lookups and travel cost calculations.</td></tr>
+      <tr><td><strong>Pricing Configuration</strong></td><td>❌ Optional</td><td>Choose pricing tier (Budget/Mid/Premium), prevailing wage type, regional multiplier, and work shift.</td></tr>
+    </table>
+    <div class="callout callout-warn">⚠️ <strong>Important:</strong> Targeted counting requests (e.g., "Count all Cat6 outlets on sheets E-101 through E-105") are significantly more accurate than broad requests like "Count everything."</div>
+
+    <h2 id="step2">4. Step 2 — Upload Documents</h2>
+    <p>Upload your construction drawings for AI analysis.</p>
+    <h4>Supported Formats</h4>
+    <ul>
+      <li><strong>PDF</strong> — Preferred. Supports multi-page documents. Text layers are extracted for AI context.</li>
+      <li><strong>Images</strong> — JPG, PNG, WebP. Each image is treated as one drawing page.</li>
+    </ul>
+    <h4>Upload Process</h4>
+    <ol class="step-list">
+      <li>Click <strong>"Choose Files"</strong> or drag-and-drop files into the upload zone</li>
+      <li>For PDFs, each page is automatically split into individual sheets</li>
+      <li>Preview thumbnails appear showing each page that will be analyzed</li>
+      <li>You can remove unwanted pages before starting analysis</li>
+      <li>Click <strong>Next</strong> to begin the AI analysis</li>
+    </ol>
+    <div class="callout callout-tip">💡 <strong>Pro Tip:</strong> Remove title blocks, general notes pages, and specification pages before analysis. Only include actual drawing sheets with device symbols for best results.</div>
+
+    <h2 id="step3">5. Step 3 — AI Analysis</h2>
+    <p>SmartPlans uses a multi-wave AI analysis pipeline to process your drawings:</p>
+    <table>
+      <tr><th>Wave</th><th>Name</th><th>What It Does</th></tr>
+      <tr><td>Wave 0</td><td>Legend Decoder</td><td>Reads the drawing legend to build a symbol-to-device mapping</td></tr>
+      <tr><td>Wave 1</td><td>Drawing Analysis</td><td>Scans each sheet to count and locate every device</td></tr>
+      <tr><td>Wave 2</td><td>Infrastructure</td><td>Identifies MDF/IDF/TR room locations and cable pathways</td></tr>
+      <tr><td>Wave 3</td><td>Specification Review</td><td>Extracts text specs from PDF for product/standard requirements</td></tr>
+      <tr><td>Final</td><td>Master Estimator</td><td>Synthesizes all data into a complete priced estimate</td></tr>
+    </table>
+    <p>The analysis typically takes <strong>2–5 minutes</strong> depending on the number of pages. A real-time progress display shows which wave is currently processing.</p>
+    <div class="callout callout-info">ℹ️ <strong>Note:</strong> You can watch the AI "thinking" in real-time. Each brain reports its progress and any issues encountered.</div>
+
+    <h2 id="step4">6. Step 4 — Results & Review</h2>
+    <p>After analysis completes, you land on the <strong>Estimate Complete</strong> page showing:</p>
+    <h4>Confidence Score</h4>
+    <p>A 0–100% confidence ring indicating how accurate the AI estimates are, with traffic light indicators (🟢 85%+, 🟡 70-84%, 🔴 below 70%).</p>
+    <h4>Grand Total</h4>
+    <p>The bottom-line total cost including materials, labor, and applied markups.</p>
+    <h4>Analysis Breakdown</h4>
+    <ul>
+      <li><strong>Material Summary</strong> — Every counted item with quantity, unit cost, and extended cost</li>
+      <li><strong>Labor Summary</strong> — Labor hours by task type with labor rates applied</li>
+      <li><strong>Infrastructure</strong> — MDF/IDF room details with equipment and cabling</li>
+      <li><strong>Location Analysis</strong> — Where devices are located across the building</li>
+    </ul>
+
+    <h2 id="exports">7. Export Options</h2>
+    <p>The Export panel provides multiple download formats:</p>
+    <table>
+      <tr><th>Format</th><th>Icon</th><th>Best For</th></tr>
+      <tr><td><strong>JSON — PM App Import</strong></td><td>🔗</td><td>Importing into SmartPM for project management tracking</td></tr>
+      <tr><td><strong>Excel — Spreadsheet</strong></td><td>📊</td><td>Reviewing data in Excel, sharing with estimating team</td></tr>
+      <tr><td><strong>Markdown — Report</strong></td><td>📄</td><td>Formatted text document for records</td></tr>
+      <tr><td><strong>Export All Formats</strong></td><td>📦</td><td>Downloads JSON + Excel + Markdown at once</td></tr>
+      <tr><td><strong>Bill of Materials</strong></td><td>📋</td><td>Detailed BOM with all items, quantities, unit costs & extended costs</td></tr>
+    </table>
+
+    <h2 id="proposal">8. Professional Proposal</h2>
+    <p>Click <strong>"Generate Professional Proposal"</strong> to create a Fortune 500-grade client proposal document.</p>
+    <h4>What's Included</h4>
+    <ul>
+      <li><strong>Cover Page</strong> — 3D TSI branding, project name, prepared for, date</li>
+      <li><strong>Executive Summary</strong> — AI-generated scope overview</li>
+      <li><strong>Detailed Pricing</strong> — Material and labor breakdown tables</li>
+      <li><strong>Scope of Work</strong> — What's included in the estimate</li>
+      <li><strong>Terms & Conditions</strong> — Standard 3D TSI terms</li>
+    </ul>
+    <p>The proposal downloads as a <strong>Microsoft Word (.docx)</strong> file ready for client delivery.</p>
+    <div class="callout callout-tip">💡 <strong>Tip:</strong> Fill in the "Prepared For" field during project setup to have the GC/Agency name appear correctly on the proposal cover page.</div>
+
+    <h2 id="rfis">9. RFI Generation</h2>
+    <p>Below the export panel, SmartPlans displays AI-generated <strong>Requests for Information (RFIs)</strong> — common questions that should be clarified before starting work.</p>
+    <h4>How RFIs Work</h4>
+    <ul>
+      <li>RFIs are generated based on your selected disciplines</li>
+      <li>Each RFI shows a checkbox — select the ones relevant to your project</li>
+      <li>Click <strong>"Export Selected RFIs"</strong> to download a text file</li>
+      <li>Selected RFIs are also included in the JSON export for SmartPM import</li>
+    </ul>
+
+    <h2 id="saved">10. Saved Estimates</h2>
+    <p>Click the <strong>📂 Saved Estimates</strong> button in the top-right header to view previously saved analyses.</p>
+    <h4>How Saving Works</h4>
+    <ul>
+      <li>Estimates are automatically saved when the AI analysis completes</li>
+      <li>Each saved estimate records the project name, date, export data, and all settings</li>
+      <li>Click <strong>Load</strong> on any saved estimate to restore it</li>
+      <li>All settings, analysis results, and export data are restored</li>
+    </ul>
+    <div class="callout callout-info">ℹ️ Saved estimates are stored in Cloudflare's cloud database and persist across devices and sessions.</div>
+
+    <h2 id="smartpm">11. SmartPM Integration</h2>
+    <p>After completing your estimate, click the <strong>"Open SmartPM"</strong> button to launch the Project Manager application.</p>
+    <h4>To Import Your Estimate into SmartPM</h4>
+    <ol class="step-list">
+      <li>In SmartPlans, click <strong>"JSON — PM App Import"</strong> to download the export file</li>
+      <li>Click <strong>"Open SmartPM"</strong> to open SmartPM in a new tab</li>
+      <li>In SmartPM, log in and click <strong>"📦 Import from SmartPlans"</strong></li>
+      <li>Select the JSON file you downloaded</li>
+      <li>Review the import preview and click <strong>"Import Project"</strong></li>
+    </ol>
+    <p>SmartPM will create a fully populated project with locked budgets, infrastructure locations, equipment, cable runs, and RFIs ready to track.</p>
+
+    <h2 id="troubleshooting">12. Troubleshooting</h2>
+    <table>
+      <tr><th>Issue</th><th>Solution</th></tr>
+      <tr><td>AI analysis fails or times out</td><td>Try reducing the number of pages. Remove non-drawing pages (title blocks, specs).</td></tr>
+      <tr><td>Low confidence score</td><td>Use "Specific items to count" field with clear instructions. Ensure drawings are high-resolution.</td></tr>
+      <tr><td>Missing devices in count</td><td>Select the correct disciplines. The AI filters by trade to avoid cross-discipline false positives.</td></tr>
+      <tr><td>PDF won't upload</td><td>Ensure the PDF is under 50MB. Try splitting large PDFs into smaller batches.</td></tr>
+      <tr><td>Proposal formatting issues</td><td>The proposal downloads as .docx — open in Microsoft Word for best results.</td></tr>
+      <tr><td>Export button not working</td><td>Check your browser's popup blocker. Some exports open new windows.</td></tr>
+    </table>
+
+  </div>
+</div>
+
+<div class="footer">
+  <div class="container">
+    <p>© 2026 3D Technology Services Inc. · www.3dtsi.com · SmartPlans User Guide v3.0</p>
+  </div>
+</div>
+
+</body>
+</html>
