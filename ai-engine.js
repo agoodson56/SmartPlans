@@ -361,14 +361,14 @@ const SmartBrains = {
         clearTimeout(timer);
 
         if (response.status === 524) {
-          // Cloudflare timeout — request too heavy for 100s proxy limit
-          // Retry once with same key (transient), then give up (fundamental timeout)
-          if (attempt < 1) {
-            console.warn(`[Brain:${brainDef.name}] Cloudflare 524 timeout, retrying once…`);
+          // Cloudflare 524 = proxy timeout. Should be rare with SSE streaming.
+          // If this happens, it usually means the API key/file mismatch caused Gemini to hang.
+          if (attempt < 3) {
+            console.warn(`[Brain:${brainDef.name}] Cloudflare 524 timeout (attempt ${attempt + 1}/3), retrying…`);
             await new Promise(r => setTimeout(r, 2000));
             continue;
           }
-          throw new Error(`Cloudflare 524 timeout — request exceeds 100s proxy limit. Brain skipped.`);
+          throw new Error(`Cloudflare 524 timeout after 3 attempts — brain skipped.`);
         }
 
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
