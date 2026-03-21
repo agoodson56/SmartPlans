@@ -188,9 +188,7 @@ textarea:focus {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: #FFFFFF;
   border-left: 2px solid rgba(191, 144, 0, 0.5);
   border-right: 2px solid rgba(191, 144, 0, 0.5);
   box-shadow: var(--shadow-card);
