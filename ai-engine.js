@@ -1,9 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
-   SMARTPLANS — TRIPLE-READ CONSENSUS ENGINE v3.0
+   SMARTPLANS — TRIPLE-READ CONSENSUS ENGINE v4.0
    ═══════════════════════════════════════════════════════════════
    Powered by Gemini 3.1 Pro — 2× reasoning improvement
-   18 Specialized AI Brains × 7 Processing Waves
-   Triple-Read Consensus Architecture for 99%+ accuracy
+   27 Specialized AI Brains × 12 Processing Waves
+   20× Drawing Scan Architecture for 99%+ accuracy
    
    Architecture:
    ┌─────────────────────────────────────────────────────────┐
@@ -39,7 +39,7 @@
 
 const SmartBrains = {
 
-  VERSION: '3.1.0',
+  VERSION: '4.0.0',
 
   // ═══════════════════════════════════════════════════════════
   // CONFIGURATION
@@ -74,10 +74,15 @@ const SmartBrains = {
     MDF_IDF_ANALYZER: { id: 3, name: 'MDF/IDF Analyzer', wave: 1, emoji: '🏗️', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     CABLE_PATHWAY: { id: 4, name: 'Cable & Pathway', wave: 1, emoji: '🔌', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     SPECIAL_CONDITIONS: { id: 5, name: 'Special Conditions', wave: 1, emoji: '⚠️', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
+    SPEC_CROSS_REF: { id: 21, name: 'Spec Cross-Reference', wave: 1, emoji: '📑', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
+    ANNOTATION_READER: { id: 22, name: 'Annotation Reader', wave: 1, emoji: '💬', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
+    RISER_DIAGRAM_ANALYZER: { id: 23, name: 'Riser Diagram Analyzer', wave: 1, emoji: '📶', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     // ── Wave 1.5: Second Read — Independent Verification (all Gemini 3.1 Pro) ──
     SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
+    ZOOM_SCANNER: { id: 24, name: 'Zoom Scanner', wave: 1.5, emoji: '🔭', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
+    PER_FLOOR_ANALYZER: { id: 25, name: 'Per-Floor Analyzer', wave: 1.5, emoji: '🏢', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 1.75: Consensus Resolution (Gemini 3.1 Pro deep reasoning) ──
     CONSENSUS_ARBITRATOR: { id: 9, name: 'Consensus Arbitrator', wave: 1.75, emoji: '⚖️', needsFiles: [], maxTokens: 65536, useProModel: true },
     TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
@@ -95,6 +100,7 @@ const SmartBrains = {
     // ── Wave 3.5: 4th, 5th, 6th Read — Deep Accuracy Pass (3 brains, Pro model) ──
     DETAIL_VERIFIER: { id: 18, name: 'Detail Verifier', wave: 3.5, emoji: '🔎', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     CROSS_SHEET_ANALYZER: { id: 19, name: 'Cross-Sheet Analyzer', wave: 3.5, emoji: '📊', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
+    OVERLAP_DETECTOR: { id: 26, name: 'Overlap Detector', wave: 3.5, emoji: '🔗', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 3.75: Final Reconciliation (1 brain, Pro deep reasoning) ──
     FINAL_RECONCILIATION: { id: 20, name: 'Final Reconciliation', wave: 3.75, emoji: '🏁', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 4: Final Report (Gemini 3.1 Pro for comprehensive bid generation) ──
@@ -662,6 +668,12 @@ const SmartBrains = {
     DETAIL_VERIFIER: ['area_audits', 'corrections', 'verified_counts'],
     CROSS_SHEET_ANALYZER: ['sheet_comparisons', 'inconsistencies', 'adjusted_counts'],
     FINAL_RECONCILIATION: ['final_counts', 'adjustment_log', 'confidence_score'],
+    SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies'],
+    ANNOTATION_READER: ['annotations', 'referenced_details'],
+    RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
+    ZOOM_SCANNER: ['quadrant_counts', 'zoom_findings'],
+    PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
+    OVERLAP_DETECTOR: ['overlapping_areas', 'potential_duplicates'],
     // REPORT_WRITER returns markdown, no JSON schema
   },
 
@@ -2216,6 +2228,242 @@ Return ONLY valid JSON:
 }`;
       },
 
+      // ── BRAIN 21: Spec Cross-Reference (Wave 1) ─────────────────
+      SPEC_CROSS_REF: () => `You are a SPECIFICATION CROSS-REFERENCE EXPERT for ELV/low voltage construction projects.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+YOUR MISSION: Cross-reference the written specifications against the plan drawings to find discrepancies.
+
+WHAT TO CHECK:
+1. Equipment lists in specs vs. symbols on drawings — anything specified but NOT drawn?
+2. Equipment on drawings that is NOT mentioned in specifications
+3. Quantity discrepancies between spec schedules and drawing counts
+4. Model/type mismatches between specs and legend
+5. Cable type and quantity specifications vs. what's shown on riser/plan drawings
+6. Room-by-room spec requirements vs. what's actually shown
+
+CRITICAL CHECK: Look for scope items in the spec that have NO corresponding symbol on any drawing. These are commonly missed and result in change orders.
+
+Return ONLY valid JSON:
+{
+  "spec_vs_drawing": [
+    { "item": "Card Reader - HID iCLASS", "in_spec": true, "on_drawings": true, "spec_qty": 24, "drawing_qty": 22, "discrepancy": "2 readers specified but not found on drawings", "severity": "high" }
+  ],
+  "discrepancies": [
+    { "type": "missing_from_drawings", "item": "Intercom Station", "spec_section": "28 13 00", "description": "Spec calls for 6 intercom stations, none shown on floor plans", "cost_impact": "high" }
+  ],
+  "equipment_schedule": [
+    { "item": "IP Camera", "spec_model": "Axis P3245-V", "drawing_symbol": "C1", "match": true }
+  ],
+  "spec_sections_reviewed": ["27 10 00", "28 13 00", "28 23 00"],
+  "overall_spec_drawing_alignment": 85
+}`,
+
+      // ── BRAIN 22: Annotation Reader (Wave 1) ────────────────────
+      ANNOTATION_READER: () => `You are a CONSTRUCTION ANNOTATION & CALLOUT EXPERT. Your job is to read EVERY text annotation, note, callout bubble, detail reference, and schedule on the ELV plan drawings.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+YOUR MISSION: Capture every piece of text information on the drawings that describes equipment, quantities, or installation requirements.
+
+WHAT TO CAPTURE:
+1. General notes and keynotes (numbered or lettered notes)
+2. Detail callout bubbles (e.g., "See Detail 3/E6.01")
+3. Equipment schedules and tables shown on drawings
+4. Typical installation notes (e.g., "TYP." or "TYPICAL — provide at each door")
+5. "NIC" (Not In Contract) or "BY OTHERS" annotations — these exclude scope
+6. Quantity notes like "QTY: 4" or "(x3)" next to symbols
+7. Demolition notes (items to be removed or replaced)
+8. References to addenda changes
+
+CRITICAL: "TYPICAL" notes often mean the device is repeated at EVERY similar location. Count how many similar locations exist.
+
+Return ONLY valid JSON:
+{
+  "annotations": [
+    { "sheet_id": "E1.01", "type": "keynote", "text": "1. Provide CAT6A cable to each data outlet location", "impacts": "cable_specification", "quantity_implied": null },
+    { "sheet_id": "E1.01", "type": "typical_note", "text": "TYP card reader at each secure door", "impacts": "access_control", "quantity_implied": 12, "basis": "12 secure doors identified" }
+  ],
+  "referenced_details": [
+    { "reference": "Detail 3/E6.01", "description": "Camera mounting detail", "devices_in_detail": ["dome_camera", "junction_box"], "sheet_id": "E1.02" }
+  ],
+  "schedule_data": [
+    { "schedule_name": "Camera Schedule", "sheet_id": "E6.01", "total_items": 48, "columns": ["Tag", "Type", "Location", "Resolution"] }
+  ],
+  "exclusions": [
+    { "item": "PA/Paging System", "note": "BY OTHERS — see Division 27", "sheet_id": "E1.01" }
+  ],
+  "total_annotations_found": 0
+}`,
+
+      // ── BRAIN 23: Riser Diagram Analyzer (Wave 1) ───────────────
+      RISER_DIAGRAM_ANALYZER: () => `You are a RISER DIAGRAM & ONE-LINE DIAGRAM EXPERT for ELV/low voltage construction projects.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+YOUR MISSION: Analyze all riser diagrams, one-line diagrams, block diagrams, and system architecture drawings to extract backbone infrastructure details.
+
+WHAT TO EXTRACT:
+1. BACKBONE CABLES: Fiber runs, multi-pair copper, coax — count strands/pairs per run
+2. VERTICAL PATHWAYS: Conduit/sleeve sizes between floors, pathway fill calculations
+3. RISER ROOM EQUIPMENT: Switches, patch panels, splitters, amplifiers per floor
+4. HEAD-END EQUIPMENT: Main MDF/server room equipment from one-line diagrams
+5. SYSTEM ARCHITECTURE: How systems interconnect (IP backbone, analog runs, etc.)
+6. FIBER COUNTS: Total fiber strand counts, SM vs. MM, termination types
+7. NETWORK TOPOLOGY: Star, ring, daisy-chain configurations per system
+
+CRITICAL: Riser diagrams show infrastructure that floor plans DON'T — backbone cables, vertical pathways, and head-end equipment are ONLY visible here. These items are expensive and commonly missed in bids.
+
+Return ONLY valid JSON:
+{
+  "risers": [
+    { "system": "Structured Cabling", "description": "Main fiber backbone", "from": "MDF-1F", "to": "IDF-3F", "cable_type": "12-strand SM fiber", "quantity": 2, "pathway": "4\" conduit" }
+  ],
+  "backbone_cables": [
+    { "type": "fiber_sm", "strand_count": 12, "runs": 6, "total_length_ft": 1200, "termination": "LC connectors" },
+    { "type": "cat6a_25pair", "pairs": 25, "runs": 4, "total_length_ft": 800 }
+  ],
+  "vertical_pathways": [
+    { "from_floor": "1F", "to_floor": "2F", "pathway_type": "4-inch conduit", "quantity": 3, "fill_pct": 40 }
+  ],
+  "headend_equipment": [
+    { "location": "MDF Room 101", "item": "48-port PoE+ switch", "quantity": 4, "rack_units": 4 }
+  ],
+  "network_topology": "star",
+  "total_backbone_cost_items": 0
+}`,
+
+      // ── BRAIN 24: Zoom Scanner (Wave 1.5) ───────────────────────
+      ZOOM_SCANNER: () => `You are a HIGH-MAGNIFICATION ZOOM SCANNER performing a PRECISION SCAN of ELV device symbols. Unlike a standard full-sheet scan, you must mentally ZOOM INTO each area and count with extreme precision.
+
+PROJECT: ${context.projectName || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+LEGEND DICTIONARY (from Legend Decoder):
+${JSON.stringify(context.wave0?.LEGEND_DECODER || {}, null, 2).substring(0, 4000)}
+
+FIRST READ COUNTS (from Wave 1 — for comparison only, do NOT copy these):
+${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 2000)}
+
+YOUR METHOD — ZOOM-AND-COUNT:
+For EACH sheet, divide it into 4 quadrants:
+- TOP-LEFT: Count every device symbol
+- TOP-RIGHT: Count every device symbol
+- BOTTOM-LEFT: Count every device symbol
+- BOTTOM-RIGHT: Count every device symbol
+Then add all 4 quadrants for the sheet total.
+
+PRECISION RULES:
+1. ZOOM mentally into dense areas — conference rooms, open offices, corridors
+2. Count devices at CORNERS and EDGES between quadrants carefully (don't double-count)
+3. Look for STACKED symbols (multiple devices at the same location)
+4. Check behind text annotations and dimensions that might obscure symbols
+5. Note any symbols that are partially cut off at sheet edges
+
+Return ONLY valid JSON:
+{
+  "quadrant_counts": [
+    {
+      "sheet_id": "E1.01",
+      "top_left": { "data_outlet": 12, "camera": 3, "card_reader": 2 },
+      "top_right": { "data_outlet": 15, "camera": 2, "card_reader": 1 },
+      "bottom_left": { "data_outlet": 8, "camera": 4, "card_reader": 3 },
+      "bottom_right": { "data_outlet": 10, "camera": 2, "card_reader": 1 },
+      "sheet_total": { "data_outlet": 45, "camera": 11, "card_reader": 7 }
+    }
+  ],
+  "zoom_findings": [
+    { "sheet_id": "E1.01", "description": "3 stacked WAPs behind title block text in bottom-right quadrant", "device_type": "wap", "additional_count": 3 }
+  ],
+  "grand_totals": {},
+  "methodology": "4-quadrant zoom scan"
+}`,
+
+      // ── BRAIN 25: Per-Floor Analyzer (Wave 1.5) ─────────────────
+      PER_FLOOR_ANALYZER: () => `You are a PER-FLOOR INDEPENDENT ANALYZER for ELV construction documents. You analyze each floor as a SEPARATE ENTITY and compare results to find floor-specific anomalies.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+LEGEND DICTIONARY:
+${JSON.stringify(context.wave0?.LEGEND_DECODER || {}, null, 2).substring(0, 3000)}
+
+YOUR METHOD — FLOOR-BY-FLOOR ISOLATION:
+1. Group sheets by floor (1st Floor, 2nd Floor, 3rd Floor, Basement, Roof, etc.)
+2. For EACH floor independently:
+   a. Count all devices by type
+   b. Calculate density (devices per sq ft or per room)
+   c. Note any floor-specific requirements
+3. COMPARE floors against each other:
+   a. Are typical floors consistent? If Floor 2 has 40 data outlets but Floor 3 has only 15, investigate.
+   b. Are ground floors different from upper floors (more security, different cabling)?
+   c. Do specialty floors (penthouse, basement, mechanical) have unique requirements?
+
+ANOMALY DETECTION: Flag any floor that deviates >20% from the average of similar floors. This often indicates missed symbols.
+
+Return ONLY valid JSON:
+{
+  "floor_breakdown": [
+    { "floor": "1st Floor", "sheets": ["E1.01", "E1.02"], "device_counts": { "data_outlet": 45, "camera": 12, "card_reader": 8 }, "total_devices": 65, "notes": "Lobby has higher camera density" },
+    { "floor": "2nd Floor", "sheets": ["E2.01"], "device_counts": { "data_outlet": 52, "camera": 6, "card_reader": 4 }, "total_devices": 62, "notes": "Typical office floor" }
+  ],
+  "floor_comparisons": [
+    { "comparison": "Floor 2 vs Floor 3", "consistent": true, "variance_pct": 5, "notes": "Within normal range" }
+  ],
+  "anomalies": [
+    { "floor": "4th Floor", "issue": "Data outlet count is 60% lower than other typical floors", "expected": 50, "actual": 20, "severity": "high", "likely_cause": "Symbols may be missing or floor has different use" }
+  ],
+  "total_floors": 0,
+  "total_devices_all_floors": 0
+}`,
+
+      // ── BRAIN 26: Overlap Detector (Wave 3.5) ───────────────────
+      OVERLAP_DETECTOR: () => {
+        const consensus = context.wave1_75?.CONSENSUS_ARBITRATOR || {};
+        const wave1Counts = context.wave1?.SYMBOL_SCANNER?.totals || {};
+        const wave15Counts = context.wave1_5?.SHADOW_SCANNER?.totals || {};
+        return `You are an OVERLAP & DUPLICATION DETECTION EXPERT for multi-sheet ELV construction drawings.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+CURRENT CONSENSUS COUNTS:
+${JSON.stringify(consensus.consensus_counts || {}, null, 2).substring(0, 3000)}
+
+YOUR MISSION: Detect and correct double-counted devices that appear on multiple overlapping sheets.
+
+COMMON OVERLAP SCENARIOS:
+1. SHEET BOUNDARY OVERLAP: Adjacent floor plan sheets overlap by 5-10 feet — devices in the overlap zone appear on BOTH sheets
+2. ENLARGED PLAN AREAS: A detail sheet shows the same area that appears on the main floor plan — devices get counted twice
+3. PARTIAL PLAN OVERLAP: Separate discipline sheets (security, cabling, fire alarm) may show overlapping areas
+4. DEMOLITION vs NEW: Some devices appear on both demo and new work sheets — only count once
+5. TYPICAL details applied to multiple locations should not be double-counted with the individual location counts
+
+HOW TO DETECT:
+1. Look for matching key plans/match lines that show overlap zones
+2. Compare device counts in border areas between adjacent sheets
+3. Check if enlarged plans duplicate main plan counts
+4. Verify that typical installation counts aren't already included in per-sheet counts
+
+Return ONLY valid JSON:
+{
+  "overlapping_areas": [
+    { "sheet_a": "E1.01", "sheet_b": "E1.02", "overlap_zone": "Corridor B between grid lines 5-6", "devices_in_overlap": { "data_outlet": 4, "camera": 1 }, "recommendation": "Subtract from E1.02 total" }
+  ],
+  "potential_duplicates": [
+    { "device_type": "camera", "count_on_main": 6, "count_on_enlarged": 6, "is_duplicate": true, "actual_count": 6, "sheets": ["E1.01", "E1.50"], "reason": "Enlarged lobby plan duplicates main floor plan cameras" }
+  ],
+  "adjusted_counts": { "camera": -2, "data_outlet": -4 },
+  "total_duplicates_found": 0,
+  "confidence": 90,
+  "methodology": "Match-line and key-plan overlap analysis"
+}`;
+      },
+
     };
 
     return prompts[brainKey] ? prompts[brainKey]() : '';
@@ -2526,19 +2774,19 @@ Return ONLY valid JSON:
     }
     context.wave0 = wave0Results;
 
-    // ═══ WAVE 1: First Read — Document Intelligence (5 parallel brains) ═══
-    progressCallback(12, '🔍 Wave 1: First Read — 5 brains scanning…', this._brainStatus);
-    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS'];
+    // ═══ WAVE 1: First Read — Document Intelligence (8 parallel brains) ═══
+    progressCallback(12, '🔍 Wave 1: First Read — 8 brains scanning…', this._brainStatus);
+    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER'];
     const wave1Results = await this._runWave(1, wave1Keys, encodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
-    console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done ═══');
+    console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
 
-    // ═══ WAVE 1.5: Second Read — Independent Verification (3 parallel brains, Pro model) ═══
-    progressCallback(35, '👁️ Wave 1.5: Second Read — 3 independent verifiers…', this._brainStatus);
-    const wave15Keys = ['SHADOW_SCANNER', 'DISCIPLINE_DEEP_DIVE', 'QUADRANT_SCANNER'];
+    // ═══ WAVE 1.5: Second Read — Independent Verification (5 parallel brains, Pro model) ═══
+    progressCallback(35, '👁️ Wave 1.5: Second Read — 5 independent verifiers…', this._brainStatus);
+    const wave15Keys = ['SHADOW_SCANNER', 'DISCIPLINE_DEEP_DIVE', 'QUADRANT_SCANNER', 'ZOOM_SCANNER', 'PER_FLOOR_ANALYZER'];
     const wave15Results = await this._runWave(1.5, wave15Keys, encodedFiles, state, context, progressCallback);
     context.wave1_5 = wave15Results;
-    console.log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done ═══');
+    console.log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (5 brains) ═══');
 
     // ═══ WAVE 1.75: Consensus Resolution ═══
     progressCallback(50, '⚖️ Wave 1.75: Building consensus from 3 reads…', this._brainStatus);
@@ -2647,13 +2895,13 @@ Return ONLY valid JSON:
     context.wave3 = wave3Results;
     console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
 
-    // ═══ WAVE 3.5: 4th & 5th Read — Deep Accuracy (2 parallel brains, Pro) ═══
+    // ═══ WAVE 3.5: Deep Accuracy Pass (3 parallel brains, Pro) ═══
     try {
-      progressCallback(82, '🔎 Wave 3.5: 4th & 5th Read — Detail Verifier + Cross-Sheet Analyzer…', this._brainStatus);
-      const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER'];
+      progressCallback(82, '🔎 Wave 3.5: Deep Accuracy — Detail Verifier + Cross-Sheet + Overlap Detector…', this._brainStatus);
+      const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER', 'OVERLAP_DETECTOR'];
       const wave35Results = await this._runWave(3.5, wave35Keys, encodedFiles, state, context, progressCallback);
       context.wave3_5 = wave35Results;
-      console.log('[SmartBrains] ═══ Wave 3.5 Complete — 4th & 5th Read done ═══');
+      console.log('[SmartBrains] ═══ Wave 3.5 Complete — Deep Accuracy done (3 brains) ═══');
     } catch (e) {
       console.warn('[SmartBrains] Wave 3.5 failed (non-fatal, continuing):', e.message);
       context.wave3_5 = {};
@@ -2742,7 +2990,7 @@ Return ONLY valid JSON:
 
     const finalReport = (typeof report === 'string' ? report : JSON.stringify(report, null, 2)) + validationAppendix;
 
-    progressCallback(100, '🎯 Analysis complete — 21 brains finished!', this._brainStatus);
+    progressCallback(100, '🎯 Analysis complete — 27 brains finished!', this._brainStatus);
 
     return {
       report: finalReport,
