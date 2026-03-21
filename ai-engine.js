@@ -579,7 +579,46 @@ const SmartBrains = {
       }
     } catch { /* fall through */ }
     
-    console.error(`[SmartBrains] JSON parse EXHAUSTED all 7 strategies. Raw text (first 500 chars): ${cleaned.substring(0, 500)}`);
+    // Strategy 8: Truncation recovery — auto-close braces for truncated responses
+    try {
+      const truncStart = cleaned.indexOf('{');
+      if (truncStart >= 0) {
+        let truncated = cleaned.substring(truncStart);
+        // Remove trailing incomplete string values or keys
+        truncated = truncated.replace(/,\s*"[^"]*$/, '').replace(/,\s*$/, '');
+        // Count open brackets/braces and close them
+        let openBraces = 0, openBrackets = 0;
+        let inString = false, escape = false;
+        for (const ch of truncated) {
+          if (escape) { escape = false; continue; }
+          if (ch === '\\') { escape = true; continue; }
+          if (ch === '"') { inString = !inString; continue; }
+          if (inString) continue;
+          if (ch === '{') openBraces++;
+          else if (ch === '}') openBraces--;
+          else if (ch === '[') openBrackets++;
+          else if (ch === ']') openBrackets--;
+        }
+        if (openBraces > 0 || openBrackets > 0) {
+          // Close any unclosed brackets then braces
+          const closers = ']'.repeat(Math.max(0, openBrackets)) + '}'.repeat(Math.max(0, openBraces));
+          const recovered = truncated + closers;
+          try {
+            const result = JSON.parse(recovered);
+            console.warn(`[SmartBrains] JSON recovered via truncation repair (closed ${openBraces} braces, ${openBrackets} brackets)`);
+            return result;
+          } catch { /* fall through */ }
+          // Try with trailing comma fix too
+          try {
+            const result = JSON.parse(fixTrailingCommas(recovered));
+            console.warn(`[SmartBrains] JSON recovered via truncation repair + comma fix`);
+            return result;
+          } catch { /* fall through */ }
+        }
+      }
+    } catch { /* fall through */ }
+    
+    console.error(`[SmartBrains] JSON parse EXHAUSTED all 8 strategies. Raw text (first 500 chars): ${cleaned.substring(0, 500)}`);
     return null;
   },
 

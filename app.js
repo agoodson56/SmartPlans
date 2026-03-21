@@ -264,13 +264,15 @@ const UsageStats = {
 
   // ── Admin reset with confirmation ──
   confirmReset() {
+    const key = prompt('Enter admin key to reset counters:');
+    if (!key) return;
     if (!confirm('Reset bid count and total cost to zero?\n\nThis affects all devices and cannot be undone.')) return;
-    this.reset();
+    this.reset(key);
   },
 
-  async reset() {
+  async reset(adminKey) {
     try {
-      const res = await fetch('/api/usage-stats?key=sp-admin-2026', {
+      const res = await fetch(`/api/usage-stats?key=${encodeURIComponent(adminKey)}`, {
         method: 'DELETE',
       });
       if (res.ok) {

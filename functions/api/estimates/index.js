@@ -9,7 +9,7 @@ export async function onRequestGet(context) {
         const res = await env.DB.prepare(
             `SELECT id, project_name, project_type, project_location, disciplines,
                     pricing_tier, status, created_at, updated_at
-             FROM estimates ORDER BY updated_at DESC`
+             FROM estimates ORDER BY updated_at DESC LIMIT 100`
         ).all();
         return Response.json({ estimates: res.results || [] });
     } catch (err) {

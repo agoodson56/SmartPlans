@@ -1,24 +1,13 @@
 // ═══════════════════════════════════════════════════════════════
 // SMARTPLANS — USAGE STATS API
 // GET: Return current stats (no auth)
-// POST: Increment after a bid completes (no auth)
-// DELETE: Reset counters (admin only via shared key)
+// POST: Increment after a bid completes (no auth, with validation)
+// DELETE: Reset counters (admin only via env secret)
 // ═══════════════════════════════════════════════════════════════
 
 export async function onRequestGet(context) {
     const { env } = context;
     try {
-        await env.DB.prepare(`
-            CREATE TABLE IF NOT EXISTS usage_stats (
-                id TEXT PRIMARY KEY DEFAULT 'global',
-                total_cost REAL DEFAULT 0,
-                bid_count INTEGER DEFAULT 0,
-                last_bid_project TEXT,
-                last_bid_at TEXT,
-                last_reset_at TEXT
-            )
-        `).run();
-
         let row = await env.DB.prepare(
             `SELECT total_cost, bid_count, last_bid_project, last_bid_at, last_reset_at FROM usage_stats WHERE id = 'global'`
         ).first();
@@ -44,16 +33,13 @@ export async function onRequestPost(context) {
         const cost = parseFloat(body.cost) || 0;
         const project_name = body.project_name || 'Unknown';
 
-        await env.DB.prepare(`
-            CREATE TABLE IF NOT EXISTS usage_stats (
-                id TEXT PRIMARY KEY DEFAULT 'global',
-                total_cost REAL DEFAULT 0,
-                bid_count INTEGER DEFAULT 0,
-                last_bid_project TEXT,
-                last_bid_at TEXT,
-                last_reset_at TEXT
-            )
-        `).run();
+        // Input validation — reject bad data
+        if (cost < 0 || cost > 100) {
+            return Response.json({ error: 'Cost must be between $0 and $100 per bid' }, { status: 400 });
+        }
+        if (typeof project_name !== 'string' || project_name.length > 200) {
+            return Response.json({ error: 'Invalid project name' }, { status: 400 });
+        }
 
         await env.DB.prepare(`
             INSERT INTO usage_stats (id, total_cost, bid_count, last_bid_project, last_bid_at)
@@ -82,7 +68,12 @@ export async function onRequestDelete(context) {
         const url = new URL(request.url);
         const adminKey = url.searchParams.get('key');
 
-        if (adminKey !== (env.STATS_ADMIN_KEY || 'sp-admin-2026')) {
+        // Admin key MUST come from Cloudflare secret — no fallback
+        const serverKey = env.STATS_ADMIN_KEY;
+        if (!serverKey) {
+            return Response.json({ error: 'Admin key not configured on server' }, { status: 500 });
+        }
+        if (!adminKey || adminKey !== serverKey) {
             return Response.json({ error: 'Unauthorized' }, { status: 403 });
         }
 

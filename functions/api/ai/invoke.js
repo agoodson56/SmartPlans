@@ -7,11 +7,8 @@
 export async function onRequestPost(context) {
     const { env, request } = context;
 
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-    };
+    // CORS headers handled by _middleware.js — only set non-CORS headers here
+    const corsHeaders = {};
 
     try {
         const body = await request.json();
