@@ -1,14 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-// SMARTPLANS — Server-Side Gemini API Proxy v3.2 (STREAMING)
-// Uses streamGenerateContent to avoid Cloudflare 524 timeouts
-// Pipes SSE stream from Gemini → client, keeping connection alive
+// SMARTPLANS — Server-Side Gemini API Proxy v4.0 (ZERO-TIMEOUT)
+// Returns SSE stream IMMEDIATELY with keepalive, then pipes Gemini
+// Eliminates Cloudflare 524 timeouts completely
 // ═══════════════════════════════════════════════════════════════
 
 export async function onRequestPost(context) {
     const { env, request } = context;
-
-    // CORS headers handled by _middleware.js — only set non-CORS headers here
-    const corsHeaders = {};
 
     try {
         const body = await request.json();
@@ -51,86 +48,128 @@ export async function onRequestPost(context) {
         if (!apiKey) {
             return Response.json(
                 { error: 'No API keys configured. Set GEMINI_KEY_0 through GEMINI_KEY_17 as secrets.' },
-                { status: 500, headers: corsHeaders }
+                { status: 500 }
             );
         }
 
-        // ── Use streaming endpoint to avoid 524 timeouts ──
-        // streamGenerateContent sends chunks every few seconds,
-        // keeping the Cloudflare proxy connection alive
         let model = requestedModel;
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-        console.log(`[Proxy] Brain ${brainSlot} → slot ${usedSlot} → model: ${model} (streaming)`);
+        console.log(`[Proxy] Brain ${brainSlot} → slot ${usedSlot} → model: ${model} (zero-timeout streaming)`);
 
-        const geminiResponse = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
+        // ═══ ZERO-TIMEOUT ARCHITECTURE ═══
+        // Return SSE stream to client IMMEDIATELY with keepalive comments.
+        // Gemini fetch runs in background and pipes data when ready.
+        // This prevents Cloudflare 524 timeouts no matter how long Gemini thinks.
+        const { readable, writable } = new TransformStream();
 
-        // ── If model fails with 403/404/400, try fallback ──
-        if (!geminiResponse.ok && [403, 404, 400].includes(geminiResponse.status)) {
-            const errBody = await geminiResponse.text();
-            console.warn(`[Proxy] Model "${model}" returned ${geminiResponse.status}: ${errBody.substring(0, 300)}`);
+        const pipeTask = (async () => {
+            const writer = writable.getWriter();
+            const encoder = new TextEncoder();
 
-            if (model !== 'gemini-2.5-flash') {
-                const fallbackModel = 'gemini-2.5-flash';
-                console.log(`[Proxy] Retrying brain ${brainSlot} with fallback model: ${fallbackModel}`);
+            // Send keepalive comment every 15 seconds — SSE spec ignores lines starting with ':'
+            // This keeps the Cloudflare proxy connection alive
+            const keepAlive = setInterval(() => {
+                writer.write(encoder.encode(': keepalive\n\n')).catch(() => {});
+            }, 15000);
 
-                if (body.generationConfig?.thinkingConfig) {
-                    delete body.generationConfig.thinkingConfig;
-                }
-
-                const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${fallbackModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
-                const fallbackResponse = await fetch(fallbackUrl, {
+            try {
+                const geminiResponse = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 });
+                clearInterval(keepAlive);
 
-                if (fallbackResponse.ok) {
-                    console.log(`[Proxy] ✓ Fallback to ${fallbackModel} succeeded for brain ${brainSlot}`);
-                    return new Response(fallbackResponse.body, {
-                        status: fallbackResponse.status,
-                        headers: { 'Content-Type': 'text/event-stream', ...corsHeaders },
-                    });
+                // Handle Gemini errors — send as SSE error event so client can detect
+                if (!geminiResponse.ok) {
+                    const errText = await geminiResponse.text();
+                    console.warn(`[Proxy] Model "${model}" returned ${geminiResponse.status}: ${errText.substring(0, 300)}`);
+
+                    // Try fallback model for 403/404/400
+                    if ([403, 404, 400].includes(geminiResponse.status) && model !== 'gemini-2.5-flash') {
+                        const fallbackModel = 'gemini-2.5-flash';
+                        console.log(`[Proxy] Retrying brain ${brainSlot} with fallback model: ${fallbackModel}`);
+
+                        if (body.generationConfig?.thinkingConfig) {
+                            delete body.generationConfig.thinkingConfig;
+                        }
+
+                        const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${fallbackModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+                        // Send keepalive while waiting for fallback
+                        const keepAlive2 = setInterval(() => {
+                            writer.write(encoder.encode(': keepalive\n\n')).catch(() => {});
+                        }, 15000);
+
+                        const fallbackResponse = await fetch(fallbackUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body),
+                        });
+                        clearInterval(keepAlive2);
+
+                        if (fallbackResponse.ok) {
+                            console.log(`[Proxy] ✓ Fallback to ${fallbackModel} succeeded for brain ${brainSlot}`);
+                            const reader = fallbackResponse.body.getReader();
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+                                await writer.write(value);
+                            }
+                            await writer.close();
+                            return;
+                        }
+
+                        const fbErrText = await fallbackResponse.text();
+                        console.error(`[Proxy] Fallback also failed: ${fallbackResponse.status}`);
+                        await writer.write(encoder.encode(
+                            `data: ${JSON.stringify({_proxyError: true, status: fallbackResponse.status, message: fbErrText.substring(0, 500)})}\n\n`
+                        ));
+                        await writer.close();
+                        return;
+                    }
+
+                    // Non-fallback error — send error event
+                    await writer.write(encoder.encode(
+                        `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, message: errText.substring(0, 500)})}\n\n`
+                    ));
+                    await writer.close();
+                    return;
                 }
 
-                const fbErrBody = await fallbackResponse.text();
-                console.error(`[Proxy] Fallback also failed: ${fallbackResponse.status} — ${fbErrBody.substring(0, 300)}`);
-                return new Response(fbErrBody, {
-                    status: fallbackResponse.status,
-                    headers: { 'Content-Type': 'application/json', ...corsHeaders },
-                });
+                // ── Success: pipe Gemini's SSE stream through to client ──
+                const reader = geminiResponse.body.getReader();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    await writer.write(value);
+                }
+                await writer.close();
+
+            } catch (err) {
+                clearInterval(keepAlive);
+                console.error(`[Proxy] Pipe error: ${err.message}`);
+                try {
+                    await writer.write(encoder.encode(
+                        `data: ${JSON.stringify({_proxyError: true, status: 500, message: err.message})}\n\n`
+                    ));
+                } catch {}
+                try { await writer.close(); } catch {}
             }
+        })();
 
-            return new Response(errBody, {
-                status: geminiResponse.status,
-                headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            });
-        }
+        // Ensure the pipe task runs to completion
+        context.waitUntil(pipeTask);
 
-        // ── Log non-OK responses ──
-        if (!geminiResponse.ok) {
-            const errText = await geminiResponse.text();
-            console.error(`[Proxy] Gemini ${geminiResponse.status} for brain ${brainSlot} (model: ${model}): ${errText.substring(0, 500)}`);
-            return new Response(errText, {
-                status: geminiResponse.status,
-                headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            });
-        }
-
-        // ── Stream SSE response back to client ──
-        // This keeps the connection alive — Cloudflare sees data flowing
-        // and won't trigger a 524 timeout
-        return new Response(geminiResponse.body, {
+        // Return immediately — client gets SSE stream right away
+        // Keepalive comments flow every 15s until Gemini responds
+        return new Response(readable, {
             status: 200,
             headers: {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive',
-                ...corsHeaders,
             },
         });
 
@@ -138,7 +177,7 @@ export async function onRequestPost(context) {
         console.error(`[Proxy] Fatal error: ${err.message}`);
         return Response.json(
             { error: 'Proxy error: ' + err.message },
-            { status: 500, headers: corsHeaders }
+            { status: 500 }
         );
     }
 }

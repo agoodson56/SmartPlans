@@ -360,17 +360,9 @@ const SmartBrains = {
         });
         clearTimeout(timer);
 
-        if (response.status === 524) {
-          // Cloudflare 524 = proxy timeout. Should be rare with SSE streaming.
-          // If this happens, it usually means the API key/file mismatch caused Gemini to hang.
-          if (attempt < 3) {
-            console.warn(`[Brain:${brainDef.name}] Cloudflare 524 timeout (attempt ${attempt + 1}/3), retrying…`);
-            await new Promise(r => setTimeout(r, 2000));
-            continue;
-          }
-          throw new Error(`Cloudflare 524 timeout after 3 attempts — brain skipped.`);
-        }
-
+        // The zero-timeout proxy always returns 200 with SSE stream.
+        // Errors come through as _proxyError events in the stream.
+        // Non-proxy responses (direct API) may still return error codes.
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
           const nextSlot = (brainDef.id + attempt + 1) % 18;
           const delay = this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500;
@@ -404,11 +396,25 @@ const SmartBrains = {
             buffer = lines.pop(); // Keep incomplete line in buffer
 
             for (const line of lines) {
+              // SSE comments (keepalive) start with ':' — skip silently
+              if (line.startsWith(':')) continue;
+
               if (line.startsWith('data: ')) {
                 const jsonStr = line.slice(6).trim();
                 if (!jsonStr || jsonStr === '[DONE]') continue;
                 try {
                   const chunk = JSON.parse(jsonStr);
+
+                  // Check for proxy error events from the zero-timeout proxy
+                  if (chunk._proxyError) {
+                    const errStatus = chunk.status || 500;
+                    // Throw retryable errors so the retry loop handles them
+                    if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
+                      throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
+                    }
+                    throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
+                  }
+
                   const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
                   for (const p of chunkParts) {
                     if (p.text && !p.thought) {
@@ -416,7 +422,9 @@ const SmartBrains = {
                     }
                   }
                 } catch (e) {
-                  // Skip malformed SSE chunks
+                  // If it's a retryable error from proxy, rethrow it
+                  if (e._retryable) throw e;
+                  // Otherwise skip malformed SSE chunks
                 }
               }
             }
@@ -437,7 +445,11 @@ const SmartBrains = {
 
       } catch (err) {
         lastError = err;
-        if (err.name === 'AbortError') {
+        if (err._retryable) {
+          // Error from zero-timeout proxy — retryable (429/403/500+)
+          const nextSlot = (brainDef.id + attempt + 1) % 18;
+          console.warn(`[Brain:${brainDef.name}] Proxy reported API ${err.status}, rotating to key slot ${nextSlot}, retrying…`);
+        } else if (err.name === 'AbortError') {
           console.warn(`[Brain:${brainDef.name}] Timeout, attempt ${attempt + 1}`);
         }
         if (attempt < maxRetries - 1) {
