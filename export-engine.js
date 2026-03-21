@@ -27,6 +27,7 @@ const SmartPlansExport = {
 
             project: {
                 name: state.projectName || "Untitled Project",
+                preparedFor: state.preparedFor || "",
                 type: state.projectType || "",
                 location: state.projectLocation || "",
                 jurisdiction: state.codeJurisdiction || "",

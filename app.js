@@ -311,6 +311,7 @@ const state = {
 
   // Form
   projectName: "",
+  preparedFor: "",
   projectType: "",
   disciplines: [],
   fileFormat: "",
@@ -638,6 +639,12 @@ function renderStep0(container) {
       <label class="form-label" for="project-name">Project Name <span class="required">*</span></label>
       <p class="form-hint">A name to identify this analysis</p>
       <input class="form-input" type="text" id="project-name" value="${esc(state.projectName)}" placeholder="e.g., Sunrise Medical Center Phase 2">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="prepared-for">Prepared For (GC / Agency) <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+      <p class="form-hint">The General Contractor, agency, or client this proposal will be addressed to.</p>
+      <input class="form-input" type="text" id="prepared-for" value="${esc(state.preparedFor)}" placeholder="e.g., Turner Construction, Sacramento County">
     </div>
 
     <div class="form-group">
@@ -981,6 +988,9 @@ function renderStep0(container) {
   // Bind events
   const nameInput = document.getElementById("project-name");
   nameInput.addEventListener("input", () => { state.projectName = nameInput.value; renderFooter(); });
+
+  const preparedForInput = document.getElementById("prepared-for");
+  preparedForInput.addEventListener("input", () => { state.preparedFor = preparedForInput.value; });
 
   const typeSelect = document.getElementById("project-type");
   typeSelect.value = state.projectType;
@@ -3625,6 +3635,7 @@ function _restoreStateFromPayload(id, pkg, est) {
   state.projectName = pkg?.project?.name || est?.project_name || '';
   state.projectType = pkg?.project?.type || est?.project_type || '';
   state.projectLocation = pkg?.project?.location || est?.project_location || '';
+  state.preparedFor = pkg?.project?.preparedFor || est?.prepared_for || '';
   state.disciplines = pkg?.project?.disciplines || (est?.disciplines ? (typeof est.disciplines === 'string' ? JSON.parse(est.disciplines) : est.disciplines) : []);
   state.pricingTier = pkg?.pricingConfig?.tier || est?.pricing_tier || 'mid';
   state.codeJurisdiction = pkg?.project?.codeJurisdiction || pkg?.project?.jurisdiction || '';

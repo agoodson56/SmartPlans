@@ -36,6 +36,7 @@ const ProposalGenerator = {
     const projName = state.projectName || 'Untitled Project';
     const projType = state.projectType || 'Low Voltage Installation';
     const projLoc = state.projectLocation || 'To Be Determined';
+    const preparedFor = state.preparedFor || projName;
     const disciplines = (state.disciplines || []).join(', ') || 'Low Voltage Systems';
     const today = new Date();
     const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -267,6 +268,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     const b = this.BRAND;
     const projName = state.projectName || 'Untitled Project';
     const projLoc = state.projectLocation || 'As Specified';
+    const preparedFor = state.preparedFor || projName;
     const today = new Date();
     const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const validUntil = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
@@ -467,10 +469,10 @@ COVER PAGE — Word-native table layout (renders perfectly)
   <tr valign="top">
     <td width="48%" style="padding-right:24pt;">
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Prepared For</p>
-      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._esc(projName)}</p>
+      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._esc(preparedFor)}</p>
 
-      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Project Location</p>
-      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._esc(projLoc)}</p>
+      <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Project Name</p>
+      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._esc(projName)}</p>
 
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Date Submitted</p>
       <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${dateStr}</p>
