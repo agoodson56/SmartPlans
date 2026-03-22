@@ -187,9 +187,9 @@ const SmartPlansExport = {
             // Matches: ## MDF/IDF MATERIAL BREAKDOWN, ### MDF/IDF/TR Material Breakdown, etc.
             let sectionContent = null;
             const sectionPatterns = [
-                /#{1,3}\s*(?:MDF\/IDF|MDF\/IDF\/TR)[^\n]*/i,
-                /#{1,3}\s*(?:INFRASTRUCTURE|TELECOM|CLOSET|ROOM)[^\n]*(?:MATERIAL|BREAKDOWN|EQUIPMENT)[^\n]*/i,
-                /\*\*(?:MDF\/IDF|MDF\/IDF\/TR)[^*]*\*\*/i,
+                /#{1,3}\s*(?:\d+\.\s*)?(?:MDF\/IDF|MDF\/IDF\/TR)[^\n]*/i,
+                /#{1,3}\s*(?:\d+\.\s*)?(?:INFRASTRUCTURE|TELECOM|CLOSET|ROOM)[^\n]*(?:MATERIAL|BREAKDOWN|EQUIPMENT)[^\n]*/i,
+                /\*\*(?:\d+\.\s*)?(?:MDF\/IDF|MDF\/IDF\/TR)[^*]*\*\*/i,
             ];
 
             for (const regex of sectionPatterns) {
