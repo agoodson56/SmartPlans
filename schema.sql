@@ -31,3 +31,34 @@ CREATE TABLE IF NOT EXISTS usage_stats (
     last_bid_at TEXT,
     last_reset_at TEXT
 );
+
+-- ═══════════════════════════════════════════════════════════════
+-- SmartPM — Daily Progress Logs (server-side, no localStorage)
+-- Tracks material installed and labor hours per module per day.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS pm_daily_logs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL DEFAULT 'default',
+    module_id TEXT NOT NULL,
+    item TEXT NOT NULL,
+    unit TEXT DEFAULT 'EA',
+    qty_installed REAL NOT NULL DEFAULT 0,
+    hours_used REAL NOT NULL DEFAULT 0,
+    logged_at TEXT DEFAULT (datetime('now')),
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pm_logs_project ON pm_daily_logs(project_id);
+CREATE INDEX IF NOT EXISTS idx_pm_logs_date ON pm_daily_logs(logged_at DESC);
+
+-- ═══════════════════════════════════════════════════════════════
+-- SmartPM — App Settings (passwords, preferences)
+-- Key-value store — no localStorage needed.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS pm_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
