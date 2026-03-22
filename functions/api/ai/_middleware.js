@@ -10,11 +10,16 @@ function isAllowedOrigin(origin) {
     // Allow any Cloudflare Pages deploy (production + preview URLs)
     if (origin.endsWith('.pages.dev') && origin.includes('smartplans')) return true;
 
-    // Allow custom domain if configured
-    if (origin.includes('smartplans')) return true;
+    // Allow specific production domains only
+    const allowedDomains = [
+        'https://smartplans.pages.dev',
+        'https://smartplans.3dtechnologyservices.com',
+        'https://3dtechnologyservices.com',
+    ];
+    if (allowedDomains.some(d => origin.startsWith(d))) return true;
 
     // Local development
-    if (origin.includes('localhost') || origin.includes('127.0.0.1')) return true;
+    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
 
     return false;
 }
