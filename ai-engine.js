@@ -672,7 +672,7 @@ const SmartBrains = {
 
   _SCHEMAS: {
     LEGEND_DECODER: ['symbols', 'legend_quality'],
-    SYMBOL_SCANNER: ['sheets', 'totals', 'device_inventory'],
+    SYMBOL_SCANNER: ['sheets', 'totals'],
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
@@ -680,7 +680,7 @@ const SmartBrains = {
     SHADOW_SCANNER: ['sheets', 'totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
     QUADRANT_SCANNER: ['quadrants', 'totals'],
-    CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence', 'typical_multiplications', 'schedule_overrides'],
+    CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence'],
     TARGETED_RESCANNER: ['resolved_items', 'final_counts'],
     MATERIAL_PRICER: ['categories', 'grand_total'],
     LABOR_CALCULATOR: ['phases', 'total_hours'],
@@ -692,7 +692,7 @@ const SmartBrains = {
     CROSS_SHEET_ANALYZER: ['sheet_comparisons', 'inconsistencies', 'adjusted_counts'],
     FINAL_RECONCILIATION: ['final_counts', 'adjustment_log', 'confidence_score'],
     SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies'],
-    ANNOTATION_READER: ['annotations', 'referenced_details', 'schedule_data', 'typical_multiplications'],
+    ANNOTATION_READER: ['annotations', 'referenced_details'],
     RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
     ZOOM_SCANNER: ['quadrant_counts', 'zoom_findings'],
     PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
