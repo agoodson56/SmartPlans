@@ -39,7 +39,7 @@
 
 const SmartBrains = {
 
-  VERSION: '4.0.0',
+  VERSION: '5.0.0',
 
   // ═══════════════════════════════════════════════════════════
   // CONFIGURATION
@@ -54,7 +54,7 @@ const SmartBrains = {
     proModel: 'gemini-3.1-pro-preview',      // Gemini 3.1 Pro — released Feb 19, 2026
     useProxy: true,                          // ENABLED — route all calls through server-side proxy
     proxyEndpoint: '/api/ai/invoke',
-    maxRetries: 8,
+    maxRetries: 10,
     retryBaseDelay: 1500,
     timeout: 150000,                         // 2.5 min for Flash brains
     proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
@@ -103,6 +103,8 @@ const SmartBrains = {
     OVERLAP_DETECTOR: { id: 26, name: 'Overlap Detector', wave: 3.5, emoji: '🔗', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 3.75: Final Reconciliation (1 brain, Pro deep reasoning) ──
     FINAL_RECONCILIATION: { id: 20, name: 'Final Reconciliation', wave: 3.75, emoji: '🏁', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
+    // ── Wave 3.85: Estimate Correction (1 brain, Pro — corrects pricing/quantities based on verification findings) ──
+    ESTIMATE_CORRECTOR: { id: 27, name: 'Estimate Corrector', wave: 3.85, emoji: '🔧', needsFiles: [], maxTokens: 65536, useProModel: true },
     // ── Wave 4: Final Report (Gemini 3.1 Pro for comprehensive bid generation) ──
     REPORT_WRITER: { id: 17, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 65536, useProModel: true },
   },
@@ -453,7 +455,7 @@ const SmartBrains = {
           console.warn(`[Brain:${brainDef.name}] Timeout, attempt ${attempt + 1}`);
         }
         if (attempt < maxRetries - 1) {
-          await new Promise(r => setTimeout(r, this.config.retryBaseDelay * Math.pow(2, attempt)));
+          await new Promise(r => setTimeout(r, Math.min(this.config.retryBaseDelay * Math.pow(2, attempt), 15000)));
         }
       }
     }
@@ -697,6 +699,7 @@ const SmartBrains = {
     ZOOM_SCANNER: ['quadrant_counts', 'zoom_findings'],
     PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
     OVERLAP_DETECTOR: ['overlapping_areas', 'potential_duplicates'],
+    ESTIMATE_CORRECTOR: ['corrected_categories', 'correction_log'],
     // REPORT_WRITER returns markdown, no JSON schema
   },
 
@@ -1243,8 +1246,41 @@ ${disciplineChecklist}
 ═══ VERIFIED DEVICE COUNTS (from Triple-Read Consensus — USE THESE EXACT QUANTITIES) ═══
 ${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
 
-DETAILED SYMBOL DATA (for reference — quantities above take priority):
+═══ EQUIPMENT SCHEDULE DATA (AUTHORITATIVE — overrides symbol counts if present) ═══
+${(() => {
+  const schedData = context.wave1?.ANNOTATION_READER?.schedule_data;
+  if (schedData && Object.keys(schedData).length > 0) {
+    return `The following equipment schedule was extracted from the drawings. These are the ARCHITECT'S DEFINITIVE quantities.
+If the schedule says 56 cameras, that is the correct count — even if symbol counting found a different number.
+SCHEDULE DATA:
+${JSON.stringify(schedData, null, 2).substring(0, 4000)}
+
+RULES FOR SCHEDULE vs. SYMBOL CONFLICTS:
+- Schedule counts ALWAYS win over symbol counts
+- Do NOT add symbol-counted devices ON TOP of schedule devices — they are the SAME devices
+- If the schedule specifies model numbers, use those to determine the correct pricing category`;
+  }
+  return 'No equipment schedule found — use consensus counts above as primary source.';
+})()}
+
+DETAILED SYMBOL DATA (for reference — schedule and consensus quantities take priority):
 ${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.sheets || context.wave1?.SYMBOL_SCANNER || {}, null, 2).substring(0, 5000)}
+
+ANNOTATION NOTES (check for OFCI items — Owner Furnished Contractor Installed):
+${(() => {
+  const annotations = context.wave1?.ANNOTATION_READER?.annotations || [];
+  const ofci = annotations.filter(a => 
+    (a.text || '').toLowerCase().includes('furnished') || 
+    (a.text || '').toLowerCase().includes('ofci') ||
+    (a.text || '').toLowerCase().includes('owner furnished') ||
+    (a.text || '').toLowerCase().includes('by others')
+  );
+  if (ofci.length > 0) {
+    return `⚠️ OFCI ITEMS FOUND — Do NOT price these as materials (labor only):
+${ofci.map(a => `- ${a.text}`).join('\n')}`;
+  }
+  return 'No OFCI annotations found.';
+})()}
 
 MDF/IDF ROOMS & EQUIPMENT:
 ${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 4000)}
@@ -1255,10 +1291,37 @@ ${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)
 PRICING DATABASE (use these exact prices):
 ${context.pricingContext || 'Use industry standard pricing'}
 
+═══ PRICING GUARDRAILS (HARD LIMITS — violations will be rejected) ═══
+These are maximum allowable unit costs. If your calculated cost exceeds these, use the maximum listed.
+Even for transit-rated, ruggedized, or specialty items, the multiplier must not exceed 2.5× the premium tier.
+
+| Equipment Type | Max Unit Cost |
+|---------------|---------------|
+| Fixed Dome Camera (indoor) | $1,300 |
+| Fixed Dome Camera (outdoor) | $1,800 |
+| PTZ Camera (outdoor) | $8,750 |
+| Multi-sensor Panoramic 180° | $7,000 |
+| Multi-sensor Fisheye 360° | $8,750 |
+| LPR/ANPR Camera | $8,000 |
+| NVR/VMS Server | $16,250 |
+| PoE Switch 8-port | $950 |
+| PoE Switch 24-port | $2,375 |
+| PoE Switch 48-port | $3,750 |
+| Access Control Panel 2-door | $2,125 |
+| Card Reader | $1,200 |
+| Electric Strike | $700 |
+| Surveillance Monitor 22" | $1,125 |
+| Surveillance Monitor 32" | $1,875 |
+| Camera Pole 20ft | $3,000 |
+| Patch Panel 48-port | $650 |
+
+Formula: Max = PRICING_DB premium price × 2.5 (accounts for transit-rated/ruggedized)
+If your unit cost exceeds the max, CLAMP it to the max value.
+
 CRITICAL RULES:
 1. You MUST create a category for EVERY discipline listed above — do NOT skip any discipline that has devices in the consensus counts or symbol data
-2. If consensus says 24 cameras, price EXACTLY 24 cameras — not 20, not 30
-3. If consensus says 200 data outlets, price EXACTLY 200 data outlets
+2. If the EQUIPMENT SCHEDULE exists, use its quantities as the DEFINITIVE source. Do NOT add symbol-counted devices on top of schedule quantities — they are the SAME devices seen from different sources
+3. If NO schedule exists, use consensus counts: if consensus says 24 cameras, price EXACTLY 24 cameras
 4. For Access Control: include controllers, card readers, door contacts, REX devices, electric strikes/maglocks, door position switches, cabling, and power supplies
 5. For each camera or access point, include mounting hardware, cable, connectors, and associated head-end equipment (NVR, switches, license)
 6. Use the EXACT prices from the pricing database. Apply the ${regionMult}× regional multiplier to all unit costs
@@ -1266,6 +1329,8 @@ CRITICAL RULES:
 8. Include ALL MDF/IDF equipment: racks, patch panels, UPS, grounding busbars (TMGB/TGB), cable management
 9. Include backbone/riser cables from CABLE QUANTITIES section — do NOT omit fiber or copper backbone
 10. Cable quantities: use ~150ft average per data drop, verify against CABLE_PATHWAY data
+11. Do NOT price OFCI (Owner Furnished) items as materials — include labor only for installation
+12. NEVER exceed the pricing guardrail maximums listed above — clamp to the max if your calculation is higher
 
 ═══ MANDATORY SELF-CHECK (do this before returning) ═══
 Before responding, verify that your output includes a category for EACH selected discipline listed above.
@@ -1661,6 +1726,84 @@ Return ONLY valid JSON:
   "recommendations": []
 }`,
 
+      // ── BRAIN 28: Estimate Corrector (Wave 3.85) ──────────────
+      ESTIMATE_CORRECTOR: () => {
+        const tier = context.pricingTier || 'mid';
+        return `You are a CONSTRUCTION ESTIMATE AUDITOR. Your job is to CORRECT the Material Pricer's output using findings from the verification brains.
+
+You receive:
+1. The original Material Pricer output (categories + items + prices)
+2. The Devil's Advocate challenges (missed items, inflated prices, phantom items)
+3. The Cross Validator issues (quantity mismatches, math errors, missing scope)
+4. The Reverse Verifier discrepancies (items in BOQ not on plans, or vice versa)
+5. The Final Reconciliation counts (authoritative device counts from 6 reads)
+
+Your task: produce a CORRECTED version of the Material Pricer categories with fixes applied.
+
+═══ ORIGINAL MATERIAL PRICER OUTPUT ═══
+${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000)}
+
+═══ DEVIL'S ADVOCATE CHALLENGES ═══
+${JSON.stringify(context.wave3?.DEVILS_ADVOCATE?.challenges || [], null, 2).substring(0, 4000)}
+
+═══ CROSS VALIDATOR ISSUES ═══
+${JSON.stringify(context.wave3?.CROSS_VALIDATOR?.issues || [], null, 2).substring(0, 4000)}
+
+═══ REVERSE VERIFIER DISCREPANCIES ═══
+${JSON.stringify(context.wave2_75?.REVERSE_VERIFIER?.discrepancies || [], null, 2).substring(0, 3000)}
+
+═══ FINAL RECONCILIATION COUNTS (6-read consensus — AUTHORITATIVE) ═══
+${JSON.stringify(context.wave3_75?.FINAL_RECONCILIATION?.final_counts || context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || {}, null, 2).substring(0, 4000)}
+
+═══ EQUIPMENT SCHEDULE DATA (if available — overrides all counts) ═══
+${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || {}, null, 2).substring(0, 3000)}
+
+═══ PRICING GUARDRAILS ═══
+Maximum unit costs (premium × 2.5 for transit/ruggedized):
+- Indoor dome camera: $1,300 max
+- Outdoor dome camera: $1,800 max
+- PTZ outdoor: $8,750 max
+- Multi-sensor panoramic/fisheye: $8,750 max
+- NVR/VMS server: $16,250 max
+- PoE switch 24-port: $2,375 max
+- PoE switch 48-port: $3,750 max
+- Monitor 22": $1,125 max | 32": $1,875 max | 55": $3,750 max
+- Camera pole 20ft: $3,000 max
+
+CORRECTION RULES:
+1. QUANTITY FIX: If Devil's Advocate says "13 phantom cameras" — REDUCE the camera count by 13
+2. PRICE FIX: If any unit cost exceeds the guardrail max — CLAMP it to the max
+3. MISSING ITEMS: If Devil's Advocate says "missing camera poles" or "missing concrete foundations" — ADD them
+4. OFCI: If an item is marked "owner furnished, contractor install" — set unit_cost to 0 (labor only)
+5. DOUBLE-COUNT: If the same devices were counted from both schedule AND symbols — use the LOWER count (schedule preferred)
+6. MATH: Recalculate ext_cost = qty × unit_cost for every row you change
+7. SUBTOTALS: Recalculate category subtotals after corrections
+8. Do NOT remove legitimate items — only correct quantities and prices that are wrong
+
+Return ONLY valid JSON:
+{
+  "corrected_categories": [
+    {
+      "name": "Category Name",
+      "items": [
+        { "item": "description", "qty": 10, "unit": "ea", "unit_cost": 380.00, "ext_cost": 3800.00, "corrected": true, "correction_reason": "Reduced from 25 per Devil's Advocate finding" }
+      ],
+      "subtotal": 3800.00,
+      "original_subtotal": 9500.00
+    }
+  ],
+  "correction_log": [
+    { "action": "qty_reduced", "item": "Fixed Dome Camera", "from": 25, "to": 10, "reason": "13 phantom cameras identified by Devil's Advocate", "cost_impact": -5700.00 },
+    { "action": "price_clamped", "item": "360 Fisheye Camera", "from_price": 18396.88, "to_price": 3500.00, "reason": "Exceeded guardrail max ($8,750)", "cost_impact": -14896.88 },
+    { "action": "item_added", "item": "Camera Pole 20ft with base", "qty": 4, "unit_cost": 650.00, "reason": "Missing from original — identified by Devil's Advocate", "cost_impact": 2600.00 }
+  ],
+  "corrected_grand_total": 0,
+  "original_grand_total": 0,
+  "total_adjustment": 0,
+  "adjustment_summary": "Reduced camera count by 13, clamped 3 inflated prices, added missing camera poles and foundations"
+}`;
+      },
+
       // ── BRAIN 10: Report Writer ──────────────────────────────
       REPORT_WRITER: () => {
         const matMarkup = context.markup?.material || 50;
@@ -1816,7 +1959,25 @@ SPECIAL CONDITIONS:
 ${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 3000)}
 
 MATERIAL PRICING (use these exact numbers):
-${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000)}
+${(() => {
+  // Use CORRECTED pricing if the Estimate Corrector ran successfully
+  const corrected = context._correctedPricer;
+  if (corrected && corrected.corrected_categories && corrected.corrected_categories.length > 0) {
+    return `═══ ⚠️ CORRECTED MATERIAL DATA (post-verification) — USE THIS, NOT THE ORIGINAL ═══
+The Estimate Corrector applied ${(corrected.correction_log || []).length} correction(s) to the original Material Pricer output.
+Adjustment summary: ${corrected.adjustment_summary || 'See correction log'}
+Original grand total: $${corrected.original_grand_total?.toLocaleString() || 'N/A'}
+Corrected grand total: $${corrected.corrected_grand_total?.toLocaleString() || 'N/A'}
+
+CORRECTED CATEGORIES:
+${JSON.stringify(corrected.corrected_categories, null, 2).substring(0, 8000)}
+
+CORRECTION LOG:
+${JSON.stringify(corrected.correction_log || [], null, 2).substring(0, 3000)}`;
+  }
+  // Fallback: use original pricer data
+  return JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000);
+})()}
 
 LABOR CALCULATIONS (use these exact numbers):
 ${JSON.stringify(context.wave2_25?.LABOR_CALCULATOR || {}, null, 2).substring(0, 8000)}
@@ -2655,7 +2816,7 @@ Return ONLY valid JSON:
     const brain = this.BRAINS[key];
 
     // Critical brains that MUST succeed — they get the full retry budget
-    const CRITICAL_BRAINS = ['SYMBOL_SCANNER', 'MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE', 'CONSENSUS_ARBITRATOR', 'REPORT_WRITER'];
+    const CRITICAL_BRAINS = ['SYMBOL_SCANNER', 'MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE', 'CONSENSUS_ARBITRATOR', 'ESTIMATE_CORRECTOR', 'REPORT_WRITER'];
     const MAX_VALIDATION_RETRIES = CRITICAL_BRAINS.includes(key) ? (this.config.maxRetries || 8) : Math.ceil((this.config.maxRetries || 8) / 2);
 
     try {
@@ -2755,11 +2916,11 @@ Return ONLY valid JSON:
   },
 
   async _runWave(waveNum, brainKeys, encodedFiles, state, context, progressCallback) {
-    const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 4: 90 };
-    const waveEnd = { 0: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 80, 3.5: 84, 3.75: 90, 4: 98 };
+    const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 3.85: 88, 4: 92 };
+    const waveEnd = { 0: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 80, 3.5: 84, 3.75: 88, 3.85: 92, 4: 98 };
     const baseProgress = waveStart[waveNum] ?? 0;
     const endProgress = waveEnd[waveNum] ?? 100;
-    const waveNames = { 0: 'Legend Pre-Processing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Material Pricing', 2.25: 'Labor Calculation', 2.5: 'Financial Engine', 2.75: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 4: 'Report Synthesis' };
+    const waveNames = { 0: 'Legend Pre-Processing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Material Pricing', 2.25: 'Labor Calculation', 2.5: 'Financial Engine', 2.75: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 3.85: 'Estimate Correction', 4: 'Report Synthesis' };
 
     const results = {};
     let completed = 0;
@@ -3020,8 +3181,35 @@ Return ONLY valid JSON:
       context.wave3_75 = {};
     }
 
+    // ═══ WAVE 3.85: Estimate Correction (1 brain, Pro — corrects pricer using verification findings) ═══
+    try {
+      progressCallback(88, '🔧 Wave 3.85: Estimate Corrector — applying verification fixes…', this._brainStatus);
+      const wave385Results = await this._runWave(3.85, ['ESTIMATE_CORRECTOR'], encodedFiles, state, context, progressCallback);
+      context.wave3_85 = wave385Results;
+
+      // If corrections were produced, log the summary and inject into context
+      const corrector = wave385Results.ESTIMATE_CORRECTOR;
+      if (corrector && !corrector._failed && !corrector._parseFailed && corrector.corrected_categories) {
+        const log = corrector.correction_log || [];
+        console.log(`[SmartBrains] ═══ Wave 3.85 Complete — ${log.length} correction(s) applied ═══`);
+        for (const entry of log) {
+          console.log(`[SmartBrains]   🔧 ${entry.action}: ${entry.item} — ${entry.reason} (${entry.cost_impact >= 0 ? '+' : ''}$${entry.cost_impact?.toLocaleString()})`);
+        }
+        if (corrector.total_adjustment) {
+          console.log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
+        }
+        // Inject corrected data so Report Writer uses it
+        context._correctedPricer = corrector;
+      } else {
+        console.warn('[SmartBrains] Estimate Corrector returned no corrections — Report Writer will use original pricer data');
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Wave 3.85 failed (non-fatal, continuing):', e.message);
+      context.wave3_85 = {};
+    }
+
     // ═══ WAVE 4: Report Synthesis (1 brain) ═══
-    progressCallback(90, '📝 Wave 4: Writing final report…', this._brainStatus);
+    progressCallback(92, '📝 Wave 4: Writing final report…', this._brainStatus);
     const wave4Results = await this._runWave(4, ['REPORT_WRITER'], encodedFiles, state, context, progressCallback);
     console.log('[SmartBrains] ═══ Wave 4 Complete ═══');
 
