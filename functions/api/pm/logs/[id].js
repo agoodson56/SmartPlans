@@ -22,10 +22,20 @@ function isAllowedOrigin(origin) {
 export async function onRequestDelete(context) {
     const { env, params, request } = context;
 
-    // Origin + token auth
+    // Origin check
     const origin = request.headers.get('Origin') || '';
     if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    // LOW-2 fix: single-log DELETE was missing token auth — inconsistent with POST (create)
+    // and POST (bulk delete) which both require ESTIMATES_TOKEN. Added to close the gap.
+    const envToken = env.ESTIMATES_TOKEN;
+    if (envToken) {
+        const token = request.headers.get('X-App-Token') || '';
+        if (token !== envToken) {
+            return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
+        }
     }
 
     try {
