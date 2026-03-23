@@ -26,8 +26,39 @@ export async function onRequestGet(context) {
     }
 }
 
+// Origin validation — shared pattern across all endpoints
+function isAllowedOrigin(origin) {
+    if (!origin) return true;
+    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
+    const allowed = [
+        'https://smartplans-4g5.pages.dev',
+        'https://smartplans.pages.dev',
+        'https://smartplans.3dtechnologyservices.com',
+        'https://3dtechnologyservices.com',
+    ];
+    if (allowed.some(d => origin.startsWith(d))) return true;
+    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
+    return false;
+}
+
 export async function onRequestPost(context) {
     const { request, env } = context;
+
+    // Origin validation — block external POST requests
+    const origin = request.headers.get('Origin') || '';
+    if (origin && !isAllowedOrigin(origin)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    // If ESTIMATES_TOKEN is configured, require it here too
+    const envToken = env.ESTIMATES_TOKEN;
+    if (envToken) {
+        const token = request.headers.get('X-App-Token') || '';
+        if (token !== envToken) {
+            return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
+        }
+    }
+
     try {
         const body = await request.json();
         const cost = parseFloat(body.cost) || 0;
