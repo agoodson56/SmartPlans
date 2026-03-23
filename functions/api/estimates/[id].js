@@ -4,8 +4,18 @@
 // DELETE /api/estimates/:id — Delete estimate
 // ═══════════════════════════════════════════════════════════════
 
+// CRIT-2 fix: shared ID validator — reject oversized or malformed IDs before DB lookup
+function isValidId(id) {
+    return id && String(id).length <= 64 && /^[a-zA-Z0-9_-]+$/.test(String(id));
+}
+
 export async function onRequestGet(context) {
     const { env, params } = context;
+
+    if (!isValidId(params.id)) {
+        return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
+    }
+
     try {
         const est = await env.DB.prepare(
             `SELECT * FROM estimates WHERE id = ?`
@@ -28,6 +38,11 @@ export async function onRequestGet(context) {
 
 export async function onRequestPut(context) {
     const { env, request, params } = context;
+
+    if (!isValidId(params.id)) {
+        return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
+    }
+
     try {
         const body = await request.json();
         const sets = [];
@@ -84,6 +99,11 @@ export async function onRequestPut(context) {
 
 export async function onRequestDelete(context) {
     const { env, params } = context;
+
+    if (!isValidId(params.id)) {
+        return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
+    }
+
     try {
         await env.DB.prepare(`DELETE FROM estimates WHERE id = ?`).bind(params.id).run();
         return Response.json({ success: true });
