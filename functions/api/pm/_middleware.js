@@ -6,15 +6,16 @@
 function isAllowedOrigin(origin) {
     if (!origin) return true; // Same-origin
 
-    // SmartPlans origins
-    if (origin.endsWith('.pages.dev') && origin.includes('smartplans')) return true;
+    // SmartPlans origins (project suffix: -4g5)
+    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
 
     // SmartPM origins
     if (origin.endsWith('.pages.dev') && origin.includes('smartpm')) return true;
 
     // Production domains
     const allowedDomains = [
-        'https://smartplans.pages.dev',
+        'https://smartplans-4g5.pages.dev',             // Real SmartPlans production
+        'https://smartplans.pages.dev',                  // In case custom domain is claimed
         'https://smartpm.pages.dev',
         'https://smartplans.3dtechnologyservices.com',
         'https://smartpm.3dtechnologyservices.com',

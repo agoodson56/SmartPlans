@@ -8,11 +8,13 @@ function isAllowedOrigin(origin) {
     if (!origin) return true; // No Origin = same-origin request, always OK
 
     // Allow any Cloudflare Pages deploy (production + preview URLs)
-    if (origin.endsWith('.pages.dev') && origin.includes('smartplans')) return true;
+    // The -4g5 suffix is specific to our project — prevents unrelated Pages sites from matching
+    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
 
     // Allow specific production domains only
     const allowedDomains = [
-        'https://smartplans.pages.dev',
+        'https://smartplans-4g5.pages.dev',             // Real production URL
+        'https://smartplans.pages.dev',                  // Keep in case custom domain is claimed
         'https://smartplans.3dtechnologyservices.com',
         'https://3dtechnologyservices.com',
     ];
