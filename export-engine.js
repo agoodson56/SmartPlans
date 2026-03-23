@@ -88,6 +88,8 @@ const SmartPlansExport = {
                         unit: item.unit,
                         unitCost: item.unitCost,
                         extCost: item.extCost,
+                        mfg: item.mfg || '',
+                        partNumber: item.partNumber || '',
                         category: item.category || 'other',
                     })),
                 })),
@@ -663,6 +665,8 @@ const SmartPlansExport = {
                             if (colMap.extCost === undefined) colMap.extCost = idx;
                         }
                         else if (cl === 'unit' || cl === 'uom') colMap.unit = idx;
+                        else if (cl.includes('mfg') || cl.includes('manufacturer') || cl.includes('brand') || cl.includes('make')) colMap.mfg = idx;
+                        else if (cl.includes('part') || cl.includes('model') || cl.includes('sku') || cl.includes('p/n')) colMap.partNumber = idx;
                     });
                     inTable = true;
                     continue;
@@ -732,12 +736,24 @@ const SmartPlansExport = {
                     const cleanName = itemName.replace(/\*+/g, '').trim();
                     if (cleanName.length < 2 || /^[-:]+$/.test(cleanName)) continue;
 
+                    // Extract MFG and Part Number if columns exist
+                    let mfg = '';
+                    let partNumber = '';
+                    if (colMap.mfg !== undefined && cells[colMap.mfg]) {
+                        mfg = cells[colMap.mfg].replace(/\*+/g, '').trim();
+                    }
+                    if (colMap.partNumber !== undefined && cells[colMap.partNumber]) {
+                        partNumber = cells[colMap.partNumber].replace(/\*+/g, '').trim();
+                    }
+
                     currentCategory.items.push({
                         item: cleanName,
                         qty: qty,
                         unit: unit,
                         unitCost: Math.round(unitCost * 100) / 100,
                         extCost: Math.round(extCost * 100) / 100,
+                        mfg: mfg,
+                        partNumber: partNumber,
                         category: this._guessCategory(cleanName),
                     });
                 }
@@ -756,11 +772,14 @@ const SmartPlansExport = {
         }
 
         // Calculate subtotals & grand total
+        // FIX: ALWAYS compute subtotals from actual line item extCosts.
+        // Previously, if the AI included a subtotal row, we captured its value (line 680).
+        // That subtotal often included markup (sell price), while individual items showed
+        // base cost. This created a Frankenstein BOM where lines didn't add up to the total.
+        // Now we ignore the AI's subtotal and sum the actual items for internal consistency.
         let grandTotal = 0;
         for (const cat of categories) {
-            if (cat.subtotal === 0) {
-                cat.subtotal = cat.items.reduce((sum, item) => sum + (item.extCost || 0), 0);
-            }
+            cat.subtotal = cat.items.reduce((sum, item) => sum + (item.extCost || 0), 0);
             grandTotal += cat.subtotal;
         }
 
@@ -841,7 +860,7 @@ const SmartPlansExport = {
                 ["DETAILED BILL OF MATERIALS"],
                 [`${state.projectName || 'Project'} — ${now.toLocaleDateString()}`],
                 [],
-                ["Category", "Item / Description", "Qty", "Unit", "Unit Cost ($)", "Extended Cost ($)"],
+                ["Category", "MFG", "Part #", "Item / Description", "Qty", "Unit", "Unit Cost ($)", "Extended Cost ($)"],
             ];
 
             let runningTotal = 0;
@@ -851,11 +870,13 @@ const SmartPlansExport = {
             for (const cat of bom.categories) {
                 // Category header row
                 bomData.push([]);
-                bomData.push([cat.name.toUpperCase(), "", "", "", "", ""]);
+                bomData.push([cat.name.toUpperCase(), "", "", "", "", "", "", ""]);
 
                 for (const item of cat.items) {
                     bomData.push([
                         "",
+                        item.mfg || "",
+                        item.partNumber || "",
                         item.item,
                         item.qty,
                         item.unit,
@@ -867,24 +888,24 @@ const SmartPlansExport = {
                 }
 
                 // Category subtotal row
-                bomData.push(["", `SUBTOTAL — ${cat.name}`, "", "", "", cat.subtotal]);
+                bomData.push(["", "", "", `SUBTOTAL — ${cat.name}`, "", "", "", cat.subtotal]);
                 runningTotal += cat.subtotal;
             }
 
             // Grand total section
             bomData.push([]);
-            bomData.push(["", "", "", "", "", ""]);
-            bomData.push(["", "MATERIAL GRAND TOTAL", "", "", "", runningTotal]);
+            bomData.push(["", "", "", "", "", "", "", ""]);
+            bomData.push(["", "", "", "MATERIAL GRAND TOTAL", "", "", "", runningTotal]);
             if (state.markup && state.markup.material > 0) {
                 const markupAmt = runningTotal * (state.markup.material / 100);
-                bomData.push(["", `MARKUP (${state.markup.material}%)`, "", "", "", Math.round(markupAmt * 100) / 100]);
-                bomData.push(["", "TOTAL WITH MARKUP", "", "", "", Math.round((runningTotal + markupAmt) * 100) / 100]);
+                bomData.push(["", "", "", `MARKUP (${state.markup.material}%)`, "", "", "", Math.round(markupAmt * 100) / 100]);
+                bomData.push(["", "", "", "TOTAL WITH MARKUP", "", "", "", Math.round((runningTotal + markupAmt) * 100) / 100]);
             }
             bomData.push([]);
-            bomData.push(["", `Total Line Items: ${totalLineItems}`, `Total Qty: ${totalQuantity}`, "", "", ""]);
+            bomData.push(["", "", "", `Total Line Items: ${totalLineItems}`, `Total Qty: ${totalQuantity}`, "", "", ""]);
 
             const ws2 = XLSX.utils.aoa_to_sheet(bomData);
-            ws2["!cols"] = [{ wch: 24 }, { wch: 50 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 16 }];
+            ws2["!cols"] = [{ wch: 24 }, { wch: 16 }, { wch: 24 }, { wch: 50 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 16 }];
             XLSX.utils.book_append_sheet(wb, ws2, "Bill of Materials");
 
             // ── Sheet 3: Category Summary ──

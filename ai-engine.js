@@ -178,7 +178,7 @@ const SmartBrains = {
               console.log(`[SmartBrains] Uploading ${entry.name} (${Math.round(entry.rawFile.size / 1024 / 1024)} MB) via File API…`);
 
               try {
-                const uploadResult = await this._uploadToFileAPI(base64, finalMime, entry.name);
+                const uploadResult = await this._uploadToFileAPI(entry.rawFile, finalMime, entry.name);
                 if (uploadResult && uploadResult.fileUri) {
                   fileData.fileUri = uploadResult.fileUri;
                   fileData.uploadedName = uploadResult.name;
@@ -220,16 +220,17 @@ const SmartBrains = {
   },
 
   // Upload file to Gemini File API via server-side proxy
-  async _uploadToFileAPI(base64Data, mimeType, fileName) {
+  // FIX: Server expects multipart/form-data (request.formData()), NOT JSON with base64.
+  // Sending the raw File object avoids the ~33% base64 overhead for large PDFs.
+  async _uploadToFileAPI(rawFile, mimeType, fileName) {
+    const formData = new FormData();
+    // The server reads formData.get('file') — field name must be 'file'
+    formData.append('file', rawFile, fileName);
+
     const response = await fetch('/api/ai/upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        base64Data,
-        mimeType,
-        fileName,
-        brainSlot: 0,
-      }),
+      // Do NOT set Content-Type — browser auto-sets multipart/form-data with boundary
+      body: formData,
     });
 
     if (!response.ok) {
@@ -769,10 +770,14 @@ YOUR MISSION: Scan EVERY sheet and count EVERY device symbol. Be exhaustive.
 WHAT TO COUNT BY DISCIPLINE:
 ${(context.disciplines || []).includes('Structured Cabling') ? '- CABLING: Data outlets, voice outlets, WAPs, fiber outlets, combo outlets' : ''}
 ${(context.disciplines || []).includes('CCTV') ? '- CCTV: Fixed cameras, PTZ cameras, dome cameras, bullet cameras, multi-sensor cameras' : ''}
-${(context.disciplines || []).includes('Access Control') ? '- ACCESS: Card readers, keypads, door contacts, REX devices, electric strikes, maglocks' : ''}
-${(context.disciplines || []).includes('Fire Alarm') ? '- FIRE: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, modules' : ''}
+${(context.disciplines || []).includes('Access Control') ? '- ACCESS: Card readers, keypads, door contacts, REX devices, electric strikes, maglocks, intercoms' : ''}
+${(context.disciplines || []).includes('Fire Alarm') ? '- FIRE: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, modules, annunciators' : ''}
 ${(context.disciplines || []).includes('Intrusion Detection') ? '- INTRUSION: Motion detectors, door contacts, glass break, keypads, sirens' : ''}
 ${(context.disciplines || []).includes('Audio Visual') ? '- AV: Speakers, displays, projectors, touch panels, microphones, signal plates' : ''}
+- POWER & INFRASTRUCTURE (ALWAYS scan for these regardless of discipline):
+  UPS units, inverters, power inverters, transfer switches (ATS/STS), power supplies, battery backup units,
+  PDUs, surge protectors, generators, solar inverters, rectifiers, battery chargers, power conditioners
+  — If ANY of these appear on plans or in schedules, count them with location and specs
 
 INSTRUCTIONS:
 1. Study the legend first to learn what each symbol means
@@ -1347,6 +1352,33 @@ CRITICAL RULES:
 11. Do NOT price OFCI (Owner Furnished) items as materials — include labor only for installation
 12. NEVER exceed the pricing guardrail maximums listed above — clamp to the max if your calculation is higher
 
+═══ UPS, INVERTERS & POWER EQUIPMENT (MANDATORY) ═══
+You MUST check ALL sources (schedules, plans, specs) for power equipment and price them:
+- UPS units — price based on kVA rating and form factor (rack-mount, tower)
+- Inverters — power inverters, solar inverters, frequency inverters
+- Transfer switches (ATS/STS) — automatic or manual
+- Battery backup systems (standalone or integrated)
+- Power supplies for access control, fire alarm, intrusion (Altronix, LifeSafety Power)
+- PDUs — basic, metered, switched, per-outlet monitoring
+- Surge protectors / SPDs (Surge Protective Devices)
+These are HIGH-VALUE items. Missing a $5,000 UPS or $3,000 transfer switch destroys your margin.
+
+═══ DOCUMENT-SPECIFIED MANUFACTURERS & PART NUMBERS ═══
+Check the Spec Cross-Reference data below for SPECIFIED PRODUCTS:
+${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.specified_products || [], null, 2).substring(0, 3000)}
+
+SPECIFIED POWER EQUIPMENT:
+${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.power_equipment_found || [], null, 2).substring(0, 2000)}
+
+SCHEDULE DATA (may include manufacturer and model):
+${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || [], null, 2).substring(0, 3000)}
+
+RULES FOR PART NUMBERS:
+- If the specs or plans SPECIFY a manufacturer and part number, USE THEM EXACTLY
+- If specs say "or approved equal", use the specified product as primary
+- If NO manufacturer is specified, use standard industry products for ${(context.pricingTier || 'mid').toUpperCase()} tier
+- EVERY priced item MUST include a manufacturer and part number in the output
+
 ═══ MANDATORY SELF-CHECK (do this before returning) ═══
 Before responding, verify that your output includes a category for EACH selected discipline listed above.
 If ANY selected discipline is missing from your categories array, ADD IT NOW with all required materials.
@@ -1366,8 +1398,8 @@ Return ONLY valid JSON:
     {
       "name": "Structured Cabling",
       "items": [
-        { "item": "Cat 6A Plenum Cable", "qty": 30000, "unit": "ft", "unit_cost": 0.52, "ext_cost": 15600.00 },
-        { "item": "Cat 6A Cable — Waste Factor (12%)", "qty": 3600, "unit": "ft", "unit_cost": 0.52, "ext_cost": 1872.00 }
+        { "item": "Cat 6A Plenum Cable", "qty": 30000, "unit": "ft", "unit_cost": 0.32, "ext_cost": 9600.00, "mfg": "Panduit", "partNumber": "PUP6AV04BU-CEG" },
+        { "item": "Cat 6A Cable — Waste Factor (12%)", "qty": 3600, "unit": "ft", "unit_cost": 0.32, "ext_cost": 1152.00, "mfg": "Panduit", "partNumber": "PUP6AV04BU-CEG" }
       ],
       "subtotal": 45200.00
     },
@@ -1854,9 +1886,15 @@ This is the MAIN MATERIAL BID TABLE. It must be EXHAUSTIVE — every single mate
 Group by discipline. Use this EXACT table format:
 
 ### Structured Cabling Materials
-| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
-|--------|-------------|-----|------|-----------|----------|------------|------------|
-| SC-001 | Cat 6A Plenum Cable | 30000 | ft | $0.52 | $15,600 | $3,900 | $19,500 |
+| Item # | MFG | Part # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
+|--------|-----|--------|-------------|-----|------|-----------|----------|------------|------------|
+| SC-001 | Panduit | PUP6AV04BU-CEG | Cat 6A Plenum Cable | 30000 | ft | $0.32 | $9,600 | $4,800 | $14,400 |
+
+IMPORTANT for MFG and Part #:
+- If the construction documents SPECIFY a manufacturer and model/part number, use EXACTLY what is specified
+- If the documents say "or approved equal", list the specified product first
+- If NO specific product is specified in the documents, use industry-standard products for the ${(context.pricingTier || 'mid').toUpperCase()} pricing tier
+- EVERY material line MUST have a Manufacturer and Part Number — NO BLANKS
 
 ### CCTV Materials
 (same format)
@@ -2488,6 +2526,7 @@ PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'U
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Cross-reference the written specifications against the plan drawings to find discrepancies.
+ALSO: Extract ALL manufacturer and part/model number specifications from every spec section.
 
 WHAT TO CHECK:
 1. Equipment lists in specs vs. symbols on drawings — anything specified but NOT drawn?
@@ -2496,6 +2535,26 @@ WHAT TO CHECK:
 4. Model/type mismatches between specs and legend
 5. Cable type and quantity specifications vs. what's shown on riser/plan drawings
 6. Room-by-room spec requirements vs. what's actually shown
+
+═══ CRITICAL: EXTRACT ALL SPECIFIED PRODUCTS ═══
+For EVERY equipment type mentioned in the specs, extract:
+- Exact manufacturer name
+- Exact model number / part number
+- Whether it says "or approved equal" (which means you can substitute)
+- The spec section number (e.g. 28 13 00)
+This includes: cameras, NVRs, readers, panels, cable types, patch panels,
+UPS units, inverters, power supplies, switches, racks, fire alarm devices, AV equipment
+
+═══ CRITICAL: UPS, INVERTERS & POWER EQUIPMENT ═══
+Look specifically for:
+- UPS (Uninterruptible Power Supply) — manufacturer, model, kVA rating
+- Inverters (power inverters, solar inverters)
+- Transfer switches (ATS/STS) — manual or automatic
+- Battery backup systems — type, AH rating
+- Power supplies — voltage, amperage, manufacturer
+- PDUs — type, amperage, manufacturer
+- Surge protectors / SPDs
+These are HIGH-VALUE items that are often specified in the specs but easy to miss.
 
 CRITICAL CHECK: Look for scope items in the spec that have NO corresponding symbol on any drawing. These are commonly missed and result in change orders.
 
@@ -2506,6 +2565,15 @@ Return ONLY valid JSON:
   ],
   "discrepancies": [
     { "type": "missing_from_drawings", "item": "Intercom Station", "spec_section": "28 13 00", "description": "Spec calls for 6 intercom stations, none shown on floor plans", "cost_impact": "high" }
+  ],
+  "specified_products": [
+    { "spec_section": "28 23 00", "item_type": "IP Camera", "manufacturer": "Axis Communications", "model": "P3265-LVE", "or_equal": true },
+    { "spec_section": "28 13 00", "item_type": "Card Reader", "manufacturer": "HID Global", "model": "iCLASS SE R10", "or_equal": false },
+    { "spec_section": "27 10 00", "item_type": "UPS", "manufacturer": "APC", "model": "SMT3000RM2UC", "or_equal": true },
+    { "spec_section": "27 10 00", "item_type": "Cable", "manufacturer": "Panduit", "model": "PUP6AV04BU-CEG", "or_equal": true }
+  ],
+  "power_equipment_found": [
+    { "item_type": "UPS", "manufacturer": "APC", "model": "SMT3000RM2UC", "rating": "3kVA", "qty": 2, "location": "MDF, IDF-2F", "spec_section": "27 10 00" }
   ],
   "equipment_schedule": [
     { "item": "IP Camera", "spec_model": "Axis P3245-V", "drawing_symbol": "C1", "match": true }
@@ -2538,9 +2606,22 @@ Many ELV drawings include EQUIPMENT SCHEDULES — tables that list every device 
 WHEN YOU FIND A SCHEDULE TABLE:
 - Read EVERY ROW of the table
 - Extract: Tag number, device type, location/room, model/specs
+- Extract MANUFACTURER and MODEL/PART NUMBER if listed (e.g., "Axis P3265-LVE", "HID iCLASS SE R10")
 - Count the total number of rows = total devices of that type
 - Note the sheet ID where the schedule appears
 - THIS DATA WILL OVERRIDE symbol counts in consensus
+
+CRITICAL — CAPTURE PART NUMBERS AND MANUFACTURERS:
+- If a schedule lists specific manufacturer names (Axis, HID, Panduit, Corning, APC, etc.), RECORD THEM
+- If model numbers or part numbers appear (P3265-LVE, 920NTNTEK00000, SMT3000RM2UC), RECORD THEM
+- These will be used directly in the BOM — accuracy here prevents costly errors
+
+CRITICAL — CAPTURE UPS, INVERTERS & POWER EQUIPMENT:
+- UPS units (APC, Eaton, Vertiv, CyberPower) — record model, kVA rating, runtime
+- Inverters (power inverters, solar inverters) — record model, wattage, voltage
+- Transfer switches (ATS/STS) — automatic or manual, amperage
+- Battery backup systems — record AH rating, voltage
+- Power supplies — voltage, amperage, manufacturer (Altronix, LifeSafety Power)
 
 Common schedule types:
 - Camera Schedule (lists every camera with type, location, resolution)
