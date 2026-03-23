@@ -108,32 +108,35 @@ export async function onRequestPost(context) {
                             writer.write(encoder.encode(': keepalive\n\n')).catch(() => {});
                         }, 15000);
 
-                        const fallbackResponse = await fetch(fallbackUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(body),
-                        });
-                        clearInterval(keepAlive2);
+                        try {
+                            const fallbackResponse = await fetch(fallbackUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(body),
+                            });
 
-                        if (fallbackResponse.ok) {
-                            console.log(`[Proxy] ✓ Fallback to ${fallbackModel} succeeded for brain ${brainSlot}`);
-                            const reader = fallbackResponse.body.getReader();
-                            while (true) {
-                                const { done, value } = await reader.read();
-                                if (done) break;
-                                await writer.write(value);
+                            if (fallbackResponse.ok) {
+                                console.log(`[Proxy] ✓ Fallback to ${fallbackModel} succeeded for brain ${brainSlot}`);
+                                const reader = fallbackResponse.body.getReader();
+                                while (true) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    await writer.write(value);
+                                }
+                                await writer.close();
+                                return;
                             }
+
+                            const fbErrText = await fallbackResponse.text();
+                            console.error(`[Proxy] Fallback also failed: ${fallbackResponse.status}`);
+                            await writer.write(encoder.encode(
+                                `data: ${JSON.stringify({_proxyError: true, status: fallbackResponse.status, message: fbErrText.substring(0, 500)})}\n\n`
+                            ));
                             await writer.close();
                             return;
+                        } finally {
+                            clearInterval(keepAlive2);
                         }
-
-                        const fbErrText = await fallbackResponse.text();
-                        console.error(`[Proxy] Fallback also failed: ${fallbackResponse.status}`);
-                        await writer.write(encoder.encode(
-                            `data: ${JSON.stringify({_proxyError: true, status: fallbackResponse.status, message: fbErrText.substring(0, 500)})}\n\n`
-                        ));
-                        await writer.close();
-                        return;
                     }
 
                     // Non-fallback error — send error event

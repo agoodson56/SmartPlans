@@ -329,15 +329,17 @@ const SmartBrains = {
       // thinkingConfig is also MUTUALLY EXCLUSIVE with JSON mode (responseMimeType)
 
       // ── Key Slot Selection ──
-      // Files uploaded via Gemini File API are owned by the uploading project (slot 0).
-      // Brains referencing fileUri MUST use keys from the same project or get 403.
-      // Upload uses brainSlot 0, so pin file-referencing brains to slots 0-4 (same project).
+      // Files uploaded via Gemini File API are owned by the uploading API key.
+      // Upload always uses brainSlot 0 → which resolves to GEMINI_KEY_10.
+      // Brains referencing fileUri MUST use the EXACT SAME key (slot 0)
+      // or they get silent 403/404 because the file belongs to a different project.
       let keySlot;
       if (hasUploadedFiles) {
-        // Pin to upload project — rotate within slots 0-4 only
-        keySlot = attempt % 5;
+        // CRITICAL: Pin to EXACT same slot as upload (slot 0 = GEMINI_KEY_10)
+        // Do NOT rotate — different slots may map to different Google projects
+        keySlot = 0;
       } else {
-        // No uploaded files — safe to rotate across all projects
+        // No uploaded files — safe to rotate across all keys
         keySlot = (brainDef.id + attempt) % 18;
       }
 
