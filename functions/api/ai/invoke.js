@@ -38,7 +38,9 @@ export async function onRequestPost(context) {
 
         // PRIORITY 1: If _uploadKeyName was passed, use that EXACT key
         // This ensures the same key that uploaded a file is used to read it
-        if (uploadKeyName && env[uploadKeyName]) {
+        // SECURITY: Validate against whitelist — client-supplied name must be a known key
+        const validKeyNames = new Set(keyNames);
+        if (uploadKeyName && validKeyNames.has(uploadKeyName) && env[uploadKeyName]) {
             apiKey = env[uploadKeyName];
             usedSlot = keyNames.indexOf(uploadKeyName);
             console.log(`[Proxy] Brain ${brainSlot} → pinned to upload key ${uploadKeyName} (slot ${usedSlot})`);
