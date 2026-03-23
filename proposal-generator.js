@@ -15,8 +15,8 @@ const ProposalGenerator = {
     email: 'jwhitton@3dtsi.com',
     phone: '(916) 267-7319',
     mainPhone: '(916) 859-9111',
-    website: 'www.3dtsi.com',
-    tagline: 'Guiding Businesses to Quality Technology Solutions',
+    website: 'www.3dti.com',
+    tagline: 'Premier Low-Voltage Technology Integration',
   },
 
   BRAND: {
@@ -457,8 +457,8 @@ ${this._logoDataUri ? `<p style="margin-bottom:2pt;"><img src="${this._logoDataU
 <p style="font-size:28pt;font-weight:bold;color:${b.navy};margin-bottom:2pt;margin-top:6pt;font-family:Calibri,Arial,sans-serif;">
   3D Technology Services, Inc.
 </p>
-<p style="font-size:10pt;color:${b.teal};text-transform:uppercase;letter-spacing:4pt;font-weight:bold;margin-bottom:0;">
-  Systems Integration &amp; Technology Solutions
+<p style="font-size:10pt;color:${b.teal};font-style:italic;letter-spacing:1pt;font-weight:normal;margin-bottom:0;">
+  Premier Low-Voltage Technology Integration
 </p>
 
 <!-- Gold accent block + Project Proposal label -->
@@ -516,7 +516,7 @@ ${this._logoDataUri ? `<p style="margin-bottom:2pt;"><img src="${this._logoDataU
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Corporate Office</p>
       <p style="font-size:11pt;color:#222;margin-bottom:1pt;">${co.address}</p>
       <p style="font-size:11pt;color:#222;margin-bottom:1pt;">${co.cityStateZip}</p>
-      <p style="font-size:11pt;color:#222;margin-bottom:1pt;">3dtsi.com</p>
+      <p style="font-size:11pt;color:#222;margin-bottom:1pt;">www.3dti.com</p>
       <p style="font-size:11pt;color:#222;margin-bottom:14pt;">(800) 733-3453</p>
 
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Reference No.</p>
