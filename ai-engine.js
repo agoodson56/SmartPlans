@@ -182,7 +182,8 @@ const SmartBrains = {
                 if (uploadResult && uploadResult.fileUri) {
                   fileData.fileUri = uploadResult.fileUri;
                   fileData.uploadedName = uploadResult.name;
-                  console.log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${uploadResult.fileUri}`);
+                  fileData._usedKeyName = uploadResult._usedKeyName; // Track which key uploaded this file
+                  console.log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${uploadResult.fileUri} (key: ${uploadResult._usedKeyName})`);
                 } else {
                   // Fallback to inline if upload fails
                   console.warn(`[SmartBrains] File API upload returned no URI, falling back to inline for ${entry.name}`);
@@ -285,7 +286,9 @@ const SmartBrains = {
 
         if (f.fileUri) {
           // File uploaded via Gemini File API — reference by URI
-          parts.push({ fileData: { mimeType: f.mimeType, fileUri: f.fileUri } });
+          const part = { fileData: { mimeType: f.mimeType, fileUri: f.fileUri } };
+          if (f._usedKeyName) part._usedKeyName = f._usedKeyName; // Track upload key
+          parts.push(part);
         } else if (f.base64) {
           // Small file — inline base64
           parts.push({ inline_data: { mime_type: f.mimeType, data: f.base64 } });
@@ -328,15 +331,23 @@ const SmartBrains = {
       // Gemini 3.1 Pro produces excellent results without thinking mode
       // thinkingConfig is also MUTUALLY EXCLUSIVE with JSON mode (responseMimeType)
 
-      // ── Key Slot Selection ──
+      // ── Key Selection ──
       // Files uploaded via Gemini File API are owned by the uploading API key.
-      // Upload always uses brainSlot 0 → which resolves to GEMINI_KEY_10.
-      // Brains referencing fileUri MUST use the EXACT SAME key (slot 0)
-      // or they get silent 403/404 because the file belongs to a different project.
-      let keySlot;
+      // The upload response includes _usedKeyName so we can use the EXACT same key.
+      // This distributes load naturally — each upload picks its own key,
+      // and the brain invoke uses that same key to read the file.
+      let uploadKeyName = null;
       if (hasUploadedFiles) {
-        // CRITICAL: Pin to EXACT same slot as upload (slot 0 = GEMINI_KEY_10)
-        // Do NOT rotate — different slots may map to different Google projects
+        // Find the _usedKeyName from any uploaded file part
+        for (const p of fileParts) {
+          if (p._usedKeyName) { uploadKeyName = p._usedKeyName; break; }
+        }
+      }
+
+      // keySlot is still used as fallback if _uploadKeyName is not available
+      let keySlot;
+      if (hasUploadedFiles && !uploadKeyName) {
+        // Fallback: pin to slot 0 if key name wasn't tracked
         keySlot = 0;
       } else {
         // No uploaded files — safe to rotate across all keys
@@ -346,8 +357,9 @@ const SmartBrains = {
       const body = {
         contents: [{ parts }],
         generationConfig: genConfig,
-        _model: modelName,       // Proxy reads this to select the right Gemini model
+        _model: modelName,
         _brainSlot: keySlot,
+        ...(uploadKeyName ? { _uploadKeyName: uploadKeyName } : {}),
       };
 
       try {
@@ -480,8 +492,9 @@ const SmartBrains = {
           contents: [{ parts: fbParts }],
           generationConfig: fbGenConfig,
           _model: this.config.model,
-          // Pin to upload project if file URIs are referenced
           _brainSlot: hasUploadedFiles ? 0 : brainDef.id,
+          // Pass upload key name if available (same key that uploaded the file)
+          ...(uploadKeyName ? { _uploadKeyName: uploadKeyName } : {}),
         };
 
         const controller = new AbortController();

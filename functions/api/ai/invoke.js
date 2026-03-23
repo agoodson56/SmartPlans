@@ -13,10 +13,12 @@ export async function onRequestPost(context) {
         // Extract SmartBrains metadata
         const brainSlot = body._brainSlot || 0;
         const requestedModel = body._model || 'gemini-2.5-flash';
+        const uploadKeyName = body._uploadKeyName || null;
 
         // Remove custom fields before forwarding
         delete body._brainSlot;
         delete body._model;
+        delete body._uploadKeyName;
 
         // Select API key — Tier 2 keys first (higher rate limits), then Tier 1 fallback
         // Tier 2 (2000 RPM): keys 10-17 (SmartP3, SmartP4)
@@ -33,15 +35,24 @@ export async function onRequestPost(context) {
 
         let apiKey = null;
         let usedSlot = -1;
-        const slotIndex = brainSlot % keyNames.length;
 
-        for (let i = 0; i < keyNames.length; i++) {
-            const idx = (slotIndex + i) % keyNames.length;
-            const key = env[keyNames[idx]];
-            if (key) {
-                apiKey = key;
-                usedSlot = idx;
-                break;
+        // PRIORITY 1: If _uploadKeyName was passed, use that EXACT key
+        // This ensures the same key that uploaded a file is used to read it
+        if (uploadKeyName && env[uploadKeyName]) {
+            apiKey = env[uploadKeyName];
+            usedSlot = keyNames.indexOf(uploadKeyName);
+            console.log(`[Proxy] Brain ${brainSlot} → pinned to upload key ${uploadKeyName} (slot ${usedSlot})`);
+        } else {
+            // PRIORITY 2: Normal slot-based rotation
+            const slotIndex = brainSlot % keyNames.length;
+            for (let i = 0; i < keyNames.length; i++) {
+                const idx = (slotIndex + i) % keyNames.length;
+                const key = env[keyNames[idx]];
+                if (key) {
+                    apiKey = key;
+                    usedSlot = idx;
+                    break;
+                }
             }
         }
 

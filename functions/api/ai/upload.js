@@ -36,11 +36,12 @@ export async function onRequestPost(context) {
         const keyNames = [...tier2Keys, ...tier1Keys];
 
         let apiKey = null;
+        let usedKeyName = null;
         const slotIndex = (brainSlot || 0) % keyNames.length;
         for (let i = 0; i < keyNames.length; i++) {
             const idx = (slotIndex + i) % keyNames.length;
             const key = env[keyNames[idx]];
-            if (key) { apiKey = key; break; }
+            if (key) { apiKey = key; usedKeyName = keyNames[idx]; break; }
         }
 
         if (!apiKey) {
@@ -120,6 +121,7 @@ export async function onRequestPost(context) {
             mimeType: result.file?.mimeType,
             sizeBytes: result.file?.sizeBytes,
             state: result.file?.state,
+            _usedKeyName: usedKeyName,
         }, { headers: corsHeaders });
 
     } catch (err) {
