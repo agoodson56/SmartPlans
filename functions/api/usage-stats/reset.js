@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-// POST /api/pm/logs/bulk — Delete all logs for a project
-// Dedicated endpoint (not the [id] catch-all) for clarity and safety
+// POST /api/usage-stats/reset — Reset bid count and total cost
+// Requires valid X-App-Token (ESTIMATES_TOKEN) — Estimator role only
 // ═══════════════════════════════════════════════════════════════
 
 function isAllowedOrigin(origin) {
@@ -18,42 +18,49 @@ function isAllowedOrigin(origin) {
 }
 
 export async function onRequestPost(context) {
-    const { env, request } = context;
-
+    const { request, env } = context;
     const origin = request.headers.get('Origin') || '';
+
+    // Origin check
     if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    // Token check — ESTIMATES_TOKEN must be configured AND must match
     const envToken = env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = request.headers.get('X-App-Token') || '';
-        if (token !== envToken) {
-            return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
-        }
+    if (!envToken) {
+        return Response.json({ error: 'Reset not available — ESTIMATES_TOKEN not configured on server' }, { status: 500 });
+    }
+    const token = request.headers.get('X-App-Token') || '';
+    if (token !== envToken) {
+        return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
     }
 
     try {
-        const body = await request.json();
-        if (body.action !== 'delete_all' || !body.project_id) {
-            return Response.json({ error: 'Invalid action or missing project_id' }, { status: 400 });
-        }
-
-        const projectId = String(body.project_id).substring(0, 100);
-        const result = await env.DB.prepare('DELETE FROM pm_daily_logs WHERE project_id = ?')
-            .bind(projectId).run();
+        await env.DB.prepare(`
+            UPDATE usage_stats SET
+                total_cost = 0,
+                bid_count = 0,
+                last_reset_at = datetime('now')
+            WHERE id = 'global'
+        `).run();
 
         const corsOrigin = origin || '*';
-        return Response.json(
-            { success: true, deleted_count: result.meta?.changes || 0 },
-            { headers: { 'Access-Control-Allow-Origin': corsOrigin } }
+        return new Response(
+            JSON.stringify({ total_cost: 0, bid_count: 0, message: 'Stats reset successfully' }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': corsOrigin,
+                },
+            }
         );
     } catch (err) {
-        return Response.json({ error: 'Bulk delete failed: ' + err.message }, { status: 500 });
+        console.error('Stats reset error:', err);
+        return Response.json({ error: 'Failed to reset stats: ' + err.message }, { status: 500 });
     }
 }
 
-// Handle CORS preflight for cross-domain DELETE-all calls
 export async function onRequestOptions(context) {
     const origin = context.request.headers.get('Origin') || '';
     if (!isAllowedOrigin(origin)) {

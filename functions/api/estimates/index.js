@@ -3,8 +3,37 @@
 // POST /api/estimates — Save a new estimate
 // ═══════════════════════════════════════════════════════════════
 
+function isAllowedOrigin(origin) {
+    if (!origin) return true;
+    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
+    const allowed = [
+        'https://smartplans-4g5.pages.dev',
+        'https://smartplans.pages.dev',
+        'https://smartplans.3dtechnologyservices.com',
+        'https://3dtechnologyservices.com',
+    ];
+    if (allowed.some(d => origin.startsWith(d))) return true;
+    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
+    return false;
+}
+
 export async function onRequestGet(context) {
-    const { env } = context;
+    const { env, request } = context;
+
+    // Origin check — same allowlist used across all PM endpoints
+    const origin = request.headers.get('Origin') || '';
+    if (origin && !isAllowedOrigin(origin)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+    // Token check — require X-App-Token if ESTIMATES_TOKEN is configured
+    const envToken = env.ESTIMATES_TOKEN;
+    if (envToken) {
+        const token = request.headers.get('X-App-Token') || '';
+        if (token !== envToken) {
+            return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
+        }
+    }
+
     try {
         const res = await env.DB.prepare(
             `SELECT id, project_name, project_type, project_location, disciplines,
