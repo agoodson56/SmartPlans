@@ -330,8 +330,18 @@ const SmartBrains = {
       }
     }
 
+    // Strip internal metadata (_usedKeyName) from file parts before sending to Gemini API
+    // These fields are for internal key-pinning only — Gemini rejects unknown fields with 400
+    const cleanFileParts = fileParts.map(p => {
+      if (p._usedKeyName) {
+        const { _usedKeyName, ...rest } = p;
+        return rest;
+      }
+      return p;
+    });
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const parts = [{ text: promptText }, ...fileParts];
+      const parts = [{ text: promptText }, ...cleanFileParts];
       // Low temperature for deterministic construction analysis
       const genConfig = {
         temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
@@ -443,6 +453,8 @@ const SmartBrains = {
                 } catch (e) {
                   // If it's a retryable error from proxy, rethrow it
                   if (e._retryable) throw e;
+                  // If it's a real Error (e.g. proxy 400), rethrow — don't silently swallow
+                  if (e instanceof Error && e.message?.startsWith('Proxy error')) throw e;
                   // Otherwise skip malformed SSE chunks
                 }
               }
@@ -491,7 +503,7 @@ const SmartBrains = {
     if (brainDef.useProModel && modelName !== this.config.model) {
       console.warn(`[Brain:${brainDef.name}] Pro model failed — falling back to ${this.config.model}`);
       try {
-        const fbParts = [{ text: promptText }, ...fileParts];
+        const fbParts = [{ text: promptText }, ...cleanFileParts];
         const fbGenConfig = {
           temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
           maxOutputTokens: brainDef.maxTokens,
