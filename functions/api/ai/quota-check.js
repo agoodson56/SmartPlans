@@ -5,7 +5,11 @@
 // ═══════════════════════════════════════════════════════════════
 
 export async function onRequestGet(context) {
-    const { env } = context;
+    const { env, request } = context;
+    const reqUrl = new URL(request.url);
+
+    // Accept ?model= param so you can test the actual model in use
+    const model = reqUrl.searchParams.get('model') || 'gemini-2.5-flash';
 
     // CORS headers handled by _middleware.js
     const corsHeaders = {};
@@ -29,8 +33,8 @@ export async function onRequestGet(context) {
         let errorKeys = 0;
         let resetHint = null;
 
-        // Test a subset: 2 Tier 2 keys + 2 Tier 1 keys
-        const testSlots = [0, 4, 8, 14];
+        // Test one key per account group — covers every project across all 18 keys
+        const testSlots = [0, 2, 4, 6, 8, 10, 12, 14, 16];
         const results = [];
 
         for (const slot of testSlots) {
@@ -40,7 +44,7 @@ export async function onRequestGet(context) {
 
             try {
                 // Minimal API call — count tokens on trivial input (near-zero cost)
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:countTokens?key=${key}`;
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:countTokens?key=${key}`;
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
