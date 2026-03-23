@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-// DELETE /api/pm/logs/:id — Delete a specific daily log entry
-// POST   /api/pm/logs/:id — Bulk delete all logs for a project
+// POST /api/pm/logs/bulk — Delete all logs for a project
+// Dedicated endpoint (not the [id] catch-all) for clarity and safety
 // ═══════════════════════════════════════════════════════════════
 
 function isAllowedOrigin(origin) {
@@ -17,36 +17,14 @@ function isAllowedOrigin(origin) {
     return false;
 }
 
-export async function onRequestDelete(context) {
-    const { env, params, request } = context;
-
-    // Origin + token auth
-    const origin = request.headers.get('Origin') || '';
-    if (origin && !isAllowedOrigin(origin)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 403 });
-    }
-
-    try {
-        const logId = params.id;
-        if (!logId || String(logId).length > 64) {
-            return Response.json({ error: 'Invalid log ID' }, { status: 400 });
-        }
-
-        await env.DB.prepare('DELETE FROM pm_daily_logs WHERE id = ?').bind(logId).run();
-        return Response.json({ success: true, deleted: logId });
-    } catch (err) {
-        return Response.json({ error: 'Failed to delete log: ' + err.message }, { status: 500 });
-    }
-}
-
 export async function onRequestPost(context) {
     const { env, request } = context;
 
-    // Origin + token auth
     const origin = request.headers.get('Origin') || '';
     if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
+
     const envToken = env.ESTIMATES_TOKEN;
     if (envToken) {
         const token = request.headers.get('X-App-Token') || '';
@@ -57,14 +35,16 @@ export async function onRequestPost(context) {
 
     try {
         const body = await request.json();
-        if (body.action === 'delete_all' && body.project_id) {
-            const projectId = String(body.project_id).substring(0, 100);
-            const result = await env.DB.prepare('DELETE FROM pm_daily_logs WHERE project_id = ?')
-                .bind(projectId).run();
-            return Response.json({ success: true, deleted_count: result.meta?.changes || 0 });
+        if (body.action !== 'delete_all' || !body.project_id) {
+            return Response.json({ error: 'Invalid action or missing project_id' }, { status: 400 });
         }
-        return Response.json({ error: 'Invalid action' }, { status: 400 });
+
+        const projectId = String(body.project_id).substring(0, 100);
+        const result = await env.DB.prepare('DELETE FROM pm_daily_logs WHERE project_id = ?')
+            .bind(projectId).run();
+
+        return Response.json({ success: true, deleted_count: result.meta?.changes || 0 });
     } catch (err) {
-        return Response.json({ error: 'Failed: ' + err.message }, { status: 500 });
+        return Response.json({ error: 'Bulk delete failed: ' + err.message }, { status: 500 });
     }
 }
