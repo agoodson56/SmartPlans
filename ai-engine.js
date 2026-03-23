@@ -318,6 +318,18 @@ const SmartBrains = {
     // Check for uploaded file URIs — needed for key pinning in both main loop and fallback
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
 
+    // ── Key Selection (resolved once, used by both retry loop AND fallback) ──
+    // Files uploaded via Gemini File API are owned by the uploading API key.
+    // The upload response includes _usedKeyName so we can use the EXACT same key.
+    // This distributes load naturally — each upload picks its own key,
+    // and the brain invoke uses that same key to read the file.
+    let uploadKeyName = null;
+    if (hasUploadedFiles) {
+      for (const p of fileParts) {
+        if (p._usedKeyName) { uploadKeyName = p._usedKeyName; break; }
+      }
+    }
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const parts = [{ text: promptText }, ...fileParts];
       // Low temperature for deterministic construction analysis
@@ -331,19 +343,6 @@ const SmartBrains = {
       // NOTE: thinkingConfig disabled — causes Cloudflare 524 timeouts (>100s)
       // Gemini 3.1 Pro produces excellent results without thinking mode
       // thinkingConfig is also MUTUALLY EXCLUSIVE with JSON mode (responseMimeType)
-
-      // ── Key Selection ──
-      // Files uploaded via Gemini File API are owned by the uploading API key.
-      // The upload response includes _usedKeyName so we can use the EXACT same key.
-      // This distributes load naturally — each upload picks its own key,
-      // and the brain invoke uses that same key to read the file.
-      let uploadKeyName = null;
-      if (hasUploadedFiles) {
-        // Find the _usedKeyName from any uploaded file part
-        for (const p of fileParts) {
-          if (p._usedKeyName) { uploadKeyName = p._usedKeyName; break; }
-        }
-      }
 
       // keySlot is still used as fallback if _uploadKeyName is not available
       let keySlot;
