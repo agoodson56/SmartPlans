@@ -395,6 +395,7 @@ const SmartBrains = {
         // ── Read SSE stream and assemble response ──
         const contentType = response.headers.get('content-type') || '';
         let text = '';
+        let thoughtText = ''; // Track thinking-only responses from Gemini 3.1 Pro
 
         if (contentType.includes('text/event-stream')) {
           // Streaming response — read SSE chunks
@@ -433,7 +434,9 @@ const SmartBrains = {
 
                   const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
                   for (const p of chunkParts) {
-                    if (p.text && !p.thought) {
+                    if (p.text && p.thought) {
+                      thoughtText += p.text; // Gemini 3.1 Pro thinking content
+                    } else if (p.text) {
                       text += p.text;
                     }
                   }
@@ -450,9 +453,19 @@ const SmartBrains = {
           const data = await response.json();
           const allParts = data?.candidates?.[0]?.content?.parts || [];
           text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+          if (!text) {
+            thoughtText = allParts.filter(p => p.text && p.thought).map(p => p.text).join('\n') || '';
+          }
+        }
+
+        // If regular text is empty but we got thinking content, use that
+        if ((!text || text.length < 20) && thoughtText.length >= 20) {
+          console.warn(`[Brain:${brainDef.name}] Response was thought-only (${thoughtText.length} chars thinking, ${text.length} chars regular) — using thinking content`);
+          text = thoughtText;
         }
 
         if (!text || text.length < 20) {
+          console.warn(`[Brain:${brainDef.name}] Empty response — text: ${text.length} chars, thought: ${thoughtText.length} chars, attempt ${attempt + 1}`);
           throw new Error('Empty response from AI');
         }
 
@@ -511,6 +524,7 @@ const SmartBrains = {
           // Handle SSE streaming in fallback too
           const ct = response.headers.get('content-type') || '';
           let text = '';
+          let fbThoughtText = '';
           if (ct.includes('text/event-stream')) {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -522,13 +536,22 @@ const SmartBrains = {
               const lines = buf.split('\n');
               buf = lines.pop();
               for (const line of lines) {
+                if (line.startsWith(':')) continue; // Skip keepalive comments
                 if (line.startsWith('data: ')) {
                   const js = line.slice(6).trim();
                   if (!js || js === '[DONE]') continue;
                   try {
                     const chunk = JSON.parse(js);
+                    // Handle proxy errors in fallback too
+                    if (chunk._proxyError) {
+                      console.warn(`[Brain:${brainDef.name}] Fallback proxy error: ${chunk.status} ${chunk.message}`);
+                      break;
+                    }
                     const cp = chunk?.candidates?.[0]?.content?.parts || [];
-                    for (const p of cp) { if (p.text && !p.thought) text += p.text; }
+                    for (const p of cp) {
+                      if (p.text && p.thought) { fbThoughtText += p.text; }
+                      else if (p.text) { text += p.text; }
+                    }
                   } catch (e) {}
                 }
               }
@@ -537,11 +560,20 @@ const SmartBrains = {
             const data = await response.json();
             const allParts = data?.candidates?.[0]?.content?.parts || [];
             text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+            if (!text) fbThoughtText = allParts.filter(p => p.text && p.thought).map(p => p.text).join('\n') || '';
+          }
+          // Use thought content if regular text is empty
+          if ((!text || text.length < 20) && fbThoughtText.length >= 20) {
+            console.warn(`[Brain:${brainDef.name}] Fallback was thought-only (${fbThoughtText.length} chars) — using thinking content`);
+            text = fbThoughtText;
           }
           if (text && text.length >= 20) {
             console.log(`[Brain:${brainDef.name}] ✓ Fallback complete (${text.length} chars)`);
             return text;
           }
+          console.warn(`[Brain:${brainDef.name}] Fallback returned empty — text: ${text.length} chars, thought: ${fbThoughtText.length} chars`);
+        } else {
+          console.warn(`[Brain:${brainDef.name}] Fallback HTTP ${response.status}`);
         }
       } catch (fbErr) {
         console.warn(`[Brain:${brainDef.name}] Fallback also failed:`, fbErr.message);
