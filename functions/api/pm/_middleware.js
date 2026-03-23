@@ -42,7 +42,7 @@ export async function onRequest(context) {
             headers: {
                 'Access-Control-Allow-Origin': origin || '*',
                 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Headers': 'Content-Type, X-App-Token',
                 'Access-Control-Max-Age': '86400',
             },
         });

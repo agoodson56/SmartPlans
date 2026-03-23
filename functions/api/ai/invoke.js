@@ -186,12 +186,15 @@ export async function onRequestPost(context) {
 
         // Return immediately — client gets SSE stream right away
         // Keepalive comments flow every 15s until Gemini responds
+        const corsOrigin = request.headers.get('Origin') || '';
         return new Response(readable, {
             status: 200,
             headers: {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive',
+                // MED-1 fix: CORS header required on streaming response for cross-domain clients
+                ...(corsOrigin ? { 'Access-Control-Allow-Origin': corsOrigin } : {}),
             },
         });
 
