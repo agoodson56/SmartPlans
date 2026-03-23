@@ -5,11 +5,13 @@
 
 function isAllowedOrigin(origin) {
     if (!origin) return true;
-    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
+    // Allow any SmartPlans or SmartPM Cloudflare Pages deploy
+    if (origin.endsWith('.pages.dev') && (origin.includes('smartplans-4g5') || origin.includes('smartpm'))) return true;
     const allowed = [
         'https://smartplans-4g5.pages.dev',
         'https://smartplans.pages.dev',
         'https://smartplans.3dtechnologyservices.com',
+        'https://smartpm.3dtechnologyservices.com',
         'https://3dtechnologyservices.com',
     ];
     if (allowed.some(d => origin.startsWith(d))) return true;
@@ -48,6 +50,20 @@ export async function onRequestGet(context) {
 
 export async function onRequestPost(context) {
     const { env, request } = context;
+
+    // CRIT-1 fix: POST had zero auth — now matches GET security
+    const origin = request.headers.get('Origin') || '';
+    if (origin && !isAllowedOrigin(origin)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+    const envToken = env.ESTIMATES_TOKEN;
+    if (envToken) {
+        const token = request.headers.get('X-App-Token') || '';
+        if (token !== envToken) {
+            return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
+        }
+    }
+
     try {
         const body = await request.json();
         const id = crypto.randomUUID().replace(/-/g, '');
@@ -64,6 +80,16 @@ export async function onRequestPost(context) {
             return Response.json({ error: 'Export data too large (max 900KB)' }, { status: 413 });
         }
 
+        // MED-3 fix: disciplines may arrive as a pre-stringified string from the client.
+        // If we JSON.stringify a string, we get double-encoded output (e.g. '"[...]"').
+        // Detect the type and only serialize when it's actually an object/array.
+        let disciplines = null;
+        if (body.disciplines != null) {
+            disciplines = typeof body.disciplines === 'string'
+                ? body.disciplines
+                : JSON.stringify(body.disciplines);
+        }
+
         await env.DB.prepare(`
             INSERT INTO estimates (id, project_name, project_type, project_location,
                 disciplines, pricing_tier, status, export_data)
@@ -73,7 +99,7 @@ export async function onRequestPost(context) {
             projectName,
             projectType,
             projectLocation,
-            body.disciplines ? JSON.stringify(body.disciplines) : null,
+            disciplines,
             pricingTier,
             status,
             exportData,

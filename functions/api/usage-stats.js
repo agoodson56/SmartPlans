@@ -5,6 +5,24 @@
 // DELETE: Reset counters (admin only via env secret)
 // ═══════════════════════════════════════════════════════════════
 
+// LOW-1 fix: moved to top — was declared after first use (onRequestGet line 24)
+// Technically worked via hoisting but is fragile and confusing
+function isAllowedOrigin(origin) {
+    if (!origin) return true;
+    // HIGH-2 fix: add SmartPM domains so bid counters update when bids run from SmartPM
+    if (origin.endsWith('.pages.dev') && (origin.includes('smartplans-4g5') || origin.includes('smartpm'))) return true;
+    const allowed = [
+        'https://smartplans-4g5.pages.dev',
+        'https://smartplans.pages.dev',
+        'https://smartplans.3dtechnologyservices.com',
+        'https://smartpm.3dtechnologyservices.com',
+        'https://3dtechnologyservices.com',
+    ];
+    if (allowed.some(d => origin.startsWith(d))) return true;
+    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
+    return false;
+}
+
 export async function onRequestGet(context) {
     const { env, request } = context;
     const origin = request.headers.get('Origin') || '';
@@ -29,22 +47,6 @@ export async function onRequestGet(context) {
         console.error('Stats GET error:', err);
         return Response.json({ error: 'Failed to load stats' }, { status: 500 });
     }
-}
-
-
-// Origin validation — shared pattern across all endpoints
-function isAllowedOrigin(origin) {
-    if (!origin) return true;
-    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
-    const allowed = [
-        'https://smartplans-4g5.pages.dev',
-        'https://smartplans.pages.dev',
-        'https://smartplans.3dtechnologyservices.com',
-        'https://3dtechnologyservices.com',
-    ];
-    if (allowed.some(d => origin.startsWith(d))) return true;
-    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
-    return false;
 }
 
 export async function onRequestPost(context) {
