@@ -141,23 +141,7 @@ export async function onRequestGet(context) {
     }
 }
 
-// Handle CORS preflight
-export async function onRequestOptions(context) {
-    const origin = context.request.headers.get('Origin') || '';
-    const allowed = [
-        'https://smartplans-4g5.pages.dev',
-        'https://smartplans.3dtechnologyservices.com',
-        'https://3dtechnologyservices.com',
-    ];
-    const isOk = !origin || allowed.some(d => origin.startsWith(d)) ||
-        (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) ||
-        origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
-
-    return new Response(null, {
-        headers: {
-            'Access-Control-Allow-Origin': isOk ? (origin || '*') : 'null',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-        },
-    });
-}
+// NOTE: No onRequestOptions export here.
+// CORS preflight for /api/ai/* is handled by /api/ai/_middleware.js
+// Adding one here overrides and bypasses that middleware.
+// See invoke.js for the canonical pattern.

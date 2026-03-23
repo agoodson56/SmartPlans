@@ -56,7 +56,15 @@ export async function onRequest(context) {
     // Process the actual request
     const response = await context.next();
 
-    // Add CORS headers to response
+    // CRIT-1 fix: Never re-wrap SSE streams — consuming response.body breaks the ReadableStream
+    // for cross-domain clients waiting on the event-stream. Clone headers only.
+    if (response.headers.get('Content-Type')?.includes('text/event-stream')) {
+        const headers = new Headers(response.headers);
+        if (origin) headers.set('Access-Control-Allow-Origin', origin);
+        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    }
+
+    // For normal (non-streaming) responses, safe to re-wrap
     const newResponse = new Response(response.body, response);
     if (origin) {
         newResponse.headers.set('Access-Control-Allow-Origin', origin);
