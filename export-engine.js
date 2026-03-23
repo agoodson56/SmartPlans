@@ -76,8 +76,10 @@ const SmartPlansExport = {
             // ── Pre-structured financial data for SmartPM SOV import ──
             // Each category becomes an SOV line item with material & labor costs.
             // Every individual item has qty, unit cost, and extended cost for tracking.
+            // NOTE: grandTotal uses the AI's actual calculated total (same as proposal),
+            // NOT the BOM line-item sum which can double-count summary tables.
             financials: {
-                grandTotal: bom.grandTotal,
+                grandTotal: this._extractAIGrandTotal(state.aiAnalysis) || bom.grandTotal,
                 markup: { ...state.markup },
                 categories: bom.categories.map(cat => ({
                     name: cat.name,
@@ -618,8 +620,9 @@ const SmartPlansExport = {
 
             if (heading) {
                 // Check if this heading looks like a material/cost category
-                const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|summary|breakdown|bill|bom/i.test(heading);
-                const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step/i.test(heading);
+                const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|breakdown|bill|bom/i.test(heading);
+                // Exclude summary/rollup sections that re-state subtotals (causes double-counting)
+                const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary/i.test(heading);
 
                 if (isCategory && !isNonCategory) {
                     // Save previous category if it has items
@@ -786,6 +789,28 @@ const SmartPlansExport = {
         return { categories, grandTotal: Math.round(grandTotal * 100) / 100 };
     },
 
+    // ─── Extract AI's actual grand total from analysis text ─────
+    // Uses the same regex strategy as ProposalGenerator._extractGrandTotal
+    // This is the SELL PRICE the AI calculated — the single source of truth.
+    _extractAIGrandTotal(aiAnalysis) {
+        if (!aiAnalysis) return 0;
+        const patterns = [
+            /GRAND\s*TOTAL[^\$]*\$([\d,]+\.?\d*)/i,
+            /Grand\s*Total[^\n]*\$([\d,]+\.?\d*)/i,
+            /TOTAL\s*PROJECT\s*(?:INVESTMENT|COST)[^\$]*\$([\d,]+\.?\d*)/i,
+            /total\s*with\s*markup[^\$]*\$([\d,]+\.?\d*)/i,
+            /\|\s*\*?\*?(?:grand\s*)?total\*?\*?\s*\|[^|]*\|\s*\$?\s*([\d,]+(?:\.\d{1,2})?)\s*\|/i,
+        ];
+        for (const pattern of patterns) {
+            const match = aiAnalysis.match(pattern);
+            if (match) {
+                const num = parseFloat(match[1].replace(/,/g, ''));
+                if (num > 1000) return num;
+            }
+        }
+        return 0;
+    },
+
     /**
      * Export a detailed Bill of Materials as an Excel workbook.
      * Sheets: 1) Project Info, 2) Full BOM, 3) Category Summary
@@ -893,13 +918,14 @@ const SmartPlansExport = {
             }
 
             // Grand total section
+            // NOTE: AI prices are already at SELL (markup is baked in).
+            // Do NOT add additional markup — that double-counts.
+            const aiTotal = this._extractAIGrandTotal(state.aiAnalysis);
             bomData.push([]);
             bomData.push(["", "", "", "", "", "", "", ""]);
-            bomData.push(["", "", "", "MATERIAL GRAND TOTAL", "", "", "", runningTotal]);
-            if (state.markup && state.markup.material > 0) {
-                const markupAmt = runningTotal * (state.markup.material / 100);
-                bomData.push(["", "", "", `MARKUP (${state.markup.material}%)`, "", "", "", Math.round(markupAmt * 100) / 100]);
-                bomData.push(["", "", "", "TOTAL WITH MARKUP", "", "", "", Math.round((runningTotal + markupAmt) * 100) / 100]);
+            bomData.push(["", "", "", "BOM LINE ITEM TOTAL", "", "", "", runningTotal]);
+            if (aiTotal > 0) {
+                bomData.push(["", "", "", "PROJECT GRAND TOTAL (from AI analysis)", "", "", "", aiTotal]);
             }
             bomData.push([]);
             bomData.push(["", "", "", `Total Line Items: ${totalLineItems}`, `Total Qty: ${totalQuantity}`, "", "", ""]);
