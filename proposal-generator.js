@@ -15,7 +15,7 @@ const ProposalGenerator = {
     email: 'jwhitton@3dtsi.com',
     phone: '(916) 267-7319',
     mainPhone: '(916) 859-9111',
-    website: 'www.3dti.com',
+    website: 'www.3Dtsi.com',
     tagline: 'Premier Low-Voltage Technology Integration',
   },
 
@@ -516,7 +516,7 @@ ${this._logoDataUri ? `<p style="margin-bottom:2pt;"><img src="${this._logoDataU
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Corporate Office</p>
       <p style="font-size:11pt;color:#222;margin-bottom:1pt;">${co.address}</p>
       <p style="font-size:11pt;color:#222;margin-bottom:1pt;">${co.cityStateZip}</p>
-      <p style="font-size:11pt;color:#222;margin-bottom:1pt;">www.3dti.com</p>
+      <p style="font-size:11pt;color:#222;margin-bottom:1pt;">www.3Dtsi.com</p>
       <p style="font-size:11pt;color:#222;margin-bottom:14pt;">(800) 733-3453</p>
 
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Reference No.</p>
