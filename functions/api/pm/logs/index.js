@@ -4,8 +4,28 @@
 // DELETE /api/pm/logs/:id handled in [id].js
 // ═══════════════════════════════════════════════════════════════
 
+function isAllowedOrigin(origin) {
+    if (!origin) return true;
+    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
+    const allowed = [
+        'https://smartplans-4g5.pages.dev',
+        'https://smartplans.pages.dev',
+        'https://smartplans.3dtechnologyservices.com',
+        'https://3dtechnologyservices.com',
+    ];
+    if (allowed.some(d => origin.startsWith(d))) return true;
+    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
+    return false;
+}
+
 export async function onRequestGet(context) {
     const { env, request } = context;
+
+    const origin = request.headers.get('Origin') || '';
+    if (origin && !isAllowedOrigin(origin)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
     try {
         const url = new URL(request.url);
         const projectId = url.searchParams.get('project_id') || 'default';
@@ -23,6 +43,7 @@ export async function onRequestGet(context) {
         return Response.json({ error: 'Failed to load logs: ' + err.message }, { status: 500 });
     }
 }
+
 
 export async function onRequestPost(context) {
     const { env, request } = context;

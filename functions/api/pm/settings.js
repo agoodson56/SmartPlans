@@ -105,13 +105,22 @@ export async function onRequestPost(context) {
             return Response.json({ error: 'Missing key' }, { status: 400 });
         }
 
-        // SECURITY: Hash passwords before storing — never store plaintext
+        // SECURITY: Hash passwords before storing — never store plaintext.
+        // Only update the roles that were actually sent — merge with existing record.
         if (key === 'passwords' && value && typeof value === 'object') {
+            // Load existing hashes to preserve roles not being updated
+            let existing = { estimator: '', pm: '' };
+            try {
+                const row = await env.DB.prepare('SELECT value FROM pm_settings WHERE key = ?').bind('passwords').first();
+                if (row?.value) existing = JSON.parse(row.value);
+            } catch { /* no existing record — start fresh */ }
+
             value = {
-                estimator: value.estimator ? await hashPassword(value.estimator) : '',
-                pm: value.pm ? await hashPassword(value.pm) : '',
+                estimator: value.estimator ? await hashPassword(value.estimator) : (existing.estimator || ''),
+                pm: value.pm ? await hashPassword(value.pm) : (existing.pm || ''),
             };
         }
+
 
         const serialized = (typeof value === 'string' ? value : JSON.stringify(value));
 

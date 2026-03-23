@@ -204,13 +204,8 @@ export async function onRequestPost(context) {
     }
 }
 
-// Handle CORS preflight
-export async function onRequestOptions() {
-    return new Response(null, {
-        headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-        },
-    });
-}
+
+// NOTE: No onRequestOptions export here.
+// CORS preflight for /api/ai/* is handled by /api/ai/_middleware.js
+// Adding one here would OVERRIDE and bypass that middleware.
+

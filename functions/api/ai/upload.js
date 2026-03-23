@@ -1,30 +1,48 @@
 // ═══════════════════════════════════════════════════════════════
 // SMARTPLANS — Server-Side File Upload Proxy
-// Uploads files to Gemini File API (supports up to 2 GB per file)
-// Returns file URI for use in generateContent requests
+// Uploads files to Gemini File API (supports up to 50 MB per file)
+// Accepts multipart/form-data with field name "file"
+// CORS and origin check handled by /api/ai/_middleware.js
 // ═══════════════════════════════════════════════════════════════
+
+const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB hard limit
 
 export async function onRequestPost(context) {
     const { env, request } = context;
 
-    // CORS headers handled by _middleware.js
-    const corsHeaders = {};
-
     try {
-        // Get the file data from the request
-        const body = await request.json();
-        const { fileName, mimeType, base64Data, brainSlot } = body;
+        // ── Read the uploaded file from multipart form data ──────────
+        let formData;
+        try {
+            formData = await request.formData();
+        } catch {
+            return Response.json({ error: 'Expected multipart/form-data upload' }, { status: 400 });
+        }
 
-        if (!base64Data || !mimeType) {
+        const file = formData.get('file');
+        if (!file || typeof file.arrayBuffer !== 'function') {
+            return Response.json({ error: 'No file field found in upload' }, { status: 400 });
+        }
+
+        const mimeType = file.type || 'application/octet-stream';
+        const fileName = file.name || `smartplans_upload_${Date.now()}`;
+
+        // Convert file to bytes
+        const bytes = new Uint8Array(await file.arrayBuffer());
+
+        // ── Size guard ────────────────────────────────────────────────
+        if (bytes.length > MAX_FILE_BYTES) {
             return Response.json(
-                { error: 'Missing required fields: base64Data, mimeType' },
-                { status: 400, headers: corsHeaders }
+                { error: `File too large — maximum 50 MB, received ${(bytes.length / 1024 / 1024).toFixed(1)} MB` },
+                { status: 413 }
             );
         }
 
-        // Select API key — MUST match invoke.js ordering exactly!
-        // Files uploaded here are owned by the uploading project.
-        // invoke.js must use the same project's key when referencing these files.
+        if (bytes.length === 0) {
+            return Response.json({ error: 'File is empty' }, { status: 400 });
+        }
+
+        // ── Select API key — Tier 2 first (higher rate limits) ────────
         const tier2Keys = [
             'GEMINI_KEY_10', 'GEMINI_KEY_11', 'GEMINI_KEY_12', 'GEMINI_KEY_13',
             'GEMINI_KEY_14', 'GEMINI_KEY_15', 'GEMINI_KEY_16', 'GEMINI_KEY_17',
@@ -37,30 +55,16 @@ export async function onRequestPost(context) {
 
         let apiKey = null;
         let usedKeyName = null;
-        const slotIndex = (brainSlot || 0) % keyNames.length;
         for (let i = 0; i < keyNames.length; i++) {
-            const idx = (slotIndex + i) % keyNames.length;
-            const key = env[keyNames[idx]];
-            if (key) { apiKey = key; usedKeyName = keyNames[idx]; break; }
+            const key = env[keyNames[i]];
+            if (key) { apiKey = key; usedKeyName = keyNames[i]; break; }
         }
 
         if (!apiKey) {
-            return Response.json(
-                { error: 'No API keys configured.' },
-                { status: 500, headers: corsHeaders }
-            );
+            return Response.json({ error: 'No Gemini API keys configured on server.' }, { status: 500 });
         }
 
-        // Convert base64 to binary
-        const binaryStr = atob(base64Data);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-            bytes[i] = binaryStr.charCodeAt(i);
-        }
-
-        const displayName = fileName || `smartplans_upload_${Date.now()}`;
-
-        // ─── Step 1: Start resumable upload session ───────────
+        // ── Step 1: Start resumable upload session ────────────────────
         const startUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
         const startResponse = await fetch(startUrl, {
             method: 'POST',
@@ -71,28 +75,23 @@ export async function onRequestPost(context) {
                 'X-Goog-Upload-Header-Content-Length': bytes.length.toString(),
                 'X-Goog-Upload-Header-Content-Type': mimeType,
             },
-            body: JSON.stringify({
-                file: { displayName }
-            }),
+            body: JSON.stringify({ file: { displayName: fileName } }),
         });
 
         if (!startResponse.ok) {
             const errText = await startResponse.text();
             return Response.json(
-                { error: `Upload start failed: ${startResponse.status} — ${errText}` },
-                { status: startResponse.status, headers: corsHeaders }
+                { error: `Upload session start failed (${startResponse.status}): ${errText.substring(0, 300)}` },
+                { status: startResponse.status }
             );
         }
 
         const uploadUrl = startResponse.headers.get('X-Goog-Upload-URL');
         if (!uploadUrl) {
-            return Response.json(
-                { error: 'No upload URL returned from Gemini File API' },
-                { status: 500, headers: corsHeaders }
-            );
+            return Response.json({ error: 'Gemini File API returned no upload URL' }, { status: 500 });
         }
 
-        // ─── Step 2: Upload the file bytes ─────────────────────
+        // ── Step 2: Upload the file bytes ─────────────────────────────
         const uploadResponse = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
@@ -106,14 +105,13 @@ export async function onRequestPost(context) {
         if (!uploadResponse.ok) {
             const errText = await uploadResponse.text();
             return Response.json(
-                { error: `File upload failed: ${uploadResponse.status} — ${errText}` },
-                { status: uploadResponse.status, headers: corsHeaders }
+                { error: `File upload failed (${uploadResponse.status}): ${errText.substring(0, 300)}` },
+                { status: uploadResponse.status }
             );
         }
 
         const result = await uploadResponse.json();
 
-        // Return the file URI and metadata
         return Response.json({
             fileUri: result.file?.uri,
             name: result.file?.name,
@@ -122,23 +120,14 @@ export async function onRequestPost(context) {
             sizeBytes: result.file?.sizeBytes,
             state: result.file?.state,
             _usedKeyName: usedKeyName,
-        }, { headers: corsHeaders });
+        });
 
     } catch (err) {
-        return Response.json(
-            { error: 'Upload proxy error: ' + err.message },
-            { status: 500, headers: corsHeaders }
-        );
+        console.error('[Upload] Unexpected error:', err.message);
+        return Response.json({ error: 'Upload proxy error: ' + err.message }, { status: 500 });
     }
 }
 
-// Handle CORS preflight
-export async function onRequestOptions() {
-    return new Response(null, {
-        headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-        },
-    });
-}
+// NOTE: No onRequestOptions export here.
+// CORS preflight for /api/ai/* is handled by /api/ai/_middleware.js
+// Adding one here would OVERRIDE and bypass that middleware.

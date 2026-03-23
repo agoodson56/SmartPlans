@@ -33,13 +33,38 @@ export async function onRequestPut(context) {
         const sets = [];
         const vals = [];
 
-        if (body.project_name !== undefined) { sets.push('project_name = ?'); vals.push(body.project_name); }
-        if (body.project_type !== undefined) { sets.push('project_type = ?'); vals.push(body.project_type); }
-        if (body.project_location !== undefined) { sets.push('project_location = ?'); vals.push(body.project_location); }
-        if (body.disciplines !== undefined) { sets.push('disciplines = ?'); vals.push(JSON.stringify(body.disciplines)); }
-        if (body.pricing_tier !== undefined) { sets.push('pricing_tier = ?'); vals.push(body.pricing_tier); }
-        if (body.status !== undefined) { sets.push('status = ?'); vals.push(body.status); }
-        if (body.export_data !== undefined) { sets.push('export_data = ?'); vals.push(JSON.stringify(body.export_data)); }
+        if (body.project_name !== undefined) {
+            sets.push('project_name = ?');
+            vals.push(String(body.project_name).substring(0, 200));
+        }
+        if (body.project_type !== undefined) {
+            sets.push('project_type = ?');
+            vals.push(String(body.project_type).substring(0, 100));
+        }
+        if (body.project_location !== undefined) {
+            sets.push('project_location = ?');
+            vals.push(String(body.project_location).substring(0, 300));
+        }
+        if (body.disciplines !== undefined) {
+            sets.push('disciplines = ?');
+            vals.push(JSON.stringify(body.disciplines));
+        }
+        if (body.pricing_tier !== undefined) {
+            sets.push('pricing_tier = ?');
+            vals.push(String(body.pricing_tier).substring(0, 20));
+        }
+        if (body.status !== undefined) {
+            sets.push('status = ?');
+            vals.push(String(body.status).substring(0, 20));
+        }
+        if (body.export_data !== undefined) {
+            const serialized = JSON.stringify(body.export_data);
+            if (serialized.length > 900_000) {
+                return Response.json({ error: 'Export data too large (max 900KB)' }, { status: 413 });
+            }
+            sets.push('export_data = ?');
+            vals.push(serialized);
+        }
 
         if (sets.length === 0) return Response.json({ error: 'No fields to update' }, { status: 400 });
 
@@ -55,6 +80,7 @@ export async function onRequestPut(context) {
         return Response.json({ error: 'Failed to update estimate: ' + err.message }, { status: 500 });
     }
 }
+
 
 export async function onRequestDelete(context) {
     const { env, params } = context;

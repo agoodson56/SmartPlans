@@ -6,7 +6,9 @@
 // ═══════════════════════════════════════════════════════════════
 
 export async function onRequestGet(context) {
-    const { env } = context;
+    const { env, request } = context;
+    const origin = request.headers.get('Origin') || '';
+
     try {
         let row = await env.DB.prepare(
             `SELECT total_cost, bid_count, last_bid_project, last_bid_at, last_reset_at FROM usage_stats WHERE id = 'global'`
@@ -19,12 +21,16 @@ export async function onRequestGet(context) {
             row = { total_cost: 0, bid_count: 0, last_bid_project: null, last_bid_at: null, last_reset_at: null };
         }
 
-        return Response.json(row);
+        const corsHeader = (origin && isAllowedOrigin(origin)) ? { 'Access-Control-Allow-Origin': origin } : {};
+        return new Response(JSON.stringify(row), {
+            headers: { 'Content-Type': 'application/json', ...corsHeader },
+        });
     } catch (err) {
         console.error('Stats GET error:', err);
         return Response.json({ error: 'Failed to load stats' }, { status: 500 });
     }
 }
+
 
 // Origin validation — shared pattern across all endpoints
 function isAllowedOrigin(origin) {
