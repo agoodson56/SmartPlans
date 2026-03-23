@@ -6,11 +6,13 @@
 
 function isAllowedOrigin(origin) {
     if (!origin) return true;
-    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
+    // Allow any SmartPlans or SmartPM Cloudflare Pages deploy
+    if (origin.endsWith('.pages.dev') && (origin.includes('smartplans-4g5') || origin.includes('smartpm'))) return true;
     const allowed = [
         'https://smartplans-4g5.pages.dev',
         'https://smartplans.pages.dev',
         'https://smartplans.3dtechnologyservices.com',
+        'https://smartpm.3dtechnologyservices.com',
         'https://3dtechnologyservices.com',
     ];
     if (allowed.some(d => origin.startsWith(d))) return true;

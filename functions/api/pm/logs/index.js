@@ -49,6 +49,20 @@ export async function onRequestGet(context) {
 
 export async function onRequestPost(context) {
     const { env, request } = context;
+
+    // HIGH-2 fix: POST was completely unauthenticated — matched same security as GET
+    const origin = request.headers.get('Origin') || '';
+    if (origin && !isAllowedOrigin(origin)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+    const envToken = env.ESTIMATES_TOKEN;
+    if (envToken) {
+        const token = request.headers.get('X-App-Token') || '';
+        if (token !== envToken) {
+            return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
+        }
+    }
+
     try {
         const body = await request.json();
 
@@ -69,6 +83,9 @@ export async function onRequestPost(context) {
         }
 
         const id = String(body.id || crypto.randomUUID().replace(/-/g, '')).substring(0, 64);
+        // MED-1 fix: never trust client-supplied logged_at — always use server time
+        // to prevent arbitrary date injection (back-dating or future-dating entries)
+        const loggedAt = new Date().toISOString();
 
         await env.DB.prepare(`
             INSERT INTO pm_daily_logs (id, project_id, module_id, item, unit, qty_installed, hours_used, logged_at, notes)
@@ -81,7 +98,7 @@ export async function onRequestPost(context) {
             unit,
             qty,
             hrs,
-            body.logged_at || new Date().toISOString(),
+            loggedAt,
             notes,
         ).run();
 
