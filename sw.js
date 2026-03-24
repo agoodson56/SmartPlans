@@ -32,9 +32,12 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// Fetch — network-first for API, stale-while-revalidate for assets
+// Fetch — network-first for API, stale-while-revalidate for same-origin assets
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
+
+    // Skip cross-origin requests — let the browser handle CDNs, fonts, Sentry, etc.
+    if (url.origin !== self.location.origin) return;
 
     // API calls — network first, cache GET responses as fallback
     if (url.pathname.startsWith('/api/')) {
