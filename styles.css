@@ -204,31 +204,106 @@ textarea:focus {
 #app-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 18px 28px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  gap: 20px;
+  padding: 12px 28px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: #FFFFFF;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
-.header-logo svg {
+.header-logo {
+  flex-shrink: 0;
+}
+
+.header-logo img {
   display: block;
-  filter: none;
+  height: 42px;
+  width: auto;
 }
 
-.header-text h1 {
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+#usage-stats {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.usage-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.usage-stat-value {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.usage-stat-value--green { color: #10b981; }
+.usage-stat-value--amber { color: #f59e0b; }
+
+.usage-stat-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.usage-stat-reset {
+  display: none;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: transparent;
+  color: #f43f5e;
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 0;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font-sans);
+  text-decoration: none;
+  border-radius: 0;
+}
+
+.header-btn:hover {
+  background: rgba(13, 148, 136, 0.04);
+  border-color: #0D9488;
   color: #0D9488;
 }
 
-.header-text p {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 500;
-  letter-spacing: 0.02em;
+.header-btn [data-lucide] {
+  width: 14px;
+  height: 14px;
+}
+
+.header-btn-label {
+  /* visible by default, hidden on mobile */
 }
 
 /* ─── Step Navigation ─── */
