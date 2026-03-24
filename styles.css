@@ -38,9 +38,9 @@
   --text-secondary: rgba(0, 0, 0, 0.55);
   --text-muted: rgba(0, 0, 0, 0.35);
 
-  --border-subtle: rgba(0, 0, 0, 0.06);
-  --border-medium: rgba(0, 0, 0, 0.12);
-  --border-accent: rgba(13, 148, 136, 0.2);
+  --border-subtle: rgba(191, 155, 48, 0.2);
+  --border-medium: rgba(191, 155, 48, 0.35);
+  --border-accent: rgba(191, 155, 48, 0.5);
 
   --radius-sm: 0px;
   --radius-md: 0px;
@@ -107,12 +107,12 @@ textarea:focus {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(191, 155, 48, 0.3);
   border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(191, 155, 48, 0.35);
 }
 
 /* ─── Animated Background ─── */
@@ -195,8 +195,8 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   background: #FFFFFF;
-  border-left: 1px solid rgba(0, 0, 0, 0.06);
-  border-right: 1px solid rgba(0, 0, 0, 0.06);
+  border-left: 1px solid rgba(191, 155, 48, 0.18);
+  border-right: 1px solid rgba(191, 155, 48, 0.18);
   box-shadow: none;
 }
 
@@ -206,7 +206,7 @@ textarea:focus {
   align-items: center;
   gap: 20px;
   padding: 12px 28px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid rgba(191, 155, 48, 0.22);
   background: #FFFFFF;
   position: sticky;
   top: 0;
@@ -277,7 +277,7 @@ textarea:focus {
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(191, 155, 48, 0.3);
   background: transparent;
   color: var(--text-secondary);
   font-size: 11px;
@@ -313,7 +313,7 @@ textarea:focus {
   padding: 14px 20px;
   overflow-x: auto;
   background: #FAFBFC;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(191, 155, 48, 0.18);
   gap: 0;
   scrollbar-width: none;
 }
@@ -362,7 +362,7 @@ textarea:focus {
   font-size: 15px;
   font-weight: 700;
   transition: all var(--transition-med);
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(191, 155, 48, 0.3);
   background: #FFFFFF;
   color: var(--text-muted);
   position: relative;
@@ -410,7 +410,7 @@ textarea:focus {
   flex: 1;
   height: 2px;
   min-width: 8px;
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(191, 155, 48, 0.22);
   border-radius: 0;
   margin: 0 3px 20px;
   transition: background var(--transition-slow);
@@ -475,7 +475,7 @@ textarea:focus {
   width: 100%;
   padding: 11px 14px;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(191, 155, 48, 0.3);
   background: #FFFFFF;
   color: var(--text-primary);
   font-size: 14px;
@@ -518,7 +518,7 @@ textarea:focus {
 .chip {
   padding: 6px 14px;
   border-radius: 0;
-  border: 1px solid rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(191, 155, 48, 0.32);
   background: transparent;
   color: var(--text-secondary);
   font-size: 11px;
@@ -557,7 +557,7 @@ textarea:focus {
   flex: 1;
   padding: 16px 22px;
   border-radius: 0;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(191, 155, 48, 0.3);
   background: #FFFFFF;
   color: var(--text-secondary);
   font-size: 14px;
@@ -584,7 +584,7 @@ textarea:focus {
 
 /* ─── File Upload Zone ─── */
 .upload-zone {
-  border: 1px dashed rgba(0, 0, 0, 0.2);
+  border: 1px dashed rgba(191, 155, 48, 0.35);
   border-radius: 0;
   padding: 40px 24px;
   text-align: center;
@@ -641,7 +641,7 @@ textarea:focus {
   justify-content: space-between;
   padding: 10px 14px;
   background: #FAFBFC;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   border-radius: 0;
   margin-bottom: 5px;
   animation: slideIn 0.2s ease;
@@ -707,7 +707,7 @@ textarea:focus {
   border-radius: 0;
   padding: 24px 28px;
   margin-bottom: 18px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   position: relative;
   overflow: hidden;
   background: #FFFFFF;
@@ -727,7 +727,7 @@ textarea:focus {
 
 .info-card--sky {
   background: #FFFFFF;
-  border-color: rgba(0, 0, 0, 0.08);
+  border-color: rgba(191, 155, 48, 0.22);
 }
 
 .info-card--sky::before {
@@ -736,7 +736,7 @@ textarea:focus {
 
 .info-card--amber {
   background: #FFFFFF;
-  border-color: rgba(0, 0, 0, 0.08);
+  border-color: rgba(191, 155, 48, 0.22);
 }
 
 .info-card--amber::before {
@@ -745,7 +745,7 @@ textarea:focus {
 
 .info-card--rose {
   background: #FFFFFF;
-  border-color: rgba(0, 0, 0, 0.08);
+  border-color: rgba(191, 155, 48, 0.22);
 }
 
 .info-card--rose::before {
@@ -754,7 +754,7 @@ textarea:focus {
 
 .info-card--indigo {
   background: #FFFFFF;
-  border-color: rgba(0, 0, 0, 0.08);
+  border-color: rgba(191, 155, 48, 0.22);
 }
 
 .info-card--indigo::before {
@@ -763,7 +763,7 @@ textarea:focus {
 
 .info-card--emerald {
   background: #FFFFFF;
-  border-color: rgba(0, 0, 0, 0.08);
+  border-color: rgba(191, 155, 48, 0.22);
 }
 
 .info-card--emerald::before {
@@ -858,7 +858,7 @@ textarea:focus {
 .summary-card {
   padding: 20px 22px;
   background: #FFFFFF;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   border-radius: 0;
   transition: border-color var(--transition-fast);
   backdrop-filter: none;
@@ -944,7 +944,7 @@ textarea:focus {
 .accuracy-panel {
   padding: 40px;
   background: #FFFFFF;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   border-radius: 0;
   text-align: center;
   margin-bottom: 22px;
@@ -1001,7 +1001,7 @@ textarea:focus {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid rgba(0, 0, 0, 0.1);
+  border: 2px solid rgba(191, 155, 48, 0.25);
   transition: all 0.3s ease;
 }
 
@@ -1078,7 +1078,7 @@ textarea:focus {
   width: 100%;
   max-width: 420px;
   height: 4px;
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(191, 155, 48, 0.18);
   border-radius: 0;
   margin: 22px auto 0;
   overflow: hidden;
@@ -1096,7 +1096,7 @@ textarea:focus {
   margin-top: 28px;
   padding: 24px 28px;
   background: #FFFFFF;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   border-radius: 0;
   max-width: 420px;
   margin-left: auto;
@@ -1114,7 +1114,7 @@ textarea:focus {
   margin-top: 14px;
   margin-bottom: 8px;
   padding-bottom: 4px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(191, 155, 48, 0.18);
 }
 
 .brain-wave-header:first-child {
@@ -1173,7 +1173,7 @@ textarea:focus {
 .results-hero {
   padding: 40px;
   background: #FFFFFF;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   border-radius: 0;
   margin-bottom: 24px;
   backdrop-filter: none;
@@ -1239,7 +1239,7 @@ textarea:focus {
   padding: 20px;
   background: #FFFFFF;
   border-radius: 0;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
 }
 
 .results-stat-icon {
@@ -1302,7 +1302,7 @@ textarea:focus {
 }
 
 .rfi-action-btn--clear {
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(191, 155, 48, 0.3);
   background: transparent;
   color: var(--text-secondary);
 }
@@ -1462,7 +1462,7 @@ textarea:focus {
 /* ─── Footer Nav ─── */
 #step-footer {
   padding: 16px 36px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid rgba(191, 155, 48, 0.18);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1538,7 +1538,7 @@ textarea:focus {
 .footer-btn--restart {
   padding: 11px 24px;
   border-radius: 0;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(191, 155, 48, 0.3);
   background: transparent;
   color: var(--text-secondary);
   font-size: 11.2px;
@@ -1553,7 +1553,7 @@ textarea:focus {
 
 .footer-btn--restart:hover {
   background: rgba(0, 0, 0, 0.03);
-  border-color: rgba(0, 0, 0, 0.2);
+  border-color: rgba(191, 155, 48, 0.35);
   color: var(--text-primary);
 }
 
@@ -1651,7 +1651,7 @@ textarea:focus {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(191, 155, 48, 0.35);
   z-index: 1000;
   animation: fadeIn 0.2s ease;
 }
@@ -1664,12 +1664,12 @@ textarea:focus {
   max-width: 95vw;
   height: 100vh;
   background: #FFFFFF;
-  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  border-left: 1px solid rgba(191, 155, 48, 0.22);
   z-index: 1001;
   display: flex;
   flex-direction: column;
   animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08);
+  box-shadow: -4px 0 20px rgba(191, 155, 48, 0.22);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -1712,7 +1712,7 @@ textarea:focus {
   width: 34px;
   height: 34px;
   border-radius: 0;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(191, 155, 48, 0.3);
   background: #FFFFFF;
   color: var(--text-secondary);
   font-size: 18px;
@@ -1739,7 +1739,7 @@ textarea:focus {
 .est-card {
   padding: 16px 18px;
   border-radius: 0;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   background: #FFFFFF;
   margin-bottom: 10px;
   cursor: pointer;
@@ -1843,11 +1843,11 @@ textarea:focus {
   z-index: 2000;
   animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
   font-family: var(--font-sans);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(191, 155, 48, 0.25);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   background: #FFFFFF;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
 }
 
 .sp-toast--success {
@@ -2586,7 +2586,7 @@ textarea:focus {
   color: var(--text-primary);
   white-space: nowrap;
   z-index: 100;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(191, 155, 48, 0.25);
   pointer-events: none;
   opacity: 0;
   transition: opacity var(--transition-fast);
@@ -2772,7 +2772,7 @@ textarea:focus {
 .bid-phase-badge--optional {
   background: rgba(0, 0, 0, 0.03);
   color: var(--text-muted);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(191, 155, 48, 0.25);
 }
 
 /* ─── Bid Phase Category Chips ─── */
@@ -2784,7 +2784,7 @@ textarea:focus {
   font-weight: 500;
   color: var(--text-secondary);
   background: rgba(0, 0, 0, 0.02);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   cursor: pointer;
   transition: all var(--transition-fast);
   user-select: none;
@@ -2821,7 +2821,7 @@ textarea:focus {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(191, 155, 48, 0.35);
   z-index: 1000;
   animation: fadeIn 0.2s ease;
 }
@@ -2834,12 +2834,12 @@ textarea:focus {
   max-width: 95vw;
   height: 100vh;
   background: #FFFFFF;
-  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  border-left: 1px solid rgba(191, 155, 48, 0.22);
   z-index: 1001;
   display: flex;
   flex-direction: column;
   animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08);
+  box-shadow: -4px 0 20px rgba(191, 155, 48, 0.22);
 }
 
 .rate-library-header {
@@ -2904,7 +2904,7 @@ textarea:focus {
 /* ─── Rate Cards ─── */
 .rate-card {
   padding: 14px 16px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   background: #FFFFFF;
   margin-bottom: 8px;
   transition: all var(--transition-fast);
@@ -2938,7 +2938,7 @@ textarea:focus {
 .rate-card-actions button {
   width: 28px;
   height: 28px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(191, 155, 48, 0.22);
   background: #FFFFFF;
   cursor: pointer;
   display: flex;
