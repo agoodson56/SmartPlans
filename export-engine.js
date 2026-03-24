@@ -17,6 +17,27 @@ const SmartPlansExport = {
         const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
         const bomWarning = bom._warning || null;
 
+        // Apply supplier price overrides if present
+        const overrides = state.supplierPriceOverrides || {};
+        if (Object.keys(overrides).length > 0) {
+            for (const [key, override] of Object.entries(overrides)) {
+                const [catIdx, itemIdx] = key.split('-').map(Number);
+                if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
+                    const item = bom.categories[catIdx].items[itemIdx];
+                    item.unitCost = override.unitCost;
+                    item.extCost = Math.round(item.qty * override.unitCost * 100) / 100;
+                }
+            }
+            // Recalculate category subtotals and grand total
+            bom.grandTotal = 0;
+            for (const cat of bom.categories) {
+                cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
+                cat.subtotal = Math.round(cat.subtotal * 100) / 100;
+                bom.grandTotal += cat.subtotal;
+            }
+            bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
+        }
+
         return {
             _meta: {
                 format: "smartplans-export",
@@ -98,6 +119,7 @@ const SmartPlansExport = {
                     })),
                 })),
                 totalLineItems: bom.categories.reduce((s, c) => s + c.items.length, 0),
+                supplierOverrides: state.supplierPriceOverrides || {},
             },
 
             rfis: this._extractRFIs(state),
@@ -1360,6 +1382,369 @@ const SmartPlansExport = {
             .replace(/[^a-zA-Z0-9\s-]/g, "")
             .replace(/\s+/g, "_")
             .substring(0, 40);
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // SUPPLIER BOM — Row Map, Export & Import
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Assign sequential Row# to every BOM item across all categories.
+     * Returns a flat array of row-map entries for supplier workflows.
+     */
+    generateSupplierRowMap(state) {
+        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+        const rowMap = [];
+        let rowNum = 1;
+
+        for (let catIndex = 0; catIndex < bom.categories.length; catIndex++) {
+            const cat = bom.categories[catIndex];
+            for (let itemIndex = 0; itemIndex < cat.items.length; itemIndex++) {
+                const item = cat.items[itemIndex];
+                rowMap.push({
+                    rowNum: rowNum++,
+                    catIndex: catIndex,
+                    itemIndex: itemIndex,
+                    category: cat.name,
+                    name: item.item,
+                    partNumber: item.partNumber || '',
+                    mfg: item.mfg || '',
+                    qty: item.qty,
+                    unit: item.unit,
+                    unitCost: item.unitCost,
+                });
+            }
+        }
+
+        return rowMap;
+    },
+
+    /**
+     * Export a Supplier BOM spreadsheet (Excel or CSV) for a named supplier.
+     * The "Supplier Unit Cost" column is left blank for the supplier to fill in.
+     * Returns { bom, rowMap, itemCount, grandTotal } so the caller can create
+     * a supplier_quote record.
+     */
+    exportSupplierBOM(state, supplierName, format) {
+        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+        const rowMap = this.generateSupplierRowMap(state);
+        const now = new Date();
+        const projectName = state.projectName || 'Untitled Project';
+        const estimateId = state.estimateId || state.projectId || '';
+
+        if (bom.categories.length === 0) {
+            alert('No material data found in the AI analysis. Please run the analysis first.');
+            return;
+        }
+
+        // Build array-of-arrays data
+        const headerRows = [
+            ['SUPPLIER BOM — PRICING REQUEST'],
+            [],
+            ['Project Name', projectName],
+            ['Supplier', supplierName || 'TBD'],
+            ['Date', now.toLocaleDateString()],
+            ['Estimate ID', estimateId],
+            [],
+            ['Row#', 'Category', 'MFG', 'Part Number', 'Item Description', 'Qty', 'Unit', 'AI Unit Cost (Reference)', 'Supplier Unit Cost (FILL IN)'],
+        ];
+
+        const dataRows = [];
+        let rowIdx = 0;
+        let grandTotal = 0;
+
+        for (const cat of bom.categories) {
+            // Category section header
+            dataRows.push([cat.name.toUpperCase(), '', '', '', '', '', '', '', '']);
+
+            for (const item of cat.items) {
+                rowIdx++;
+                dataRows.push([
+                    rowIdx,
+                    '',
+                    item.mfg || '',
+                    item.partNumber || '',
+                    item.item,
+                    item.qty,
+                    item.unit,
+                    item.unitCost,
+                    '',  // Supplier fills this in
+                ]);
+            }
+
+            // Category subtotal
+            dataRows.push(['', '', '', '', `SUBTOTAL — ${cat.name}`, '', '', cat.subtotal, '']);
+            dataRows.push([]);
+            grandTotal += cat.subtotal;
+        }
+
+        // Grand total
+        dataRows.push([]);
+        dataRows.push(['', '', '', '', 'GRAND TOTAL', '', '', grandTotal, '']);
+
+        const allRows = [...headerRows, ...dataRows];
+
+        if (format === 'csv' || typeof XLSX === 'undefined') {
+            // CSV export
+            const csv = allRows.map(r =>
+                r.map(c => `"${String(c != null ? c : '').replace(/"/g, '""')}"`).join(',')
+            ).join('\n');
+            this._download(csv, `SmartPlans_SupplierBOM_${this._safeName(state)}.csv`, 'text/csv');
+        } else {
+            // Excel export via SheetJS
+            try {
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.aoa_to_sheet(allRows);
+                ws['!cols'] = [
+                    { wch: 8 },   // Row#
+                    { wch: 24 },  // Category
+                    { wch: 16 },  // MFG
+                    { wch: 24 },  // Part Number
+                    { wch: 50 },  // Item Description
+                    { wch: 8 },   // Qty
+                    { wch: 8 },   // Unit
+                    { wch: 20 },  // AI Unit Cost
+                    { wch: 24 },  // Supplier Unit Cost
+                ];
+                XLSX.utils.book_append_sheet(wb, ws, 'Supplier BOM');
+
+                const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                this._download(blob, `SmartPlans_SupplierBOM_${this._safeName(state)}.xlsx`);
+            } catch (err) {
+                console.error('[SmartPlans] Supplier BOM Excel export failed:', err);
+                // Fallback to CSV
+                const csv = allRows.map(r =>
+                    r.map(c => `"${String(c != null ? c : '').replace(/"/g, '""')}"`).join(',')
+                ).join('\n');
+                this._download(csv, `SmartPlans_SupplierBOM_${this._safeName(state)}.csv`, 'text/csv');
+            }
+        }
+
+        if (typeof spToast === 'function') spToast(`Supplier BOM exported for ${supplierName || 'supplier'} — ${rowMap.length} items`);
+
+        return {
+            bom: bom,
+            rowMap: rowMap,
+            itemCount: rowMap.length,
+            grandTotal: grandTotal,
+        };
+    },
+
+    /**
+     * Import supplier pricing from an uploaded file (Excel or CSV).
+     * Reads the file, matches rows by Row# (primary) or partNumber+name (fallback),
+     * and returns a summary with overrides map ready to store in state.
+     */
+    importSupplierPricing(file, state) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+
+            reader.onerror = () => reject(new Error('Failed to read file: ' + (reader.error || 'Unknown error')));
+
+            reader.onload = () => {
+                try {
+                    const data = new Uint8Array(reader.result);
+                    let rows;
+
+                    // Parse file based on extension
+                    const ext = (file.name || '').split('.').pop().toLowerCase();
+                    if (ext === 'csv') {
+                        // Parse CSV via SheetJS if available, otherwise manual parse
+                        if (typeof XLSX !== 'undefined') {
+                            const wb = XLSX.read(data, { type: 'array' });
+                            const ws = wb.Sheets[wb.SheetNames[0]];
+                            rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                        } else {
+                            // Manual CSV parse fallback
+                            const text = new TextDecoder().decode(data);
+                            rows = text.split('\n').map(line => {
+                                const cells = [];
+                                let current = '';
+                                let inQuotes = false;
+                                for (let i = 0; i < line.length; i++) {
+                                    const ch = line[i];
+                                    if (ch === '"') { inQuotes = !inQuotes; continue; }
+                                    if (ch === ',' && !inQuotes) { cells.push(current.trim()); current = ''; continue; }
+                                    current += ch;
+                                }
+                                cells.push(current.trim());
+                                return cells;
+                            });
+                        }
+                    } else {
+                        // Excel file
+                        if (typeof XLSX === 'undefined') {
+                            reject(new Error('SheetJS (XLSX) library is required to read Excel files.'));
+                            return;
+                        }
+                        const wb = XLSX.read(data, { type: 'array' });
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    }
+
+                    if (!rows || rows.length < 2) {
+                        reject(new Error('File appears to be empty or has no data rows.'));
+                        return;
+                    }
+
+                    // Find header row by scanning for row containing "Row" and "Supplier" (case-insensitive)
+                    let headerRowIdx = -1;
+                    let colRowNum = -1;
+                    let colSupplierCost = -1;
+                    let colPartNumber = -1;
+                    let colName = -1;
+
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row || !Array.isArray(row)) continue;
+
+                        const cellTexts = row.map(c => String(c || '').toLowerCase());
+                        const hasRow = cellTexts.some(c => c.includes('row'));
+                        const hasSupplier = cellTexts.some(c => c.includes('supplier'));
+
+                        if (hasRow && hasSupplier) {
+                            headerRowIdx = i;
+                            // Map columns
+                            cellTexts.forEach((c, idx) => {
+                                if (c.includes('row') && c.match(/row\s*#?$/i)) colRowNum = idx;
+                                else if (c.includes('row')) colRowNum = colRowNum === -1 ? idx : colRowNum;
+                                if (c.includes('supplier') && c.includes('cost')) colSupplierCost = idx;
+                                else if (c.includes('supplier') && c.includes('unit')) colSupplierCost = colSupplierCost === -1 ? idx : colSupplierCost;
+                                if (c.includes('part') && (c.includes('number') || c.includes('#'))) colPartNumber = idx;
+                                if (c.includes('description') || c.includes('item desc')) colName = idx;
+                            });
+                            break;
+                        }
+                    }
+
+                    if (headerRowIdx === -1 || colSupplierCost === -1) {
+                        reject(new Error('Could not find header row with "Row" and "Supplier" columns. Ensure the spreadsheet has the expected column headers.'));
+                        return;
+                    }
+
+                    // Try to extract supplier name from header area
+                    let supplierName = 'Unknown';
+                    for (let i = 0; i < headerRowIdx; i++) {
+                        const row = rows[i];
+                        if (!row) continue;
+                        for (let ci = 0; ci < row.length; ci++) {
+                            const cellStr = String(row[ci] || '').toLowerCase();
+                            if (cellStr === 'supplier' && row[ci + 1]) {
+                                supplierName = String(row[ci + 1]).trim();
+                                break;
+                            }
+                        }
+                        if (supplierName !== 'Unknown') break;
+                    }
+
+                    // Generate current row map for matching
+                    const rowMap = this.generateSupplierRowMap(state);
+
+                    // Build lookup maps for fallback matching
+                    const rowNumToEntry = {};
+                    const partNameToEntry = {};
+                    for (const entry of rowMap) {
+                        rowNumToEntry[entry.rowNum] = entry;
+                        const key = (entry.partNumber + '||' + entry.name).toLowerCase();
+                        partNameToEntry[key] = entry;
+                    }
+
+                    // Extract supplier prices from data rows
+                    const overrides = {};
+                    let itemsUpdated = 0;
+                    let itemsUnchanged = 0;
+
+                    for (let i = headerRowIdx + 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row || !Array.isArray(row)) continue;
+
+                        // Read supplier cost
+                        const rawCost = row[colSupplierCost];
+                        if (rawCost == null || rawCost === '') continue;
+                        const costStr = String(rawCost).replace(/[$,\s]/g, '');
+                        const supplierPrice = parseFloat(costStr);
+                        if (isNaN(supplierPrice) || supplierPrice <= 0) continue;
+
+                        // Try Row# match first
+                        let matched = null;
+                        if (colRowNum !== -1) {
+                            const rawRowNum = row[colRowNum];
+                            const rowNum = parseInt(String(rawRowNum).replace(/[^\d]/g, ''));
+                            if (!isNaN(rowNum) && rowNumToEntry[rowNum]) {
+                                matched = rowNumToEntry[rowNum];
+                            }
+                        }
+
+                        // Fallback: partNumber + name matching
+                        if (!matched) {
+                            const pn = colPartNumber !== -1 ? String(row[colPartNumber] || '').trim() : '';
+                            const nm = colName !== -1 ? String(row[colName] || '').trim() : '';
+                            if (pn || nm) {
+                                const key = (pn + '||' + nm).toLowerCase();
+                                if (partNameToEntry[key]) {
+                                    matched = partNameToEntry[key];
+                                }
+                            }
+                        }
+
+                        if (matched) {
+                            const overrideKey = `${matched.catIndex}-${matched.itemIndex}`;
+                            overrides[overrideKey] = {
+                                unitCost: supplierPrice,
+                                supplierName: supplierName,
+                            };
+                            itemsUpdated++;
+                        } else {
+                            itemsUnchanged++;
+                        }
+                    }
+
+                    // Recalculate totals with overrides applied
+                    const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+                    const oldTotal = bom.grandTotal;
+                    let newTotal = 0;
+
+                    for (let catIndex = 0; catIndex < bom.categories.length; catIndex++) {
+                        const cat = bom.categories[catIndex];
+                        let catSubtotal = 0;
+                        for (let itemIndex = 0; itemIndex < cat.items.length; itemIndex++) {
+                            const item = cat.items[itemIndex];
+                            const key = `${catIndex}-${itemIndex}`;
+                            if (overrides[key]) {
+                                item.unitCost = overrides[key].unitCost;
+                                item.extCost = Math.round(item.qty * overrides[key].unitCost * 100) / 100;
+                            }
+                            catSubtotal += item.extCost;
+                        }
+                        cat.subtotal = Math.round(catSubtotal * 100) / 100;
+                        newTotal += cat.subtotal;
+                    }
+                    newTotal = Math.round(newTotal * 100) / 100;
+
+                    const delta = Math.round((newTotal - oldTotal) * 100) / 100;
+                    const deltaPercent = oldTotal > 0 ? Math.round((delta / oldTotal) * 10000) / 100 : 0;
+
+                    resolve({
+                        itemsUpdated: itemsUpdated,
+                        itemsUnchanged: itemsUnchanged,
+                        itemsTotal: rowMap.length,
+                        oldTotal: oldTotal,
+                        newTotal: newTotal,
+                        delta: delta,
+                        deltaPercent: deltaPercent,
+                        overrides: overrides,
+                        supplierName: supplierName,
+                    });
+
+                } catch (err) {
+                    console.error('[SmartPlans] Supplier pricing import failed:', err);
+                    reject(new Error('Failed to parse supplier pricing file: ' + err.message));
+                }
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
     },
 
     _download(content, filename, mimeType) {

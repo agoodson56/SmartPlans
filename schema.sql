@@ -41,6 +41,28 @@ CREATE TABLE IF NOT EXISTS estimate_revisions (
 CREATE INDEX IF NOT EXISTS idx_revisions_estimate ON estimate_revisions(estimate_id);
 
 -- ═══════════════════════════════════════════════════════════════
+-- Supplier Quotes — Track BOM pricing requests sent to suppliers
+-- Lifecycle: sent → received → applied
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS supplier_quotes (
+    id TEXT PRIMARY KEY,
+    estimate_id TEXT NOT NULL,
+    supplier_name TEXT NOT NULL,
+    supplier_email TEXT,
+    sent_at TEXT DEFAULT (datetime('now')),
+    received_at TEXT,
+    item_count INTEGER DEFAULT 0,
+    items_quoted INTEGER DEFAULT 0,
+    original_total REAL DEFAULT 0,
+    quoted_total REAL,
+    status TEXT DEFAULT 'sent',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_quotes_estimate ON supplier_quotes(estimate_id);
+
+-- ═══════════════════════════════════════════════════════════════
 -- Usage Statistics — Cross-device bid counter & cost tracker
 -- ═══════════════════════════════════════════════════════════════
 

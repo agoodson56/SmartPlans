@@ -501,6 +501,10 @@ const state = {
   // Validation Results
   mathValidation: null,       // automated math check results
   sectionCompleteness: null,  // section completeness check results
+
+  // Supplier Pricing
+  supplierPriceOverrides: {},   // "catIndex-itemIndex" → { unitCost, supplierName, appliedAt }
+  supplierQuotes: [],           // cached list from API
 };
 
 
@@ -692,6 +696,8 @@ function renderFooter() {
       state.estimateId = null; // Reset so next save creates a new record
       state.aiAnalysis = null;
       state.aiError = null;
+      state.supplierPriceOverrides = {};
+      state.supplierQuotes = [];
       render();
       scrollContentTop();
     });
@@ -1854,6 +1860,36 @@ function renderStep6(container) {
           </div>
           <span style="font-size:18px;color:rgba(20,184,166,0.7);">⬇</span>
         </button>
+      </div>
+
+      <!-- Supplier Pricing Section -->
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
+        <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;">📤 Supplier Pricing</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <button class="export-pkg-btn" id="supplier-export-excel" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:1px solid rgba(20,184,166,0.3);background:linear-gradient(135deg,rgba(20,184,166,0.08),rgba(6,182,212,0.04));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;width:100%;">
+            <span style="font-size:20px;">📊</span>
+            <div style="flex:1;">
+              <div style="font-weight:700;font-size:13px;">Send to Supplier (Excel)</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Pre-filled BOM with blank pricing column</div>
+            </div>
+          </button>
+          <button class="export-pkg-btn" id="supplier-export-csv" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:1px solid rgba(20,184,166,0.3);background:linear-gradient(135deg,rgba(20,184,166,0.08),rgba(6,182,212,0.04));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;width:100%;">
+            <span style="font-size:20px;">📄</span>
+            <div style="flex:1;">
+              <div style="font-weight:700;font-size:13px;">Send to Supplier (CSV)</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">CSV format for email or portal upload</div>
+            </div>
+          </button>
+        </div>
+        <div style="margin-top:12px;">
+          <div id="supplier-import-zone" class="upload-zone" style="border:2px dashed rgba(20,184,166,0.25);border-radius:10px;padding:18px;text-align:center;cursor:pointer;transition:all 0.2s;background:rgba(20,184,166,0.02);">
+            <input type="file" accept=".xlsx,.csv" id="supplier-file-input" style="display:none;">
+            <div style="font-size:20px;margin-bottom:4px;">📥</div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary);">Import Supplier Pricing</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Drop completed pricing file here or click to browse · XLSX or CSV</div>
+          </div>
+        </div>
+        <div id="supplier-quotes-container"></div>
       </div>`;
 
   const exportPanel = `
@@ -2036,6 +2072,165 @@ function renderStep6(container) {
 
   const bomBtn = document.getElementById("export-bom");
   if (bomBtn) bomBtn.addEventListener("click", () => SmartPlansExport.exportBOM(state));
+
+  // ── Supplier Pricing Handlers ──
+  const supplierExcelBtn = document.getElementById("supplier-export-excel");
+  const supplierCsvBtn = document.getElementById("supplier-export-csv");
+
+  async function handleSupplierExport(format) {
+    const supplierName = prompt("Enter supplier name:");
+    if (!supplierName || !supplierName.trim()) return;
+    try {
+      const result = SmartPlansExport.exportSupplierBOM(state, supplierName.trim(), format);
+      // Record the quote in the database
+      if (state.estimateId) {
+        const token = localStorage.getItem("sp_app_token") || "";
+        await fetch(`/api/estimates/${state.estimateId}/supplier-quotes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-App-Token": token },
+          body: JSON.stringify({
+            supplier_name: supplierName.trim(),
+            item_count: result.itemCount || 0,
+            original_total: result.grandTotal || 0,
+          }),
+        });
+        await loadSupplierQuotes();
+      }
+      spToast(`BOM sent to ${esc(supplierName.trim())} (${format.toUpperCase()})`, "success");
+    } catch (err) {
+      console.error("[SupplierExport]", err);
+      spToast("Failed to export supplier BOM: " + err.message, "error");
+    }
+  }
+
+  if (supplierExcelBtn) supplierExcelBtn.addEventListener("click", () => handleSupplierExport("xlsx"));
+  if (supplierCsvBtn) supplierCsvBtn.addEventListener("click", () => handleSupplierExport("csv"));
+
+  // Supplier import drag-drop
+  const supplierZone = document.getElementById("supplier-import-zone");
+  const supplierInput = document.getElementById("supplier-file-input");
+  if (supplierZone && supplierInput) {
+    supplierZone.addEventListener("click", () => supplierInput.click());
+    supplierZone.addEventListener("dragover", (e) => { e.preventDefault(); supplierZone.style.borderColor = "rgba(20,184,166,0.6)"; supplierZone.style.background = "rgba(20,184,166,0.06)"; });
+    supplierZone.addEventListener("dragleave", () => { supplierZone.style.borderColor = "rgba(20,184,166,0.25)"; supplierZone.style.background = "rgba(20,184,166,0.02)"; });
+    supplierZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      supplierZone.style.borderColor = "rgba(20,184,166,0.25)";
+      supplierZone.style.background = "rgba(20,184,166,0.02)";
+      if (e.dataTransfer.files.length) handleSupplierImport(e.dataTransfer.files[0]);
+    });
+    supplierInput.addEventListener("change", (e) => {
+      if (e.target.files.length) handleSupplierImport(e.target.files[0]);
+      supplierInput.value = "";
+    });
+  }
+
+  async function handleSupplierImport(file) {
+    try {
+      const result = await SmartPlansExport.importSupplierPricing(file, state);
+      // Show confirmation before applying
+      const delta = result.delta >= 0 ? `+$${result.delta.toLocaleString()}` : `-$${Math.abs(result.delta).toLocaleString()}`;
+      const pct = result.deltaPercent >= 0 ? `+${result.deltaPercent.toFixed(1)}%` : `${result.deltaPercent.toFixed(1)}%`;
+      const confirmed = confirm(
+        `Supplier Pricing Import Summary\n\n` +
+        `Items Updated: ${result.itemsUpdated} of ${result.itemsTotal}\n` +
+        `Items Unchanged: ${result.itemsUnchanged}\n\n` +
+        `Old Total: $${result.oldTotal.toLocaleString()}\n` +
+        `New Total: $${result.newTotal.toLocaleString()}\n` +
+        `Change: ${delta} (${pct})\n\n` +
+        `Apply supplier pricing?`
+      );
+      if (!confirmed) return;
+
+      // Apply overrides to state
+      state.supplierPriceOverrides = result.overrides;
+
+      // Update the matching supplier quote record
+      if (state.estimateId) {
+        const token = localStorage.getItem("sp_app_token") || "";
+        // Find the most recent 'sent' quote to update
+        const quotes = state.supplierQuotes || [];
+        const sentQuote = quotes.find(q => q.status === "sent");
+        if (sentQuote) {
+          await fetch(`/api/estimates/${state.estimateId}/supplier-quotes/${sentQuote.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", "X-App-Token": token },
+            body: JSON.stringify({
+              received_at: new Date().toISOString(),
+              quoted_total: result.newTotal,
+              items_quoted: result.itemsUpdated,
+              status: "applied",
+            }),
+          });
+        }
+      }
+
+      // Save the estimate (triggers revision)
+      await saveEstimate(true);
+      await loadSupplierQuotes();
+      render();
+      spToast(`Supplier pricing applied — ${result.itemsUpdated} items updated, total changed by ${delta}`, "success");
+    } catch (err) {
+      console.error("[SupplierImport]", err);
+      spToast("Failed to import supplier pricing: " + err.message, "error");
+    }
+  }
+
+  // Load and render supplier quotes
+  async function loadSupplierQuotes() {
+    if (!state.estimateId) return;
+    try {
+      const token = localStorage.getItem("sp_app_token") || "";
+      const resp = await fetch(`/api/estimates/${state.estimateId}/supplier-quotes`, {
+        headers: { "X-App-Token": token },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        state.supplierQuotes = data.quotes || [];
+        renderSupplierQuotes();
+      }
+    } catch (err) {
+      console.warn("[SupplierQuotes] Failed to load:", err);
+    }
+  }
+
+  function renderSupplierQuotes() {
+    const container = document.getElementById("supplier-quotes-container");
+    if (!container) return;
+    const quotes = state.supplierQuotes || [];
+    if (quotes.length === 0) {
+      container.innerHTML = "";
+      return;
+    }
+    const statusColors = { sent: "#f59e0b", received: "#3b82f6", applied: "#10b981" };
+    const rows = quotes.map(q => {
+      const color = statusColors[q.status] || "#6b7280";
+      const quotedStr = q.quoted_total != null ? `$${Number(q.quoted_total).toLocaleString()}` : "—";
+      const sentDate = q.sent_at ? new Date(q.sent_at).toLocaleDateString() : "—";
+      const recvDate = q.received_at ? new Date(q.received_at).toLocaleDateString() : "—";
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px;">
+        <div style="flex:1;">
+          <div style="font-weight:600;">${esc(q.supplier_name)}</div>
+          <div style="color:var(--text-muted);margin-top:2px;">Sent: ${sentDate} · Received: ${recvDate}</div>
+        </div>
+        <div style="text-align:right;margin-right:10px;">
+          <div>Original: $${Number(q.original_total).toLocaleString()}</div>
+          <div>Quoted: ${quotedStr}</div>
+        </div>
+        <span class="supplier-status-badge" style="background:${color};color:white;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;">${esc(q.status)}</span>
+      </div>`;
+    }).join("");
+    container.innerHTML = `
+      <div style="margin-top:14px;border:1px solid rgba(20,184,166,0.15);border-radius:10px;overflow:hidden;">
+        <div style="padding:10px 14px;font-weight:700;font-size:12px;color:rgba(20,184,166,0.9);background:rgba(20,184,166,0.04);border-bottom:1px solid rgba(20,184,166,0.1);">
+          📊 Supplier Quotes (${quotes.length})
+        </div>
+        ${rows}
+      </div>`;
+  }
+
+  // Load supplier quotes on step 6 render
+  loadSupplierQuotes();
 
   // Copy analysis to clipboard
   const copyBtn = document.getElementById("btn-copy-analysis");
@@ -4467,6 +4662,11 @@ function _restoreStateFromPayload(id, pkg, est) {
     state.burdenRate = pkg.pricingConfig.burdenRate || 35;
     if (pkg.pricingConfig.laborRates) state.laborRates = { ...state.laborRates, ...pkg.pricingConfig.laborRates };
     if (pkg.pricingConfig.markup) state.markup = { ...state.markup, ...pkg.pricingConfig.markup };
+  }
+
+  // ── Restore supplier price overrides ──
+  if (pkg?.financials?.supplierOverrides && Object.keys(pkg.financials.supplierOverrides).length > 0) {
+    state.supplierPriceOverrides = pkg.financials.supplierOverrides;
   }
 
   if (pkg?.analysis?.rawMarkdown) {
