@@ -47,7 +47,7 @@ export async function onRequestPost(context) {
             WHERE id = 'global'
         `).run();
 
-        const corsOrigin = origin || '*';
+        const corsOrigin = origin || 'https://smartplans-4g5.pages.dev';
         return new Response(
             JSON.stringify({ total_cost: 0, bid_count: 0, message: 'Stats reset successfully' }),
             {
@@ -70,7 +70,7 @@ export async function onRequestOptions(context) {
     }
     return new Response(null, {
         headers: {
-            'Access-Control-Allow-Origin': origin || '*',
+            'Access-Control-Allow-Origin': origin || 'https://smartplans-4g5.pages.dev',
             'Access-Control-Allow-Methods': 'POST, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, X-App-Token',
         },

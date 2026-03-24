@@ -211,7 +211,7 @@ const SmartBrains = {
                 if (text && text.length > 100) {
                   fileData.extractedText = text.substring(0, 15000);
                 }
-              } catch (e) { /* PDF extraction optional */ }
+              } catch (e) { console.warn(`[SmartBrains] PDF text extraction failed for ${entry.name}:`, e.message); }
             }
 
             encoded[category].push(fileData);
@@ -672,7 +672,7 @@ const SmartBrains = {
                       if (p.text && p.thought) { fbThoughtText += p.text; }
                       else if (p.text) { text += p.text; }
                     }
-                  } catch (e) {}
+                  } catch (e) { if (e._retryable) throw e; /* skip malformed SSE chunk */ }
                 }
               }
             }

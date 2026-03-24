@@ -45,7 +45,7 @@ export async function onRequestPost(context) {
         const result = await env.DB.prepare('DELETE FROM pm_daily_logs WHERE project_id = ?')
             .bind(projectId).run();
 
-        const corsOrigin = origin || '*';
+        const corsOrigin = origin || 'https://smartplans-4g5.pages.dev';
         return Response.json(
             { success: true, deleted_count: result.meta?.changes || 0 },
             { headers: { 'Access-Control-Allow-Origin': corsOrigin } }
@@ -63,7 +63,7 @@ export async function onRequestOptions(context) {
     }
     return new Response(null, {
         headers: {
-            'Access-Control-Allow-Origin': origin || '*',
+            'Access-Control-Allow-Origin': origin || 'https://smartplans-4g5.pages.dev',
             'Access-Control-Allow-Methods': 'POST, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, X-App-Token',
         },

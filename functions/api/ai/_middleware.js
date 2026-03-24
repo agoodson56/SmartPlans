@@ -44,7 +44,7 @@ export async function onRequest(context) {
         }
         return new Response(null, {
             headers: {
-                'Access-Control-Allow-Origin': origin || '*',
+                'Access-Control-Allow-Origin': origin || 'https://smartplans-4g5.pages.dev',
                 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, X-App-Token',
                 'Access-Control-Max-Age': '86400',

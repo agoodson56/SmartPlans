@@ -6,6 +6,15 @@
 export async function onRequestGet(context) {
     const { env, request } = context;
 
+    // Validate auth token (matches pattern from other endpoints)
+    const envToken = env.ESTIMATES_TOKEN;
+    if (envToken) {
+        const token = request.headers.get('X-App-Token') || '';
+        if (token !== envToken) {
+            return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+    }
+
     try {
         const url = new URL(request.url);
         const fileName = url.searchParams.get('name');
