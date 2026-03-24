@@ -41,6 +41,21 @@
     .step-list{counter-reset:steps;list-style:none;padding-left:0}
     .step-list li{counter-increment:steps;padding:10px 0 10px 40px;position:relative;border-left:2px solid rgba(13,148,136,0.2);margin-left:14px}
     .step-list li::before{content:counter(steps);position:absolute;left:-14px;top:8px;width:28px;height:28px;background:#0D9488;color:white;border-radius:50%;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+    @media print {
+      body{font-size:11pt;color:#000}
+      .guide-header{background:#0D9488 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .guide-header button{display:none !important}
+      .guide-nav{display:none}
+      .footer{background:#1a1a2e !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      h2{page-break-after:avoid;color:#0D9488 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      h3,h4{page-break-after:avoid}
+      table{page-break-inside:avoid}
+      .callout{page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      th{background:#0D9488 !important;color:white !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      tr:nth-child(even){background:#f0f0f0 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      a{color:#0D9488 !important;text-decoration:none}
+      .badge-new{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    }
   </style>
 </head>
 <body>
@@ -52,6 +67,7 @@
       <p>AI-Powered Construction Document Analysis & Estimation · 3D Technology Services Inc.</p>
       <p style="margin-top:8px;font-size:12px;opacity:0.7">Version 5.0 · Last Updated: March 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
     </div>
+    <button onclick="window.print()" style="margin-left:auto;padding:10px 20px;background:#BF9000;color:white;border:none;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;">Save as PDF</button>
   </div>
 </div>
 
