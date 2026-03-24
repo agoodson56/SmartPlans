@@ -111,8 +111,8 @@ export async function onRequestPut(context) {
         }
         if (body.export_data !== undefined) {
             const serialized = JSON.stringify(body.export_data);
-            if (serialized.length > 900_000) {
-                return Response.json({ error: 'Export data too large (max 900KB)' }, { status: 413 });
+            if (serialized.length > 5_000_000) {
+                return Response.json({ error: 'Export data too large (max 5MB)' }, { status: 413 });
             }
             sets.push('export_data = ?');
             vals.push(serialized);

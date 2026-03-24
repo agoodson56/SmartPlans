@@ -76,8 +76,8 @@ export async function onRequestPost(context) {
         const pricingTier = body.pricing_tier ? String(body.pricing_tier).substring(0, 20) : 'mid';
 
         const exportData = body.export_data ? JSON.stringify(body.export_data) : null;
-        if (exportData && exportData.length > 900_000) {
-            return Response.json({ error: 'Export data too large (max 900KB)' }, { status: 413 });
+        if (exportData && exportData.length > 5_000_000) {
+            return Response.json({ error: 'Export data too large (max 5MB)' }, { status: 413 });
         }
 
         // MED-3 fix: disciplines may arrive as a pre-stringified string from the client.
