@@ -606,6 +606,10 @@ function render() {
   renderStepNav();
   renderContent();
   renderFooter();
+  // Initialize Lucide icons after DOM update
+  if (typeof lucide !== 'undefined') {
+    try { lucide.createIcons(); } catch(e) { /* Lucide not loaded */ }
+  }
 }
 
 // ─── Step Navigation ───
@@ -1830,14 +1834,14 @@ function renderStep6(container) {
           </div>
         </button>
         <button class="export-pkg-btn" id="export-excel" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;">
-          <span style="font-size:24px;">📊</span>
+          <span style="font-size:24px;"><i data-lucide="table" style="width:22px;height:22px;color:#14B8A6;"></i></span>
           <div>
             <div style="font-weight:700;font-size:13px;">Excel — Spreadsheet</div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Multi-sheet workbook for review & editing</div>
           </div>
         </button>
         <button class="export-pkg-btn" id="export-markdown" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(245,158,11,0.25);background:rgba(245,158,11,0.06);color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;">
-          <span style="font-size:24px;">📄</span>
+          <span style="font-size:24px;"><i data-lucide="file-spreadsheet" style="width:22px;height:22px;color:#14B8A6;"></i></span>
           <div>
             <div style="font-weight:700;font-size:13px;">Markdown — Proposal Report</div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Formatted document for client proposals</div>
@@ -1864,17 +1868,17 @@ function renderStep6(container) {
 
       <!-- Supplier Pricing Section -->
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
-        <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;">📤 Supplier Pricing</div>
+        <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;"><i data-lucide="send" style="width:16px;height:16px;"></i> Supplier Pricing</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <button class="export-pkg-btn" id="supplier-export-excel" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:1px solid rgba(20,184,166,0.3);background:linear-gradient(135deg,rgba(20,184,166,0.08),rgba(6,182,212,0.04));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;width:100%;">
-            <span style="font-size:20px;">📊</span>
+            <span style="font-size:20px;"><i data-lucide="table" style="width:22px;height:22px;color:#14B8A6;"></i></span>
             <div style="flex:1;">
               <div style="font-weight:700;font-size:13px;">Send to Supplier (Excel)</div>
               <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Pre-filled BOM with blank pricing column</div>
             </div>
           </button>
           <button class="export-pkg-btn" id="supplier-export-csv" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;border:1px solid rgba(20,184,166,0.3);background:linear-gradient(135deg,rgba(20,184,166,0.08),rgba(6,182,212,0.04));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;width:100%;">
-            <span style="font-size:20px;">📄</span>
+            <span style="font-size:20px;"><i data-lucide="file-spreadsheet" style="width:22px;height:22px;color:#14B8A6;"></i></span>
             <div style="flex:1;">
               <div style="font-weight:700;font-size:13px;">Send to Supplier (CSV)</div>
               <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">CSV format for email or portal upload</div>
@@ -1884,7 +1888,7 @@ function renderStep6(container) {
         <div style="margin-top:12px;">
           <div id="supplier-import-zone" class="upload-zone" style="border:2px dashed rgba(20,184,166,0.25);border-radius:10px;padding:18px;text-align:center;cursor:pointer;transition:all 0.2s;background:rgba(20,184,166,0.02);">
             <input type="file" accept=".xlsx,.csv" id="supplier-file-input" style="display:none;">
-            <div style="font-size:20px;margin-bottom:4px;">📥</div>
+            <div style="font-size:20px;margin-bottom:4px;"><i data-lucide="download" style="width:22px;height:22px;color:#14B8A6;"></i></div>
             <div style="font-size:12px;font-weight:600;color:var(--text-primary);">Import Supplier Pricing</div>
             <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Drop completed pricing file here or click to browse · XLSX or CSV</div>
           </div>
@@ -2017,13 +2021,13 @@ function renderStep6(container) {
   const exportPanel = `
     <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;"></div>
     <div class="info-card info-card--indigo" style="margin-bottom:22px;">
-      <div class="info-card-title">📦 Export & Proposal</div>
+      <div class="info-card-title"><i data-lucide="package" style="width:18px;height:18px;"></i> Export & Proposal</div>
       ${exportButtons}
 
       <button class="proposal-gen-btn" id="btn-generate-proposal">
         <div class="proposal-gen-btn__shine"></div>
         <div class="proposal-gen-btn__content">
-          <span class="proposal-gen-btn__icon">📋</span>
+          <span class="proposal-gen-btn__icon"><i data-lucide="file-check" style="width:24px;height:24px;"></i></span>
           <div>
             <div class="proposal-gen-btn__title">Generate Full Proposal (10+ pages)</div>
             <div class="proposal-gen-btn__sub">Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications</div>
@@ -2035,7 +2039,7 @@ function renderStep6(container) {
       <button class="proposal-gen-btn" id="btn-generate-exec-proposal" style="margin-top:10px;background:linear-gradient(135deg,rgba(191,144,0,0.12),rgba(235,179,40,0.04));border:2px solid rgba(191,144,0,0.4);">
         <div class="proposal-gen-btn__shine" style="background:linear-gradient(90deg,transparent,rgba(235,179,40,0.15),transparent);"></div>
         <div class="proposal-gen-btn__content">
-          <span class="proposal-gen-btn__icon">⭐</span>
+          <span class="proposal-gen-btn__icon"><i data-lucide="sparkles" style="width:24px;height:24px;color:#BF9000;"></i></span>
           <div>
             <div class="proposal-gen-btn__title" style="color:#BF9000;">Generate Executive Proposal (3 pages)</div>
             <div class="proposal-gen-btn__sub">High-impact executive summary — visually stunning, concise, designed to impress decision-makers</div>
@@ -2047,7 +2051,7 @@ function renderStep6(container) {
       ${regenButton}
 
       <a href="https://smartpm.pages.dev/" target="_blank" rel="noopener" id="btn-open-smartpm" style="display:flex;align-items:center;gap:14px;padding:16px 20px;margin-top:14px;border-radius:12px;border:2px solid rgba(13,148,136,0.4);background:linear-gradient(135deg,rgba(13,148,136,0.08),rgba(13,148,136,0.02));color:var(--text-primary);text-decoration:none;cursor:pointer;transition:all 0.2s;">
-        <span style="font-size:28px;">🏗️</span>
+        <span style="font-size:28px;"><i data-lucide="building-2" style="width:26px;height:26px;color:#0D9488;"></i></span>
         <div style="flex:1;">
           <div style="font-weight:700;font-size:14px;color:#0D9488;">Open SmartPM — Project Manager</div>
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Import this estimate into SmartPM to track installation progress, labor hours, and material usage across your project.</div>
@@ -2080,17 +2084,17 @@ function renderStep6(container) {
       </div>
       <div class="results-stats">
         <div class="results-stat">
-          <div class="results-stat-icon">📐</div>
+          <div class="results-stat-icon"><i data-lucide="ruler" style="width:22px;height:22px;color:#14B8A6;"></i></div>
           <div class="results-stat-value">${state.planFiles.length}</div>
           <div class="results-stat-label">Sheets Analyzed</div>
         </div>
         <div class="results-stat">
-          <div class="results-stat-icon">📄</div>
+          <div class="results-stat-icon"><i data-lucide="file-text" style="width:22px;height:22px;color:#14B8A6;"></i></div>
           <div class="results-stat-value">${state.specFiles.length}</div>
           <div class="results-stat-label">Spec Sections</div>
         </div>
         <div class="results-stat">
-          <div class="results-stat-icon">⚠️</div>
+          <div class="results-stat-icon"><i data-lucide="alert-triangle" style="width:22px;height:22px;color:#FBBF24;"></i></div>
           <div class="results-stat-value">${rfis.length}</div>
           <div class="results-stat-label">RFIs Recommended</div>
         </div>
@@ -2349,7 +2353,7 @@ function renderStep6(container) {
     container.innerHTML = `
       <div style="margin-top:14px;border:1px solid rgba(20,184,166,0.15);border-radius:10px;overflow:hidden;">
         <div style="padding:10px 14px;font-weight:700;font-size:12px;color:rgba(20,184,166,0.9);background:rgba(20,184,166,0.04);border-bottom:1px solid rgba(20,184,166,0.1);">
-          📊 Supplier Quotes (${quotes.length})
+          <i data-lucide="bar-chart-3" style="width:16px;height:16px;"></i> Supplier Quotes (${quotes.length})
         </div>
         ${rows}
       </div>`;
@@ -2357,6 +2361,11 @@ function renderStep6(container) {
 
   // Load supplier quotes on step 6 render
   loadSupplierQuotes();
+
+  // Initialize Lucide icons after DOM update
+  if (typeof lucide !== 'undefined') {
+    try { lucide.createIcons(); } catch(e) { /* Lucide not loaded */ }
+  }
 
   // ── BOM Table: toggle, edit, reset handlers ──
   const bomToggle = document.getElementById('bom-table-toggle');
@@ -5021,7 +5030,7 @@ async function showSavedEstimates() {
   panel.className = 'saved-panel';
   panel.innerHTML = `
     <div class="saved-panel-header">
-      <h2>📂 Saved Estimates</h2>
+      <h2><i data-lucide="folder-open" style="width:20px;height:20px;"></i> Saved Estimates</h2>
       <button class="saved-panel-close" onclick="closeSavedPanel()">✕</button>
     </div>
     <div class="saved-panel-body" id="saved-list">
