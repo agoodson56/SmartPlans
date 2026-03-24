@@ -1892,6 +1892,128 @@ function renderStep6(container) {
         <div id="supplier-quotes-container"></div>
       </div>`;
 
+  // ── Editable BOM Table ──
+  let bomTableHtml = '';
+  if (state.aiAnalysis) {
+    const _bomData = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis);
+    const _bomOverrides = state.supplierPriceOverrides || {};
+    const _overrideCount = Object.keys(_bomOverrides).length;
+    // Apply overrides to a working copy
+    let _bomOriginalGrand = _bomData.grandTotal;
+    for (const [key, ov] of Object.entries(_bomOverrides)) {
+      const [ci, ii] = key.split('-').map(Number);
+      if (_bomData.categories[ci] && _bomData.categories[ci].items[ii]) {
+        const it = _bomData.categories[ci].items[ii];
+        if (ov.qty != null) it.qty = ov.qty;
+        it.unitCost = ov.unitCost;
+        it.extCost = Math.round(it.qty * ov.unitCost * 100) / 100;
+      }
+    }
+    if (_overrideCount > 0) {
+      _bomData.grandTotal = 0;
+      for (const cat of _bomData.categories) {
+        cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
+        cat.subtotal = Math.round(cat.subtotal * 100) / 100;
+        _bomData.grandTotal += cat.subtotal;
+      }
+      _bomData.grandTotal = Math.round(_bomData.grandTotal * 100) / 100;
+    }
+    const _fmtDollar = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const _delta = _bomData.grandTotal - _bomOriginalGrand;
+    const _deltaStr = _delta >= 0 ? '+' + _fmtDollar(_delta) : '-' + _fmtDollar(Math.abs(_delta));
+
+    let _bomRowNum = 0;
+    let _bomRows = '';
+    _bomData.categories.forEach((cat, ci) => {
+      _bomRows += `<tr style="background:rgba(13,148,136,0.08);">
+        <td colspan="8" style="padding:10px 12px;font-weight:700;font-size:13px;color:rgba(20,184,166,0.95);border-bottom:1px solid rgba(20,184,166,0.12);">${esc(cat.name)}</td>
+      </tr>`;
+      cat.items.forEach((item, ii) => {
+        _bomRowNum++;
+        const _key = ci + '-' + ii;
+        const _isEdited = !!_bomOverrides[_key];
+        const _editBg = _isEdited ? 'background:rgba(13,148,136,0.10);' : '';
+        _bomRows += `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);${_editBg}" data-bom-cat="${ci}" data-bom-item="${ii}">
+          <td style="padding:6px 10px;font-size:12px;color:var(--text-muted);text-align:center;">${_bomRowNum}</td>
+          <td style="padding:6px 10px;font-size:12px;color:var(--text-primary);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(item.name)}">${esc(item.name)}</td>
+          <td style="padding:6px 10px;font-size:11px;color:var(--text-muted);">${esc(item.mfg || '-')}</td>
+          <td style="padding:6px 10px;font-size:11px;color:var(--text-muted);">${esc(item.partNumber || '-')}</td>
+          <td style="padding:6px 8px;text-align:center;">
+            <input type="number" class="bom-edit-input bom-edit-qty" data-key="${_key}" value="${item.qty}" min="0" step="1"
+              style="width:60px;padding:3px 6px;border-radius:5px;border:1px solid rgba(20,184,166,0.25);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:12px;text-align:center;outline:none;${_isEdited ? 'border-color:rgba(13,148,136,0.5);background:rgba(13,148,136,0.12);' : ''}" />
+          </td>
+          <td style="padding:6px 10px;font-size:11px;color:var(--text-muted);text-align:center;">${esc(item.unit || 'EA')}</td>
+          <td style="padding:6px 8px;text-align:right;">
+            <input type="number" class="bom-edit-input bom-edit-cost" data-key="${_key}" value="${Number(item.unitCost || 0).toFixed(2)}" min="0" step="0.01"
+              style="width:80px;padding:3px 6px;border-radius:5px;border:1px solid rgba(20,184,166,0.25);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:12px;text-align:right;outline:none;${_isEdited ? 'border-color:rgba(13,148,136,0.5);background:rgba(13,148,136,0.12);' : ''}" />
+          </td>
+          <td style="padding:6px 10px;font-size:12px;color:var(--text-primary);text-align:right;font-weight:600;" class="bom-ext-cost" data-key="${_key}">${_fmtDollar(item.extCost)}</td>
+        </tr>`;
+      });
+      _bomRows += `<tr style="background:rgba(13,148,136,0.04);border-bottom:2px solid rgba(20,184,166,0.12);">
+        <td colspan="7" style="padding:6px 12px;font-size:12px;font-weight:700;color:var(--text-muted);text-align:right;">Subtotal — ${esc(cat.name)}</td>
+        <td style="padding:6px 10px;font-size:13px;font-weight:700;color:rgba(20,184,166,0.9);text-align:right;" class="bom-subtotal" data-cat="${ci}">${_fmtDollar(cat.subtotal)}</td>
+      </tr>`;
+    });
+
+    const _summaryBar = _overrideCount > 0
+      ? `<div id="bom-summary-bar" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(13,148,136,0.06);border:1px solid rgba(13,148,136,0.18);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+          <span style="font-size:12px;color:var(--text-muted);">${_overrideCount} item${_overrideCount > 1 ? 's' : ''} manually edited &middot; Original: ${_fmtDollar(_bomOriginalGrand)} &rarr; Current: ${_fmtDollar(_bomData.grandTotal)} (${_deltaStr})</span>
+          <button id="bom-reset-overrides" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.06);color:#ef4444;font-size:11px;font-weight:600;cursor:pointer;">Reset to AI Prices</button>
+        </div>`
+      : `<div id="bom-summary-bar" style="display:none;"></div>`;
+
+    bomTableHtml = `
+    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;"></div>
+    <div class="info-card" style="margin-bottom:22px;border:1px solid rgba(20,184,166,0.15);background:rgba(20,184,166,0.02);">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="bom-table-toggle">
+        <div class="info-card-title" style="margin-bottom:0;">📋 Bill of Materials</div>
+        <span id="bom-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">▶</span>
+      </div>
+      <div id="bom-table-collapsible" style="display:none;margin-top:12px;">
+        ${_summaryBar}
+        <div style="overflow-x:auto;border-radius:8px;border:1px solid rgba(20,184,166,0.12);">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;" id="bom-editable-table">
+            <thead>
+              <tr style="background:rgba(13,148,136,0.12);">
+                <th style="padding:8px 10px;text-align:center;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);width:40px;">#</th>
+                <th style="padding:8px 10px;text-align:left;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">Item</th>
+                <th style="padding:8px 10px;text-align:left;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">MFG</th>
+                <th style="padding:8px 10px;text-align:left;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">Part#</th>
+                <th style="padding:8px 10px;text-align:center;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">Qty</th>
+                <th style="padding:8px 10px;text-align:center;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">Unit</th>
+                <th style="padding:8px 10px;text-align:right;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">Unit Cost</th>
+                <th style="padding:8px 10px;text-align:right;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">Ext Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${_bomRows}
+              <tr style="background:rgba(13,148,136,0.15);">
+                <td colspan="7" style="padding:10px 12px;font-size:14px;font-weight:700;color:var(--text-primary);text-align:right;">Grand Total</td>
+                <td style="padding:10px 12px;font-size:14px;font-weight:700;color:#0D9488;text-align:right;" id="bom-grand-total">${_fmtDollar(_bomData.grandTotal)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Regenerate Proposal button (conditional) ──
+  const _hasOverrides = Object.keys(state.supplierPriceOverrides || {}).length > 0;
+  const regenButton = _hasOverrides ? `
+      <button class="proposal-gen-btn" id="btn-regen-proposal" style="margin-top:10px;background:linear-gradient(135deg,rgba(16,185,129,0.15),rgba(13,148,136,0.06));border:2px solid rgba(16,185,129,0.45);">
+        <div class="proposal-gen-btn__shine" style="background:linear-gradient(90deg,transparent,rgba(16,185,129,0.15),transparent);"></div>
+        <div class="proposal-gen-btn__content">
+          <span class="proposal-gen-btn__icon">🔄</span>
+          <div>
+            <div class="proposal-gen-btn__title" style="color:#10b981;">Regenerate Proposal with Updated Pricing</div>
+            <div class="proposal-gen-btn__sub">Uses your manually edited quantities and supplier pricing</div>
+          </div>
+          <span class="proposal-gen-btn__arrow" style="color:#10b981;">→</span>
+        </div>
+      </button>` : '';
+
   const exportPanel = `
     <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;"></div>
     <div class="info-card info-card--indigo" style="margin-bottom:22px;">
@@ -1921,6 +2043,8 @@ function renderStep6(container) {
           <span class="proposal-gen-btn__arrow" style="color:#BF9000;">→</span>
         </div>
       </button>
+
+      ${regenButton}
 
       <a href="https://smartpm.pages.dev/" target="_blank" rel="noopener" id="btn-open-smartpm" style="display:flex;align-items:center;gap:14px;padding:16px 20px;margin-top:14px;border-radius:12px;border:2px solid rgba(13,148,136,0.4);background:linear-gradient(135deg,rgba(13,148,136,0.08),rgba(13,148,136,0.02));color:var(--text-primary);text-decoration:none;cursor:pointer;transition:all 0.2s;">
         <span style="font-size:28px;">🏗️</span>
@@ -1975,6 +2099,8 @@ function renderStep6(container) {
 
     ${failedBrainsBanner}
     ${aiSection}
+
+    ${bomTableHtml}
 
     ${exportPanel}
 
@@ -2231,6 +2357,173 @@ function renderStep6(container) {
 
   // Load supplier quotes on step 6 render
   loadSupplierQuotes();
+
+  // ── BOM Table: toggle, edit, reset handlers ──
+  const bomToggle = document.getElementById('bom-table-toggle');
+  if (bomToggle) {
+    bomToggle.addEventListener('click', () => {
+      const body = document.getElementById('bom-table-collapsible');
+      const icon = document.getElementById('bom-toggle-icon');
+      if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.textContent = '▼';
+      } else {
+        body.style.display = 'none';
+        icon.textContent = '▶';
+      }
+    });
+  }
+
+  // BOM reset overrides
+  const bomResetBtn = document.getElementById('bom-reset-overrides');
+  if (bomResetBtn) {
+    bomResetBtn.addEventListener('click', () => {
+      state.supplierPriceOverrides = {};
+      renderStep6(container);
+    });
+  }
+
+  // BOM editable inputs — debounced recalculation
+  let _bomDebounce = null;
+  const _fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function _bomRecalc(key, qtyInput, costInput) {
+    const qty = parseFloat(qtyInput.value) || 0;
+    const unitCost = parseFloat(costInput.value) || 0;
+    const extCost = Math.round(qty * unitCost * 100) / 100;
+
+    // Update ext cost cell
+    const extCell = document.querySelector(`.bom-ext-cost[data-key="${key}"]`);
+    if (extCell) extCell.textContent = _fmtD(extCost);
+
+    // Store override
+    const [ci, ii] = key.split('-').map(Number);
+    // Get original values to detect if this is a real edit
+    const origBom = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis);
+    const origItem = origBom.categories[ci] && origBom.categories[ci].items[ii];
+    const origQty = origItem ? origItem.qty : 0;
+    const origCost = origItem ? origItem.unitCost : 0;
+
+    if (qty !== origQty || unitCost !== origCost) {
+      state.supplierPriceOverrides[key] = {
+        unitCost: unitCost,
+        qty: qty,
+        supplierName: 'Manual Edit',
+        appliedAt: new Date().toISOString()
+      };
+    } else {
+      // Reverted to original — remove override
+      delete state.supplierPriceOverrides[key];
+    }
+
+    // Highlight edited inputs
+    const editBg = state.supplierPriceOverrides[key]
+      ? 'border-color:rgba(13,148,136,0.5);background:rgba(13,148,136,0.12);'
+      : 'border-color:rgba(20,184,166,0.25);background:rgba(20,184,166,0.04);';
+    qtyInput.style.cssText = qtyInput.style.cssText.replace(/border-color:[^;]+;background:[^;]+;/, '') + editBg;
+    costInput.style.cssText = costInput.style.cssText.replace(/border-color:[^;]+;background:[^;]+;/, '') + editBg;
+    const row = qtyInput.closest('tr');
+    if (row) row.style.background = state.supplierPriceOverrides[key] ? 'rgba(13,148,136,0.10)' : '';
+
+    // Recalculate subtotals and grand total from DOM
+    const table = document.getElementById('bom-editable-table');
+    if (!table) return;
+    const allQtyInputs = table.querySelectorAll('.bom-edit-qty');
+    const allCostInputs = table.querySelectorAll('.bom-edit-cost');
+    const catTotals = {};
+    allQtyInputs.forEach((qI, idx) => {
+      const k = qI.dataset.key;
+      const cI = allCostInputs[idx];
+      const q = parseFloat(qI.value) || 0;
+      const c = parseFloat(cI.value) || 0;
+      const catIdx = k.split('-')[0];
+      if (!catTotals[catIdx]) catTotals[catIdx] = 0;
+      catTotals[catIdx] += Math.round(q * c * 100) / 100;
+    });
+    let grandTotal = 0;
+    for (const [catIdx, sub] of Object.entries(catTotals)) {
+      const subCell = document.querySelector(`.bom-subtotal[data-cat="${catIdx}"]`);
+      if (subCell) subCell.textContent = _fmtD(sub);
+      grandTotal += sub;
+    }
+    grandTotal = Math.round(grandTotal * 100) / 100;
+    const gtCell = document.getElementById('bom-grand-total');
+    if (gtCell) gtCell.textContent = _fmtD(grandTotal);
+
+    // Update summary bar
+    const overrideCount = Object.keys(state.supplierPriceOverrides).length;
+    const summaryBar = document.getElementById('bom-summary-bar');
+    if (summaryBar) {
+      if (overrideCount > 0) {
+        const origBomFull = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis);
+        const origGrand = origBomFull.grandTotal;
+        const delta = grandTotal - origGrand;
+        const deltaStr = delta >= 0 ? '+' + _fmtD(delta) : '-' + _fmtD(Math.abs(delta));
+        summaryBar.style.display = 'flex';
+        summaryBar.innerHTML = `<span style="font-size:12px;color:var(--text-muted);">${overrideCount} item${overrideCount > 1 ? 's' : ''} manually edited &middot; Original: ${_fmtD(origGrand)} &rarr; Current: ${_fmtD(grandTotal)} (${deltaStr})</span>
+          <button id="bom-reset-overrides" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.06);color:#ef4444;font-size:11px;font-weight:600;cursor:pointer;">Reset to AI Prices</button>`;
+        // Re-bind reset button
+        const newResetBtn = document.getElementById('bom-reset-overrides');
+        if (newResetBtn) newResetBtn.addEventListener('click', () => { state.supplierPriceOverrides = {}; renderStep6(container); });
+      } else {
+        summaryBar.style.display = 'none';
+      }
+    }
+
+    // Show/hide regenerate proposal button
+    const regenBtn = document.getElementById('btn-regen-proposal');
+    if (overrideCount > 0 && !regenBtn) {
+      // Re-render needed to show the button — but only on next full render
+    } else if (overrideCount === 0 && regenBtn) {
+      regenBtn.style.display = 'none';
+    }
+  }
+
+  document.querySelectorAll('.bom-edit-qty, .bom-edit-cost').forEach(input => {
+    input.addEventListener('input', () => {
+      clearTimeout(_bomDebounce);
+      _bomDebounce = setTimeout(() => {
+        const key = input.dataset.key;
+        const row = input.closest('tr');
+        const qtyInput = row.querySelector('.bom-edit-qty');
+        const costInput = row.querySelector('.bom-edit-cost');
+        if (qtyInput && costInput) _bomRecalc(key, qtyInput, costInput);
+      }, 300);
+    });
+  });
+
+  // ── Regenerate Proposal button handler ──
+  const regenProposalBtn = document.getElementById('btn-regen-proposal');
+  if (regenProposalBtn) {
+    regenProposalBtn.addEventListener('click', () => {
+      regenProposalBtn.disabled = true;
+      regenProposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Regenerating Proposal...';
+      regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Applying your pricing edits and generating updated proposal';
+      regenProposalBtn.classList.add('generating');
+
+      ProposalGenerator.renderAndDownload(state, (pct, msg) => {
+        regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
+      }).catch(e => {
+        console.error('[RegenProposal] Failed:', e);
+        regenProposalBtn.querySelector('.proposal-gen-btn__title').textContent = '❌ Regeneration Failed';
+        regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = e.message || 'Unknown error';
+        regenProposalBtn.classList.remove('generating');
+        if (typeof spToast === 'function') spToast('Proposal regeneration failed: ' + (e.message || 'Unknown error'), 'error');
+        setTimeout(() => {
+          regenProposalBtn.disabled = false;
+          regenProposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Regenerate Proposal with Updated Pricing';
+          regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Uses your manually edited quantities and supplier pricing';
+        }, 5000);
+      }).then(result => {
+        if (result !== undefined || !regenProposalBtn.classList.contains('error')) {
+          regenProposalBtn.disabled = false;
+          regenProposalBtn.classList.remove('generating');
+          regenProposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Regenerate Proposal with Updated Pricing';
+          regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Uses your manually edited quantities and supplier pricing';
+        }
+      });
+    });
+  }
 
   // Copy analysis to clipboard
   const copyBtn = document.getElementById("btn-copy-analysis");

@@ -24,6 +24,7 @@ const SmartPlansExport = {
                 const [catIdx, itemIdx] = key.split('-').map(Number);
                 if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
                     const item = bom.categories[catIdx].items[itemIdx];
+                    if (override.qty != null) item.qty = override.qty;
                     item.unitCost = override.unitCost;
                     item.extCost = Math.round(item.qty * override.unitCost * 100) / 100;
                 }
