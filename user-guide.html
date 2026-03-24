@@ -37,6 +37,7 @@
     .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
     .badge-teal{background:rgba(13,148,136,0.1);color:#0D9488}
     .badge-gold{background:rgba(191,144,0,0.1);color:#BF9000}
+    .badge-new{background:rgba(191,144,0,0.15);color:#BF9000;font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;margin-left:6px;vertical-align:middle}
     .step-list{counter-reset:steps;list-style:none;padding-left:0}
     .step-list li{counter-increment:steps;padding:10px 0 10px 40px;position:relative;border-left:2px solid rgba(13,148,136,0.2);margin-left:14px}
     .step-list li::before{content:counter(steps);position:absolute;left:-14px;top:8px;width:28px;height:28px;background:#0D9488;color:white;border-radius:50%;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
@@ -47,9 +48,9 @@
 <div class="guide-header">
   <div class="container">
     <div>
-      <h1>📐 SmartPlans — User Guide</h1>
+      <h1>SmartPlans — User Guide</h1>
       <p>AI-Powered Construction Document Analysis & Estimation · 3D Technology Services Inc.</p>
-      <p style="margin-top:8px;font-size:12px;opacity:0.7">Version 3.0 · Last Updated: March 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
+      <p style="margin-top:8px;font-size:12px;opacity:0.7">Version 5.0 · Last Updated: March 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
     </div>
   </div>
 </div>
@@ -58,15 +59,23 @@
   <div class="container">
     <a href="#overview">Overview</a>
     <a href="#getting-started">Getting Started</a>
-    <a href="#step1">Step 1: Project Setup</a>
-    <a href="#step2">Step 2: Upload</a>
-    <a href="#step3">Step 3: AI Analysis</a>
-    <a href="#step4">Step 4: Results</a>
+    <a href="#workflow">7-Step Workflow</a>
+    <a href="#results">Results Page</a>
     <a href="#exports">Exports</a>
+    <a href="#supplier-quotes">Supplier Quotes</a>
+    <a href="#editable-bom">Editable BOM</a>
     <a href="#proposal">Proposals</a>
+    <a href="#exclusions">Exclusions & Assumptions</a>
+    <a href="#bid-strategy">Bid Strategy</a>
+    <a href="#rate-library">Rate Library</a>
+    <a href="#actuals">Actual vs Estimate</a>
+    <a href="#multi-phase">Multi-Phase Pricing</a>
+    <a href="#version-history">Version History</a>
     <a href="#rfis">RFIs</a>
     <a href="#saved">Saved Estimates</a>
     <a href="#smartpm">SmartPM Integration</a>
+    <a href="#regional-pricing">Regional Pricing</a>
+    <a href="#ai-engine">27-Brain AI Engine</a>
     <a href="#troubleshooting">Troubleshooting</a>
   </div>
 </nav>
@@ -74,19 +83,29 @@
 <div class="guide-body">
   <div class="container">
 
+    <!-- ============================================================ -->
+    <!-- OVERVIEW -->
+    <!-- ============================================================ -->
     <h2 id="overview">1. Overview</h2>
-    <p>SmartPlans is an AI-powered construction document analysis platform built by <strong>3D Technology Services Inc.</strong> It uses Google Gemini AI to scan your construction blueprints, count devices and infrastructure components, estimate materials and labor costs, and generate professional client proposals — all in minutes instead of days.</p>
+    <p>SmartPlans is an AI-powered construction document analysis platform built by <strong>3D Technology Services Inc.</strong> It uses a 27-brain AI engine to scan your construction blueprints, count devices and infrastructure components, estimate materials and labor costs, generate professional client proposals, and manage the full bid lifecycle — all in minutes instead of days.</p>
 
     <h3>Key Capabilities</h3>
     <table>
       <tr><th>Feature</th><th>Description</th></tr>
-      <tr><td>📄 Blueprint Analysis</td><td>AI scans uploaded drawing pages to identify devices, symbols, and infrastructure</td></tr>
-      <tr><td>🔢 Symbol Counting</td><td>Automated counting of outlets, cameras, access points, panels, and more</td></tr>
-      <tr><td>💰 Cost Estimation</td><td>Material pricing and labor hours calculated using industry-standard databases</td></tr>
-      <tr><td>📋 Proposal Generation</td><td>One-click professional proposal document in Microsoft Word format</td></tr>
-      <tr><td>📧 RFI Generation</td><td>AI identifies gaps in drawings and generates industry-standard RFIs</td></tr>
-      <tr><td>📊 Multi-Format Export</td><td>JSON, Excel, Markdown, and Bill of Materials exports</td></tr>
-      <tr><td>🏗️ SmartPM Integration</td><td>Direct handoff to project management for installation tracking</td></tr>
+      <tr><td>Blueprint Analysis</td><td>27-brain AI scans uploaded drawing pages to identify devices, symbols, and infrastructure</td></tr>
+      <tr><td>Symbol Counting</td><td>Automated counting of outlets, cameras, access points, panels, and more</td></tr>
+      <tr><td>Cost Estimation</td><td>Material pricing and labor hours with regional prevailing wages and configurable markups</td></tr>
+      <tr><td>Proposal Generation</td><td>One-click professional proposal document in Microsoft Word format with exclusions and phases</td></tr>
+      <tr><td>RFI Generation</td><td>AI identifies gaps in drawings and generates 60+ discipline-specific RFI templates</td></tr>
+      <tr><td>Multi-Format Export</td><td>JSON, Excel, Markdown, Bill of Materials, and supplier quote exports</td></tr>
+      <tr><td>SmartPM Integration</td><td>Direct handoff to project management for installation tracking</td></tr>
+      <tr><td>Supplier Quote Workflow <span class="badge-new">NEW</span></td><td>Export BOM to suppliers, import pricing back, compare quotes vs AI estimates</td></tr>
+      <tr><td>Editable BOM <span class="badge-new">NEW</span></td><td>Inline editing of quantities and prices with real-time recalculation</td></tr>
+      <tr><td>Bid Strategy Markup <span class="badge-new">NEW</span></td><td>Per-category markup percentages with confidence-based contingency</td></tr>
+      <tr><td>Rate Library <span class="badge-new">NEW</span></td><td>Save and reuse rates from completed estimates with fuzzy matching</td></tr>
+      <tr><td>Actual vs Estimate <span class="badge-new">NEW</span></td><td>Record actuals, track variance, build cost benchmarks</td></tr>
+      <tr><td>Multi-Phase Pricing <span class="badge-new">NEW</span></td><td>Base bid, add/deduct alternates, and optional phases</td></tr>
+      <tr><td>Version History <span class="badge-new">NEW</span></td><td>Automatic revision tracking with side-by-side comparison and restore</td></tr>
     </table>
 
     <h3>Supported Disciplines</h3>
@@ -99,6 +118,9 @@
       <li><strong>Fire Alarm</strong> — Smoke detectors, pull stations, notification appliances, FACP</li>
     </ul>
 
+    <!-- ============================================================ -->
+    <!-- GETTING STARTED -->
+    <!-- ============================================================ -->
     <h2 id="getting-started">2. Getting Started</h2>
     <p>SmartPlans runs entirely in your web browser. No installation is required.</p>
     <h4>Access URL</h4>
@@ -109,25 +131,40 @@
       <li>Construction drawings in <strong>PDF</strong> or <strong>image format</strong> (JPG, PNG)</li>
       <li>Internet connection for AI analysis</li>
     </ul>
-    <div class="callout callout-tip">💡 <strong>Tip:</strong> PDF files work best. The AI can extract both visual content and text layers from PDFs for maximum accuracy.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> PDF files work best. The AI can extract both visual content and text layers from PDFs for maximum accuracy.</div>
 
-    <h2 id="step1">3. Step 1 — Project Setup</h2>
+    <!-- ============================================================ -->
+    <!-- 7-STEP WORKFLOW -->
+    <!-- ============================================================ -->
+    <h2 id="workflow">3. Seven-Step Workflow</h2>
+    <p>SmartPlans guides you through seven steps from project setup to a finished estimate with full exports.</p>
+
+    <h3 id="step1">Step 1 — Project Setup</h3>
     <p>The first screen asks you to describe your project. The more detail you provide, the more accurate the AI analysis will be.</p>
     <table>
       <tr><th>Field</th><th>Required</th><th>Description</th></tr>
-      <tr><td><strong>Project Name</strong></td><td>✅ Yes</td><td>A name to identify this analysis (e.g., "Sunrise Medical Phase 2")</td></tr>
-      <tr><td><strong>Prepared For (GC / Agency)</strong></td><td>❌ Optional</td><td>The General Contractor, agency, or client this proposal is addressed to. Appears on the proposal cover page.</td></tr>
-      <tr><td><strong>Project Type</strong></td><td>✅ Yes</td><td>New Construction, Renovation/Retrofit, or Tenant Improvement. This affects how the AI interprets existing vs. new work.</td></tr>
-      <tr><td><strong>Disciplines</strong></td><td>✅ Yes</td><td>Select which trades to focus on. Focusing on specific trades reduces false positives from similar-looking symbols across disciplines.</td></tr>
-      <tr><td><strong>File Format</strong></td><td>✅ Yes</td><td>PDF Blueprints or Scanned Images. This tells the AI which analysis pipeline to use.</td></tr>
-      <tr><td><strong>Specific Items to Count</strong></td><td>❌ Optional</td><td>Enter specific counting instructions for higher accuracy (e.g., "Count all duplex receptacles on sheets E-101 through E-105").</td></tr>
-      <tr><td><strong>Project Location</strong></td><td>❌ Optional</td><td>City, State — used for prevailing wage lookups and travel cost calculations.</td></tr>
-      <tr><td><strong>Pricing Configuration</strong></td><td>❌ Optional</td><td>Choose pricing tier (Budget/Mid/Premium), prevailing wage type, regional multiplier, and work shift.</td></tr>
+      <tr><td><strong>Project Name</strong></td><td>Yes</td><td>A name to identify this analysis (e.g., "Sunrise Medical Phase 2")</td></tr>
+      <tr><td><strong>Prepared For (GC / Agency)</strong></td><td>Optional</td><td>The General Contractor, agency, or client this proposal is addressed to. Appears on the proposal cover page.</td></tr>
+      <tr><td><strong>Project Type</strong></td><td>Yes</td><td>New Construction, Renovation/Retrofit, or Tenant Improvement. Affects how the AI interprets existing vs. new work.</td></tr>
+      <tr><td><strong>Disciplines</strong></td><td>Yes</td><td>Select which trades to focus on. Focusing on specific trades reduces false positives from similar-looking symbols across disciplines.</td></tr>
+      <tr><td><strong>File Format</strong></td><td>Yes</td><td>PDF Blueprints or Scanned Images. Tells the AI which analysis pipeline to use.</td></tr>
+      <tr><td><strong>Specific Items to Count</strong></td><td>Optional</td><td>Enter specific counting instructions for higher accuracy (e.g., "Count all duplex receptacles on sheets E-101 through E-105").</td></tr>
+      <tr><td><strong>Project Location</strong></td><td>Optional</td><td>City, State — used for prevailing wage lookups and travel cost calculations.</td></tr>
+      <tr><td><strong>Pricing Configuration</strong></td><td>Optional</td><td>Choose pricing tier (Budget / Mid / Premium), prevailing wage type, regional multiplier, work shift, travel settings, and labor/material markup percentages.</td></tr>
     </table>
-    <div class="callout callout-warn">⚠️ <strong>Important:</strong> Targeted counting requests (e.g., "Count all Cat6 outlets on sheets E-101 through E-105") are significantly more accurate than broad requests like "Count everything."</div>
+    <div class="callout callout-warn"><strong>Important:</strong> Targeted counting requests (e.g., "Count all Cat6 outlets on sheets E-101 through E-105") are significantly more accurate than broad requests like "Count everything."</div>
 
-    <h2 id="step2">4. Step 2 — Upload Documents</h2>
-    <p>Upload your construction drawings for AI analysis.</p>
+    <h3 id="step2">Step 2 — Upload Symbol Legend</h3>
+    <p>Upload the symbol legend page from your drawing set. The AI uses this to build a symbol-to-device mapping before scanning the actual floor plans.</p>
+    <ul>
+      <li>Upload the legend page as a PDF page or image</li>
+      <li>The AI decodes every symbol, abbreviation, and device designation</li>
+      <li>This mapping is used by all downstream analysis brains for accurate identification</li>
+    </ul>
+    <div class="callout callout-tip"><strong>Tip:</strong> If your drawings do not include a separate legend page, the AI will attempt to identify symbols from context, but accuracy improves significantly when a legend is provided.</div>
+
+    <h3 id="step3">Step 3 — Upload Floor Plans</h3>
+    <p>Upload the actual drawing sheets that contain device symbols and layout information.</p>
     <h4>Supported Formats</h4>
     <ul>
       <li><strong>PDF</strong> — Preferred. Supports multi-page documents. Text layers are extracted for AI context.</li>
@@ -138,104 +175,428 @@
       <li>Click <strong>"Choose Files"</strong> or drag-and-drop files into the upload zone</li>
       <li>For PDFs, each page is automatically split into individual sheets</li>
       <li>Preview thumbnails appear showing each page that will be analyzed</li>
-      <li>You can remove unwanted pages before starting analysis</li>
-      <li>Click <strong>Next</strong> to begin the AI analysis</li>
+      <li>Remove unwanted pages (title blocks, general notes) before continuing</li>
     </ol>
-    <div class="callout callout-tip">💡 <strong>Pro Tip:</strong> Remove title blocks, general notes pages, and specification pages before analysis. Only include actual drawing sheets with device symbols for best results.</div>
+    <div class="callout callout-tip"><strong>Pro Tip:</strong> Remove title blocks, general notes pages, and specification pages before analysis. Only include actual drawing sheets with device symbols for best results.</div>
 
-    <h2 id="step3">5. Step 3 — AI Analysis</h2>
-    <p>SmartPlans uses a multi-wave AI analysis pipeline to process your drawings:</p>
-    <table>
-      <tr><th>Wave</th><th>Name</th><th>What It Does</th></tr>
-      <tr><td>Wave 0</td><td>Legend Decoder</td><td>Reads the drawing legend to build a symbol-to-device mapping</td></tr>
-      <tr><td>Wave 1</td><td>Drawing Analysis</td><td>Scans each sheet to count and locate every device</td></tr>
-      <tr><td>Wave 2</td><td>Infrastructure</td><td>Identifies MDF/IDF/TR room locations and cable pathways</td></tr>
-      <tr><td>Wave 3</td><td>Specification Review</td><td>Extracts text specs from PDF for product/standard requirements</td></tr>
-      <tr><td>Final</td><td>Master Estimator</td><td>Synthesizes all data into a complete priced estimate</td></tr>
-    </table>
-    <p>The analysis typically takes <strong>2–5 minutes</strong> depending on the number of pages. A real-time progress display shows which wave is currently processing.</p>
-    <div class="callout callout-info">ℹ️ <strong>Note:</strong> You can watch the AI "thinking" in real-time. Each brain reports its progress and any issues encountered.</div>
-
-    <h2 id="step4">6. Step 4 — Results & Review</h2>
-    <p>After analysis completes, you land on the <strong>Estimate Complete</strong> page showing:</p>
-    <h4>Confidence Score</h4>
-    <p>A 0–100% confidence ring indicating how accurate the AI estimates are, with traffic light indicators (🟢 85%+, 🟡 70-84%, 🔴 below 70%).</p>
-    <h4>Grand Total</h4>
-    <p>The bottom-line total cost including materials, labor, and applied markups.</p>
-    <h4>Analysis Breakdown</h4>
+    <h3 id="step4">Step 4 — Upload Specifications</h3>
+    <p>Upload specification documents so the AI can perform code compliance checking and extract product/standard requirements.</p>
     <ul>
-      <li><strong>Material Summary</strong> — Every counted item with quantity, unit cost, and extended cost</li>
-      <li><strong>Labor Summary</strong> — Labor hours by task type with labor rates applied</li>
-      <li><strong>Infrastructure</strong> — MDF/IDF room details with equipment and cabling</li>
-      <li><strong>Location Analysis</strong> — Where devices are located across the building</li>
+      <li>Supports PDF spec documents</li>
+      <li>The Spec Cross-Reference brain matches spec sections against counted items</li>
+      <li>Compliance issues are flagged in the final analysis</li>
     </ul>
 
-    <h2 id="exports">7. Export Options</h2>
-    <p>The Export panel provides multiple download formats:</p>
+    <h3 id="step5">Step 5 — Addenda & Supplemental</h3>
+    <p>Upload any change orders, addenda, or supplemental instructions that modify the base drawings or specifications.</p>
+    <ul>
+      <li>Addenda are processed after the base drawings to layer in changes</li>
+      <li>The AI adjusts counts, pricing, and scope based on addendum content</li>
+      <li>Multiple addenda can be uploaded and are applied in order</li>
+    </ul>
+
+    <h3 id="step6">Step 6 — Review Before Analysis</h3>
+    <p>Review all uploaded documents and confirm your project settings before launching the AI analysis.</p>
+    <ul>
+      <li>Verify all uploaded files (legend, floor plans, specs, addenda)</li>
+      <li>Confirm project settings, disciplines, and pricing configuration</li>
+      <li>Remove or re-upload any incorrect files</li>
+      <li>Click <strong>Start Analysis</strong> to launch the 27-brain AI engine</li>
+    </ul>
+    <div class="callout callout-info"><strong>Note:</strong> The analysis typically takes 2 to 5 minutes depending on the number of pages. A real-time progress display shows which brain is currently processing.</div>
+
+    <h3 id="step7">Step 7 — Estimate Complete (Results)</h3>
+    <p>After analysis completes, you land on the <strong>Estimate Complete</strong> page. See the <a href="#results">Results Page</a> section below for full details on everything available.</p>
+
+    <!-- ============================================================ -->
+    <!-- RESULTS PAGE -->
+    <!-- ============================================================ -->
+    <h2 id="results">4. Results Page</h2>
+    <p>The Estimate Complete page is the central hub for reviewing, editing, and exporting your analysis.</p>
+
+    <h4>Confidence Score Ring</h4>
+    <p>A 0 to 100% confidence ring indicating how reliable the AI estimates are. Color-coded: green (85%+), yellow (70-84%), red (below 70%).</p>
+
+    <h4>Grand Total</h4>
+    <p>The fully loaded bid price including materials, labor, and all applied markups.</p>
+
+    <h4>Stats Bar</h4>
+    <ul>
+      <li><strong>Sheets Analyzed</strong> — Number of drawing pages processed</li>
+      <li><strong>Spec Sections</strong> — Number of specification sections cross-referenced</li>
+      <li><strong>RFIs Recommended</strong> — Number of AI-generated RFIs flagged for review</li>
+    </ul>
+
+    <h4>Full AI Analysis</h4>
+    <ul>
+      <li>Complete AI analysis rendered as formatted markdown</li>
+      <li>Expandable sections for material summary, labor summary, infrastructure, and location analysis</li>
+      <li>Math validation banners that confirm internal calculation consistency</li>
+      <li>Section completeness checks that verify all disciplines were analyzed</li>
+    </ul>
+
+    <!-- ============================================================ -->
+    <!-- EXPORTS -->
+    <!-- ============================================================ -->
+    <h2 id="exports">5. Export Options</h2>
+    <p>The Export panel provides multiple download formats.</p>
     <table>
-      <tr><th>Format</th><th>Icon</th><th>Best For</th></tr>
-      <tr><td><strong>JSON — PM App Import</strong></td><td>🔗</td><td>Importing into SmartPM for project management tracking</td></tr>
-      <tr><td><strong>Excel — Spreadsheet</strong></td><td>📊</td><td>Reviewing data in Excel, sharing with estimating team</td></tr>
-      <tr><td><strong>Markdown — Report</strong></td><td>📄</td><td>Formatted text document for records</td></tr>
-      <tr><td><strong>Export All Formats</strong></td><td>📦</td><td>Downloads JSON + Excel + Markdown at once</td></tr>
-      <tr><td><strong>Bill of Materials</strong></td><td>📋</td><td>Detailed BOM with all items, quantities, unit costs & extended costs</td></tr>
+      <tr><th>Format</th><th>Best For</th></tr>
+      <tr><td><strong>JSON — PM App Import</strong></td><td>Importing into SmartPM for project management tracking</td></tr>
+      <tr><td><strong>Excel — Spreadsheet</strong></td><td>Reviewing data in Excel, sharing with estimating team</td></tr>
+      <tr><td><strong>Markdown — Report</strong></td><td>Formatted text document for records</td></tr>
+      <tr><td><strong>Export All Formats (ZIP)</strong></td><td>Downloads JSON + Excel + Markdown bundled in a single ZIP file</td></tr>
+      <tr><td><strong>Detailed Bill of Materials (Excel)</strong></td><td>Full BOM with categories, manufacturers, part numbers, quantities, unit costs, and extended costs</td></tr>
     </table>
 
-    <h2 id="proposal">8. Professional Proposal</h2>
-    <p>Click <strong>"Generate Professional Proposal"</strong> to create a Fortune 500-grade client proposal document.</p>
+    <!-- ============================================================ -->
+    <!-- SUPPLIER QUOTE WORKFLOW -->
+    <!-- ============================================================ -->
+    <h2 id="supplier-quotes">6. Supplier Quote Workflow <span class="badge-new">NEW in v5.0</span></h2>
+    <p>Send your Bill of Materials directly to suppliers, then import their pricing back into SmartPlans for comparison.</p>
+
+    <h4>Export BOM to Suppliers</h4>
+    <ul>
+      <li>Export the BOM as an Excel or CSV file formatted for supplier quoting</li>
+      <li>The export includes item descriptions, quantities, and manufacturer part numbers</li>
+      <li>Send the file to one or more suppliers via email</li>
+    </ul>
+
+    <h4>Import Supplier Pricing</h4>
+    <ul>
+      <li>When suppliers return their quotes, import the completed spreadsheet back into SmartPlans</li>
+      <li>SmartPlans maps supplier line items back to your BOM</li>
+      <li>Supplier pricing replaces or supplements AI-estimated pricing</li>
+    </ul>
+
+    <h4>Track & Compare</h4>
+    <ul>
+      <li>Track supplier quote status: Sent, Received, Pending</li>
+      <li>Compare supplier pricing against AI estimates side-by-side</li>
+      <li>Choose the best pricing per line item or per supplier</li>
+    </ul>
+    <div class="callout callout-tip"><strong>Tip:</strong> Use the supplier quote workflow for high-value line items where real-world pricing can significantly improve estimate accuracy.</div>
+
+    <!-- ============================================================ -->
+    <!-- EDITABLE BOM TABLE -->
+    <!-- ============================================================ -->
+    <h2 id="editable-bom">7. Editable BOM Table <span class="badge-new">NEW in v5.0</span></h2>
+    <p>The Bill of Materials table supports inline editing so you can adjust AI-generated quantities and prices before exporting or generating a proposal.</p>
+    <ul>
+      <li><strong>Click any quantity or price cell</strong> to edit it directly in the table</li>
+      <li>Changes <strong>recalculate totals in real-time</strong> — material totals, labor totals, and the grand total update instantly</li>
+      <li>After making edits, click <strong>Regenerate Proposal</strong> to produce an updated proposal reflecting your changes</li>
+    </ul>
+    <div class="callout callout-info"><strong>Note:</strong> Edits are preserved when you save the estimate and are included in all exports.</div>
+
+    <!-- ============================================================ -->
+    <!-- PROFESSIONAL PROPOSAL -->
+    <!-- ============================================================ -->
+    <h2 id="proposal">8. Professional Proposal Generator</h2>
+    <p>Click <strong>"Generate Professional Proposal"</strong> to create a client-ready proposal document.</p>
     <h4>What's Included</h4>
     <ul>
-      <li><strong>Cover Page</strong> — 3D TSI branding, project name, prepared for, date</li>
-      <li><strong>Executive Summary</strong> — AI-generated scope overview</li>
-      <li><strong>Detailed Pricing</strong> — Material and labor breakdown tables</li>
-      <li><strong>Scope of Work</strong> — What's included in the estimate</li>
+      <li><strong>Cover Page</strong> — 3D TSI branding, project name, prepared-for name, date</li>
+      <li><strong>Executive Summary</strong> — AI-generated scope overview tailored to the project</li>
+      <li><strong>Scope of Work</strong> — Detailed description of what is included in the estimate</li>
+      <li><strong>Pricing Tables</strong> — Material and labor breakdown with category subtotals</li>
+      <li><strong>Exclusions & Assumptions</strong> — Auto-included from the Exclusions & Assumptions Builder</li>
       <li><strong>Terms & Conditions</strong> — Standard 3D TSI terms</li>
+      <li><strong>Phase Summary</strong> — If multi-phase pricing is configured, a phase breakdown table is included</li>
     </ul>
     <p>The proposal downloads as a <strong>Microsoft Word (.docx)</strong> file ready for client delivery.</p>
-    <div class="callout callout-tip">💡 <strong>Tip:</strong> Fill in the "Prepared For" field during project setup to have the GC/Agency name appear correctly on the proposal cover page.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> Fill in the "Prepared For" field during project setup to have the GC/Agency name appear correctly on the proposal cover page.</div>
 
-    <h2 id="rfis">9. RFI Generation</h2>
-    <p>SmartPlans displays AI-generated <strong>Requests for Information (RFIs)</strong> — common questions that should be clarified before starting work.</p>
+    <!-- ============================================================ -->
+    <!-- EXCLUSIONS & ASSUMPTIONS BUILDER -->
+    <!-- ============================================================ -->
+    <h2 id="exclusions">9. Exclusions & Assumptions Builder <span class="badge-new">NEW in v5.0</span></h2>
+    <p>Define what is and is not included in your bid with a structured three-tab editor.</p>
+
+    <h4>Three Tabs</h4>
+    <table>
+      <tr><th>Tab</th><th>Purpose</th><th>Example</th></tr>
+      <tr><td><strong>Exclusions</strong></td><td>Items explicitly not included in the bid</td><td>"Core drilling and fire stopping by others"</td></tr>
+      <tr><td><strong>Assumptions</strong></td><td>Conditions assumed to be true for pricing</td><td>"All pathways are accessible without scaffolding"</td></tr>
+      <tr><td><strong>Clarifications</strong></td><td>Notes that clarify scope boundaries</td><td>"Pricing based on standard business hours only"</td></tr>
+    </table>
+
+    <h4>Features</h4>
+    <ul>
+      <li><strong>Pre-built templates</strong> — Select from discipline-specific templates (e.g., structured cabling exclusions, AV assumptions)</li>
+      <li><strong>Auto-generate from AI analysis</strong> — The AI suggests exclusions and assumptions based on what it found (or did not find) in the drawings</li>
+      <li><strong>Included in proposals and exports</strong> — All entries are automatically included in generated proposals and export files</li>
+    </ul>
+
+    <!-- ============================================================ -->
+    <!-- BID STRATEGY MARKUP -->
+    <!-- ============================================================ -->
+    <h2 id="bid-strategy">10. Bid Strategy Markup <span class="badge-new">NEW in v5.0</span></h2>
+    <p>Fine-tune your bid with per-category markup percentages and confidence-based contingency calculations.</p>
+    <table>
+      <tr><th>Feature</th><th>Description</th></tr>
+      <tr><td><strong>Per-Category Markups</strong></td><td>Set material markup % and labor markup % independently for each BOM category</td></tr>
+      <tr><td><strong>Confidence Scoring</strong></td><td>Assign High, Medium, or Low confidence to each category based on drawing clarity and spec completeness</td></tr>
+      <tr><td><strong>Auto-Calculated Contingency</strong></td><td>Contingency percentages are automatically applied based on the confidence level (e.g., Low confidence = higher contingency)</td></tr>
+      <tr><td><strong>Apply Strategy</strong></td><td>Click "Apply Strategy" to recalculate all totals with your markup and contingency settings</td></tr>
+    </table>
+    <div class="callout callout-warn"><strong>Important:</strong> Bid strategy markups are applied on top of the base pricing configuration (tier, prevailing wage, regional multiplier) set during project setup.</div>
+
+    <!-- ============================================================ -->
+    <!-- RATE LIBRARY -->
+    <!-- ============================================================ -->
+    <h2 id="rate-library">11. Rate Library <span class="badge-new">NEW in v5.0</span></h2>
+    <p>Build a reusable library of rates from your completed estimates and apply them to future projects.</p>
+
+    <h4>Saving Rates</h4>
+    <ul>
+      <li>After completing an estimate, save its rates to the library</li>
+      <li>Each rate stores the item name, unit cost, labor rate, category, and source project</li>
+    </ul>
+
+    <h4>Applying Saved Rates</h4>
+    <ul>
+      <li>When starting a new estimate, apply saved rates from the library</li>
+      <li>SmartPlans uses <strong>fuzzy name matching</strong> to map saved rates to new BOM line items</li>
+      <li>Matched rates override AI-estimated pricing for those items</li>
+    </ul>
+
+    <h4>Library Management</h4>
+    <ul>
+      <li>Search and filter rates by category or item name</li>
+      <li>Each rate tracks its <strong>usage count</strong> and <strong>last used date</strong></li>
+      <li>Delete or update individual rates as pricing changes</li>
+    </ul>
+
+    <!-- ============================================================ -->
+    <!-- ACTUAL VS ESTIMATE FEEDBACK -->
+    <!-- ============================================================ -->
+    <h2 id="actuals">12. Actual vs Estimate Feedback <span class="badge-new">NEW in v5.0</span></h2>
+    <p>After a project is completed, record actual costs to build historical benchmarks and improve future estimates.</p>
+
+    <h4>Recording Actuals</h4>
+    <ul>
+      <li>Open a saved estimate and click <strong>Record Actuals</strong></li>
+      <li>Enter actual material costs and labor hours per category</li>
+      <li>SmartPlans calculates the variance between estimated and actual</li>
+    </ul>
+
+    <h4>Variance Analysis</h4>
+    <ul>
+      <li>Color-coded variance indicators: <strong style="color:#16a34a">green</strong> (within 10%), <strong style="color:#ca8a04">yellow</strong> (10-25% variance), <strong style="color:#dc2626">red</strong> (over 25% variance)</li>
+      <li>Variance is shown as both a percentage and dollar amount per category</li>
+    </ul>
+
+    <h4>Cost Benchmarks</h4>
+    <ul>
+      <li>Over time, actual data builds cost benchmarks by category and project type</li>
+      <li>Apply benchmarks to future estimates for improved accuracy</li>
+    </ul>
+
+    <!-- ============================================================ -->
+    <!-- MULTI-PHASE / OPTION PRICING -->
+    <!-- ============================================================ -->
+    <h2 id="multi-phase">13. Multi-Phase / Option Pricing <span class="badge-new">NEW in v5.0</span></h2>
+    <p>Structure your bid with a base bid plus alternates and optional phases.</p>
+
+    <h4>Phase Types</h4>
+    <table>
+      <tr><th>Phase Type</th><th>Description</th></tr>
+      <tr><td><strong>Base Bid</strong></td><td>The core scope of work included in the primary bid</td></tr>
+      <tr><td><strong>Add Alternate</strong></td><td>Additional scope that increases the total if accepted</td></tr>
+      <tr><td><strong>Deduct Alternate</strong></td><td>Scope reductions that decrease the total if accepted</td></tr>
+      <tr><td><strong>Optional Phase</strong></td><td>Standalone optional work packages the client can choose</td></tr>
+    </table>
+
+    <h4>How It Works</h4>
+    <ul>
+      <li>Assign BOM categories to phases (drag-and-drop or dropdown selection)</li>
+      <li>A <strong>phase summary table</strong> is automatically included in generated proposals</li>
+      <li>The summary shows a <strong>"Total if all accepted"</strong> calculation</li>
+    </ul>
+
+    <!-- ============================================================ -->
+    <!-- VERSION HISTORY -->
+    <!-- ============================================================ -->
+    <h2 id="version-history">14. Version History <span class="badge-new">NEW in v5.0</span></h2>
+    <p>SmartPlans automatically tracks revisions every time an estimate is saved.</p>
+    <ul>
+      <li><strong>Automatic revision tracking</strong> — A new revision is created on every save</li>
+      <li><strong>Compare revisions side-by-side</strong> — View what changed between any two revisions</li>
+      <li><strong>Restore previous versions</strong> — Roll back to any previous revision with one click</li>
+      <li><strong>View revision history</strong> — Access the full history from the Saved Estimates panel</li>
+    </ul>
+    <div class="callout callout-info"><strong>Note:</strong> Version history is available for all saved estimates, including those created before v5.0 (the first save becomes revision 1).</div>
+
+    <!-- ============================================================ -->
+    <!-- RFI GENERATION -->
+    <!-- ============================================================ -->
+    <h2 id="rfis">15. RFI Generation</h2>
+    <p>SmartPlans generates AI-powered <strong>Requests for Information (RFIs)</strong> — common questions that should be clarified before starting work.</p>
     <h4>How RFIs Work</h4>
     <ul>
-      <li>RFIs are generated based on your selected disciplines</li>
+      <li>60+ discipline-specific RFI templates are available</li>
+      <li>The AI generates RFIs based on gaps, ambiguities, and missing information found during analysis</li>
       <li>Each RFI shows a checkbox — select the ones relevant to your project</li>
-      <li>Click <strong>"Export Selected RFIs"</strong> to download a text file</li>
-      <li>Selected RFIs are also included in the JSON export for SmartPM import</li>
+      <li>Click <strong>"Export Selected RFIs"</strong> to download</li>
+      <li>Selected RFIs are included in the JSON export for SmartPM import</li>
     </ul>
 
-    <h2 id="saved">10. Saved Estimates</h2>
-    <p>Click the <strong>📂 Saved Estimates</strong> button in the top-right header to view previously saved analyses.</p>
+    <!-- ============================================================ -->
+    <!-- SAVED ESTIMATES -->
+    <!-- ============================================================ -->
+    <h2 id="saved">16. Saved Estimates</h2>
+    <p>Click the <strong>Saved Estimates</strong> button in the header to view previously saved analyses.</p>
     <h4>How Saving Works</h4>
     <ul>
-      <li>Estimates are automatically saved when the AI analysis completes</li>
+      <li>Estimates are <strong>automatically saved</strong> when the AI analysis completes</li>
       <li>Each saved estimate records the project name, date, export data, and all settings</li>
       <li>Click <strong>Load</strong> on any saved estimate to restore it</li>
-      <li>All settings, analysis results, and export data are restored</li>
+      <li>Click <strong>Delete</strong> to remove an estimate you no longer need</li>
+      <li><strong>Version history</strong> is tracked per estimate (see <a href="#version-history">Version History</a>)</li>
+      <li>Click <strong>Record Actuals</strong> on completed projects (see <a href="#actuals">Actual vs Estimate</a>)</li>
     </ul>
-    <div class="callout callout-info">ℹ️ Saved estimates are stored in Cloudflare's cloud database and persist across devices and sessions.</div>
+    <div class="callout callout-info">Saved estimates are stored in Cloudflare's cloud database and persist across devices and sessions.</div>
 
-    <h2 id="smartpm">11. SmartPM Integration</h2>
-    <p>After completing your estimate, click the <strong>"🏗️ Open SmartPM — Project Manager"</strong> button in the Export panel to launch SmartPM in a new tab.</p>
-    <h4>To Import Your Estimate into SmartPM</h4>
+    <!-- ============================================================ -->
+    <!-- SMARTPM INTEGRATION -->
+    <!-- ============================================================ -->
+    <h2 id="smartpm">17. SmartPM Integration</h2>
+    <p>SmartPlans exports are designed for direct import into SmartPM for project management and installation tracking.</p>
+    <h4>Import Workflow</h4>
     <ol class="step-list">
       <li>In SmartPlans, click <strong>"JSON — PM App Import"</strong> to download the export file</li>
       <li>Click <strong>"Open SmartPM"</strong> to open SmartPM in a new tab</li>
-      <li>In SmartPM, log in and click <strong>"📦 Import from SmartPlans"</strong></li>
+      <li>In SmartPM, log in and click <strong>"Import from SmartPlans"</strong></li>
       <li>Select the JSON file you downloaded</li>
       <li>Review the import preview and click <strong>"Import Project"</strong></li>
     </ol>
-    <p>SmartPM will create a fully populated project with locked budgets, infrastructure locations, equipment, cable runs, and RFIs ready to track.</p>
+    <h4>What Gets Imported</h4>
+    <ul>
+      <li><strong>Schedule of Values (SOV)</strong> — Budget line items with locked costs</li>
+      <li><strong>Work Breakdown Structure (WBS)</strong> — Task hierarchy by discipline and location</li>
+      <li><strong>Infrastructure</strong> — MDF/IDF/TR rooms, cable pathways, and equipment</li>
+      <li><strong>RFIs</strong> — Selected RFIs are imported ready for tracking</li>
+    </ul>
+    <h4>Re-Import to Update</h4>
+    <p>If you revise the estimate in SmartPlans, re-export the JSON and import it again into SmartPM. SmartPM detects the existing project and offers to update it rather than creating a duplicate.</p>
 
-    <h2 id="troubleshooting">12. Troubleshooting</h2>
+    <!-- ============================================================ -->
+    <!-- REGIONAL PRICING -->
+    <!-- ============================================================ -->
+    <h2 id="regional-pricing">18. Regional Pricing</h2>
+    <p>SmartPlans includes detailed regional pricing data to ensure estimates reflect local labor and material costs.</p>
+
+    <h4>California County-Level Prevailing Wages</h4>
+    <ul>
+      <li>All <strong>58 California counties</strong> are supported with DIR and Davis-Bacon prevailing wage rates</li>
+      <li>Rates are selected automatically when you enter a California project location</li>
+    </ul>
+
+    <h4>Additional State Coverage</h4>
+    <ul>
+      <li><strong>19 additional states</strong> with metro-level wage data</li>
+      <li>Rates are matched to the nearest metro area based on project location</li>
+    </ul>
+
+    <h4>Regional Cost Multipliers</h4>
+    <ul>
+      <li>Multipliers range from <strong>0.8x</strong> (low-cost regions) to <strong>1.4x</strong> (high-cost regions)</li>
+      <li>Applied to both material and labor costs</li>
+      <li>Can be overridden manually in the pricing configuration</li>
+    </ul>
+
+    <h4>Blended Crew Rates</h4>
+    <p>Labor rates are calculated as blended crew rates that account for journeyman/apprentice ratios, benefits, and burden based on the selected prevailing wage classification.</p>
+
+    <!-- ============================================================ -->
+    <!-- 27-BRAIN AI ENGINE -->
+    <!-- ============================================================ -->
+    <h2 id="ai-engine">19. 27-Brain AI Engine</h2>
+    <p>SmartPlans uses a multi-wave pipeline of 27 specialized AI brains. Each brain has a focused task and passes its findings to downstream brains.</p>
+
+    <h3>Wave 0 — Legend Decoder</h3>
+    <table>
+      <tr><th>Brain</th><th>Purpose</th></tr>
+      <tr><td><strong>Legend Decoder</strong></td><td>Reads the uploaded legend page and builds a symbol-to-device mapping used by all downstream brains</td></tr>
+    </table>
+
+    <h3>Wave 1 — First Read (8 Brains)</h3>
+    <table>
+      <tr><th>Brain</th><th>Purpose</th></tr>
+      <tr><td><strong>Symbol Scanner</strong></td><td>Scans each sheet to count and locate every device symbol</td></tr>
+      <tr><td><strong>Code Compliance</strong></td><td>Checks device placement against building codes and standards</td></tr>
+      <tr><td><strong>MDF/IDF Analyzer</strong></td><td>Identifies telecom room locations, sizes, and equipment</td></tr>
+      <tr><td><strong>Cable & Pathway</strong></td><td>Traces cable pathways, conduit runs, and tray routing</td></tr>
+      <tr><td><strong>Special Conditions</strong></td><td>Flags unusual conditions (outdoor, hazardous, high-ceiling areas)</td></tr>
+      <tr><td><strong>Spec Cross-Reference</strong></td><td>Matches counted items against uploaded specification requirements</td></tr>
+      <tr><td><strong>Annotation Reader</strong></td><td>Reads text annotations, callouts, and notes on the drawings</td></tr>
+      <tr><td><strong>Riser Diagram</strong></td><td>Analyzes riser diagrams for backbone cabling and vertical distribution</td></tr>
+    </table>
+
+    <h3>Wave 1.5 — Second Read (5 Brains)</h3>
+    <table>
+      <tr><th>Brain</th><th>Purpose</th></tr>
+      <tr><td><strong>Shadow Scanner</strong></td><td>Re-scans for devices that may have been missed in the first read due to overlapping symbols or poor contrast</td></tr>
+      <tr><td><strong>Discipline Deep-Dive</strong></td><td>Performs a focused analysis per selected discipline for higher-resolution counting</td></tr>
+      <tr><td><strong>Quadrant Scanner</strong></td><td>Divides each sheet into quadrants and counts each quadrant independently to catch missed items</td></tr>
+      <tr><td><strong>Zoom Scanner</strong></td><td>Zooms into dense areas of the drawing for detailed symbol identification</td></tr>
+      <tr><td><strong>Per-Floor Analyzer</strong></td><td>Performs floor-by-floor analysis to ensure consistency across levels</td></tr>
+    </table>
+
+    <h3>Wave 1.75 — Consensus (2 Brains)</h3>
+    <table>
+      <tr><th>Brain</th><th>Purpose</th></tr>
+      <tr><td><strong>Consensus Arbitrator</strong></td><td>Compares counts from Wave 1 and Wave 1.5, resolves discrepancies, and produces a unified count</td></tr>
+      <tr><td><strong>Targeted Re-Scanner</strong></td><td>Re-scans specific areas where the Arbitrator found disagreements between brains</td></tr>
+    </table>
+
+    <h3>Wave 2 — Pricing (3 Brains)</h3>
+    <table>
+      <tr><th>Brain</th><th>Purpose</th></tr>
+      <tr><td><strong>Material Pricer</strong></td><td>Applies material pricing from industry databases, adjusted for regional multipliers and tier</td></tr>
+      <tr><td><strong>Labor Calculator</strong></td><td>Calculates labor hours per item using NECA/industry labor units and prevailing wage rates</td></tr>
+      <tr><td><strong>Financial Engine</strong></td><td>Applies markups, contingency, overhead, and profit to produce the final bid price</td></tr>
+    </table>
+
+    <h3>Wave 3 — Validation (6 Brains)</h3>
+    <table>
+      <tr><th>Brain</th><th>Purpose</th></tr>
+      <tr><td><strong>Cross Validator</strong></td><td>Validates counts against typical ratios (e.g., cameras per door, outlets per room)</td></tr>
+      <tr><td><strong>Devil's Advocate</strong></td><td>Intentionally challenges the estimate, looking for errors, omissions, and unrealistic assumptions</td></tr>
+      <tr><td><strong>Detail Verifier</strong></td><td>Spot-checks individual line items for correct quantities and pricing</td></tr>
+      <tr><td><strong>Cross-Sheet Analyzer</strong></td><td>Compares device counts and locations across sheets for consistency</td></tr>
+      <tr><td><strong>Overlap Detector</strong></td><td>Identifies duplicate counts from overlapping coverage areas between sheets</td></tr>
+      <tr><td><strong>Final Reconciliation</strong></td><td>Performs a final math check to ensure all numbers add up correctly</td></tr>
+    </table>
+
+    <h3>Wave 3.85 — Estimate Corrector</h3>
+    <table>
+      <tr><th>Brain</th><th>Purpose</th></tr>
+      <tr><td><strong>Estimate Corrector</strong></td><td>Applies corrections from the validation wave, adjusting counts and pricing where errors were found</td></tr>
+    </table>
+
+    <h3>Wave 4 — Report Synthesizer</h3>
+    <table>
+      <tr><th>Brain</th><th>Purpose</th></tr>
+      <tr><td><strong>Report Synthesizer</strong></td><td>Combines all brain outputs into the final structured analysis report with expandable sections, math validation banners, and the confidence score</td></tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <!-- TROUBLESHOOTING -->
+    <!-- ============================================================ -->
+    <h2 id="troubleshooting">20. Troubleshooting</h2>
     <table>
       <tr><th>Issue</th><th>Solution</th></tr>
       <tr><td>AI analysis fails or times out</td><td>Try reducing the number of pages. Remove non-drawing pages (title blocks, specs).</td></tr>
-      <tr><td>Low confidence score</td><td>Use "Specific items to count" field with clear instructions. Ensure drawings are high-resolution.</td></tr>
+      <tr><td>Low confidence score</td><td>Use the "Specific items to count" field with clear instructions. Ensure drawings are high-resolution. Upload a symbol legend.</td></tr>
       <tr><td>Missing devices in count</td><td>Select the correct disciplines. The AI filters by trade to avoid cross-discipline false positives.</td></tr>
       <tr><td>PDF won't upload</td><td>Ensure the PDF is under 50MB. Try splitting large PDFs into smaller batches.</td></tr>
       <tr><td>Proposal formatting issues</td><td>The proposal downloads as .docx — open in Microsoft Word for best results.</td></tr>
       <tr><td>Export button not working</td><td>Check your browser's popup blocker. Some exports open new windows.</td></tr>
+      <tr><td>Numbers don't match between proposal and web app</td><td>Fixed in v5.0. If you are running an older cached version, clear your browser cache and reload.</td></tr>
+      <tr><td>Supplier quote import fails</td><td>Ensure the Excel file format matches the SmartPlans supplier quote template. Column headers must not be modified.</td></tr>
+      <tr><td>Rate library not applying</td><td>Fuzzy matching requires a partial name match. Ensure saved rate names overlap with BOM item names. Check the match threshold in settings.</td></tr>
     </table>
 
   </div>
@@ -243,7 +604,7 @@
 
 <div class="footer">
   <div class="container">
-    <p>© 2026 3D Technology Services Inc. · www.3Dtsi.com · SmartPlans User Guide v3.0</p>
+    <p>&copy; 2026 3D Technology Services Inc. &middot; www.3Dtsi.com &middot; SmartPlans User Guide v5.0</p>
   </div>
 </div>
 
