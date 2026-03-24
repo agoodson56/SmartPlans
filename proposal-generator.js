@@ -253,21 +253,6 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
 
   async renderAndDownload(state, progressCallback, _unused) {
     try {
-      // Pre-load company logo as base64 for Word embedding
-      try {
-        const logoRes = await fetch('company-logo.png');
-        if (logoRes.ok) {
-          const blob = await logoRes.blob();
-          this._logoDataUri = await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.readAsDataURL(blob);
-          });
-        }
-      } catch (e) {
-        console.warn('[ProposalGen] Could not load logo, using text fallback');
-        this._logoDataUri = null;
-      }
 
       const proposalText = await this.generateProposal(state, progressCallback);
       progressCallback(70, 'Formatting Word document…');
@@ -449,9 +434,9 @@ COVER PAGE — Word-native table layout (renders perfectly)
 
 <br>
 
-<!-- Company Logo - loaded from hosted site -->
-${this._logoDataUri ? `<p style="margin-bottom:2pt;"><img src="${this._logoDataUri}" width="280" style="display:block;" alt="3D Technology Services, Inc."></p>` : `<p style="font-size:38pt;font-weight:bold;color:${b.gold};font-family:Calibri,Arial,sans-serif;margin-bottom:0;line-height:1.1;">3D</p>
-<p style="font-size:12pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:4pt;font-family:Calibri,Arial,sans-serif;">TECHNOLOGY SERVICES, Inc.</p>`}
+<!-- Company Name — Bold text branding (no logo image) -->
+<p style="font-size:38pt;font-weight:bold;color:${b.gold};font-family:Calibri,Arial,sans-serif;margin-bottom:0;line-height:1.1;">3D</p>
+<p style="font-size:12pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:4pt;font-family:Calibri,Arial,sans-serif;">TECHNOLOGY SERVICES, Inc.</p>
 
 <!-- Company Name — Full text -->
 <p style="font-size:28pt;font-weight:bold;color:${b.navy};margin-bottom:2pt;margin-top:6pt;font-family:Calibri,Arial,sans-serif;">
@@ -742,7 +727,7 @@ ACCEPTANCE & SIGNATURE BLOCK
             cellValues.forEach(cell => {
               const isMoney = /\$/.test(cell) || /^\d+%$/.test(cell);
               const align = isMoney ? 'text-align:right;' : '';
-              tHtml += `<td bgcolor="${bgColor}" style="padding:6pt 10pt;${align}border:1pt solid #E2E8F0;">${this._escText(cell)}</td>`;
+              tHtml += `<td bgcolor="${bgColor}" style="padding:6pt 10pt;color:#222;${align}border:1pt solid #E2E8F0;"><font color="#222">${this._escText(cell)}</font></td>`;
             });
             tHtml += '</tr>';
           }
