@@ -1156,7 +1156,7 @@ function renderStep0(container) {
       <span style="font-size:22px;">✈️</span>
       <div>
         <div style="font-weight:700;font-size:15px;color:var(--text-primary);">Travel & Per Diem</div>
-        <div style="font-size:12px;color:var(--text-muted);">Hotel, meals, mileage, airfare — for out-of-town projects</div>
+        <div style="font-size:12px;color:var(--text-muted);">Hotel, meals, mileage, airfare — for out-of-town projects. Adds a separate travel line item to your bid.</div>
       </div>
       <span style="margin-left:auto;font-size:18px;color:var(--text-muted);transition:transform 0.2s;" id="travel-chevron">${state._travelOpen ? '▼' : '▶'}</span>
     </div>

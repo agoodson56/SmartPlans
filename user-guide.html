@@ -74,6 +74,8 @@
     <a href="#rfis">RFIs</a>
     <a href="#saved">Saved Estimates</a>
     <a href="#smartpm">SmartPM Integration</a>
+    <a href="#travel">Travel & Per Diem</a>
+    <a href="#pricing-config">Pricing & Rates</a>
     <a href="#regional-pricing">Regional Pricing</a>
     <a href="#ai-engine">27-Brain AI Engine</a>
     <a href="#troubleshooting">Troubleshooting</a>
@@ -482,9 +484,134 @@
     <p>If you revise the estimate in SmartPlans, re-export the JSON and import it again into SmartPM. SmartPM detects the existing project and offers to update it rather than creating a duplicate.</p>
 
     <!-- ============================================================ -->
+    <!-- TRAVEL & PER DIEM -->
+    <!-- ============================================================ -->
+    <h2 id="travel">18. Travel & Per Diem</h2>
+    <p>For out-of-town projects, SmartPlans calculates travel costs as a <strong>separate line item</strong> on your bid. Travel does not affect material or labor pricing — it is added on top as its own cost category.</p>
+
+    <h4>How to Enable</h4>
+    <p>On Step 1 (Project Setup), expand the <strong>"Travel & Per Diem"</strong> section and check <strong>"Include travel costs in estimate."</strong> The travel cost summary updates in real-time as you enter values.</p>
+
+    <h4>Field-by-Field Explanation</h4>
+    <table>
+      <tr><th>Field</th><th>What It Does</th><th>How It's Calculated</th><th>Typical Values</th></tr>
+      <tr><td><strong>Crew Size</strong></td><td>Number of technicians who travel to the jobsite. Multiplies hotel nights and per diem.</td><td>Hotel nights = Crew × Trips × Days</td><td>2-6 techs</td></tr>
+      <tr><td><strong>Number of Trips</strong></td><td>How many separate mobilizations to the jobsite. For phased projects you may need one trip for rough-in and another for trim-out.</td><td>Multiplies all daily costs</td><td>1-3 trips</td></tr>
+      <tr><td><strong>Days Per Trip</strong></td><td>Working days on-site per trip. Used to calculate total hotel nights and daily expenses.</td><td>Total nights = Crew × Trips × Days</td><td>5-20 days</td></tr>
+      <tr><td><strong>Hotel $/night</strong></td><td>Nightly lodging rate per person. Use the GSA per diem rate for government projects or actual hotel quotes.</td><td>Hotel total = Total nights × Rate</td><td>$120-$250 (GSA varies by city: Sacramento $161, SF $350, LA $214)</td></tr>
+      <tr><td><strong>Per Diem $/day (meals)</strong></td><td>Daily meal and incidental allowance per person. GSA standard rate is $79/day for most California counties. First and last travel days are typically 75% of the full rate.</td><td>Per diem total = Total nights × Rate</td><td>$59-$79 (GSA M&IE rate)</td></tr>
+      <tr><td><strong>Mileage (round trip miles)</strong></td><td>Driving distance to the jobsite (round trip). Reimbursed at the current IRS standard mileage rate. Use this OR airfare, not both.</td><td>Mileage total = Trips × Miles × $0.70/mi</td><td>0 if flying; 100-500 mi for driving jobs</td></tr>
+      <tr><td><strong>Airfare $/person</strong></td><td>Round-trip economy airfare per person. Use this instead of mileage for distant projects (500+ miles). Set to 0 if driving.</td><td>Airfare total = Crew × Trips × Rate</td><td>$300-$800 round trip</td></tr>
+      <tr><td><strong>Rental Car $/day</strong></td><td>Daily rate for a vehicle at the jobsite. You typically need at least one truck or SUV for hauling tools and materials.</td><td>Rental total = Trips × Days × Rate</td><td>$75-$120/day (full-size SUV/truck)</td></tr>
+      <tr><td><strong>Parking $/day</strong></td><td>Daily parking at the jobsite or hotel. Urban construction sites often charge $25-$50/day; suburban sites may be free.</td><td>Parking total = Trips × Days × Rate</td><td>$0-$50/day</td></tr>
+    </table>
+
+    <h4>How Travel Costs Appear in Your Bid</h4>
+    <ul>
+      <li>The <strong>Travel Cost Estimate</strong> card shows a real-time breakdown as you type</li>
+      <li>The total is added to the Financial Engine's grand total as a separate line item</li>
+      <li>Travel appears in the proposal under a dedicated "Travel & Per Diem" section</li>
+      <li>It is included in the JSON export for SmartPM import</li>
+    </ul>
+
+    <div class="callout callout-tip"><strong>Pro Tip:</strong> For phased projects, estimate each phase separately. A typical low-voltage install has 2-3 mobilizations: rough-in (longest), trim-out (shorter), and commissioning/testing (1-3 days).</div>
+
+    <h4>Example Calculation</h4>
+    <table>
+      <tr><th>Item</th><th>Formula</th><th>Example</th></tr>
+      <tr><td>Hotel</td><td>4 crew × 1 trip × 10 days × $175/night</td><td>$7,000.00</td></tr>
+      <tr><td>Per Diem (Meals)</td><td>4 crew × 1 trip × 10 days × $79/day</td><td>$3,160.00</td></tr>
+      <tr><td>Rental Car</td><td>1 trip × 10 days × $85/day</td><td>$850.00</td></tr>
+      <tr><td>Parking</td><td>1 trip × 10 days × $25/day</td><td>$250.00</td></tr>
+      <tr><td><strong>TOTAL TRAVEL</strong></td><td></td><td><strong>$11,260.00</strong></td></tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <!-- PRICING & RATE CONFIGURATION -->
+    <!-- ============================================================ -->
+    <h2 id="pricing-config">19. Pricing & Rate Configuration</h2>
+    <p>The Pricing & Rate Configuration panel controls how SmartPlans prices materials, calculates labor costs, and applies markups to generate your bid price. These settings directly affect the <strong>grand total</strong> on your estimate.</p>
+
+    <h4>Material Pricing Tier</h4>
+    <p>Sets the base unit cost for all 200+ items in the built-in pricing database. The AI uses these unit costs when building the Bill of Materials.</p>
+    <table>
+      <tr><th>Tier</th><th>When to Use</th><th>Cat 6A Plenum</th><th>IP Dome Camera</th><th>FACP (Medium)</th></tr>
+      <tr><td><strong>Budget</strong></td><td>Competitive bids, value engineering, cost-sensitive clients</td><td>$0.22/ft</td><td>$180</td><td>$2,500</td></tr>
+      <tr><td><strong>Mid-Range</strong> (default)</td><td>Standard specifications, name-brand products, most commercial projects</td><td>$0.32/ft</td><td>$380</td><td>$5,000</td></tr>
+      <tr><td><strong>Premium</strong></td><td>High-end specified products, government/institutional, brand-locked specs</td><td>$0.48/ft</td><td>$720</td><td>$9,500</td></tr>
+    </table>
+    <div class="callout callout-info"><strong>Note:</strong> The tier affects base cost only. Markups are applied separately on top of the tier price.</div>
+
+    <h4>Regional Cost Multiplier</h4>
+    <p>Adjusts <strong>all material costs</strong> up or down based on geographic market conditions. Materials cost more in high-cost-of-living areas (Bay Area, NYC) and less in rural/low-cost regions.</p>
+    <table>
+      <tr><th>Region</th><th>Multiplier</th><th>Effect on $10,000 of materials</th></tr>
+      <tr><td>Rural / Low Cost</td><td>0.80×</td><td>$8,000</td></tr>
+      <tr><td>National Average</td><td>1.00×</td><td>$10,000</td></tr>
+      <tr><td>West Coast (CA, OR, WA)</td><td>1.25×</td><td>$12,500</td></tr>
+      <tr><td>Northeast (NYC, Boston)</td><td>1.35×</td><td>$13,500</td></tr>
+      <tr><td>Hawaii / Remote</td><td>1.40×</td><td>$14,000</td></tr>
+    </table>
+
+    <h4>Labor Rates ($/hr)</h4>
+    <p>Hourly base rates for each labor classification. These are the <strong>raw hourly wages</strong> before burden is applied. The AI uses the appropriate classification for each task (e.g., cable pulling uses Journeyman rate, system programming uses Programmer rate).</p>
+    <table>
+      <tr><th>Classification</th><th>Role</th><th>Typical Range</th></tr>
+      <tr><td><strong>Journeyman Tech</strong></td><td>Standard installation technician — cable pulling, device mounting, terminations</td><td>$45-$85/hr</td></tr>
+      <tr><td><strong>Lead Tech</strong></td><td>Senior technician — supervises small crews, handles complex tasks</td><td>$55-$95/hr</td></tr>
+      <tr><td><strong>Foreman</strong></td><td>On-site supervisor — coordinates work, manages daily activities (often Lead + 10%)</td><td>$60-$110/hr</td></tr>
+      <tr><td><strong>Apprentice</strong></td><td>Entry-level — assists journeymen, handles simple tasks (typically 55% of journeyman)</td><td>$25-$50/hr</td></tr>
+      <tr><td><strong>Project Manager</strong></td><td>Off-site — submittals, scheduling, coordination, billing</td><td>$65-$120/hr</td></tr>
+      <tr><td><strong>Programmer</strong></td><td>System configuration — access control, CCTV, fire alarm programming</td><td>$75-$130/hr</td></tr>
+    </table>
+    <div class="callout callout-warn"><strong>Important:</strong> If you selected a prevailing wage type (Davis-Bacon or State DIR), these rates are <strong>automatically overridden</strong> with the legally required prevailing wage rates for your county/state. Your manual entries are used only when "None" is selected.</div>
+
+    <h4>Labor Burden</h4>
+    <p>The burden rate represents the <strong>employer's additional cost</strong> on top of the base hourly wage. It covers legally required taxes and insurance that you must pay for every labor hour.</p>
+    <table>
+      <tr><th>Component</th><th>Typical %</th><th>What It Covers</th></tr>
+      <tr><td>FICA (Social Security + Medicare)</td><td>7.65%</td><td>Federal payroll tax (employer's matching share)</td></tr>
+      <tr><td>FUTA + SUTA (Unemployment)</td><td>2-6%</td><td>Federal and state unemployment insurance</td></tr>
+      <tr><td>Workers' Compensation</td><td>5-12%</td><td>Injury insurance (rate depends on trade classification)</td></tr>
+      <tr><td>General Liability Insurance</td><td>3-5%</td><td>Commercial general liability (CGL) allocation per labor hour</td></tr>
+      <tr><td>Health & Welfare</td><td>8-15%</td><td>Medical, dental, vision benefits (if offered)</td></tr>
+      <tr><td>Pension / 401k Match</td><td>0-6%</td><td>Retirement contributions (union projects often 8-12%)</td></tr>
+      <tr><td><strong>TOTAL BURDEN</strong></td><td><strong>30-45%</strong></td><td>Default is 35% — adjust based on your company's actual costs</td></tr>
+    </table>
+    <p><strong>Formula:</strong> Loaded labor rate = Base rate × (1 + Burden%). For example: $68.90/hr journeyman × 1.35 burden = <strong>$93.02/hr loaded rate</strong>.</p>
+
+    <h4>Markup / Margin Percentages</h4>
+    <p>Markups are applied to your <strong>cost</strong> to determine the <strong>sell price</strong> for the client. This is where your profit comes from.</p>
+    <table>
+      <tr><th>Markup Type</th><th>Applied To</th><th>Default</th><th>What It Means</th></tr>
+      <tr><td><strong>Material Markup</strong></td><td>All material and equipment costs</td><td>50%</td><td>$100 cost → $150 sell price ($50 gross profit)</td></tr>
+      <tr><td><strong>Labor Markup</strong></td><td>All labor hours (after burden)</td><td>50%</td><td>$100 loaded labor → $150 sell price</td></tr>
+      <tr><td><strong>Equipment Markup</strong></td><td>Rental equipment (lifts, tools, vehicles)</td><td>15%</td><td>$1,000 rental → $1,150 sell price</td></tr>
+      <tr><td><strong>Subcontractor Markup</strong></td><td>All subcontractor costs (civil, electrical, fire alarm)</td><td>10%</td><td>$50,000 sub cost → $55,000 sell price</td></tr>
+    </table>
+
+    <h4>How the Final Bid Price is Calculated</h4>
+    <p>The Financial Engine brain combines all of these settings into your grand total:</p>
+    <ol class="step-list">
+      <li><strong>Raw material cost</strong> = AI quantities × tier unit prices × regional multiplier</li>
+      <li><strong>Material sell price</strong> = Raw cost × (1 + Material Markup %)</li>
+      <li><strong>Raw labor cost</strong> = AI labor hours × hourly rate × (1 + Burden %)</li>
+      <li><strong>Labor sell price</strong> = Loaded cost × (1 + Labor Markup %)</li>
+      <li><strong>Equipment sell</strong> = Equipment cost × (1 + Equipment Markup %)</li>
+      <li><strong>Subcontractor sell</strong> = Sub cost × (1 + Sub Markup %)</li>
+      <li><strong>Direct cost subtotal</strong> = Material sell + Labor sell + Equipment sell + Sub sell + Travel</li>
+      <li><strong>G&A overhead</strong> = Subtotal × 15% (general and administrative)</li>
+      <li><strong>Profit</strong> = (Subtotal + G&A) × 10%</li>
+      <li><strong>Contingency</strong> = Total × 10% (risk buffer for unknowns)</li>
+      <li><strong>Grand Total (Bid Price)</strong> = Everything above combined</li>
+    </ol>
+
+    <div class="callout callout-tip"><strong>Pro Tip:</strong> Use the <strong>Bid Strategy</strong> feature on the results page to apply different markup percentages per category based on your confidence level — higher markup on uncertain items, lower on well-known costs.</div>
+
+    <!-- ============================================================ -->
     <!-- REGIONAL PRICING -->
     <!-- ============================================================ -->
-    <h2 id="regional-pricing">18. Regional Pricing</h2>
+    <h2 id="regional-pricing">20. Regional Pricing</h2>
     <p>SmartPlans includes detailed regional pricing data to ensure estimates reflect local labor and material costs.</p>
 
     <h4>California County-Level Prevailing Wages</h4>
