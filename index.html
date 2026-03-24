@@ -122,7 +122,7 @@
       crossorigin="anonymous"
     ></script>
     <script>
-      if (typeof Sentry !== 'undefined') {
+      if (typeof Sentry !== 'undefined' && typeof Sentry.init === 'function') {
         Sentry.init({
           dsn: "https://60b02e5d7804fc77476c97324b9039e5@o4511099720957952.ingest.us.sentry.io/4511099752284160",
           environment: location.hostname.includes('localhost') ? 'development' : 'production',
@@ -130,8 +130,8 @@
           tracesSampleRate: 0.1,
           replaysSessionSampleRate: 0,
           replaysOnErrorSampleRate: 1.0,
+          initialScope: { tags: { app: 'smartplans' } },
         });
-        Sentry.setTag('app', 'smartplans');
         console.log('[SmartPlans] Sentry error tracking initialized');
       }
     </script>
