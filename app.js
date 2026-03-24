@@ -358,6 +358,131 @@ const FILE_FORMATS = [
   { label: "Low-res PDF / JPEG", quality: "poor", color: "#f43f5e" },
 ];
 
+// ═══════════════════════════════════════════════════════════════
+// EXCLUSION & ASSUMPTION TEMPLATES — Pre-built defaults by discipline
+// ═══════════════════════════════════════════════════════════════
+
+const EXCLUSION_TEMPLATES = {
+  _general: {
+    exclusion: [
+      { text: "Excludes permit fees unless noted", category: "General" },
+      { text: "Excludes sales tax", category: "General" },
+      { text: "Excludes core drilling", category: "General" },
+      { text: "Excludes painting/patching after installation", category: "General" },
+      { text: "Excludes engineering or design services", category: "General" },
+      { text: "Excludes work above 12ft without scaffolding provided by others", category: "General" },
+      { text: "Excludes overtime, weekend, or holiday premium labor", category: "General" },
+    ],
+    assumption: [
+      { text: "Assumes normal working hours (7am-3:30pm)", category: "General" },
+      { text: "Assumes adequate site access for material delivery", category: "General" },
+      { text: "Assumes power available within 50ft of equipment locations", category: "General" },
+      { text: "Assumes clean, dry, and secure storage area available on-site", category: "General" },
+      { text: "Assumes all pathways are in place by others prior to cable installation", category: "General" },
+    ],
+    clarification: [
+      { text: "Pricing is valid for 30 days from date of proposal", category: "General" },
+      { text: "Quantities are based on plan review and may change with field conditions", category: "General" },
+    ],
+  },
+  "Structured Cabling": {
+    exclusion: [
+      { text: "Excludes furniture feeds", category: "Structured Cabling" },
+      { text: "Excludes firestopping (by others)", category: "Structured Cabling" },
+      { text: "Excludes backbone cabling between buildings", category: "Structured Cabling" },
+      { text: "Excludes telecom room build-out (racks, power, cooling) unless listed in BOM", category: "Structured Cabling" },
+    ],
+    assumption: [
+      { text: "Assumes open ceiling access throughout", category: "Structured Cabling" },
+      { text: "Assumes J-hooks or cable tray installed by others at 5ft intervals", category: "Structured Cabling" },
+      { text: "Assumes all cabling is plenum-rated per code", category: "Structured Cabling" },
+    ],
+    clarification: [],
+  },
+  "CCTV": {
+    exclusion: [
+      { text: "Excludes network switches (OFCI)", category: "CCTV" },
+      { text: "Excludes lighting for camera coverage", category: "CCTV" },
+      { text: "Excludes network infrastructure beyond camera drops", category: "CCTV" },
+      { text: "Excludes VMS software licensing (OFCI)", category: "CCTV" },
+    ],
+    assumption: [
+      { text: "Assumes adequate PoE budget at switches", category: "CCTV" },
+      { text: "Assumes adequate power at camera locations", category: "CCTV" },
+      { text: "Assumes network bandwidth is sufficient for camera streams", category: "CCTV" },
+    ],
+    clarification: [],
+  },
+  "Access Control": {
+    exclusion: [
+      { text: "Excludes door hardware modifications", category: "Access Control" },
+      { text: "Excludes integration with elevator controls", category: "Access Control" },
+      { text: "Excludes visitor management software licensing", category: "Access Control" },
+    ],
+    assumption: [
+      { text: "Assumes standard door prep by door hardware contractor", category: "Access Control" },
+      { text: "Assumes low-voltage power at each door location", category: "Access Control" },
+      { text: "Assumes max 300ft cable run from panel to farthest reader", category: "Access Control" },
+    ],
+    clarification: [],
+  },
+  "Fire Alarm": {
+    exclusion: [
+      { text: "Excludes fire sprinkler system", category: "Fire Alarm" },
+      { text: "Excludes seismic bracing", category: "Fire Alarm" },
+      { text: "Excludes mass notification system (MNS) unless listed", category: "Fire Alarm" },
+    ],
+    assumption: [
+      { text: "Assumes existing FACP has capacity for new devices", category: "Fire Alarm" },
+      { text: "Assumes existing wiring is in acceptable condition for reuse", category: "Fire Alarm" },
+      { text: "Assumes AHJ will not require full system replacement", category: "Fire Alarm" },
+    ],
+    clarification: [],
+  },
+  "Audio Visual": {
+    exclusion: [
+      { text: "Excludes furniture integration and millwork modifications", category: "Audio Visual" },
+      { text: "Excludes acoustical treatment", category: "Audio Visual" },
+      { text: "Excludes display content creation or programming beyond initial setup", category: "Audio Visual" },
+    ],
+    assumption: [
+      { text: "Assumes dedicated 20A circuit at each equipment rack location", category: "Audio Visual" },
+      { text: "Assumes conduit and backing boxes installed by electrical contractor", category: "Audio Visual" },
+    ],
+    clarification: [],
+  },
+  "Intrusion Detection": {
+    exclusion: [
+      { text: "Excludes central station monitoring service contract", category: "Intrusion Detection" },
+      { text: "Excludes integration with fire alarm system", category: "Intrusion Detection" },
+    ],
+    assumption: [
+      { text: "Assumes standard partition walls (not concrete/masonry) for sensor mounting", category: "Intrusion Detection" },
+      { text: "Assumes dedicated phone line or IP connection for alarm communication", category: "Intrusion Detection" },
+    ],
+    clarification: [],
+  },
+};
+
+function getDefaultExclusions(disciplines) {
+  const items = [];
+  for (const type of ['exclusion', 'assumption', 'clarification']) {
+    (EXCLUSION_TEMPLATES._general[type] || []).forEach((t, i) => {
+      items.push({ ...t, type, sort_order: i });
+    });
+  }
+  for (const disc of disciplines) {
+    const tpl = EXCLUSION_TEMPLATES[disc];
+    if (!tpl) continue;
+    for (const type of ['exclusion', 'assumption', 'clarification']) {
+      (tpl[type] || []).forEach((t, i) => {
+        items.push({ ...t, type, sort_order: 100 + i });
+      });
+    }
+  }
+  return items;
+}
+
 const RFI_TEMPLATES = {
   "Structured Cabling": [
     { id: "SC-001", q: "Data outlet symbols are inconsistent across sheets. Please confirm symbol definitions and clarify whether each represents single-gang, dual-gang, or multi-port configurations.", reason: "Inconsistent symbols cause cable and faceplate miscounts." },
@@ -505,6 +630,29 @@ const state = {
   // Supplier Pricing
   supplierPriceOverrides: {},   // "catIndex-itemIndex" → { unitCost, supplierName, appliedAt }
   supplierQuotes: [],           // cached list from API
+
+  // Bid Strategy — per-category markup & confidence
+  bidStrategy: {
+    categoryMarkups: {},        // { "Structured Cabling": { materialMarkup: 50, laborMarkup: 50, confidence: "medium" }, ... }
+    defaultMaterialMarkup: 50,
+    defaultLaborMarkup: 50,
+    contingencyByConfidence: { high: 5, medium: 10, low: 20 },
+    applied: false,             // true after user clicks "Apply Strategy"
+  },
+
+  // Bid Phases / Alternates
+  // Each phase: { id, name, type: 'base'|'add'|'deduct'|'optional', categoryIndices: [], includeInProposal: true }
+  // categoryIndices holds BOM category indices assigned to this phase
+  bidPhases: [
+    { id: 'base', name: 'Base Bid', type: 'base', categoryIndices: [], includeInProposal: true }
+  ],
+  _bidPhasesOpen: false,
+  _bidPhaseCounter: 0,
+
+  // Exclusions & Assumptions
+  exclusions: [],           // cached from API: [{ id, type, text, category, sort_order }]
+  _exclusionsLoaded: false, // true after first API load
+  _exclusionsTab: 'exclusion', // active tab: 'exclusion', 'assumption', 'clarification'
 };
 
 
@@ -1630,6 +1778,178 @@ function renderStep5(container) {
 }
 
 
+// ─── Bid Strategy Card Builder ───
+function buildBidStrategyCard(st) {
+  if (!st.aiAnalysis) return '';
+  const bom = SmartPlansExport._extractBOMFromAnalysis(st.aiAnalysis);
+  if (!bom || !bom.categories || bom.categories.length === 0) return '';
+  const bs = st.bidStrategy;
+  const fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const confColors = { high: '#10b981', medium: '#f59e0b', low: '#ef4444' };
+  const confBgColors = { high: 'rgba(16,185,129,0.08)', medium: 'rgba(245,158,11,0.08)', low: 'rgba(239,68,68,0.08)' };
+  const confBorderColors = { high: 'rgba(16,185,129,0.3)', medium: 'rgba(245,158,11,0.3)', low: 'rgba(239,68,68,0.3)' };
+  const isLaborCat = (name) => /labor|install|rough|trim|commission|program|test|mobiliz/i.test(name);
+  let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
+  let catRows = '';
+  bom.categories.forEach((cat, ci) => {
+    const catName = cat.name;
+    const isLabor = isLaborCat(catName);
+    const cm = bs.categoryMarkups[catName] || { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup, confidence: 'medium' };
+    const materialCost = isLabor ? 0 : cat.subtotal;
+    const laborCost = isLabor ? cat.subtotal : 0;
+    const matPct = cm.materialMarkup, labPct = cm.laborMarkup, conf = cm.confidence;
+    const contPct = bs.contingencyByConfidence[conf] || 10;
+    const matMarked = materialCost * (1 + matPct / 100);
+    const labMarked = laborCost * (1 + labPct / 100);
+    const subMarked = matMarked + labMarked;
+    const contAmt = subMarked * (contPct / 100);
+    const finalPrice = subMarked + contAmt;
+    totalMaterial += materialCost; totalLabor += laborCost;
+    totalMarkup += (matMarked - materialCost) + (labMarked - laborCost);
+    totalContingency += contAmt;
+    const cc = confColors[conf], cbg = confBgColors[conf], cbr = confBorderColors[conf];
+    catRows += `<tr class="bid-strategy-row" data-bs-cat="${esc(catName)}" data-bs-idx="${ci}" style="border-bottom:1px solid var(--border-subtle);">
+      <td style="padding:10px 12px;font-size:12px;font-weight:600;color:var(--text-primary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(catName)}">${esc(catName)}</td>
+      <td style="padding:10px 8px;font-size:12px;color:var(--text-secondary);text-align:right;">${fmtD(materialCost)}</td>
+      <td style="padding:10px 4px;text-align:center;"><input type="number" class="bid-strategy-input bs-mat-markup" data-bs-cat="${esc(catName)}" value="${matPct}" min="0" max="200" step="1" style="width:58px;padding:4px 6px;border-radius:0;border:1px solid var(--border-medium);background:var(--bg-surface-2);color:var(--text-primary);font-size:12px;text-align:center;outline:none;" ${isLabor ? 'disabled' : ''} /><span style="font-size:10px;color:var(--text-muted);">%</span></td>
+      <td style="padding:10px 8px;font-size:12px;color:var(--text-secondary);text-align:right;">${fmtD(laborCost)}</td>
+      <td style="padding:10px 4px;text-align:center;"><input type="number" class="bid-strategy-input bs-lab-markup" data-bs-cat="${esc(catName)}" value="${labPct}" min="0" max="200" step="1" style="width:58px;padding:4px 6px;border-radius:0;border:1px solid var(--border-medium);background:var(--bg-surface-2);color:var(--text-primary);font-size:12px;text-align:center;outline:none;" ${!isLabor ? 'disabled' : ''} /><span style="font-size:10px;color:var(--text-muted);">%</span></td>
+      <td style="padding:10px 4px;text-align:center;"><select class="bid-strategy-input bs-confidence" data-bs-cat="${esc(catName)}" style="padding:4px 6px;border-radius:0;border:1px solid ${cbr};background:${cbg};color:${cc};font-size:11px;font-weight:700;cursor:pointer;outline:none;text-transform:uppercase;">
+        <option value="high" ${conf === 'high' ? 'selected' : ''} style="color:#10b981;">High</option>
+        <option value="medium" ${conf === 'medium' ? 'selected' : ''} style="color:#f59e0b;">Medium</option>
+        <option value="low" ${conf === 'low' ? 'selected' : ''} style="color:#ef4444;">Low</option>
+      </select></td>
+      <td style="padding:10px 8px;font-size:11px;text-align:center;color:${cc};font-weight:700;">${contPct}%</td>
+      <td style="padding:10px 12px;font-size:12px;font-weight:700;color:var(--accent-teal);text-align:right;">${fmtD(finalPrice)}</td>
+    </tr>`;
+  });
+  const grandTotal = totalMaterial + totalLabor + totalMarkup + totalContingency;
+  return `
+    <div style="border-top:1px solid var(--border-subtle);margin:24px 0;"></div>
+    <div class="info-card" style="margin-bottom:22px;border:1px solid rgba(13,148,136,0.2);background:#FFFFFF;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="bid-strategy-toggle">
+        <div class="info-card-title" style="margin-bottom:0;color:var(--accent-teal);">BID STRATEGY</div>
+        <span id="bid-strategy-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">&#9654;</span>
+      </div>
+      <div id="bid-strategy-collapsible" style="display:none;margin-top:12px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;padding-left:8px;line-height:1.6;">Adjust markup percentages and confidence levels for each BOM category. Higher markup on uncertain items, lower on well-known items. Contingency is auto-calculated from confidence level.</div>
+        <div style="overflow-x:auto;border:1px solid var(--border-subtle);">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;" id="bid-strategy-table">
+            <thead><tr style="background:var(--bg-surface-2);">
+              <th class="bs-th">Category</th><th class="bs-th" style="text-align:right;">Material Cost</th><th class="bs-th" style="text-align:center;">Mat Markup</th><th class="bs-th" style="text-align:right;">Labor Cost</th><th class="bs-th" style="text-align:center;">Lab Markup</th><th class="bs-th" style="text-align:center;">Confidence</th><th class="bs-th" style="text-align:center;">Conting.</th><th class="bs-th" style="text-align:right;">Final Price</th>
+            </tr></thead>
+            <tbody>${catRows}</tbody>
+          </table>
+        </div>
+        <div id="bid-strategy-summary" style="margin-top:14px;padding:14px 16px;background:var(--bg-surface-2);border:1px solid var(--border-subtle);">
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;text-align:center;">
+            <div><div class="bs-summary-label">Total Material</div><div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-top:4px;" id="bs-total-material">${fmtD(totalMaterial)}</div></div>
+            <div><div class="bs-summary-label">Total Labor</div><div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-top:4px;" id="bs-total-labor">${fmtD(totalLabor)}</div></div>
+            <div><div class="bs-summary-label">Total Markup</div><div style="font-size:14px;font-weight:700;color:var(--accent-teal);margin-top:4px;" id="bs-total-markup">${fmtD(totalMarkup)}</div></div>
+            <div><div class="bs-summary-label">Total Contingency</div><div style="font-size:14px;font-weight:700;color:#f59e0b;margin-top:4px;" id="bs-total-contingency">${fmtD(totalContingency)}</div></div>
+            <div><div class="bs-summary-label">Grand Total</div><div style="font-size:16px;font-weight:800;color:var(--accent-teal);margin-top:4px;" id="bs-grand-total">${fmtD(grandTotal)}</div></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px;">
+          <button id="bs-apply-strategy" class="bs-action-btn bs-action-btn--apply">Apply Strategy</button>
+          <button id="bs-reset-default" class="bs-action-btn bs-action-btn--reset">Reset to Default</button>
+        </div>
+        ${bs.applied ? '<div class="bs-applied-banner">Strategy applied. Export or generate proposal to include these markups.</div>' : ''}
+      </div>
+    </div>`;
+}
+
+function bindBidStrategyEvents(container) {
+  const bsToggle = document.getElementById('bid-strategy-toggle');
+  if (bsToggle) {
+    bsToggle.addEventListener('click', () => {
+      const body = document.getElementById('bid-strategy-collapsible');
+      const icon = document.getElementById('bid-strategy-toggle-icon');
+      if (body.style.display === 'none') { body.style.display = 'block'; icon.innerHTML = '&#9660;'; }
+      else { body.style.display = 'none'; icon.innerHTML = '&#9654;'; }
+    });
+  }
+  const bsTable = document.getElementById('bid-strategy-table');
+  if (bsTable) {
+    bsTable.addEventListener('input', (e) => {
+      const input = e.target;
+      if (!input.classList.contains('bid-strategy-input')) return;
+      const catName = input.dataset.bsCat; if (!catName) return;
+      const bs = state.bidStrategy;
+      if (!bs.categoryMarkups[catName]) bs.categoryMarkups[catName] = { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup, confidence: 'medium' };
+      if (input.classList.contains('bs-mat-markup')) bs.categoryMarkups[catName].materialMarkup = parseFloat(input.value) || 0;
+      else if (input.classList.contains('bs-lab-markup')) bs.categoryMarkups[catName].laborMarkup = parseFloat(input.value) || 0;
+      recalcBidStrategySummary();
+    });
+    bsTable.addEventListener('change', (e) => {
+      const sel = e.target;
+      if (!sel.classList.contains('bs-confidence')) return;
+      const catName = sel.dataset.bsCat; if (!catName) return;
+      const bs = state.bidStrategy;
+      if (!bs.categoryMarkups[catName]) bs.categoryMarkups[catName] = { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup, confidence: 'medium' };
+      bs.categoryMarkups[catName].confidence = sel.value;
+      const cCols = { high: '#10b981', medium: '#f59e0b', low: '#ef4444' };
+      const cBgs = { high: 'rgba(16,185,129,0.08)', medium: 'rgba(245,158,11,0.08)', low: 'rgba(239,68,68,0.08)' };
+      const cBrs = { high: 'rgba(16,185,129,0.3)', medium: 'rgba(245,158,11,0.3)', low: 'rgba(239,68,68,0.3)' };
+      sel.style.color = cCols[sel.value]; sel.style.background = cBgs[sel.value]; sel.style.borderColor = cBrs[sel.value];
+      recalcBidStrategySummary();
+    });
+  }
+  const applyBtn = document.getElementById('bs-apply-strategy');
+  if (applyBtn) {
+    applyBtn.addEventListener('click', () => {
+      const result = SmartPlansExport.applyBidStrategy(state);
+      state.bidStrategy.applied = true;
+      if (typeof spToast === 'function') {
+        const f = (v) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        spToast('Bid strategy applied. Grand total: ' + f(result.grandTotalWithStrategy), 'success');
+      }
+      renderStep6(container);
+    });
+  }
+  const resetBtn = document.getElementById('bs-reset-default');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      state.bidStrategy.categoryMarkups = {};
+      state.bidStrategy.applied = false;
+      renderStep6(container);
+    });
+  }
+}
+
+function recalcBidStrategySummary() {
+  const bom = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis);
+  if (!bom || !bom.categories) return;
+  const bs = state.bidStrategy;
+  const isLaborCat = (name) => /labor|install|rough|trim|commission|program|test|mobiliz/i.test(name);
+  const fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
+  document.querySelectorAll('.bid-strategy-row').forEach(row => {
+    const catName = row.dataset.bsCat, ci = parseInt(row.dataset.bsIdx);
+    const cat = bom.categories[ci]; if (!cat) return;
+    const isLabor = isLaborCat(catName);
+    const cm = bs.categoryMarkups[catName] || { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup, confidence: 'medium' };
+    const materialCost = isLabor ? 0 : cat.subtotal, laborCost = isLabor ? cat.subtotal : 0;
+    const contPct = bs.contingencyByConfidence[cm.confidence] || 10;
+    const matMarked = materialCost * (1 + cm.materialMarkup / 100);
+    const labMarked = laborCost * (1 + cm.laborMarkup / 100);
+    const subMarked = matMarked + labMarked;
+    const contAmt = subMarked * (contPct / 100);
+    const finalPrice = subMarked + contAmt;
+    totalMaterial += materialCost; totalLabor += laborCost;
+    totalMarkup += (matMarked - materialCost) + (labMarked - laborCost);
+    totalContingency += contAmt;
+    const cells = row.querySelectorAll('td');
+    const cCols = { high: '#10b981', medium: '#f59e0b', low: '#ef4444' };
+    if (cells[6]) { cells[6].textContent = contPct + '%'; cells[6].style.color = cCols[cm.confidence]; }
+    if (cells[7]) cells[7].textContent = fmtD(finalPrice);
+  });
+  const grandTotal = totalMaterial + totalLabor + totalMarkup + totalContingency;
+  const vals = { 'bs-total-material': fmtD(totalMaterial), 'bs-total-labor': fmtD(totalLabor), 'bs-total-markup': fmtD(totalMarkup), 'bs-total-contingency': fmtD(totalContingency), 'bs-grand-total': fmtD(grandTotal) };
+  for (const [id, val] of Object.entries(vals)) { const el = document.getElementById(id); if (el) el.textContent = val; }
+}
+
+
 // ─── Step 6: Results & RFIs ───
 function renderStep6(container) {
   const rfis = getRelevantRFIs();
@@ -1894,6 +2214,39 @@ function renderStep6(container) {
           </div>
         </div>
         <div id="supplier-quotes-container"></div>
+      </div>
+
+      <!-- Rate Library Section -->
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(13,148,136,0.15);">
+        <div style="font-weight:700;font-size:13px;color:rgba(13,148,136,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
+          <i data-lucide="library" style="width:16px;height:16px;"></i> Rate Library
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <button class="export-pkg-btn" id="rate-library-open" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:0;border:1px solid rgba(13,148,136,0.3);background:linear-gradient(135deg,rgba(13,148,136,0.08),rgba(13,148,136,0.03));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;width:100%;">
+            <span style="font-size:20px;">📚</span>
+            <div style="flex:1;">
+              <div style="font-weight:700;font-size:13px;">Rate Library</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Browse &amp; manage your saved material rates</div>
+            </div>
+          </button>
+          <button class="export-pkg-btn" id="rate-library-apply" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:0;border:1px solid rgba(13,148,136,0.3);background:linear-gradient(135deg,rgba(13,148,136,0.08),rgba(13,148,136,0.03));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;width:100%;">
+            <span style="font-size:20px;">⚡</span>
+            <div style="flex:1;">
+              <div style="font-weight:700;font-size:13px;">Apply to Estimate</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Override BOM pricing with your saved rates</div>
+            </div>
+          </button>
+        </div>
+        ${state.aiAnalysis ? `
+        <div style="margin-top:10px;">
+          <button class="export-pkg-btn" id="rate-library-save-from-estimate" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:0;border:1px dashed rgba(13,148,136,0.3);background:rgba(13,148,136,0.02);color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;width:100%;">
+            <span style="font-size:20px;">💾</span>
+            <div style="flex:1;">
+              <div style="font-weight:700;font-size:13px;">Save Rates from This Estimate</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Bulk-save all BOM items to your rate library for future bids</div>
+            </div>
+          </button>
+        </div>` : ''}
       </div>`;
 
   // ── Editable BOM Table ──
@@ -2105,6 +2458,42 @@ function renderStep6(container) {
     ${aiSection}
 
     ${bomTableHtml}
+
+    <div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div>
+    <div class="info-card info-card--sky" id="exclusions-card" style="margin-bottom:22px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-left:8px;">
+        <div class="info-card-title" style="margin-bottom:0;"><i data-lucide="shield-alert" style="width:16px;height:16px;"></i> EXCLUSIONS &amp; ASSUMPTIONS</div>
+        <div style="display:flex;gap:6px;">
+          <button id="excl-auto-generate" style="display:flex;align-items:center;gap:4px;padding:6px 12px;border-radius:0;border:1px solid rgba(13,148,136,0.3);background:rgba(13,148,136,0.06);color:var(--accent-teal);cursor:pointer;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">
+            <i data-lucide="sparkles" style="width:12px;height:12px;"></i> Auto-Generate
+          </button>
+          <button id="excl-load-defaults" style="display:flex;align-items:center;gap:4px;padding:6px 12px;border-radius:0;border:1px solid rgba(0,0,0,0.1);background:rgba(0,0,0,0.02);color:var(--text-secondary);cursor:pointer;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">
+            <i data-lucide="list-plus" style="width:12px;height:12px;"></i> Load Defaults
+          </button>
+        </div>
+      </div>
+      <div class="info-card-body" style="padding-left:8px;margin-bottom:14px;font-size:12px;color:var(--text-muted);">
+        Document what is NOT included in your bid and what assumptions you are making. These lists go into proposals for legal protection.
+      </div>
+      <div class="excl-tabs" style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid rgba(0,0,0,0.06);">
+        <button class="excl-tab excl-tab--active" data-excl-tab="exclusion" style="padding:8px 18px;border:none;background:none;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:2px;cursor:pointer;color:var(--accent-teal);border-bottom:2px solid var(--accent-teal);margin-bottom:-2px;">Exclusions</button>
+        <button class="excl-tab" data-excl-tab="assumption" style="padding:8px 18px;border:none;background:none;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:2px;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-2px;">Assumptions</button>
+        <button class="excl-tab" data-excl-tab="clarification" style="padding:8px 18px;border:none;background:none;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:2px;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-2px;">Clarifications</button>
+      </div>
+      <div id="excl-list" style="min-height:40px;"></div>
+      <div id="excl-add-form" style="display:flex;gap:8px;margin-top:12px;align-items:flex-start;">
+        <input type="text" id="excl-add-text" placeholder="Add new item..." style="flex:1;padding:8px 12px;border:1px solid rgba(0,0,0,0.1);border-radius:0;font-size:13px;font-family:var(--font-sans);color:var(--text-primary);background:#FAFBFC;">
+        <select id="excl-add-category" style="padding:8px 10px;border:1px solid rgba(0,0,0,0.1);border-radius:0;font-size:12px;font-family:var(--font-sans);color:var(--text-secondary);background:#FAFBFC;min-width:140px;">
+          <option value="General">General</option>
+          ${state.disciplines.map(d => '<option value="' + esc(d) + '">' + esc(d) + '</option>').join('')}
+        </select>
+        <button id="excl-add-btn" style="padding:8px 16px;border:1px solid rgba(13,148,136,0.3);border-radius:0;background:rgba(13,148,136,0.08);color:var(--accent-teal);font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;">+ ADD</button>
+      </div>
+    </div>
+
+    ${buildBidStrategyCard(state)}
+
+    ${buildBidPhasesCard(state)}
 
     ${exportPanel}
 
@@ -2362,6 +2751,14 @@ function renderStep6(container) {
   // Load supplier quotes on step 6 render
   loadSupplierQuotes();
 
+  // Inject benchmark indicators into BOM table if available
+  _injectBenchmarksIntoBOM();
+
+  // ── Exclusions & Assumptions ──
+  initExclusionsPanel(container);
+  bindBidStrategyEvents(container);
+  bindBidPhasesEvents(container);
+
   // Initialize Lucide icons after DOM update
   if (typeof lucide !== 'undefined') {
     try { lucide.createIcons(); } catch(e) { /* Lucide not loaded */ }
@@ -2533,6 +2930,16 @@ function renderStep6(container) {
       });
     });
   }
+
+  // ── Rate Library Button Handlers ──
+  const rateLibOpenBtn = document.getElementById('rate-library-open');
+  if (rateLibOpenBtn) rateLibOpenBtn.addEventListener('click', () => showRateLibraryPanel());
+
+  const rateLibApplyBtn = document.getElementById('rate-library-apply');
+  if (rateLibApplyBtn) rateLibApplyBtn.addEventListener('click', () => applyRateLibraryToEstimate(container));
+
+  const rateLibSaveBtn = document.getElementById('rate-library-save-from-estimate');
+  if (rateLibSaveBtn) rateLibSaveBtn.addEventListener('click', () => saveRatesFromEstimate());
 
   // Copy analysis to clipboard
   const copyBtn = document.getElementById("btn-copy-analysis");
@@ -2780,6 +3187,193 @@ function renderStep6(container) {
     });
   }
 
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// EXCLUSIONS & ASSUMPTIONS PANEL
+// ═══════════════════════════════════════════════════════════════
+
+function initExclusionsPanel(container) {
+  const card = document.getElementById('exclusions-card');
+  if (!card) return;
+
+  function renderExclList() {
+    const listEl = document.getElementById('excl-list');
+    if (!listEl) return;
+    const filtered = state.exclusions.filter(e => e.type === state._exclusionsTab);
+    filtered.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    if (filtered.length === 0) {
+      const typeLabel = state._exclusionsTab === 'exclusion' ? 'exclusions' : state._exclusionsTab === 'assumption' ? 'assumptions' : 'clarifications';
+      listEl.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px;border:1px dashed rgba(0,0,0,0.08);">No ${typeLabel} added yet. Click "Load Defaults" or "Auto-Generate" to get started, or add items manually below.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = filtered.map((item, idx) => `
+      <div class="excl-item" data-excl-id="${esc(item.id)}" style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:1px solid rgba(0,0,0,0.06);margin-bottom:4px;background:#FAFBFC;transition:background 0.15s;">
+        <div style="display:flex;flex-direction:column;gap:2px;margin-right:2px;">
+          <button class="excl-move-up" data-excl-id="${esc(item.id)}" style="border:none;background:none;cursor:pointer;padding:0 2px;font-size:10px;color:var(--text-muted);line-height:1;" ${idx === 0 ? 'disabled' : ''} title="Move up">&#9650;</button>
+          <button class="excl-move-down" data-excl-id="${esc(item.id)}" style="border:none;background:none;cursor:pointer;padding:0 2px;font-size:10px;color:var(--text-muted);line-height:1;" ${idx === filtered.length - 1 ? 'disabled' : ''} title="Move down">&#9660;</button>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div class="excl-item-text" style="font-size:13px;color:var(--text-primary);line-height:1.5;">${esc(item.text)}</div>
+          ${item.category ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;text-transform:uppercase;letter-spacing:1px;">${esc(item.category)}</div>` : ''}
+        </div>
+        <button class="excl-edit-btn" data-excl-id="${esc(item.id)}" style="border:none;background:none;cursor:pointer;padding:4px;color:var(--text-muted);font-size:12px;" title="Edit"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button>
+        <button class="excl-delete-btn" data-excl-id="${esc(item.id)}" style="border:none;background:none;cursor:pointer;padding:4px;color:var(--accent-rose);font-size:12px;" title="Delete"><i data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
+      </div>
+    `).join('');
+
+    if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) {}
+    listEl.querySelectorAll('.excl-move-up').forEach(btn => btn.addEventListener('click', () => moveExclItem(btn.dataset.exclId, -1)));
+    listEl.querySelectorAll('.excl-move-down').forEach(btn => btn.addEventListener('click', () => moveExclItem(btn.dataset.exclId, 1)));
+    listEl.querySelectorAll('.excl-edit-btn').forEach(btn => btn.addEventListener('click', () => editExclItem(btn.dataset.exclId)));
+    listEl.querySelectorAll('.excl-delete-btn').forEach(btn => btn.addEventListener('click', () => deleteExclItem(btn.dataset.exclId)));
+  }
+
+  function moveExclItem(id, dir) {
+    const filtered = state.exclusions.filter(e => e.type === state._exclusionsTab).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const idx = filtered.findIndex(e => e.id === id);
+    if (idx < 0) return;
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= filtered.length) return;
+    const tmp = filtered[idx].sort_order; filtered[idx].sort_order = filtered[swapIdx].sort_order; filtered[swapIdx].sort_order = tmp;
+    if (state.estimateId) {
+      fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: filtered[idx].id, items: [{ id: filtered[idx].id, sort_order: filtered[idx].sort_order }, { id: filtered[swapIdx].id, sort_order: filtered[swapIdx].sort_order }] })
+      }).catch(err => console.warn('[SmartPlans] Sort order update failed:', err));
+    }
+    renderExclList();
+  }
+
+  function editExclItem(id) {
+    const item = state.exclusions.find(e => e.id === id);
+    if (!item) return;
+    const row = card.querySelector(`.excl-item[data-excl-id="${id}"]`);
+    const textDiv = row && row.querySelector('.excl-item-text');
+    if (!textDiv) return;
+    const cur = item.text;
+    textDiv.innerHTML = `<input type="text" class="excl-inline-edit" value="${esc(cur)}" style="width:100%;padding:4px 8px;border:1px solid rgba(13,148,136,0.3);font-size:13px;font-family:var(--font-sans);color:var(--text-primary);">`;
+    const inp = textDiv.querySelector('.excl-inline-edit'); inp.focus(); inp.select();
+    function save() {
+      const v = inp.value.trim();
+      if (!v || v === cur) { renderExclList(); return; }
+      item.text = v;
+      if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, text: v }) }).catch(() => {});
+      renderExclList();
+      if (typeof spToast === 'function') spToast('Item updated', 'success');
+    }
+    inp.addEventListener('blur', save);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') renderExclList(); });
+  }
+
+  function deleteExclItem(id) {
+    const idx = state.exclusions.findIndex(e => e.id === id);
+    if (idx < 0) return;
+    state.exclusions.splice(idx, 1);
+    if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {});
+    renderExclList();
+    if (typeof spToast === 'function') spToast('Item removed', 'success');
+  }
+
+  function addExclItem(text, category) {
+    const t = text.trim(); if (!t) return;
+    const maxOrder = state.exclusions.filter(e => e.type === state._exclusionsTab).reduce((m, e) => Math.max(m, e.sort_order || 0), 0);
+    const newItem = { id: crypto.randomUUID().replace(/-/g, ''), type: state._exclusionsTab, text: t, category: category || 'General', sort_order: maxOrder + 1 };
+    state.exclusions.push(newItem);
+    if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItem) }).catch(() => {});
+    renderExclList();
+  }
+
+  // Tab switching
+  card.querySelectorAll('.excl-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      state._exclusionsTab = tab.dataset.exclTab;
+      card.querySelectorAll('.excl-tab').forEach(t => {
+        const active = t.dataset.exclTab === state._exclusionsTab;
+        t.style.color = active ? 'var(--accent-teal)' : 'var(--text-muted)';
+        t.style.borderBottomColor = active ? 'var(--accent-teal)' : 'transparent';
+      });
+      renderExclList();
+    });
+  });
+
+  // Add button + enter key
+  const addBtn = document.getElementById('excl-add-btn');
+  const addText = document.getElementById('excl-add-text');
+  const addCat = document.getElementById('excl-add-category');
+  if (addBtn && addText) {
+    addBtn.addEventListener('click', () => { addExclItem(addText.value, addCat ? addCat.value : 'General'); addText.value = ''; addText.focus(); });
+    addText.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addExclItem(addText.value, addCat ? addCat.value : 'General'); addText.value = ''; } });
+  }
+
+  // Load Defaults
+  const loadDefaultsBtn = document.getElementById('excl-load-defaults');
+  if (loadDefaultsBtn) {
+    loadDefaultsBtn.addEventListener('click', () => {
+      const defaults = getDefaultExclusions(state.disciplines);
+      let added = 0; const newItems = [];
+      for (const d of defaults) {
+        if (state.exclusions.some(e => e.type === d.type && e.text === d.text)) continue;
+        const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: d.type, text: d.text, category: d.category || 'General', sort_order: d.sort_order || 0 };
+        state.exclusions.push(ni); newItems.push(ni); added++;
+      }
+      if (state.estimateId && newItems.length > 0) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItems) }).catch(() => {});
+      renderExclList();
+      if (typeof spToast === 'function') spToast(`${added} default items loaded`, 'success');
+    });
+  }
+
+  // Auto-Generate via AI
+  const autoGenBtn = document.getElementById('excl-auto-generate');
+  if (autoGenBtn) {
+    autoGenBtn.addEventListener('click', async () => {
+      if (!state.aiAnalysis) { if (typeof spToast === 'function') spToast('Run the AI analysis first', 'warning'); return; }
+      autoGenBtn.disabled = true;
+      autoGenBtn.innerHTML = '<i data-lucide="loader" style="width:12px;height:12px;"></i> Generating...';
+      if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) {}
+      try {
+        const snippet = (state.aiAnalysis || '').substring(0, 8000);
+        const discs = state.disciplines.join(', ');
+        const prompt = `Based on this low-voltage estimate analysis for disciplines: ${discs}\n\n${snippet}\n\nGenerate a JSON array of exclusions, assumptions, and clarifications for this project proposal. Each: {"type":"exclusion"|"assumption"|"clarification","text":"...","category":"..."}. Focus on project-specific items beyond standard defaults. Return ONLY the JSON array.`;
+        const resp = await fetch(GEMINI_CONFIG.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 2000 } }) });
+        const data = await resp.json();
+        const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const jsonMatch = aiText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const suggestions = JSON.parse(jsonMatch[0]);
+          let added = 0; const newItems = [];
+          for (const s of suggestions) {
+            if (!s.text || !s.type || !['exclusion','assumption','clarification'].includes(s.type)) continue;
+            if (state.exclusions.some(e => e.type === s.type && e.text === s.text)) continue;
+            const maxO = state.exclusions.filter(e => e.type === s.type).reduce((m, e) => Math.max(m, e.sort_order || 0), 0);
+            const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: s.type, text: s.text.trim(), category: s.category || 'General', sort_order: maxO + 1 };
+            state.exclusions.push(ni); newItems.push(ni); added++;
+          }
+          if (state.estimateId && newItems.length > 0) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItems) }).catch(() => {});
+          renderExclList();
+          if (typeof spToast === 'function') spToast(`${added} AI-generated items added`, 'success');
+        } else { if (typeof spToast === 'function') spToast('Could not parse AI suggestions', 'warning'); }
+      } catch (err) {
+        console.error('[SmartPlans] Auto-generate exclusions error:', err);
+        if (typeof spToast === 'function') spToast('Auto-generate failed: ' + err.message, 'error');
+      } finally {
+        autoGenBtn.disabled = false;
+        autoGenBtn.innerHTML = '<i data-lucide="sparkles" style="width:12px;height:12px;"></i> Auto-Generate';
+        if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) {}
+      }
+    });
+  }
+
+  // Load from API on first render
+  if (state.estimateId && !state._exclusionsLoaded) {
+    state._exclusionsLoaded = true;
+    fetch(`/api/estimates/${state.estimateId}/exclusions`).then(r => r.json()).then(data => {
+      if (data.exclusions && data.exclusions.length > 0) { state.exclusions = data.exclusions.map(e => ({ ...e, _saved: true })); renderExclList(); }
+    }).catch(err => console.warn('[SmartPlans] Failed to load exclusions:', err));
+  }
+  renderExclList();
 }
 
 
@@ -5106,6 +5700,7 @@ async function showSavedEstimates() {
       <div class="est-card-actions">
         <button class="est-card-btn est-card-btn--load" onclick="event.stopPropagation();loadEstimate('${est.id}')">📂 Load</button>
         <button class="est-card-btn" onclick="event.stopPropagation();showRevisionHistory('${esc(est.id)}','${esc((est.project_name || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'"))}')" style="border-color:rgba(129,140,248,0.25);color:var(--accent-indigo);">🕐 History</button>
+        ${est.status === 'analyzed' || est.status === 'exported' ? `<button class="est-card-btn" onclick="event.stopPropagation();showActualsPanel('${esc(est.id)}','${esc((est.project_name || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'"))}')" style="border-color:rgba(5,150,105,0.25);color:#059669;">📊 Actuals</button>` : ''}
         <button class="est-card-btn est-card-btn--delete" onclick="event.stopPropagation();deleteEstimate('${esc(est.id)}','${esc((est.project_name || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'"))}')">🗑 Delete</button>
       </div>
     </div>`;
@@ -5390,8 +5985,310 @@ async function deleteRevision(estimateId, revId, projectName) {
 
 
 // ═══════════════════════════════════════════════════════════════
+// ACTUAL VS ESTIMATE FEEDBACK LOOP
+// ═══════════════════════════════════════════════════════════════
+
+function _varianceClass(pct) {
+  const abs = Math.abs(pct);
+  if (abs <= 10) return 'variance-green';
+  if (abs <= 25) return 'variance-yellow';
+  return 'variance-red';
+}
+function _fmtPct(v) { return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'; }
+function _fmtActDollar(v) { return '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+async function showActualsPanel(estimateId, projectName) {
+  closeSavedPanel();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'saved-panel-backdrop';
+  backdrop.addEventListener('click', closeActualsPanel);
+  document.body.appendChild(backdrop);
+  const panel = document.createElement('div');
+  panel.className = 'saved-panel';
+  panel.id = 'actuals-panel';
+  panel.style.maxWidth = '900px';
+  panel.innerHTML = `<div class="saved-panel-header"><h2>📊 Record Actuals — ${esc(projectName || 'Untitled')}</h2><button class="saved-panel-close" onclick="closeActualsPanel()">✕</button></div><div class="saved-panel-body" id="actuals-body"><div style="text-align:center;padding:40px;color:var(--text-muted);">Loading estimate data...</div></div>`;
+  document.body.appendChild(panel);
+  try {
+    const [estRes, actualsRes] = await Promise.all([
+      fetchWithRetry('/api/estimates/' + estimateId, { _timeout: 15000 }, 3),
+      fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { _timeout: 15000 }, 3)
+    ]);
+    const estData = await estRes.json();
+    const actualsData = await actualsRes.json();
+    if (estData.error) throw new Error(estData.error);
+    const est = estData.estimate;
+    const existingActuals = actualsData.actuals || [];
+    let pkg = est.export_data;
+    if (typeof pkg === 'string') { try { pkg = JSON.parse(pkg); } catch { pkg = {}; } }
+    const analysisText = pkg?.analysis?.rawMarkdown || '';
+    if (!analysisText) {
+      document.getElementById('actuals-body').innerHTML = '<div style="text-align:center;padding:40px;"><div style="font-size:42px;margin-bottom:14px;">📋</div><div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">No Analysis Data</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6;">This estimate does not have AI analysis data. Run an analysis first, then record actuals.</div></div>';
+      return;
+    }
+    const bom = SmartPlansExport._extractBOMFromAnalysis(analysisText);
+    const actualsMap = {};
+    existingActuals.forEach(a => { actualsMap[(a.category || '') + '::' + (a.item_name || '')] = a; });
+    _renderActualsTable(estimateId, projectName, bom, actualsMap);
+  } catch (err) {
+    console.error('[SmartPlans] Failed to load actuals panel:', err);
+    const body = document.getElementById('actuals-body');
+    if (body) body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--accent-rose);">Failed to load: ' + esc(err.message) + '</div>';
+  }
+}
+
+function _renderActualsTable(estimateId, projectName, bom, actualsMap) {
+  const container = document.getElementById('actuals-body');
+  if (!container) return;
+  let totalEstCost = 0, totalActCost = 0, totalEstLabor = 0, totalActLabor = 0, rowIdx = 0;
+  let rows = '';
+  bom.categories.forEach((cat, ci) => {
+    rows += '<tr style="background:rgba(13,148,136,0.08);"><td colspan="10" style="padding:10px 12px;font-weight:700;font-size:13px;color:var(--accent-teal);border-bottom:1px solid rgba(13,148,136,0.12);">' + esc(cat.name) + '</td></tr>';
+    cat.items.forEach((item, ii) => {
+      rowIdx++;
+      const existing = actualsMap[(cat.name || '') + '::' + (item.name || '')] || {};
+      const estQty = item.qty || 0, estUC = item.unitCost || 0, estExt = estQty * estUC, estLab = item.laborHours || 0;
+      const actQty = existing.actual_qty ?? estQty, actUC = existing.actual_unit_cost ?? estUC;
+      const actLab = existing.actual_labor_hours ?? estLab, actExt = actQty * actUC;
+      const vPct = estExt > 0 ? ((actExt - estExt) / estExt) * 100 : 0;
+      totalEstCost += estExt; totalActCost += actExt; totalEstLabor += estLab; totalActLabor += actLab;
+      rows += '<tr style="border-bottom:1px solid var(--border-subtle);" data-actuals-row="' + ci + '-' + ii + '">' +
+        '<td style="padding:6px 8px;font-size:11px;color:var(--text-muted);text-align:center;">' + rowIdx + '</td>' +
+        '<td style="padding:6px 8px;font-size:12px;color:var(--text-primary);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(item.name) + '">' + esc(item.name) + '</td>' +
+        '<td style="padding:6px 8px;font-size:12px;color:var(--text-muted);text-align:center;">' + estQty + '</td>' +
+        '<td style="padding:6px 4px;text-align:center;"><input type="number" class="actuals-input actuals-qty" data-key="' + ci + '-' + ii + '" value="' + actQty + '" min="0" step="1" /></td>' +
+        '<td style="padding:6px 8px;font-size:12px;color:var(--text-muted);text-align:right;">' + _fmtActDollar(estUC) + '</td>' +
+        '<td style="padding:6px 4px;text-align:right;"><input type="number" class="actuals-input actuals-cost" data-key="' + ci + '-' + ii + '" value="' + actUC.toFixed(2) + '" min="0" step="0.01" /></td>' +
+        '<td style="padding:6px 4px;text-align:center;"><input type="number" class="actuals-input actuals-labor" data-key="' + ci + '-' + ii + '" value="' + actLab + '" min="0" step="0.5" style="width:60px;" /></td>' +
+        '<td style="padding:6px 8px;font-size:12px;text-align:right;" class="actuals-ext" data-key="' + ci + '-' + ii + '">' + _fmtActDollar(actExt) + '</td>' +
+        '<td style="padding:6px 8px;text-align:center;" class="actuals-var-cell" data-key="' + ci + '-' + ii + '"><span class="variance-badge ' + _varianceClass(vPct) + '">' + _fmtPct(vPct) + '</span></td>' +
+        '</tr>';
+    });
+  });
+  const overallVar = totalEstCost > 0 ? ((totalActCost - totalEstCost) / totalEstCost) * 100 : 0;
+  container.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:16px;">Enter actual quantities, unit costs, and labor hours. Variance is calculated automatically.</div>' +
+    '<div style="overflow-x:auto;border:1px solid var(--border-subtle);"><table style="width:100%;border-collapse:collapse;font-size:12px;" id="actuals-table"><thead><tr style="background:var(--bg-surface-2);">' +
+    '<th style="padding:8px;text-align:center;font-size:11px;color:var(--text-muted);font-weight:700;border-bottom:2px solid var(--border-medium);width:35px;">#</th>' +
+    '<th style="padding:8px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;border-bottom:2px solid var(--border-medium);">Item</th>' +
+    '<th style="padding:8px;text-align:center;font-size:11px;color:var(--text-muted);font-weight:700;border-bottom:2px solid var(--border-medium);">Est Qty</th>' +
+    '<th style="padding:8px;text-align:center;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid var(--border-medium);">Act Qty</th>' +
+    '<th style="padding:8px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:700;border-bottom:2px solid var(--border-medium);">Est $/Unit</th>' +
+    '<th style="padding:8px;text-align:right;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid var(--border-medium);">Act $/Unit</th>' +
+    '<th style="padding:8px;text-align:center;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid var(--border-medium);">Act Labor Hrs</th>' +
+    '<th style="padding:8px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:700;border-bottom:2px solid var(--border-medium);">Act Ext Cost</th>' +
+    '<th style="padding:8px;text-align:center;font-size:11px;color:var(--text-muted);font-weight:700;border-bottom:2px solid var(--border-medium);">Variance</th>' +
+    '</tr></thead><tbody>' + rows +
+    '<tr class="actuals-summary-row"><td colspan="2" style="text-align:right;font-weight:700;">TOTALS</td><td style="text-align:center;">—</td><td style="text-align:center;">—</td>' +
+    '<td style="text-align:right;" id="actuals-total-est-cost">' + _fmtActDollar(totalEstCost) + '</td>' +
+    '<td style="text-align:right;" id="actuals-total-act-cost">' + _fmtActDollar(totalActCost) + '</td>' +
+    '<td style="text-align:center;" id="actuals-total-act-labor">' + totalActLabor.toFixed(1) + '</td>' +
+    '<td style="text-align:right;" id="actuals-total-ext">' + _fmtActDollar(totalActCost) + '</td>' +
+    '<td style="text-align:center;" id="actuals-total-var"><span class="variance-badge ' + _varianceClass(overallVar) + '">' + _fmtPct(overallVar) + '</span></td>' +
+    '</tr></tbody></table></div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;">' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+    '<div style="font-size:12px;padding:8px 14px;border:1px solid var(--border-subtle);background:var(--bg-surface-2);">Estimated: <strong>' + _fmtActDollar(totalEstCost) + '</strong></div>' +
+    '<div style="font-size:12px;padding:8px 14px;border:1px solid var(--border-subtle);background:var(--bg-surface-2);">Actual: <strong id="actuals-summary-actual">' + _fmtActDollar(totalActCost) + '</strong></div>' +
+    '<div style="font-size:12px;padding:8px 14px;border:1px solid var(--border-subtle);" id="actuals-summary-overall">Variance: <strong class="' + _varianceClass(overallVar) + '">' + _fmtPct(overallVar) + '</strong></div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;">' +
+    '<button id="btn-save-actuals" style="padding:10px 20px;border:1px solid rgba(5,150,105,0.3);background:rgba(5,150,105,0.08);color:#059669;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font-sans);">Save Actuals</button>' +
+    '<button id="btn-update-benchmarks" style="padding:10px 20px;border:1px solid rgba(13,148,136,0.3);background:rgba(13,148,136,0.08);color:var(--accent-teal);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font-sans);">Update Benchmarks</button>' +
+    '</div></div>' +
+    '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);display:flex;gap:16px;">' +
+    '<span><span class="variance-badge variance-green" style="padding:1px 6px;">Green</span> Within 10%</span>' +
+    '<span><span class="variance-badge variance-yellow" style="padding:1px 6px;">Yellow</span> 10-25% off</span>' +
+    '<span><span class="variance-badge variance-red" style="padding:1px 6px;">Red</span> &gt;25% off</span></div>';
+
+  var table = document.getElementById('actuals-table');
+  if (table) {
+    var _actDebounce = null;
+    table.addEventListener('input', function(e) {
+      if (!e.target.classList.contains('actuals-input')) return;
+      clearTimeout(_actDebounce);
+      _actDebounce = setTimeout(function() { _recalcActuals(bom); }, 200);
+    });
+  }
+  var saveBtn = document.getElementById('btn-save-actuals');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async function() {
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+      try {
+        var items = _collectActualsItems(bom, projectName);
+        var res = await fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: items }), _timeout: 15000 }, 3);
+        var data = await res.json();
+        if (data.error) throw new Error(data.error);
+        spToast('Actuals saved — ' + data.inserted + ' items recorded', 'success');
+      } catch (err) { spToast('Failed to save actuals: ' + err.message, 'error'); }
+      finally { saveBtn.disabled = false; saveBtn.textContent = 'Save Actuals'; }
+    });
+  }
+  var benchBtn = document.getElementById('btn-update-benchmarks');
+  if (benchBtn) {
+    benchBtn.addEventListener('click', async function() {
+      benchBtn.disabled = true; benchBtn.textContent = 'Recalculating...';
+      try {
+        var res = await fetchWithRetry('/api/benchmarks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', _timeout: 20000 }, 3);
+        var data = await res.json();
+        if (data.error) throw new Error(data.error);
+        spToast('Benchmarks updated — ' + (data.updated || 0) + ' items aggregated', 'success');
+      } catch (err) { spToast('Failed to update benchmarks: ' + err.message, 'error'); }
+      finally { benchBtn.disabled = false; benchBtn.textContent = 'Update Benchmarks'; }
+    });
+  }
+}
+
+function _recalcActuals(bom) {
+  var totalEstCost = 0, totalActCost = 0, totalActLabor = 0;
+  bom.categories.forEach(function(cat, ci) {
+    cat.items.forEach(function(item, ii) {
+      var row = document.querySelector('[data-actuals-row="' + ci + '-' + ii + '"]');
+      if (!row) return;
+      var estExt = (item.qty || 0) * (item.unitCost || 0);
+      totalEstCost += estExt;
+      var actQty = parseFloat(row.querySelector('.actuals-qty').value) || 0;
+      var actUC = parseFloat(row.querySelector('.actuals-cost').value) || 0;
+      var actLab = parseFloat(row.querySelector('.actuals-labor').value) || 0;
+      var actExt = actQty * actUC;
+      totalActCost += actExt; totalActLabor += actLab;
+      var vPct = estExt > 0 ? ((actExt - estExt) / estExt) * 100 : 0;
+      var extCell = row.querySelector('.actuals-ext');
+      if (extCell) extCell.textContent = _fmtActDollar(actExt);
+      var varCell = row.querySelector('.actuals-var-cell');
+      if (varCell) varCell.innerHTML = '<span class="variance-badge ' + _varianceClass(vPct) + '">' + _fmtPct(vPct) + '</span>';
+    });
+  });
+  var overallVar = totalEstCost > 0 ? ((totalActCost - totalEstCost) / totalEstCost) * 100 : 0;
+  var el = function(id) { return document.getElementById(id); };
+  if (el('actuals-total-act-cost')) el('actuals-total-act-cost').textContent = _fmtActDollar(totalActCost);
+  if (el('actuals-total-ext')) el('actuals-total-ext').textContent = _fmtActDollar(totalActCost);
+  if (el('actuals-total-act-labor')) el('actuals-total-act-labor').textContent = totalActLabor.toFixed(1);
+  if (el('actuals-total-var')) el('actuals-total-var').innerHTML = '<span class="variance-badge ' + _varianceClass(overallVar) + '">' + _fmtPct(overallVar) + '</span>';
+  if (el('actuals-summary-actual')) el('actuals-summary-actual').textContent = _fmtActDollar(totalActCost);
+  if (el('actuals-summary-overall')) el('actuals-summary-overall').innerHTML = 'Variance: <strong class="' + _varianceClass(overallVar) + '">' + _fmtPct(overallVar) + '</strong>';
+}
+
+function _collectActualsItems(bom, projectName) {
+  var items = [];
+  bom.categories.forEach(function(cat, ci) {
+    cat.items.forEach(function(item, ii) {
+      var row = document.querySelector('[data-actuals-row="' + ci + '-' + ii + '"]');
+      if (!row) return;
+      items.push({
+        project_name: projectName || '', category: cat.name || 'General', item_name: item.name || '',
+        estimated_qty: item.qty || 0, actual_qty: parseFloat(row.querySelector('.actuals-qty').value) || 0,
+        estimated_unit_cost: item.unitCost || 0, actual_unit_cost: parseFloat(row.querySelector('.actuals-cost').value) || 0,
+        estimated_labor_hours: item.laborHours || 0, actual_labor_hours: parseFloat(row.querySelector('.actuals-labor').value) || 0,
+      });
+    });
+  });
+  return items;
+}
+
+function closeActualsPanel() {
+  var backdrop = document.querySelector('.saved-panel-backdrop');
+  var panel = document.getElementById('actuals-panel');
+  if (backdrop) backdrop.remove();
+  if (panel) panel.remove();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BENCHMARK INTEGRATION
+// ═══════════════════════════════════════════════════════════════
+
+var _benchmarkCache = null;
+var _benchmarkCacheTime = 0;
+var BENCHMARK_CACHE_TTL = 5 * 60 * 1000;
+
+async function _loadBenchmarks() {
+  var now = Date.now();
+  if (_benchmarkCache && (now - _benchmarkCacheTime) < BENCHMARK_CACHE_TTL) return _benchmarkCache;
+  try {
+    var res = await fetchWithRetry('/api/benchmarks', { _timeout: 10000 }, 2);
+    var data = await res.json();
+    if (!data.error && data.benchmarks) {
+      _benchmarkCache = {};
+      data.benchmarks.forEach(function(b) { _benchmarkCache[b.item_name.toLowerCase()] = b; });
+      _benchmarkCacheTime = now;
+    }
+  } catch (err) { console.warn('[SmartPlans] Failed to load benchmarks:', err.message); }
+  return _benchmarkCache || {};
+}
+
+function _getBenchmarkHTML(itemName) {
+  if (!_benchmarkCache) return '';
+  var b = _benchmarkCache[(itemName || '').toLowerCase()];
+  if (!b || b.sample_count < 1) return '';
+  var avg = _fmtActDollar(b.avg_unit_cost), mn = _fmtActDollar(b.min_unit_cost), mx = _fmtActDollar(b.max_unit_cost);
+  var tip = 'Based on ' + b.sample_count + ' project' + (b.sample_count > 1 ? 's' : '') + ': avg ' + avg + '/unit (range ' + mn + '–' + mx + ')';
+  return '<span class="benchmark-indicator" title="' + tip + '">📊 Benchmark<span class="benchmark-tooltip">' + tip + '</span></span>';
+}
+
+async function _injectBenchmarksIntoBOM() {
+  var benchmarks = await _loadBenchmarks();
+  if (!benchmarks || Object.keys(benchmarks).length === 0) return;
+  var table = document.getElementById('bom-editable-table');
+  if (!table) return;
+  table.querySelectorAll('tbody tr[data-bom-item]').forEach(function(row) {
+    var nameCell = row.querySelectorAll('td')[1];
+    if (!nameCell) return;
+    var itemName = nameCell.getAttribute('title') || nameCell.textContent.trim();
+    var html = _getBenchmarkHTML(itemName);
+    if (html) {
+      nameCell.style.position = 'relative';
+      var span = document.createElement('span');
+      span.innerHTML = html; span.style.marginLeft = '6px';
+      nameCell.appendChild(span);
+    }
+  });
+  if (!document.getElementById('btn-apply-benchmarks')) {
+    var bomToggle = document.getElementById('bom-table-toggle');
+    if (bomToggle) {
+      var btn = document.createElement('button');
+      btn.id = 'btn-apply-benchmarks';
+      btn.style.cssText = 'margin-left:auto;margin-right:8px;padding:5px 12px;border:1px solid rgba(13,148,136,0.3);background:rgba(13,148,136,0.06);color:var(--accent-teal);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font-sans);';
+      btn.textContent = '📊 Apply Benchmarks';
+      btn.addEventListener('click', function(e) { e.stopPropagation(); _applyBenchmarksToBOM(); });
+      bomToggle.insertBefore(btn, bomToggle.querySelector('#bom-toggle-icon'));
+    }
+  }
+}
+
+function _applyBenchmarksToBOM() {
+  if (!_benchmarkCache) return;
+  var table = document.getElementById('bom-editable-table');
+  if (!table) return;
+  var applied = 0;
+  table.querySelectorAll('.bom-edit-cost').forEach(function(input) {
+    var row = input.closest('tr');
+    if (!row) return;
+    var nameCell = row.querySelectorAll('td')[1];
+    if (!nameCell) return;
+    var itemName = (nameCell.getAttribute('title') || nameCell.textContent.trim()).toLowerCase();
+    var b = _benchmarkCache[itemName];
+    if (b && b.avg_unit_cost > 0) {
+      input.value = b.avg_unit_cost.toFixed(2);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      applied++;
+    }
+  });
+  spToast(applied > 0 ? 'Applied benchmark pricing to ' + applied + ' items' : 'No matching benchmarks found', applied > 0 ? 'success' : 'info');
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════
+
+// BID STRATEGY CARD STUB
+if (typeof buildBidStrategyCard === 'undefined') { var buildBidStrategyCard = function() { return ''; }; }
+
+// BID PHASES / ALTERNATES
+function getBidPhaseBOM() { if (!state.aiAnalysis) return { categories: [], grandTotal: 0 }; const bom = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis); const overrides = state.supplierPriceOverrides || {}; for (const [key, ov] of Object.entries(overrides)) { const [ci, ii] = key.split('-').map(Number); if (bom.categories[ci] && bom.categories[ci].items[ii]) { const it = bom.categories[ci].items[ii]; if (ov.qty != null) it.qty = ov.qty; it.unitCost = ov.unitCost; it.extCost = Math.round(it.qty * ov.unitCost * 100) / 100; } } if (Object.keys(overrides).length > 0) { bom.grandTotal = 0; for (const cat of bom.categories) { cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0); cat.subtotal = Math.round(cat.subtotal * 100) / 100; bom.grandTotal += cat.subtotal; } bom.grandTotal = Math.round(bom.grandTotal * 100) / 100; } return bom; }
+function getPhaseTotal(phase, bom) { if (phase.type === 'base') { const ae = new Set(); state.bidPhases.forEach(p => { if (p.id !== 'base') p.categoryIndices.forEach(ci => ae.add(ci)); }); let t = 0; bom.categories.forEach((cat, ci) => { if (!ae.has(ci)) t += cat.subtotal; }); return Math.round(t * 100) / 100; } let t = 0; phase.categoryIndices.forEach(ci => { if (bom.categories[ci]) t += bom.categories[ci].subtotal; }); return Math.round(t * 100) / 100; }
+function getBaseBidCategoryIndices(bom) { const ae = new Set(); state.bidPhases.forEach(p => { if (p.id !== 'base') p.categoryIndices.forEach(ci => ae.add(ci)); }); const idx = []; bom.categories.forEach((_, ci) => { if (!ae.has(ci)) idx.push(ci); }); return idx; }
+function buildBidPhasesCard(st) { if (!st.aiAnalysis) return ''; const bom = getBidPhaseBOM(); if (bom.categories.length === 0) return ''; const _fmt = (v) => { const abs = Math.abs(v); const str = '$' + abs.toLocaleString('en-US', {minimumFractionDigits:0,maximumFractionDigits:0}); return v < 0 ? '(' + str + ')' : str; }; const ptm = { base: {label:'Base Bid',bc:'bid-phase-badge--base'}, add: {label:'Add Alternate',bc:'bid-phase-badge--add'}, deduct: {label:'Deduct Alt',bc:'bid-phase-badge--deduct'}, optional: {label:'Optional',bc:'bid-phase-badge--optional'} }; let pr='',sr='',rt=0; st.bidPhases.forEach((phase, pi) => { const m = ptm[phase.type]||ptm.optional; const tot = getPhaseTotal(phase,bom); const dt = phase.type==='deduct' ? -Math.abs(tot) : tot; if (phase.includeInProposal) rt += dt; let ac = phase.type==='base' ? getBaseBidCategoryIndices(bom) : phase.categoryIndices; const cn = ac.map(ci => bom.categories[ci] ? esc(bom.categories[ci].name) : '').filter(Boolean); let cah=''; if (phase.type!=='base') { const avail=[]; bom.categories.forEach((cat,ci) => { const at = st.bidPhases.find(p => p.id!=='base' && p.id!==phase.id && p.categoryIndices.includes(ci)); if (!at) avail.push({ci,name:cat.name,chk:phase.categoryIndices.includes(ci)}); else if (phase.categoryIndices.includes(ci)) avail.push({ci,name:cat.name,chk:true}); }); cah = '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">' + avail.map(a => '<label class="bid-phase-cat-chip' + (a.chk?' bid-phase-cat-chip--active':'') + '" style="cursor:pointer;"><input type="checkbox" ' + (a.chk?'checked ':'') + 'style="display:none;" data-bid-phase-cat="' + phase.id + '" data-cat-idx="' + a.ci + '">' + esc(a.name) + '</label>').join('') + (avail.length===0?'<span style="font-size:11px;color:var(--text-muted);font-style:italic;">All categories assigned to other phases</span>':'') + '</div>'; } pr += '<div class="bid-phase-row" data-phase-idx="'+pi+'" style="padding:14px 16px;border:1px solid rgba(0,0,0,0.06);margin-bottom:8px;background:var(--bg-surface-2);"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;"><span class="bid-phase-badge '+m.bc+'">'+m.label+'</span>' + (phase.type==='base' ? '<span style="font-weight:600;font-size:13px;color:var(--text-primary);">'+esc(phase.name)+'</span>' : '<input type="text" class="bid-phase-name-input" data-phase-id="'+phase.id+'" value="'+esc(phase.name)+'" style="flex:1;padding:4px 8px;border:1px solid rgba(0,0,0,0.08);background:transparent;font-size:13px;font-weight:600;color:var(--text-primary);min-width:120px;outline:none;font-family:var(--font-sans);" />') + '</div><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:14px;font-weight:700;color:'+(phase.type==='deduct'?'#D97706':'var(--accent-teal)')+';">'+_fmt(dt)+'</span><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--text-muted);" title="Include in Proposal"><input type="checkbox" '+(phase.includeInProposal?'checked ':'')+' data-bid-phase-proposal="'+phase.id+'" style="accent-color:#0D9488;">Proposal</label>' + (phase.type!=='base' ? '<button data-bid-phase-remove="'+phase.id+'" title="Remove phase" style="background:none;border:1px solid rgba(225,29,72,0.2);color:#E11D48;cursor:pointer;font-size:12px;padding:2px 6px;line-height:1;">x</button>' : '') + '</div></div><div style="margin-top:6px;font-size:11px;color:var(--text-muted);">' + (cn.length>0 ? cn.join(', ') : '<em>No categories assigned</em>') + '</div>' + cah + '</div>'; sr += '<tr style="border-bottom:1px solid rgba(0,0,0,0.04);"><td style="padding:6px 10px;font-size:12px;color:var(--text-primary);">'+esc(phase.name)+'</td><td style="padding:6px 10px;font-size:11px;"><span class="bid-phase-badge '+m.bc+'" style="font-size:10px;padding:2px 6px;">'+m.label+'</span></td><td style="padding:6px 10px;font-size:12px;color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(cn.join(', ')||'—')+'</td><td style="padding:6px 10px;font-size:13px;font-weight:600;text-align:right;color:'+(phase.type==='deduct'?'#D97706':'var(--text-primary)')+';">'+_fmt(dt)+'</td><td style="padding:6px 10px;text-align:center;font-size:12px;">'+(phase.includeInProposal?'✓':'—')+'</td></tr>'; }); const st2 = '<div style="margin-top:16px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:rgba(13,148,136,0.06);"><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Phase</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Type</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Categories</th><th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Amount</th><th style="padding:8px 10px;text-align:center;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Proposal</th></tr></thead><tbody>'+sr+'<tr style="background:rgba(13,148,136,0.08);"><td colspan="3" style="padding:8px 10px;font-size:13px;font-weight:700;color:var(--text-primary);text-align:right;">Total if all accepted</td><td style="padding:8px 10px;font-size:14px;font-weight:700;color:var(--accent-teal);text-align:right;">'+_fmt(rt)+'</td><td></td></tr></tbody></table></div>'; return '<div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div><div class="info-card" style="margin-bottom:22px;border:1px solid rgba(13,148,136,0.15);background:#FFFFFF;"><div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="bid-phases-toggle"><div class="info-card-title" style="margin-bottom:0;"><i data-lucide="layers" style="width:16px;height:16px;"></i> Bid Phases &amp; Alternates</div><span id="bid-phases-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">'+(st._bidPhasesOpen?'▼':'▶')+'</span></div><div id="bid-phases-collapsible" style="display:'+(st._bidPhasesOpen?'block':'none')+';margin-top:12px;"><div class="info-card-body" style="margin-bottom:12px;">Structure your bid with base and alternate pricing. Assign BOM categories to each phase — unassigned categories stay in the Base Bid.</div>'+pr+'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;"><button id="bid-phase-add-add" style="padding:6px 14px;border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.04);color:#059669;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Add Alternate</button><button id="bid-phase-add-deduct" style="padding:6px 14px;border:1px solid rgba(217,119,6,0.3);background:rgba(217,119,6,0.04);color:#D97706;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Deduct Alternate</button><button id="bid-phase-add-optional" style="padding:6px 14px;border:1px solid rgba(0,0,0,0.1);background:rgba(0,0,0,0.02);color:var(--text-muted);cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Optional Phase</button></div>'+st2+'</div></div>'; }
+function bindBidPhasesEvents(container) { const toggle = document.getElementById('bid-phases-toggle'); if (toggle) { toggle.addEventListener('click', () => { state._bidPhasesOpen = !state._bidPhasesOpen; const body = document.getElementById('bid-phases-collapsible'); const icon = document.getElementById('bid-phases-toggle-icon'); if (body) body.style.display = state._bidPhasesOpen ? 'block' : 'none'; if (icon) icon.textContent = state._bidPhasesOpen ? '▼' : '▶'; }); } const ah = {'bid-phase-add-add':'add','bid-phase-add-deduct':'deduct','bid-phase-add-optional':'optional'}; for (const [bi,ty] of Object.entries(ah)) { const btn = document.getElementById(bi); if (btn) btn.addEventListener('click', () => { state._bidPhaseCounter++; const n = state.bidPhases.filter(p=>p.type===ty).length+1; const lb = {add:`Add Alternate #${n}`,deduct:`Deduct Alternate #${n}`,optional:`Optional Phase #${n}`}; state.bidPhases.push({id:`phase-${Date.now()}-${state._bidPhaseCounter}`,name:lb[ty],type:ty,categoryIndices:[],includeInProposal:ty!=='optional'}); state._bidPhasesOpen=true; renderStep6(container); }); } document.querySelectorAll('[data-bid-phase-remove]').forEach(b => { b.addEventListener('click', e => { e.stopPropagation(); state.bidPhases = state.bidPhases.filter(p => p.id !== b.dataset.bidPhaseRemove); renderStep6(container); }); }); document.querySelectorAll('.bid-phase-name-input').forEach(inp => { inp.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === inp.dataset.phaseId); if (ph) ph.name = inp.value.trim() || ph.name; }); }); document.querySelectorAll('[data-bid-phase-proposal]').forEach(cb => { cb.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === cb.dataset.bidPhaseProposal); if (ph) { ph.includeInProposal = cb.checked; renderStep6(container); } }); }); document.querySelectorAll('[data-bid-phase-cat]').forEach(cb => { cb.addEventListener('change', () => { const pid = cb.dataset.bidPhaseCat; const ci = parseInt(cb.dataset.catIdx); const ph = state.bidPhases.find(p => p.id === pid); if (!ph) return; if (cb.checked) { state.bidPhases.forEach(p => { if (p.id!=='base' && p.id!==pid) p.categoryIndices = p.categoryIndices.filter(c=>c!==ci); }); if (!ph.categoryIndices.includes(ci)) ph.categoryIndices.push(ci); } else { ph.categoryIndices = ph.categoryIndices.filter(c=>c!==ci); } renderStep6(container); }); }); }
 
 // Warn before leaving page if user has unsaved work
 window.addEventListener("beforeunload", e => {

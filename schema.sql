@@ -105,3 +105,89 @@ CREATE TABLE IF NOT EXISTS pm_settings (
     value TEXT NOT NULL,
     updated_at TEXT DEFAULT (datetime('now'))
 );
+
+-- ═══════════════════════════════════════════════════════════════
+-- Rate Library — Estimator-maintained material & labor rates
+-- Stores known-good pricing from past projects for reuse in
+-- future bids, replacing AI-generated defaults.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS rate_library (
+    id TEXT PRIMARY KEY,
+    item_name TEXT NOT NULL,
+    category TEXT,
+    unit TEXT DEFAULT 'ea',
+    unit_cost REAL NOT NULL,
+    labor_hours REAL DEFAULT 0,
+    supplier TEXT,
+    notes TEXT,
+    last_used TEXT,
+    use_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_library_name ON rate_library(item_name);
+CREATE INDEX IF NOT EXISTS idx_rate_library_category ON rate_library(category);
+
+-- ═══════════════════════════════════════════════════════════════
+-- Estimate Exclusions & Assumptions — Legal protection lists
+-- Stores exclusions, assumptions, and clarifications per estimate
+-- for inclusion in proposals and bid documents.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS estimate_exclusions (
+    id TEXT PRIMARY KEY,
+    estimate_id TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('exclusion', 'assumption', 'clarification')),
+    text TEXT NOT NULL,
+    category TEXT,
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_exclusions_estimate ON estimate_exclusions(estimate_id);
+
+-- ═══════════════════════════════════════════════════════════════
+-- Project Actuals — Record actual costs after project completion
+-- Enables comparison against original estimates for feedback loop.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS project_actuals (
+    id TEXT PRIMARY KEY,
+    estimate_id TEXT NOT NULL,
+    project_name TEXT,
+    category TEXT NOT NULL,
+    item_name TEXT NOT NULL,
+    estimated_qty REAL,
+    actual_qty REAL,
+    estimated_unit_cost REAL,
+    actual_unit_cost REAL,
+    estimated_labor_hours REAL,
+    actual_labor_hours REAL,
+    variance_pct REAL,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_actuals_estimate ON project_actuals(estimate_id);
+CREATE INDEX IF NOT EXISTS idx_actuals_item ON project_actuals(item_name);
+
+-- ═══════════════════════════════════════════════════════════════
+-- Cost Benchmarks — Aggregated historical pricing from actuals
+-- Used to validate and improve future AI-generated estimates.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS cost_benchmarks (
+    id TEXT PRIMARY KEY,
+    item_name TEXT NOT NULL,
+    category TEXT,
+    avg_unit_cost REAL,
+    min_unit_cost REAL,
+    max_unit_cost REAL,
+    avg_labor_hours REAL,
+    sample_count INTEGER DEFAULT 0,
+    last_updated TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_benchmarks_name ON cost_benchmarks(item_name);

@@ -121,9 +121,19 @@ const SmartPlansExport = {
                 })),
                 totalLineItems: bom.categories.reduce((s, c) => s + c.items.length, 0),
                 supplierOverrides: state.supplierPriceOverrides || {},
+                // Phase assignment per category for SmartPM SOV
+                phaseAssignments: this._buildPhaseAssignments(state, bom),
             },
 
+            // Bid Phases / Alternates for multi-phase option pricing
+            bidPhases: this._buildBidPhasesExport(state, bom),
+
             rfis: this._extractRFIs(state),
+
+            // Exclusions & Assumptions — legal protection lists for proposals
+            exclusions: (state.exclusions || []).filter(e => e.type === 'exclusion').map(e => ({ text: e.text, category: e.category })),
+            assumptions: (state.exclusions || []).filter(e => e.type === 'assumption').map(e => ({ text: e.text, category: e.category })),
+            clarifications: (state.exclusions || []).filter(e => e.type === 'clarification').map(e => ({ text: e.text, category: e.category })),
 
             // Structured MDF/IDF data for SmartPM Infrastructure module
             // AI-generated budgets — locked from field manipulation
@@ -180,6 +190,57 @@ const SmartPlansExport = {
             console.error('[SmartPlans] Section parser error:', err);
             return { full_analysis: { title: 'Full Analysis', content: markdown } };
         }
+    },
+
+    // ─── Build phase assignments for SmartPM SOV import ─────────
+    _buildPhaseAssignments(state, bom) {
+        const phases = state.bidPhases || [{ id: 'base', name: 'Base Bid', type: 'base', categoryIndices: [], includeInProposal: true }];
+        const assignedElsewhere = new Set();
+        phases.forEach(p => { if (p.id !== 'base') (p.categoryIndices || []).forEach(ci => assignedElsewhere.add(ci)); });
+        const assignments = {};
+        bom.categories.forEach((cat, ci) => {
+            const phase = phases.find(p => p.id !== 'base' && (p.categoryIndices || []).includes(ci));
+            assignments[cat.name] = {
+                phaseId: phase ? phase.id : 'base',
+                phaseName: phase ? phase.name : 'Base Bid',
+                phaseType: phase ? phase.type : 'base',
+            };
+        });
+        return assignments;
+    },
+
+    // ─── Build bid phases export data ─────────────────────────────
+    _buildBidPhasesExport(state, bom) {
+        const phases = state.bidPhases || [{ id: 'base', name: 'Base Bid', type: 'base', categoryIndices: [], includeInProposal: true }];
+        const assignedElsewhere = new Set();
+        phases.forEach(p => { if (p.id !== 'base') (p.categoryIndices || []).forEach(ci => assignedElsewhere.add(ci)); });
+        const result = phases.map(phase => {
+            let catIndices;
+            if (phase.type === 'base') {
+                catIndices = [];
+                bom.categories.forEach((_, ci) => { if (!assignedElsewhere.has(ci)) catIndices.push(ci); });
+            } else {
+                catIndices = phase.categoryIndices || [];
+            }
+            let total = 0;
+            const categories = catIndices.map(ci => {
+                if (!bom.categories[ci]) return null;
+                total += bom.categories[ci].subtotal;
+                return { index: ci, name: bom.categories[ci].name, subtotal: bom.categories[ci].subtotal };
+            }).filter(Boolean);
+            total = Math.round(total * 100) / 100;
+            const displayTotal = phase.type === 'deduct' ? -Math.abs(total) : total;
+            return {
+                id: phase.id,
+                name: phase.name,
+                type: phase.type,
+                categories: categories,
+                total: displayTotal,
+                includeInProposal: phase.includeInProposal !== false,
+            };
+        });
+        const totalIfAllAccepted = result.filter(p => p.includeInProposal).reduce((s, p) => s + p.total, 0);
+        return { phases: result, totalIfAllAccepted: Math.round(totalIfAllAccepted * 100) / 100 };
     },
 
     // ─── Extract RFI data ──────────────────────────────────────
@@ -1332,6 +1393,22 @@ const SmartPlansExport = {
         }
         md += `\n\n`;
 
+        // ── Bid Summary (if phases configured) ──
+        const bidPhasesData = this._buildBidPhasesExport(state, this._extractBOMFromAnalysis(state.aiAnalysis || ""));
+        if (bidPhasesData.phases.length > 1 || (bidPhasesData.phases.length === 1 && bidPhasesData.phases[0].categories.length > 0)) {
+            md += `---\n\n`;
+            md += `## Bid Summary\n\n`;
+            md += `| Phase | Description | Amount |\n|-------|------------|--------|\n`;
+            const fmtAmt = (v) => { const abs = Math.abs(v); const s = '$' + abs.toLocaleString('en-US', {minimumFractionDigits:0,maximumFractionDigits:0}); return v < 0 ? '(' + s + ')' : s; };
+            bidPhasesData.phases.forEach(p => {
+                if (p.includeInProposal) {
+                    const desc = p.categories.map(c => c.name).join(', ') || '—';
+                    md += `| ${p.name} | ${desc} | ${fmtAmt(p.total)} |\n`;
+                }
+            });
+            md += `| **Total if all accepted** | | **${fmtAmt(bidPhasesData.totalIfAllAccepted)}** |\n\n`;
+        }
+
         // ── RFIs ──
         md += `---\n\n`;
         md += `## Request for Information (RFI) Log\n\n`;
@@ -1342,6 +1419,41 @@ const SmartPlansExport = {
                 md += `| RFI-${String(i + 1).padStart(3, "0")} | ${r.question} | ${state.selectedRFIs.has(r.id) ? "✅" : ""} |\n`;
             });
         }
+        // ── Exclusions & Assumptions ──
+        const exclItems = (state.exclusions || []);
+        const exclusions = exclItems.filter(e => e.type === 'exclusion');
+        const assumptions = exclItems.filter(e => e.type === 'assumption');
+        const clarifications = exclItems.filter(e => e.type === 'clarification');
+
+        if (exclusions.length > 0) {
+            md += `\n\n---\n\n`;
+            md += `## Exclusions\n\n`;
+            md += `The following items are specifically **excluded** from this estimate:\n\n`;
+            exclusions.forEach((e, i) => {
+                md += `${i + 1}. ${e.text}${e.category && e.category !== 'General' ? ` *(${e.category})*` : ''}\n`;
+            });
+            md += `\n`;
+        }
+
+        if (assumptions.length > 0) {
+            md += `\n---\n\n`;
+            md += `## Assumptions\n\n`;
+            md += `This estimate is based on the following **assumptions**:\n\n`;
+            assumptions.forEach((e, i) => {
+                md += `${i + 1}. ${e.text}${e.category && e.category !== 'General' ? ` *(${e.category})*` : ''}\n`;
+            });
+            md += `\n`;
+        }
+
+        if (clarifications.length > 0) {
+            md += `\n---\n\n`;
+            md += `## Clarifications\n\n`;
+            clarifications.forEach((e, i) => {
+                md += `${i + 1}. ${e.text}${e.category && e.category !== 'General' ? ` *(${e.category})*` : ''}\n`;
+            });
+            md += `\n`;
+        }
+
         md += `\n\n---\n\n`;
         md += `*Generated by SmartPlans — AI-Powered ELV Document Analysis & Estimation*\n`;
         md += `*${now.toISOString()}*\n`;
@@ -1748,6 +1860,82 @@ const SmartPlansExport = {
         });
     },
 
+    // ─── Rate Library Integration ─────────────────────────────
+    // Applies saved rates from the Rate Library to the current BOM.
+    // Uses case-insensitive substring matching on item names.
+    // Returns a summary of what was matched and the pricing delta.
+    applyRateLibrary(state, rates) {
+        if (!state.aiAnalysis || !rates || rates.length === 0) {
+            return { itemsMatched: 0, itemsUnmatched: 0, oldTotal: 0, newTotal: 0, delta: 0 };
+        }
+
+        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+        const overrides = state.supplierPriceOverrides || {};
+        let itemsMatched = 0;
+        let itemsUnmatched = 0;
+        const oldTotal = bom.grandTotal || 0;
+
+        for (let catIdx = 0; catIdx < bom.categories.length; catIdx++) {
+            const cat = bom.categories[catIdx];
+            for (let itemIdx = 0; itemIdx < cat.items.length; itemIdx++) {
+                const item = cat.items[itemIdx];
+                const itemNameLower = (item.item || '').toLowerCase();
+
+                // Find best matching rate — prefer longest matching name (most specific)
+                let bestMatch = null;
+                let bestLen = 0;
+                for (const rate of rates) {
+                    const rateName = (rate.item_name || '').toLowerCase();
+                    if (rateName && itemNameLower.includes(rateName) && rateName.length > bestLen) {
+                        bestMatch = rate;
+                        bestLen = rateName.length;
+                    }
+                }
+
+                if (bestMatch) {
+                    const key = `${catIdx}-${itemIdx}`;
+                    overrides[key] = {
+                        unitCost: bestMatch.unit_cost,
+                        qty: item.qty,
+                        _rateLibraryId: bestMatch.id,
+                    };
+                    itemsMatched++;
+                } else {
+                    itemsUnmatched++;
+                }
+            }
+        }
+
+        // Write overrides back to state
+        state.supplierPriceOverrides = overrides;
+
+        // Recalculate totals with overrides applied
+        let newTotal = 0;
+        for (let catIdx = 0; catIdx < bom.categories.length; catIdx++) {
+            const cat = bom.categories[catIdx];
+            let catSubtotal = 0;
+            for (let itemIdx = 0; itemIdx < cat.items.length; itemIdx++) {
+                const item = cat.items[itemIdx];
+                const key = `${catIdx}-${itemIdx}`;
+                if (overrides[key]) {
+                    catSubtotal += Math.round(overrides[key].qty * overrides[key].unitCost * 100) / 100;
+                } else {
+                    catSubtotal += item.extCost || 0;
+                }
+            }
+            newTotal += catSubtotal;
+        }
+        newTotal = Math.round(newTotal * 100) / 100;
+
+        return {
+            itemsMatched,
+            itemsUnmatched,
+            oldTotal,
+            newTotal,
+            delta: Math.round((newTotal - oldTotal) * 100) / 100,
+        };
+    },
+
     _download(content, filename, mimeType) {
         const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType || "application/octet-stream" });
         const url = URL.createObjectURL(blob);
@@ -1758,6 +1946,71 @@ const SmartPlansExport = {
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+
+    // ─── Apply Bid Strategy — per-category markups & contingency ───
+    applyBidStrategy(state) {
+        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+        if (!bom || !bom.categories || bom.categories.length === 0) {
+            return { grandTotalWithStrategy: 0, categories: [], totalMaterial: 0, totalLabor: 0, totalMarkup: 0, totalContingency: 0 };
+        }
+
+        const bs = state.bidStrategy;
+        const isLaborCat = (name) => /labor|install|rough|trim|commission|program|test|mobiliz/i.test(name);
+
+        let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
+        const categoryBreakdown = [];
+
+        for (const cat of bom.categories) {
+            const catName = cat.name;
+            const isLabor = isLaborCat(catName);
+            const cm = bs.categoryMarkups[catName] || {
+                materialMarkup: bs.defaultMaterialMarkup,
+                laborMarkup: bs.defaultLaborMarkup,
+                confidence: 'medium'
+            };
+
+            const materialCost = isLabor ? 0 : cat.subtotal;
+            const laborCost = isLabor ? cat.subtotal : 0;
+            const matPct = cm.materialMarkup;
+            const labPct = cm.laborMarkup;
+            const confidence = cm.confidence;
+            const contingencyPct = bs.contingencyByConfidence[confidence] || 10;
+
+            const matWithMarkup = materialCost * (1 + matPct / 100);
+            const labWithMarkup = laborCost * (1 + labPct / 100);
+            const subtotalWithMarkup = matWithMarkup + labWithMarkup;
+            const contingencyAmt = Math.round(subtotalWithMarkup * (contingencyPct / 100) * 100) / 100;
+            const finalPrice = Math.round((subtotalWithMarkup + contingencyAmt) * 100) / 100;
+
+            totalMaterial += materialCost;
+            totalLabor += laborCost;
+            totalMarkup += (matWithMarkup - materialCost) + (labWithMarkup - laborCost);
+            totalContingency += contingencyAmt;
+
+            categoryBreakdown.push({
+                name: catName,
+                materialCost: Math.round(materialCost * 100) / 100,
+                laborCost: Math.round(laborCost * 100) / 100,
+                materialMarkup: matPct,
+                laborMarkup: labPct,
+                confidence: confidence,
+                contingencyPct: contingencyPct,
+                contingencyAmt: contingencyAmt,
+                finalPrice: finalPrice,
+            });
+        }
+
+        const grandTotalWithStrategy = Math.round((totalMaterial + totalLabor + totalMarkup + totalContingency) * 100) / 100;
+
+        return {
+            grandTotalWithStrategy,
+            categories: categoryBreakdown,
+            totalMaterial: Math.round(totalMaterial * 100) / 100,
+            totalLabor: Math.round(totalLabor * 100) / 100,
+            totalMarkup: Math.round(totalMarkup * 100) / 100,
+            totalContingency: Math.round(totalContingency * 100) / 100,
+        };
     },
 };
 

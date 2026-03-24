@@ -133,7 +133,8 @@ Write comprehensive professional terms:
 - Warranty: One (1) year comprehensive parts and labor warranty, manufacturer warranties assigned to owner (typically 10-25 years on cable plant)
 - Insurance: $5M general liability, workers compensation per California requirements, commercial auto liability, umbrella coverage
 - Bonding: Performance and payment bonds available upon request (cost not included unless specified)
-- Exclusions: Electrical power to equipment, HVAC for equipment rooms, architectural modifications, fire alarm monitoring service, permits (unless noted)
+- Exclusions: ${(() => { const excl = (state.exclusions || []).filter(e => e.type === 'exclusion'); return excl.length > 0 ? excl.map(e => e.text).join('; ') : 'Electrical power to equipment, HVAC for equipment rooms, architectural modifications, fire alarm monitoring service, permits (unless noted)'; })()}
+- Assumptions: ${(() => { const assm = (state.exclusions || []).filter(e => e.type === 'assumption'); return assm.length > 0 ? assm.map(e => e.text).join('; ') : 'Normal working hours, adequate site access, power available at equipment locations'; })()}
 - Prevailing wage: If applicable, all labor rates comply with DIR determinations
 - Force majeure: Neither party liable for delays beyond reasonable control
 
@@ -270,6 +271,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
 
     // Build the DETERMINISTIC financial table from BOM data (code, not AI)
     const financialTableHtml = this._buildFinancialTableHtml(state);
+    const pricingStrategySummaryHtml = this._buildPricingStrategySummaryHtml(state);
     const grandTotal = this._extractGrandTotal(state);
     const grandTotalDisplay = grandTotal ? this._formatMoney(grandTotal) : null;
 
@@ -546,6 +548,9 @@ ${bodyHtml}
 
 <!-- DETERMINISTIC FINANCIAL TABLE — Built from BOM data in code, NOT AI -->
 ${financialTableHtml}
+
+<!-- PRICING STRATEGY SUMMARY — Confidence & contingency breakdown (no markup % revealed) -->
+${pricingStrategySummaryHtml}
 
 ${grandTotalDisplay ? `
 <!--
@@ -872,6 +877,78 @@ ACCEPTANCE & SIGNATURE BLOCK
   <tr>
     <td bgcolor="${b.navy}" style="padding:12pt 14pt;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>GRAND TOTAL</b></font></td>
     <td bgcolor="${b.navy}" style="padding:12pt 14pt;text-align:right;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(grandTotal)}</b></font></td>
+  </tr>
+</table>
+`;
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRICING STRATEGY SUMMARY — Shows confidence breakdown without revealing markup %
+  // ═══════════════════════════════════════════════════════════════
+  _buildPricingStrategySummaryHtml(state) {
+    if (!state.bidStrategy || !state.bidStrategy.applied) return '';
+
+    const b = this.BRAND;
+    const fmt = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    let result = null;
+    try {
+      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport.applyBidStrategy) {
+        result = SmartPlansExport.applyBidStrategy(state);
+      }
+    } catch (e) { console.warn('[ProposalGen] Bid strategy extraction failed:', e); }
+
+    if (!result || !result.categories || result.categories.length === 0) return '';
+
+    // Count categories by confidence
+    const confCounts = { high: 0, medium: 0, low: 0 };
+    const confTotals = { high: 0, medium: 0, low: 0 };
+    for (const cat of result.categories) {
+      const c = cat.confidence || 'medium';
+      confCounts[c]++;
+      confTotals[c] += cat.finalPrice;
+    }
+
+    const confLabels = { high: 'High Confidence', medium: 'Medium Confidence', low: 'Low Confidence' };
+    const confContingency = state.bidStrategy.contingencyByConfidence || { high: 5, medium: 10, low: 20 };
+
+    let rows = '';
+    for (const level of ['high', 'medium', 'low']) {
+      if (confCounts[level] === 0) continue;
+      rows += `<tr>
+        <td style="padding:8pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${confLabels[level]}</font></td>
+        <td style="padding:8pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:center;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${confCounts[level]} ${confCounts[level] === 1 ? 'category' : 'categories'}</font></td>
+        <td style="padding:8pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:center;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${confContingency[level]}%</font></td>
+        <td style="padding:8pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(confTotals[level])}</font></td>
+      </tr>`;
+    }
+
+    return `
+<div class="page-break"></div>
+
+<table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:8pt;">
+  <tr>
+    <td bgcolor="${b.navy}" style="border-bottom:3pt solid ${b.gold};">
+      <span style="font-size:14pt;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-weight:bold;font-family:Calibri,Arial,sans-serif;">Pricing Strategy Summary</span>
+    </td>
+  </tr>
+</table>
+
+<p style="font-size:11pt;color:#444;font-family:Calibri,Arial,sans-serif;margin-bottom:12pt;line-height:1.6;">
+This estimate incorporates a risk-adjusted pricing strategy. Categories have been assessed for estimation confidence and appropriate contingency levels have been applied to mitigate risk in areas of uncertainty.
+</p>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20pt;">
+  <tr>
+    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Confidence Level</b></font></td>
+    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:center;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Categories</b></font></td>
+    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:center;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Contingency</b></font></td>
+    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:right;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Subtotal</b></font></td>
+  </tr>
+  ${rows}
+  <tr>
+    <td bgcolor="#2B4A6A" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;" colspan="3"><font color="#FFFFFF"><b>TOTAL WITH STRATEGY</b></font></td>
+    <td bgcolor="#2B4A6A" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(result.grandTotalWithStrategy)}</b></font></td>
   </tr>
 </table>
 `;
