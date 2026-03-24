@@ -1,0 +1,12 @@
+{
+    "name": "smartplans",
+    "compatibility_date": "2024-12-01",
+    "pages_build_output_dir": "./",
+    "d1_databases": [
+        {
+            "binding": "DB",
+            "database_name": "smartplans-db",
+            "database_id": "d1bd6078-7783-4204-ac12-bf2329e46ebb"
+        }
+    ]
+}
