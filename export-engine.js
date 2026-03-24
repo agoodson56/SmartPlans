@@ -99,10 +99,15 @@ const SmartPlansExport = {
             // ── Pre-structured financial data for SmartPM SOV import ──
             // Each category becomes an SOV line item with material & labor costs.
             // Every individual item has qty, unit cost, and extended cost for tracking.
-            // SINGLE SOURCE OF TRUTH: grandTotal = sum of all BOM category subtotals.
-            // This is the only number used everywhere — proposals, BOM, SmartPM import.
+            //
+            // TWO TOTALS:
+            //   bomRawTotal  = sum of raw BOM line items (no markups — for supplier quotes)
+            //   grandTotal   = fully loaded bid price from Financial Engine
+            //                  (includes markups, G&A, profit, contingency)
+            //                  Falls back to markup calculation if Financial Engine unavailable.
             financials: {
-                grandTotal: bom.grandTotal,
+                grandTotal: this._getFullyLoadedTotal(state, bom),
+                bomRawTotal: bom.grandTotal,
                 ...(bomWarning ? { _warning: bomWarning } : {}),
                 markup: { ...state.markup },
                 categories: bom.categories.map(cat => ({
@@ -143,6 +148,55 @@ const SmartPlansExport = {
             // Produces a hierarchical task tree for PM tracking
             workBreakdown: this._buildWorkBreakdown(state),
         };
+    },
+
+    // ─── Get fully loaded bid total (with markups, G&A, profit, contingency) ──
+    _getFullyLoadedTotal(state, bom) {
+        // Priority 1: Financial Engine's calculated grand total
+        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+        if (finEngine?.project_summary?.grand_total > 1000) {
+            return Math.round(finEngine.project_summary.grand_total * 100) / 100;
+        }
+
+        // Priority 2: Calculate from bid strategy if user applied one
+        if (state.bidStrategy?.applied) {
+            const result = this.applyBidStrategy?.(state);
+            if (result?.grandTotalWithStrategy > 1000) {
+                return Math.round(result.grandTotalWithStrategy * 100) / 100;
+            }
+        }
+
+        // Priority 3: Apply default markups to raw BOM
+        // Material markup (default 50%) + Labor markup (default 50%) + Contingency (10%)
+        const matMarkup = (state.markup?.material ?? 50) / 100;
+        const labMarkup = (state.markup?.labor ?? 50) / 100;
+        const contingencyPct = 0.10;
+
+        let totalMaterial = 0;
+        let totalLabor = 0;
+        let totalSub = 0;
+        const laborCategories = ['labor', 'installation labor', 'project management'];
+
+        for (const cat of (bom.categories || [])) {
+            const isLabor = laborCategories.some(l => cat.name.toLowerCase().includes(l));
+            const isSub = cat.name.toLowerCase().includes('subcontractor');
+            if (isSub) {
+                totalSub += cat.subtotal;
+            } else if (isLabor) {
+                totalLabor += cat.subtotal;
+            } else {
+                totalMaterial += cat.subtotal;
+            }
+        }
+
+        const materialWithMarkup = totalMaterial * (1 + matMarkup);
+        const laborWithMarkup = totalLabor * (1 + labMarkup);
+        const subWithMarkup = totalSub * 1.15; // 15% sub markup
+        const subtotal = materialWithMarkup + laborWithMarkup + subWithMarkup;
+        const contingency = subtotal * contingencyPct;
+        const grandTotal = subtotal + contingency;
+
+        return grandTotal > 1000 ? Math.round(grandTotal * 100) / 100 : bom.grandTotal;
     },
 
     // ─── Parse AI analysis into structured sections ────────────
@@ -1066,7 +1120,24 @@ const SmartPlansExport = {
             // No AI text extraction, no markup addition — just the actual sum.
             bomData.push([]);
             bomData.push(["", "", "", "", "", "", "", ""]);
-            bomData.push(["", "", "", "GRAND TOTAL", "", "", "", runningTotal]);
+            bomData.push(["", "", "", "MATERIAL & EQUIPMENT SUBTOTAL", "", "", "", runningTotal]);
+            bomData.push([]);
+
+            // Calculate fully-loaded bid price
+            const bidTotal = this._getFullyLoadedTotal(state, bom);
+            const matMarkupPct = state.markup?.material ?? 50;
+            const labMarkupPct = state.markup?.labor ?? 50;
+            if (bidTotal > runningTotal) {
+                bomData.push(["", "", "", "PRICING SUMMARY", "", "", "", ""]);
+                bomData.push(["", "", "", `  Material/Equipment (raw cost)`, "", "", "", runningTotal]);
+                bomData.push(["", "", "", `  Material Markup (${matMarkupPct}%)`, "", "", "", ""]);
+                bomData.push(["", "", "", `  Labor Markup (${labMarkupPct}%)`, "", "", "", ""]);
+                bomData.push(["", "", "", `  G&A Overhead, Profit, Contingency`, "", "", "", ""]);
+                bomData.push([]);
+                bomData.push(["", "", "", "BID PRICE (GRAND TOTAL)", "", "", "", bidTotal]);
+            } else {
+                bomData.push(["", "", "", "GRAND TOTAL", "", "", "", runningTotal]);
+            }
             bomData.push([]);
             bomData.push(["", "", "", `Total Line Items: ${totalLineItems}`, `Total Qty: ${totalQuantity}`, "", "", ""]);
 

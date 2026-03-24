@@ -959,29 +959,27 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
     const analysis = state.aiAnalysis || '';
     const brainResults = state.brainResults || state.lastBrainResults || {};
 
-    // Method 1 (PRIMARY): BOM category sum — SINGLE SOURCE OF TRUTH
-    if (state._bomGrandTotal && state._bomGrandTotal > 0) {
-      return state._bomGrandTotal;
-    }
-    try {
-      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis) {
-        const bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
-        if (bom && bom.grandTotal > 0) {
-          state._bomGrandTotal = bom.grandTotal;
-          return bom.grandTotal;
-        }
-      }
-    } catch (e) { /* BOM extraction not available */ }
-
-    // Method 2: Financial Engine structured data
+    // Method 1 (PRIMARY): Financial Engine's fully-loaded bid price
+    // This includes markups, G&A overhead, profit, and contingency
     const finEngine = brainResults?.wave2_5_fin?.FINANCIAL_ENGINE
       || brainResults?.wave2?.FINANCIAL_ENGINE
       || {};
-    if (finEngine?.project_summary?.grand_total) {
+    if (finEngine?.project_summary?.grand_total > 1000) {
       return finEngine.project_summary.grand_total;
     }
 
-    // Method 3: Sum Material + Labor + contingency
+    // Method 2: Export engine's calculated fully-loaded total
+    try {
+      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._getFullyLoadedTotal) {
+        const bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+        if (bom && bom.grandTotal > 0) {
+          const loaded = SmartPlansExport._getFullyLoadedTotal(state, bom);
+          if (loaded > 1000) return loaded;
+        }
+      }
+    } catch (e) { /* export engine not available */ }
+
+    // Method 3: Sum Material + Labor with markups + contingency
     const materialPricer = brainResults?.wave2?.MATERIAL_PRICER || {};
     const laborCalc = brainResults?.wave2_25?.LABOR_CALCULATOR || brainResults?.wave2?.LABOR_CALCULATOR || {};
     const matTotal = materialPricer?.total_with_markup || materialPricer?.grand_total || 0;
@@ -989,6 +987,11 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
     if (matTotal + labTotal > 1000) {
       const subtotal = matTotal + labTotal;
       return Math.round(subtotal * 1.10 * 100) / 100;
+    }
+
+    // Method 4: Cached BOM total (raw — last resort)
+    if (state._bomGrandTotal && state._bomGrandTotal > 0) {
+      return state._bomGrandTotal;
     }
 
     // Method 4 (LAST RESORT): Regex on raw analysis text
