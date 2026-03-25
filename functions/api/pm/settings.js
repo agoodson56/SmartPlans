@@ -21,9 +21,24 @@ function isAllowedOrigin(origin) {
 }
 
 /**
- * Hash a password using SHA-256 (one-way, non-reversible)
+ * Hash a password using PBKDF2 with 100,000 iterations and a random 16-byte salt.
+ * Returns { hash, salt } where both are hex strings.
  */
-async function hashPassword(password) {
+async function hashPasswordPBKDF2(password, existingSalt) {
+    if (!password) return { hash: '', salt: '' };
+    const enc = new TextEncoder();
+    const salt = existingSalt || crypto.getRandomValues(new Uint8Array(16));
+    const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
+    const hash = Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const saltHex = Array.from(new Uint8Array(salt)).map(b => b.toString(16).padStart(2, '0')).join('');
+    return { hash, salt: saltHex };
+}
+
+/**
+ * Legacy SHA-256 hash for backward compatibility during auto-upgrade.
+ */
+async function hashPasswordSHA256(password) {
     if (!password) return '';
     const msgBuffer = new TextEncoder().encode(password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -85,7 +100,8 @@ export async function onRequestGet(context) {
         }
         return Response.json({ settings });
     } catch (err) {
-        return Response.json({ error: 'Failed to load settings: ' + err.message }, { status: 500 });
+        console.error('Failed to load settings:', err);
+        return Response.json({ error: 'Failed to load settings' }, { status: 500 });
     }
 }
 
@@ -117,10 +133,36 @@ export async function onRequestPost(context) {
                 if (row?.value) existing = JSON.parse(row.value);
             } catch { /* no existing record — start fresh */ }
 
-            value = {
-                estimator: value.estimator ? await hashPassword(value.estimator) : (existing.estimator || ''),
-                pm: value.pm ? await hashPassword(value.pm) : (existing.pm || ''),
-            };
+            // Load existing salts
+            let existingSalts = { estimator: '', pm: '' };
+            try {
+                const saltRow = await env.DB.prepare('SELECT value FROM pm_settings WHERE key = ?').bind('passwords_salt').first();
+                if (saltRow?.value) existingSalts = JSON.parse(saltRow.value);
+            } catch { /* no existing salt record */ }
+
+            const newSalts = { ...existingSalts };
+
+            if (value.estimator) {
+                const result = await hashPasswordPBKDF2(value.estimator);
+                value.estimator = result.hash;
+                newSalts.estimator = result.salt;
+            } else {
+                value.estimator = existing.estimator || '';
+            }
+
+            if (value.pm) {
+                const result = await hashPasswordPBKDF2(value.pm);
+                value.pm = result.hash;
+                newSalts.pm = result.salt;
+            } else {
+                value.pm = existing.pm || '';
+            }
+
+            // Store salts as a separate setting key
+            await env.DB.prepare(`
+                INSERT INTO pm_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            `).bind('passwords_salt', JSON.stringify(newSalts)).run();
         }
 
 
@@ -138,6 +180,7 @@ export async function onRequestPost(context) {
 
         return Response.json({ success: true, key });
     } catch (err) {
-        return Response.json({ error: 'Failed to save setting: ' + err.message }, { status: 500 });
+        console.error('Failed to save setting:', err);
+        return Response.json({ error: 'Failed to save setting' }, { status: 500 });
     }
 }

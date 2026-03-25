@@ -12,7 +12,7 @@ function closeRateLibraryPanel() {
 }
 
 async function _fetchRates(category, search) {
-  const token = localStorage.getItem('sp_app_token') || '';
+  const token = sessionStorage.getItem('sp_app_token') || '';
   const params = new URLSearchParams();
   if (category) params.set('category', category);
   if (search) params.set('search', search);
@@ -27,7 +27,7 @@ async function _fetchRates(category, search) {
 }
 
 async function _createRate(rate) {
-  const token = localStorage.getItem('sp_app_token') || '';
+  const token = sessionStorage.getItem('sp_app_token') || '';
   const res = await fetchWithRetry('/api/rate-library', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-App-Token': token },
@@ -40,7 +40,7 @@ async function _createRate(rate) {
 }
 
 async function _updateRate(rate) {
-  const token = localStorage.getItem('sp_app_token') || '';
+  const token = sessionStorage.getItem('sp_app_token') || '';
   const res = await fetchWithRetry('/api/rate-library', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', 'X-App-Token': token },
@@ -53,7 +53,7 @@ async function _updateRate(rate) {
 }
 
 async function _deleteRate(id) {
-  const token = localStorage.getItem('sp_app_token') || '';
+  const token = sessionStorage.getItem('sp_app_token') || '';
   const res = await fetchWithRetry(`/api/rate-library?id=${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { 'X-App-Token': token },
@@ -348,7 +348,7 @@ async function showRateLibraryPanel() {
 
   // Initialize Lucide icons in the panel
   if (typeof lucide !== 'undefined') {
-    try { lucide.createIcons(); } catch (e) { /* Lucide not loaded */ }
+    try { lucide.createIcons(); } catch (e) { console.warn('Lucide createIcons failed:', e); }
   }
 }
 

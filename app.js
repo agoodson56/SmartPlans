@@ -672,7 +672,7 @@ function _safeParseDisciplines(val) {
   if (Array.isArray(val)) return val;
   if (typeof val === 'string') {
     const trimmed = val.trim();
-    if (trimmed.startsWith('[')) { try { return JSON.parse(trimmed); } catch(e) { /* fall through */ } }
+    if (trimmed.startsWith('[')) { try { return JSON.parse(trimmed); } catch(e) { console.warn('JSON parse fall-through:', e); } }
     return trimmed.split(',').map(s => s.trim()).filter(Boolean);
   }
   return [];
@@ -768,7 +768,7 @@ function render() {
   renderFooter();
   // Initialize Lucide icons after DOM update
   if (typeof lucide !== 'undefined') {
-    try { lucide.createIcons(); } catch(e) { /* Lucide not loaded */ }
+    try { lucide.createIcons(); } catch(e) { console.warn('Lucide createIcons failed:', e); }
   }
 }
 
@@ -2768,7 +2768,7 @@ function renderStep6(container) {
       const result = SmartPlansExport.exportSupplierBOM(state, supplierName.trim(), format);
       // Record the quote in the database
       if (state.estimateId) {
-        const token = localStorage.getItem("sp_app_token") || "";
+        const token = sessionStorage.getItem("sp_app_token") || "";
         await fetch(`/api/estimates/${state.estimateId}/supplier-quotes`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-App-Token": token },
@@ -2831,7 +2831,7 @@ function renderStep6(container) {
 
       // Update the matching supplier quote record
       if (state.estimateId) {
-        const token = localStorage.getItem("sp_app_token") || "";
+        const token = sessionStorage.getItem("sp_app_token") || "";
         // Find the most recent 'sent' quote to update
         const quotes = state.supplierQuotes || [];
         const sentQuote = quotes.find(q => q.status === "sent");
@@ -2864,7 +2864,7 @@ function renderStep6(container) {
   async function loadSupplierQuotes() {
     if (!state.estimateId) return;
     try {
-      const token = localStorage.getItem("sp_app_token") || "";
+      const token = sessionStorage.getItem("sp_app_token") || "";
       const resp = await fetch(`/api/estimates/${state.estimateId}/supplier-quotes`, {
         headers: { "X-App-Token": token },
       });
@@ -2964,7 +2964,7 @@ function renderStep6(container) {
 
   // Initialize Lucide icons after DOM update
   if (typeof lucide !== 'undefined') {
-    try { lucide.createIcons(); } catch(e) { /* Lucide not loaded */ }
+    try { lucide.createIcons(); } catch(e) { console.warn('Lucide createIcons failed:', e); }
   }
 
   // ── BOM Table: toggle, edit, reset handlers ──
@@ -3546,7 +3546,7 @@ function initExclusionsPanel(container) {
         try {
           const lines = rawText.split('\n').filter(l => l.startsWith('data: '));
           if (lines.length > 0) {
-            for (const l of lines) { try { const j = JSON.parse(l.slice(6)); aiText += j?.candidates?.[0]?.content?.parts?.[0]?.text || ''; } catch(e2) {} }
+            for (const l of lines) { try { const j = JSON.parse(l.slice(6)); aiText += j?.candidates?.[0]?.content?.parts?.[0]?.text || ''; } catch(e2) { console.warn('SSE line parse error:', e2); } }
           }
           if (!aiText) {
             try { const direct = JSON.parse(rawText); aiText = direct?.candidates?.[0]?.content?.parts?.[0]?.text || ''; if (!aiText && rawText.includes('[')) aiText = rawText; } catch(e3) { aiText = rawText; }
@@ -6587,8 +6587,8 @@ window.addEventListener('error', (event) => {
         url: location.href,
         timestamp: new Date().toISOString(),
       }),
-    }).catch(() => {}); // Best-effort, don't recurse
-  } catch (e) { /* ignore */ }
+    }).catch((fetchErr) => { console.warn('Error reporting fetch failed:', fetchErr); }); // Best-effort, don't recurse
+  } catch (e) { console.warn('Error handler failed:', e); }
 });
 
 window.addEventListener('unhandledrejection', (event) => {
@@ -6603,8 +6603,8 @@ window.addEventListener('unhandledrejection', (event) => {
         url: location.href,
         timestamp: new Date().toISOString(),
       }),
-    }).catch(() => {});
-  } catch (e) { /* ignore */ }
+    }).catch((fetchErr) => { console.warn('Rejection reporting fetch failed:', fetchErr); });
+  } catch (e) { console.warn('Rejection handler failed:', e); }
 });
 
 document.addEventListener("DOMContentLoaded", () => {
