@@ -3337,9 +3337,10 @@ function initExclusionsPanel(container) {
         const snippet = (state.aiAnalysis || '').substring(0, 8000);
         const discs = state.disciplines.join(', ');
         const prompt = `Based on this low-voltage estimate analysis for disciplines: ${discs}\n\n${snippet}\n\nGenerate a JSON array of exclusions, assumptions, and clarifications for this project proposal. Each: {"type":"exclusion"|"assumption"|"clarification","text":"...","category":"..."}. Focus on project-specific items beyond standard defaults. Return ONLY the JSON array.`;
-        const resp = await fetch(GEMINI_CONFIG.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 2000 } }) });
-        const data = await resp.json();
-        const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const resp = await fetch(GEMINI_CONFIG.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ _model: 'gemini-2.5-flash', _brainSlot: 0, contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 2000 } }) });
+        const rawText = await resp.text();
+        let aiText = '';
+        try { const lines = rawText.split('\n').filter(l => l.startsWith('data: ')); for (const l of lines) { const j = JSON.parse(l.slice(6)); aiText += j?.candidates?.[0]?.content?.parts?.[0]?.text || ''; } } catch(e) { aiText = rawText; }
         const jsonMatch = aiText.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
           const suggestions = JSON.parse(jsonMatch[0]);
@@ -5452,11 +5453,13 @@ async function saveEstimate(showToast = true) {
     const url = state.estimateId ? `/api/estimates/${state.estimateId}` : '/api/estimates';
     const method = state.estimateId ? 'PUT' : 'POST';
 
+    const jsonBody = JSON.stringify(payload);
+    console.log(`[SmartPlans] Saving estimate (${(jsonBody.length / 1024).toFixed(0)}KB) via ${method} ${url}`);
     const res = await fetchWithRetry(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      _timeout: 15000,
+      body: jsonBody,
+      _timeout: 60000,
     }, 3);
 
     const data = await res.json();
@@ -6204,7 +6207,7 @@ async function _loadBenchmarks() {
   var now = Date.now();
   if (_benchmarkCache && (now - _benchmarkCacheTime) < BENCHMARK_CACHE_TTL) return _benchmarkCache;
   try {
-    var res = await fetchWithRetry('/api/benchmarks', { _timeout: 10000 }, 2);
+    var res = await fetchWithRetry('/api/benchmarks', { _timeout: 30000 }, 2);
     var data = await res.json();
     if (!data.error && data.benchmarks) {
       _benchmarkCache = {};

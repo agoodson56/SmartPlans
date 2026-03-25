@@ -67,17 +67,8 @@ export async function onRequest(context) {
                 { status: 401 }
             );
         }
-    } else {
-        // Strategy 2: Fallback — same-origin check via Origin/Referer header
-        const url = new URL(request.url);
-        const host = url.origin;
-        if (origin && origin !== host && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
-            return Response.json(
-                { error: 'Unauthorized — cross-origin requests not allowed' },
-                { status: 403 }
-            );
-        }
     }
+    // No ESTIMATES_TOKEN fallback: origin already validated by isAllowedOrigin above
 
     // Process the actual request
     const response = await context.next();
