@@ -962,26 +962,51 @@ const SmartPlansExport = {
                 }
             }
 
-            // Calculate subtotals & grand total
+            // ═══ CRITICAL FIX: Remove AI-generated summary/subtotal categories ═══
+            // The AI sometimes creates a "Material Subtotals Table" that re-lists category
+            // subtotals as if they were real line items (often at half price). This DOUBLE-COUNTS
+            // hundreds of thousands of dollars. Filter them out BEFORE calculating totals.
+            const summaryPatterns = /subtotal|summary|recap|rollup|total.*table/i;
+            const realCategories = categories.filter(cat => {
+                if (summaryPatterns.test(cat.name)) {
+                    console.warn(`[SmartPlans Export] REMOVED duplicate summary category: "${cat.name}" ($${cat.items.reduce((s, i) => s + (i.extCost || 0), 0).toFixed(2)}) — this was double-counting real items`);
+                    return false;
+                }
+                // Also remove categories where item names are just dollar amounts (e.g., "$15,373.52")
+                const dollarNameItems = cat.items.filter(i => /^\$[\d,]+\.?\d*$/.test((i.item || i.name || '').trim()));
+                if (dollarNameItems.length > 0 && dollarNameItems.length === cat.items.length) {
+                    console.warn(`[SmartPlans Export] REMOVED dollar-amount category: "${cat.name}" — all items are summary values, not real materials`);
+                    return false;
+                }
+                return true;
+            });
+
+            // Also remove "Not in Scope" placeholder categories with $0 totals
+            const activeCategories = realCategories.filter(cat => {
+                const hasRealItems = cat.items.some(i => (i.extCost || 0) > 0 || (i.qty || 0) > 0);
+                if (!hasRealItems) {
+                    console.log(`[SmartPlans Export] Skipped empty/not-in-scope category: "${cat.name}"`);
+                }
+                return hasRealItems;
+            });
+
+            // Calculate subtotals & grand total from REAL categories only
             // FIX: ALWAYS compute subtotals from actual line item extCosts.
-            // Previously, if the AI included a subtotal row, we captured its value (line 680).
-            // That subtotal often included markup (sell price), while individual items showed
-            // base cost. This created a Frankenstein BOM where lines didn't add up to the total.
-            // Now we ignore the AI's subtotal and sum the actual items for internal consistency.
             let grandTotal = 0;
-            for (const cat of categories) {
+            for (const cat of activeCategories) {
                 cat.subtotal = cat.items.reduce((sum, item) => sum + (item.extCost || 0), 0);
                 grandTotal += cat.subtotal;
             }
 
             // Validation: warn if BOM is empty or has $0 grand total
-            const totalItems = categories.reduce((s, c) => s + c.items.length, 0);
+            const totalItems = activeCategories.reduce((s, c) => s + c.items.length, 0);
             if (totalItems === 0 || grandTotal === 0) {
                 console.warn('[SmartPlans Export] BOM extraction produced ' + totalItems + ' items with $' + grandTotal + ' grand total — AI analysis may not contain parseable cost data.');
                 return emptyResult;
             }
 
-            return { categories, grandTotal: this._round(grandTotal) };
+            console.log(`[SmartPlans Export] BOM: ${activeCategories.length} categories, ${totalItems} items, $${this._round(grandTotal)} raw total`);
+            return { categories: activeCategories, grandTotal: this._round(grandTotal) };
 
         } catch (err) {
             console.error('[SmartPlans Export] BOM extraction failed:', err);
