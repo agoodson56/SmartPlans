@@ -1931,6 +1931,351 @@ const SmartPlansExport = {
         });
     },
 
+    // ─── Competitor Bid Import & Comparison ────────────────────
+    // Imports a competitor bid from an uploaded Excel or CSV file.
+    // Auto-detects header row, maps columns flexibly, and extracts line items.
+    // Returns { competitorName, items, grandTotal, lineItemCount }.
+    importCompetitorBid(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+
+            reader.onerror = () => reject(new Error('Failed to read file: ' + (reader.error || 'Unknown error')));
+
+            reader.onload = () => {
+                try {
+                    const data = new Uint8Array(reader.result);
+                    let rows;
+
+                    // Parse file based on extension
+                    const ext = (file.name || '').split('.').pop().toLowerCase();
+                    if (ext === 'csv') {
+                        if (typeof XLSX !== 'undefined') {
+                            const wb = XLSX.read(data, { type: 'array' });
+                            const ws = wb.Sheets[wb.SheetNames[0]];
+                            rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                        } else {
+                            const text = new TextDecoder().decode(data);
+                            rows = text.split('\n').map(line => {
+                                const cells = [];
+                                let current = '';
+                                let inQuotes = false;
+                                for (let i = 0; i < line.length; i++) {
+                                    const ch = line[i];
+                                    if (ch === '"') { inQuotes = !inQuotes; continue; }
+                                    if (ch === ',' && !inQuotes) { cells.push(current.trim()); current = ''; continue; }
+                                    current += ch;
+                                }
+                                cells.push(current.trim());
+                                return cells;
+                            });
+                        }
+                    } else {
+                        if (typeof XLSX === 'undefined') {
+                            reject(new Error('SheetJS (XLSX) library is required to read Excel files.'));
+                            return;
+                        }
+                        const wb = XLSX.read(data, { type: 'array' });
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    }
+
+                    if (!rows || rows.length < 2) {
+                        reject(new Error('File appears to be empty or has no data rows.'));
+                        return;
+                    }
+
+                    // Header detection keywords
+                    const headerKeywords = ['item', 'description', 'qty', 'quantity', 'unit cost', 'unit price', 'total', 'amount', 'extended', 'ext cost'];
+
+                    // Column mapping keyword sets
+                    const nameKeys = ['item', 'description', 'desc', 'name', 'material', 'product'];
+                    const qtyKeys = ['qty', 'quantity', 'count', 'units'];
+                    const unitCostKeys = ['unit cost', 'unit price', 'price', 'rate', '$/unit', 'cost/ea'];
+                    const extKeys = ['total', 'amount', 'extended', 'ext cost', 'ext', 'line total', 'extended cost'];
+                    const categoryKeys = ['category', 'section', 'division', 'group', 'csi'];
+
+                    // Auto-detect header row
+                    let headerRowIdx = -1;
+                    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+                        const row = rows[i];
+                        if (!row || !Array.isArray(row)) continue;
+                        const cellTexts = row.map(c => String(c || '').toLowerCase().trim());
+                        const matchCount = cellTexts.filter(c => headerKeywords.some(kw => c.includes(kw))).length;
+                        if (matchCount >= 2) {
+                            headerRowIdx = i;
+                            break;
+                        }
+                    }
+
+                    if (headerRowIdx === -1) {
+                        reject(new Error('Could not detect a header row. Ensure the spreadsheet has recognizable column headers (e.g. Item, Qty, Unit Cost, Total).'));
+                        return;
+                    }
+
+                    // Map columns
+                    const headerCells = rows[headerRowIdx].map(c => String(c || '').toLowerCase().trim());
+                    let colName = -1, colQty = -1, colUnitCost = -1, colExt = -1, colCategory = -1;
+
+                    const findCol = (keys) => {
+                        for (const kw of keys) {
+                            const idx = headerCells.findIndex(c => c.includes(kw));
+                            if (idx !== -1) return idx;
+                        }
+                        return -1;
+                    };
+
+                    colName = findCol(nameKeys);
+                    colQty = findCol(qtyKeys);
+                    colUnitCost = findCol(unitCostKeys);
+                    colExt = findCol(extKeys);
+                    colCategory = findCol(categoryKeys);
+
+                    if (colName === -1) {
+                        reject(new Error('Could not find an Item/Description column in the header row.'));
+                        return;
+                    }
+
+                    // Extract competitor name from rows above the header
+                    let competitorName = '';
+                    const companyLabels = ['company', 'contractor', 'bidder', 'from', 'vendor'];
+                    for (let i = 0; i < headerRowIdx; i++) {
+                        const row = rows[i];
+                        if (!row) continue;
+                        for (let ci = 0; ci < row.length; ci++) {
+                            const cellStr = String(row[ci] || '').toLowerCase().trim();
+                            if (companyLabels.some(lbl => cellStr.includes(lbl)) && row[ci + 1]) {
+                                competitorName = String(row[ci + 1]).trim();
+                                break;
+                            }
+                        }
+                        if (competitorName) break;
+                    }
+                    // Fallback to filename
+                    if (!competitorName) {
+                        competitorName = (file.name || 'Competitor').replace(/\.[^.]+$/, '').trim();
+                    }
+
+                    // Skip keywords for subtotal/total rows
+                    const skipKeywords = /^(subtotal|total|grand total|sum|net total|overall|tax|markup|margin|overhead|contingency)\b/i;
+
+                    // Parse number helper
+                    const parseNum = (val) => {
+                        if (val == null || val === '') return NaN;
+                        const str = String(val).replace(/[$,\s()]/g, '');
+                        return parseFloat(str);
+                    };
+
+                    // Extract items
+                    const items = [];
+                    let grandTotal = 0;
+
+                    for (let i = headerRowIdx + 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row || !Array.isArray(row)) continue;
+
+                        const name = colName !== -1 ? String(row[colName] || '').trim() : '';
+                        if (!name) continue;
+
+                        // Skip subtotal/total rows
+                        if (skipKeywords.test(name)) continue;
+
+                        let qty = colQty !== -1 ? parseNum(row[colQty]) : NaN;
+                        let unitCost = colUnitCost !== -1 ? parseNum(row[colUnitCost]) : NaN;
+                        let extCost = colExt !== -1 ? parseNum(row[colExt]) : NaN;
+                        const category = colCategory !== -1 ? String(row[colCategory] || '').trim() : '';
+
+                        // Calculate missing fields if possible
+                        if (isNaN(unitCost) && !isNaN(qty) && !isNaN(extCost) && qty !== 0) {
+                            unitCost = Math.round((extCost / qty) * 100) / 100;
+                        }
+                        if (isNaN(qty) && !isNaN(unitCost) && !isNaN(extCost) && unitCost !== 0) {
+                            qty = Math.round((extCost / unitCost) * 100) / 100;
+                        }
+                        if (isNaN(extCost) && !isNaN(qty) && !isNaN(unitCost)) {
+                            extCost = Math.round(qty * unitCost * 100) / 100;
+                        }
+
+                        // Must have at least a name and some cost data
+                        if (isNaN(extCost) && isNaN(unitCost)) continue;
+
+                        items.push({
+                            name: name,
+                            qty: isNaN(qty) ? 0 : qty,
+                            unitCost: isNaN(unitCost) ? 0 : unitCost,
+                            extCost: isNaN(extCost) ? 0 : extCost,
+                            category: category,
+                        });
+
+                        grandTotal += isNaN(extCost) ? 0 : extCost;
+                    }
+
+                    grandTotal = Math.round(grandTotal * 100) / 100;
+
+                    resolve({
+                        competitorName: competitorName,
+                        items: items,
+                        grandTotal: grandTotal,
+                        lineItemCount: items.length,
+                    });
+
+                } catch (err) {
+                    console.error('[SmartPlans] Competitor bid import failed:', err);
+                    reject(new Error('Failed to parse competitor bid file: ' + err.message));
+                }
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+    },
+
+    /**
+     * Compare our BOM against an imported competitor bid.
+     * Uses flexible name matching (exact, substring, word overlap).
+     * Returns { matched, onlyOurs, onlyTheirs, summary }.
+     */
+    compareWithCompetitorBid(state, competitorData) {
+        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+
+        // Flatten our BOM into items
+        const ourItems = [];
+        for (let catIndex = 0; catIndex < bom.categories.length; catIndex++) {
+            const cat = bom.categories[catIndex];
+            for (let itemIndex = 0; itemIndex < cat.items.length; itemIndex++) {
+                const item = cat.items[itemIndex];
+                ourItems.push({
+                    catIndex: catIndex,
+                    itemIndex: itemIndex,
+                    name: (item.item || item.name || '').trim(),
+                    qty: item.qty || 0,
+                    unitCost: item.unitCost || 0,
+                    extCost: item.extCost || 0,
+                    category: cat.name || '',
+                });
+            }
+        }
+
+        // Word-overlap scoring helper
+        const getWords = (str) => str.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 1);
+
+        const wordOverlapScore = (a, b) => {
+            const wordsA = getWords(a);
+            const wordsB = getWords(b);
+            if (wordsA.length === 0 || wordsB.length === 0) return 0;
+            const setB = new Set(wordsB);
+            const shared = wordsA.filter(w => setB.has(w)).length;
+            const maxLen = Math.max(wordsA.length, wordsB.length);
+            return shared / maxLen;
+        };
+
+        // Track which of our items have been matched
+        const ourMatched = new Set();
+        const matched = [];
+
+        // For each competitor item, find the best match in our BOM
+        const theirUnmatched = [];
+
+        for (const theirItem of competitorData.items) {
+            const theirNameLower = (theirItem.name || '').toLowerCase().trim();
+            let bestIdx = -1;
+            let bestScore = 0; // 3 = exact, 2 = substring, 1+ = word overlap > 0.5
+
+            for (let oi = 0; oi < ourItems.length; oi++) {
+                if (ourMatched.has(oi)) continue;
+                const ourNameLower = ourItems[oi].name.toLowerCase().trim();
+
+                // Exact match
+                if (theirNameLower === ourNameLower) {
+                    bestIdx = oi;
+                    bestScore = 3;
+                    break; // Can't do better than exact
+                }
+
+                // Substring match
+                if (theirNameLower.includes(ourNameLower) || ourNameLower.includes(theirNameLower)) {
+                    if (2 > bestScore) {
+                        bestIdx = oi;
+                        bestScore = 2;
+                    }
+                    continue;
+                }
+
+                // Word overlap
+                const overlap = wordOverlapScore(theirItem.name, ourItems[oi].name);
+                if (overlap > 0.5 && (1 + overlap) > bestScore) {
+                    bestIdx = oi;
+                    bestScore = 1 + overlap;
+                }
+            }
+
+            if (bestIdx !== -1) {
+                ourMatched.add(bestIdx);
+                const ours = ourItems[bestIdx];
+                const qtyDelta = theirItem.qty - ours.qty;
+                const costDelta = theirItem.unitCost - ours.unitCost;
+                const extDelta = theirItem.extCost - ours.extCost;
+                const pctDelta = ours.extCost !== 0
+                    ? ((theirItem.extCost - ours.extCost) / ours.extCost * 100).toFixed(1)
+                    : '0.0';
+
+                matched.push({
+                    ourItem: ours,
+                    theirItem: theirItem,
+                    qtyDelta: qtyDelta,
+                    costDelta: costDelta,
+                    extDelta: extDelta,
+                    pctDelta: pctDelta,
+                });
+            } else {
+                theirUnmatched.push(theirItem);
+            }
+        }
+
+        // Collect our unmatched items
+        const onlyOurs = ourItems.filter((_, idx) => !ourMatched.has(idx));
+
+        // Calculate summary
+        const ourTotal = ourItems.reduce((sum, item) => sum + item.extCost, 0);
+        const theirTotal = competitorData.grandTotal || competitorData.items.reduce((sum, item) => sum + item.extCost, 0);
+        const delta = theirTotal - ourTotal;
+        const deltaPercent = ourTotal !== 0 ? (delta / ourTotal * 100).toFixed(1) : '0.0';
+
+        let weAreHigherCount = 0;
+        let weAreLowerCount = 0;
+        let weAreHigherTotal = 0;
+        let weAreLowerTotal = 0;
+
+        for (const m of matched) {
+            if (m.extDelta < 0) {
+                // Their ext is less than ours — we are higher
+                weAreHigherCount++;
+                weAreHigherTotal += m.extDelta; // negative value
+            } else if (m.extDelta > 0) {
+                // Their ext is more than ours — we are lower
+                weAreLowerCount++;
+                weAreLowerTotal += m.extDelta; // positive value
+            }
+        }
+
+        weAreHigherTotal = Math.round(weAreHigherTotal * 100) / 100;
+        weAreLowerTotal = Math.round(weAreLowerTotal * 100) / 100;
+
+        return {
+            matched: matched,
+            onlyOurs: onlyOurs,
+            onlyTheirs: theirUnmatched,
+            summary: {
+                ourTotal: Math.round(ourTotal * 100) / 100,
+                theirTotal: Math.round(theirTotal * 100) / 100,
+                delta: Math.round(delta * 100) / 100,
+                deltaPercent: deltaPercent,
+                weAreHigherCount: weAreHigherCount,
+                weAreLowerCount: weAreLowerCount,
+                weAreHigherTotal: weAreHigherTotal,
+                weAreLowerTotal: weAreLowerTotal,
+            },
+        };
+    },
+
     // ─── Rate Library Integration ─────────────────────────────
     // Applies saved rates from the Rate Library to the current BOM.
     // Uses case-insensitive substring matching on item names.
@@ -2081,6 +2426,240 @@ const SmartPlansExport = {
             totalLabor: Math.round(totalLabor * 100) / 100,
             totalMarkup: Math.round(totalMarkup * 100) / 100,
             totalContingency: Math.round(totalContingency * 100) / 100,
+        };
+    },
+
+    // ─── Import a competitor bid file (xlsx/csv) ─────────────────
+    importCompetitorBid(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('Failed to read file: ' + (reader.error || 'Unknown error')));
+            reader.onload = () => {
+                try {
+                    const data = new Uint8Array(reader.result);
+                    let rows;
+                    const ext = (file.name || '').split('.').pop().toLowerCase();
+
+                    if (ext === 'csv') {
+                        if (typeof XLSX !== 'undefined') {
+                            const wb = XLSX.read(data, { type: 'array' });
+                            const ws = wb.Sheets[wb.SheetNames[0]];
+                            rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                        } else {
+                            const text = new TextDecoder().decode(data);
+                            rows = text.split('\n').map(line => {
+                                const cells = [];
+                                let current = '';
+                                let inQuotes = false;
+                                for (let i = 0; i < line.length; i++) {
+                                    const ch = line[i];
+                                    if (ch === '"') { inQuotes = !inQuotes; continue; }
+                                    if (ch === ',' && !inQuotes) { cells.push(current.trim()); current = ''; continue; }
+                                    current += ch;
+                                }
+                                cells.push(current.trim());
+                                return cells;
+                            });
+                        }
+                    } else {
+                        if (typeof XLSX === 'undefined') {
+                            reject(new Error('SheetJS (XLSX) library is required to read Excel files.'));
+                            return;
+                        }
+                        const wb = XLSX.read(data, { type: 'array' });
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    }
+
+                    if (!rows || rows.length < 2) {
+                        reject(new Error('File appears to be empty or has no data rows.'));
+                        return;
+                    }
+
+                    // Find header row
+                    let headerIdx = -1;
+                    let colItem = -1, colQty = -1, colUnitCost = -1, colExtCost = -1, colCategory = -1;
+
+                    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+                        const row = rows[i];
+                        if (!row || !Array.isArray(row)) continue;
+                        const cellTexts = row.map(c => String(c || '').toLowerCase());
+                        const hasItem = cellTexts.some(c => /item|description|material|component|product/i.test(c));
+                        const hasCost = cellTexts.some(c => /cost|price|amount|total|rate|\$/i.test(c));
+                        if (hasItem && hasCost) {
+                            headerIdx = i;
+                            cellTexts.forEach((c, idx) => {
+                                if (/item|description|material|component|product/i.test(c) && colItem === -1) colItem = idx;
+                                if (/^qty$|quantity|^qty/i.test(c)) colQty = idx;
+                                if (/unit\s*(cost|price|\$)|rate/i.test(c)) colUnitCost = idx;
+                                if (/ext|total|amount|^cost$/i.test(c) && colExtCost === -1) colExtCost = idx;
+                                if (/category|section|division|group/i.test(c)) colCategory = idx;
+                            });
+                            break;
+                        }
+                    }
+
+                    if (headerIdx === -1 || colItem === -1) {
+                        reject(new Error('Could not find header row with item description and cost columns.'));
+                        return;
+                    }
+
+                    // Try to derive competitor name from file name
+                    let competitorName = '';
+                    const fnameMatch = (file.name || '').replace(/\.(xlsx|csv)$/i, '').replace(/[-_]/g, ' ');
+                    if (fnameMatch) competitorName = fnameMatch;
+
+                    const parseCurrency = (v) => {
+                        if (v == null || v === '') return 0;
+                        const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
+                        return isNaN(n) ? 0 : n;
+                    };
+
+                    // Parse data rows
+                    const items = [];
+                    for (let i = headerIdx + 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row || !Array.isArray(row)) continue;
+                        const itemName = String(row[colItem] || '').trim();
+                        if (!itemName) continue;
+
+                        const qty = colQty !== -1 ? (parseFloat(String(row[colQty] || '0').replace(/,/g, '')) || 0) : 0;
+                        const unitCost = colUnitCost !== -1 ? parseCurrency(row[colUnitCost]) : 0;
+                        let extCost = colExtCost !== -1 ? parseCurrency(row[colExtCost]) : 0;
+                        if (extCost === 0 && qty > 0 && unitCost > 0) extCost = Math.round(qty * unitCost * 100) / 100;
+                        if (extCost === 0 && unitCost > 0) extCost = unitCost;
+                        const category = colCategory !== -1 ? String(row[colCategory] || '').trim() : '';
+
+                        if (extCost > 0 || unitCost > 0) {
+                            items.push({ item: itemName, qty, unitCost, extCost, category });
+                        }
+                    }
+
+                    if (items.length === 0) {
+                        reject(new Error('No priced line items found in the file.'));
+                        return;
+                    }
+
+                    const total = Math.round(items.reduce((s, it) => s + it.extCost, 0) * 100) / 100;
+                    resolve({ competitorName, items, total });
+                } catch (err) {
+                    reject(new Error('Failed to parse competitor bid: ' + err.message));
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    },
+
+    // ─── Compare our BOM with competitor bid data ──────────────
+    compareWithCompetitorBid(state, competitorData) {
+        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+
+        // Apply overrides if any
+        const overrides = state.supplierPriceOverrides || {};
+        if (Object.keys(overrides).length > 0) {
+            for (const [key, override] of Object.entries(overrides)) {
+                const [catIdx, itemIdx] = key.split('-').map(Number);
+                if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
+                    const item = bom.categories[catIdx].items[itemIdx];
+                    if (override.qty != null) item.qty = override.qty;
+                    item.unitCost = override.unitCost;
+                    item.extCost = Math.round(item.qty * override.unitCost * 100) / 100;
+                }
+            }
+            bom.grandTotal = 0;
+            for (const cat of bom.categories) {
+                cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
+                cat.subtotal = Math.round(cat.subtotal * 100) / 100;
+                bom.grandTotal += cat.subtotal;
+            }
+            bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
+        }
+
+        // Flatten our items
+        const ourItems = [];
+        for (const cat of bom.categories) {
+            for (const it of cat.items) {
+                ourItems.push({ ...it, category: cat.name });
+            }
+        }
+
+        const compItems = competitorData.items;
+        const matched = [];
+        const ourOnly = [];
+        const theirOnly = [];
+        const usedCompIndices = new Set();
+
+        const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+
+        for (const ourItem of ourItems) {
+            const ourNorm = normalize(ourItem.item || ourItem.name);
+            let bestIdx = -1;
+            let bestScore = 0;
+
+            for (let ci = 0; ci < compItems.length; ci++) {
+                if (usedCompIndices.has(ci)) continue;
+                const compNorm = normalize(compItems[ci].item);
+                const ourWords = ourNorm.split(' ').filter(Boolean);
+                const compWords = compNorm.split(' ').filter(Boolean);
+                const allWords = new Set([...ourWords, ...compWords]);
+                const commonWords = ourWords.filter(w => compWords.includes(w));
+                const score = allWords.size > 0 ? commonWords.length / allWords.size : 0;
+                if (score > bestScore && score >= 0.3) {
+                    bestScore = score;
+                    bestIdx = ci;
+                }
+            }
+
+            if (bestIdx >= 0) {
+                usedCompIndices.add(bestIdx);
+                const comp = compItems[bestIdx];
+                const variance = ourItem.extCost - comp.extCost;
+                const variancePct = comp.extCost !== 0 ? (variance / comp.extCost) * 100 : 0;
+                matched.push({
+                    item: ourItem.item || ourItem.name,
+                    category: ourItem.category,
+                    ourCost: ourItem.extCost,
+                    theirCost: comp.extCost,
+                    ourQty: ourItem.qty,
+                    theirQty: comp.qty,
+                    ourUnitCost: ourItem.unitCost,
+                    theirUnitCost: comp.unitCost,
+                    variance: Math.round(variance * 100) / 100,
+                    variancePct: Math.round(variancePct * 10) / 10,
+                });
+            } else {
+                ourOnly.push({ item: ourItem.item || ourItem.name, category: ourItem.category, cost: ourItem.extCost });
+            }
+        }
+
+        for (let ci = 0; ci < compItems.length; ci++) {
+            if (!usedCompIndices.has(ci)) {
+                theirOnly.push({ item: compItems[ci].item, category: compItems[ci].category, cost: compItems[ci].extCost });
+            }
+        }
+
+        matched.sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
+
+        const ourTotal = bom.grandTotal;
+        const theirTotal = competitorData.total;
+        const higherItems = matched.filter(m => m.variance > 0);
+        const lowerItems = matched.filter(m => m.variance < 0);
+        const higherTotal = Math.round(higherItems.reduce((s, m) => s + m.variance, 0) * 100) / 100;
+        const lowerTotal = Math.round(Math.abs(lowerItems.reduce((s, m) => s + m.variance, 0)) * 100) / 100;
+
+        return {
+            ourTotal,
+            theirTotal,
+            difference: Math.round((ourTotal - theirTotal) * 100) / 100,
+            matched,
+            ourOnly,
+            theirOnly,
+            higherItems,
+            lowerItems,
+            higherTotal,
+            lowerTotal,
+            matchRate: matched.length,
+            totalItems: ourItems.length,
         };
     },
 };

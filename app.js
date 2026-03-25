@@ -1950,6 +1950,120 @@ function recalcBidStrategySummary() {
 }
 
 
+// ─── Competitor Bid Comparison Renderer ───
+function renderBidComparison(comparison, competitorName) {
+  const fmtDollar = (v) => '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmtDollarSigned = (v) => (v >= 0 ? '+' : '-') + fmtDollar(v);
+  const diff = comparison.difference;
+  const diffColor = diff > 0 ? '#ef4444' : diff < 0 ? '#10b981' : 'rgba(0,0,0,0.6)';
+
+  // Summary dashboard
+  let html = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">
+    <div style="padding:12px;background:rgba(13,148,136,0.04);border:1px solid rgba(13,148,136,0.15);">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.4);font-weight:600;margin-bottom:4px;">OUR TOTAL</div>
+      <div style="font-size:18px;font-weight:700;color:#0D9488;">${fmtDollar(comparison.ourTotal)}</div>
+    </div>
+    <div style="padding:12px;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.15);">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.4);font-weight:600;margin-bottom:4px;">THEIR TOTAL</div>
+      <div style="font-size:18px;font-weight:700;color:#6366f1;">${fmtDollar(comparison.theirTotal)}</div>
+    </div>
+    <div style="padding:12px;background:${diff > 0 ? 'rgba(239,68,68,0.04)' : 'rgba(16,185,129,0.04)'};border:1px solid ${diff > 0 ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)'};">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.4);font-weight:600;margin-bottom:4px;">DIFFERENCE</div>
+      <div style="font-size:18px;font-weight:700;color:${diffColor};">${fmtDollarSigned(diff)}</div>
+    </div>
+    <div style="padding:12px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.4);font-weight:600;margin-bottom:4px;">MATCH RATE</div>
+      <div style="font-size:18px;font-weight:700;color:rgba(0,0,0,0.7);">${comparison.matchRate} <span style="font-size:12px;font-weight:400;color:rgba(0,0,0,0.4);">of ${comparison.totalItems} items</span></div>
+    </div>
+  </div>`;
+
+  // Breakdown cards
+  html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+    <div style="padding:12px;background:rgba(239,68,68,0.04);border:1px solid rgba(239,68,68,0.12);">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(239,68,68,0.7);font-weight:600;margin-bottom:4px;">WE'RE HIGHER ON ${comparison.higherItems.length} ITEMS</div>
+      <div style="font-size:16px;font-weight:700;color:#ef4444;">${fmtDollar(comparison.higherTotal)} <span style="font-size:11px;font-weight:400;color:rgba(0,0,0,0.4);">more expensive</span></div>
+    </div>
+    <div style="padding:12px;background:rgba(16,185,129,0.04);border:1px solid rgba(16,185,129,0.12);">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(16,185,129,0.7);font-weight:600;margin-bottom:4px;">WE'RE LOWER ON ${comparison.lowerItems.length} ITEMS</div>
+      <div style="font-size:16px;font-weight:700;color:#10b981;">${fmtDollar(comparison.lowerTotal)} <span style="font-size:11px;font-weight:400;color:rgba(0,0,0,0.4);">cheaper</span></div>
+    </div>
+  </div>`;
+
+  // Comparison table
+  if (comparison.matched.length > 0) {
+    // Group by category
+    const categories = {};
+    for (const m of comparison.matched) {
+      const cat = m.category || 'General';
+      if (!categories[cat]) categories[cat] = [];
+      categories[cat].push(m);
+    }
+
+    html += `<div style="overflow-x:auto;margin-bottom:16px;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="border-bottom:2px solid rgba(0,0,0,0.1);">
+        <th style="text-align:left;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;">ITEM</th>
+        <th style="text-align:right;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;">OUR $</th>
+        <th style="text-align:right;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;">THEIR $</th>
+        <th style="text-align:right;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;">VARIANCE $</th>
+        <th style="text-align:right;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;">VARIANCE %</th>
+      </tr></thead><tbody>`;
+
+    const catKeys = Object.keys(categories);
+    for (const cat of catKeys) {
+      if (catKeys.length > 1) {
+        html += `<tr><td colspan="5" style="padding:8px 6px 4px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.4);font-weight:700;border-top:1px solid rgba(0,0,0,0.06);">${esc(cat)}</td></tr>`;
+      }
+      for (const m of categories[cat]) {
+        const absPct = Math.abs(m.variancePct);
+        let rowBg = 'transparent';
+        let varColor = 'rgba(0,0,0,0.6)';
+        if (absPct > 5) {
+          if (m.variance > 0) { rowBg = 'rgba(239,68,68,0.04)'; varColor = '#ef4444'; }
+          else { rowBg = 'rgba(16,185,129,0.04)'; varColor = '#10b981'; }
+        }
+        html += `<tr style="background:${rowBg};border-bottom:1px solid rgba(0,0,0,0.04);">
+          <td style="padding:6px;color:rgba(0,0,0,0.7);">${esc(m.item)}</td>
+          <td style="padding:6px;text-align:right;font-weight:600;">${fmtDollar(m.ourCost)}</td>
+          <td style="padding:6px;text-align:right;font-weight:600;">${fmtDollar(m.theirCost)}</td>
+          <td style="padding:6px;text-align:right;font-weight:600;color:${varColor};">${fmtDollarSigned(m.variance)}</td>
+          <td style="padding:6px;text-align:right;font-weight:600;color:${varColor};">${m.variancePct >= 0 ? '+' : ''}${m.variancePct.toFixed(1)}%</td>
+        </tr>`;
+      }
+    }
+    html += '</tbody></table></div>';
+  }
+
+  // Unmatched sections
+  if (comparison.ourOnly.length > 0) {
+    html += `<div style="margin-bottom:12px;">
+      <div style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;padding:6px 0;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';">
+        &#9654; ITEMS ONLY IN OUR BID (${comparison.ourOnly.length})
+      </div>
+      <div style="display:none;padding-left:12px;">
+        ${comparison.ourOnly.map(it => `<div style="padding:4px 0;font-size:12px;color:rgba(0,0,0,0.6);border-bottom:1px solid rgba(0,0,0,0.04);">${esc(it.item)} <span style="float:right;font-weight:600;">${fmtDollar(it.cost)}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  if (comparison.theirOnly.length > 0) {
+    html += `<div style="margin-bottom:12px;">
+      <div style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;padding:6px 0;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';">
+        &#9654; ITEMS ONLY IN ${esc(competitorName.toUpperCase())}'S BID (${comparison.theirOnly.length})
+      </div>
+      <div style="display:none;padding-left:12px;">
+        ${comparison.theirOnly.map(it => `<div style="padding:4px 0;font-size:12px;color:rgba(0,0,0,0.6);border-bottom:1px solid rgba(0,0,0,0.04);">${esc(it.item)} <span style="float:right;font-weight:600;">${fmtDollar(it.cost)}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Clear button
+  html += `<div style="text-align:right;margin-top:12px;">
+    <button id="bid-compare-clear" style="padding:6px 16px;border:1px solid rgba(0,0,0,0.12);background:rgba(0,0,0,0.02);color:rgba(0,0,0,0.5);cursor:pointer;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">CLEAR COMPARISON</button>
+  </div>`;
+
+  return html;
+}
+
 // ─── Step 6: Results & RFIs ───
 function renderStep6(container) {
   const rfis = getRelevantRFIs();
@@ -2495,6 +2609,31 @@ function renderStep6(container) {
 
     ${buildBidPhasesCard(state)}
 
+    <div class="info-card" id="bid-compare-card" style="border-left:3px solid #0D9488;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" id="bid-compare-toggle">
+        <h3 class="info-card-title" style="margin:0;">
+          <i data-lucide="git-compare" style="width:16px;height:16px;"></i> COMPETITOR BID COMPARISON
+        </h3>
+        <span style="font-size:11px;color:rgba(0,0,0,0.4);text-transform:uppercase;letter-spacing:1px;">&#9660; EXPAND</span>
+      </div>
+      <div id="bid-compare-body" style="display:none;">
+        <p style="color:rgba(0,0,0,0.5);font-size:12.5px;margin-bottom:16px;">Upload a competitor's bid to compare line items, pricing, and identify where to sharpen your numbers.</p>
+        <div style="display:flex;gap:12px;align-items:end;margin-bottom:16px;">
+          <div style="flex:1;">
+            <label style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;">Competitor Name</label>
+            <input type="text" id="competitor-name" placeholder="e.g., ABC Electric" style="width:100%;margin-top:4px;padding:8px 12px;border:1px solid rgba(0,0,0,0.12);font-size:13px;">
+          </div>
+          <div>
+            <label for="competitor-file" style="display:inline-block;padding:8px 20px;background:#0D9488;color:white;cursor:pointer;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">
+              <i data-lucide="upload" style="width:12px;height:12px;"></i> UPLOAD BID
+            </label>
+            <input type="file" id="competitor-file" accept=".xlsx,.csv" style="display:none;">
+          </div>
+        </div>
+        <div id="bid-compare-results"></div>
+      </div>
+    </div>
+
     ${exportPanel}
 
     ${state.estimateId ? `
@@ -2758,6 +2897,44 @@ function renderStep6(container) {
   initExclusionsPanel(container);
   bindBidStrategyEvents(container);
   bindBidPhasesEvents(container);
+
+  // ── Bid Compare toggle ──
+  const bcToggle = document.getElementById('bid-compare-toggle');
+  if (bcToggle) bcToggle.addEventListener('click', () => {
+    const body = document.getElementById('bid-compare-body');
+    if (body) body.style.display = body.style.display === 'none' ? 'block' : 'none';
+  });
+
+  // ── Bid Compare file upload ──
+  const bcFile = document.getElementById('competitor-file');
+  if (bcFile) bcFile.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const resultsDiv = document.getElementById('bid-compare-results');
+    const nameInput = document.getElementById('competitor-name');
+    resultsDiv.innerHTML = '<p style="color:#0D9488;font-size:12px;">Analyzing competitor bid...</p>';
+
+    try {
+      const competitorData = await SmartPlansExport.importCompetitorBid(file);
+      if (nameInput && nameInput.value.trim()) competitorData.competitorName = nameInput.value.trim();
+      else if (competitorData.competitorName && nameInput) nameInput.value = competitorData.competitorName;
+
+      const comparison = SmartPlansExport.compareWithCompetitorBid(state, competitorData);
+      resultsDiv.innerHTML = renderBidComparison(comparison, competitorData.competitorName || 'Competitor');
+
+      // Bind clear button
+      const clearBtn = document.getElementById('bid-compare-clear');
+      if (clearBtn) clearBtn.addEventListener('click', () => {
+        resultsDiv.innerHTML = '';
+        if (bcFile) bcFile.value = '';
+      });
+
+      if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) {}
+    } catch (err) {
+      console.error('[SmartPlans] Bid comparison error:', err);
+      resultsDiv.innerHTML = `<p style="color:#ef4444;font-size:12px;">Failed to parse bid: ${esc(err.message)}</p>`;
+    }
+  });
 
   // Initialize Lucide icons after DOM update
   if (typeof lucide !== 'undefined') {
