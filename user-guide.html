@@ -80,6 +80,7 @@
     <a href="#results">Results Page</a>
     <a href="#exports">Exports</a>
     <a href="#supplier-quotes">Supplier Quotes</a>
+    <a href="#competitor-bid">Competitor Bid</a>
     <a href="#editable-bom">Editable BOM</a>
     <a href="#proposal">Proposals</a>
     <a href="#exclusions">Exclusions & Assumptions</a>
@@ -487,6 +488,135 @@
       <li>Choose the best pricing per line item or per supplier</li>
     </ul>
     <div class="callout callout-tip"><strong>Tip:</strong> Use the supplier quote workflow for high-value line items where real-world pricing can significantly improve estimate accuracy.</div>
+
+    <!-- ============================================================ -->
+    <!-- COMPETITOR BID COMPARISON -->
+    <!-- ============================================================ -->
+    <h2 id="competitor-bid">6b. Competitor Bid Comparison <span class="badge-new">NEW in v5.0</span></h2>
+    <p>Sometimes you want to see how your estimate stacks up against another contractor's bid. Maybe your boss got a competitor's pricing, or you want to compare your numbers against a subcontractor's quote. SmartPlans lets you upload their bid and instantly see a side-by-side comparison &mdash; showing exactly where you're higher, where you're lower, and by how much.</p>
+
+    <h3>How to Use It (Step-by-Step)</h3>
+    <ol class="step-list">
+      <li>
+        <strong>Run Your Estimate First</strong><br>
+        You need to have a completed SmartPlans estimate before you can compare. Go through Steps 1&ndash;6 as normal. Once you see the results page with your BOM (Bill of Materials), you're ready.
+      </li>
+      <li>
+        <strong>Get the Competitor's Bid</strong><br>
+        You need the competitor's bid as an Excel file (<code>.xlsx</code>) or CSV file (<code>.csv</code>). This could be:
+        <ul>
+          <li>A bid they submitted to the same project</li>
+          <li>A subcontractor quote you received</li>
+          <li>An old estimate from a different tool</li>
+          <li>Any spreadsheet with item names, quantities, and prices</li>
+        </ul>
+        The spreadsheet does <strong>NOT</strong> need to match SmartPlans' format. SmartPlans will automatically figure out which columns are which. It just needs to have some combination of: item descriptions, quantities, unit costs, or total costs.
+      </li>
+      <li>
+        <strong>Find the Comparison Section</strong><br>
+        Scroll down on the results page (Step 6) until you see a teal-bordered card that says <strong>"COMPETITOR BID COMPARISON"</strong>. Click on it to expand it.
+      </li>
+      <li>
+        <strong>Enter the Competitor's Name</strong><br>
+        Type the competitor's name in the "Competitor Name" box. This is just a label so you remember whose bid you uploaded. Example: "ABC Electric" or "Johnson Controls Quote".
+      </li>
+      <li>
+        <strong>Upload Their Bid</strong><br>
+        Click the <strong>"UPLOAD BID"</strong> button (teal button). Select the Excel or CSV file from your computer. SmartPlans will read it automatically &mdash; you don't need to do anything else.
+      </li>
+      <li>
+        <strong>Read the Results</strong><br>
+        After a few seconds, you'll see the comparison broken into several parts:
+
+        <h4>Part A &mdash; Summary Dashboard (4 boxes at the top)</h4>
+        <ul>
+          <li><strong>OUR TOTAL:</strong> Your SmartPlans estimate total</li>
+          <li><strong>THEIR TOTAL:</strong> The competitor's bid total</li>
+          <li><strong>DIFFERENCE:</strong> How much more or less your bid is (green = you're cheaper, red = you're more expensive)</li>
+          <li><strong>MATCH RATE:</strong> How many of your line items SmartPlans was able to match against theirs</li>
+        </ul>
+
+        <h4>Part B &mdash; Higher/Lower Breakdown (2 cards)</h4>
+        <ul>
+          <li><strong>Left card (red border):</strong> Shows how many items YOU'RE MORE EXPENSIVE on, and by how much total</li>
+          <li><strong>Right card (green border):</strong> Shows how many items YOU'RE CHEAPER on, and by how much total</li>
+        </ul>
+
+        <h4>Part C &mdash; Comparison Table</h4>
+        <p>This is the big table showing every matched item:</p>
+        <ul>
+          <li>Item name</li>
+          <li>Your price vs their price</li>
+          <li>The dollar difference</li>
+          <li>The percentage difference</li>
+          <li>Rows are sorted with the <strong>BIGGEST</strong> differences at the top (so you see the most important variances first)</li>
+          <li><span style="color:#16a34a;font-weight:600;">Green rows</span> = you're cheaper on this item</li>
+          <li><span style="color:#dc2626;font-weight:600;">Red rows</span> = you're more expensive on this item</li>
+          <li><span style="color:#6b7280;font-weight:600;">Gray rows</span> = prices are within 5% (basically the same)</li>
+        </ul>
+
+        <h4>Part D &mdash; Unmatched Items</h4>
+        <p>At the bottom, you'll see two collapsible lists:</p>
+        <ul>
+          <li><strong>"Items only in our bid"</strong> &mdash; things you included that they didn't</li>
+          <li><strong>"Items only in their bid"</strong> &mdash; things they included that you didn't</li>
+        </ul>
+        <p>These are important! If they have items you don't, you might be missing something. If you have items they don't, you might have a more complete bid.</p>
+      </li>
+      <li>
+        <strong>Take Action</strong><br>
+        Now that you can see the differences:
+        <ul>
+          <li>Look at the red rows (where you're higher) &mdash; can you sharpen those prices?</li>
+          <li>Look at items only in their bid &mdash; should you add those to yours?</li>
+          <li>Use the editable BOM table above to adjust your quantities and prices</li>
+          <li>Click <strong>"Regenerate Proposal"</strong> to create an updated proposal with your changes</li>
+        </ul>
+      </li>
+      <li>
+        <strong>Clear and Try Another</strong><br>
+        Click the <strong>"CLEAR COMPARISON"</strong> button at the bottom to remove the comparison. You can then upload a different competitor's bid to compare against.
+      </li>
+    </ol>
+
+    <h3>Tips &amp; Warnings</h3>
+    <div class="callout callout-tip"><strong>Tip:</strong> SmartPlans matches items by name &mdash; the more similar the item descriptions are, the better the matching works. If you see a low match rate, it might mean the competitor uses very different item names than SmartPlans. Check the "unmatched" lists to see what didn't match.</div>
+
+    <div class="callout callout-warn"><strong>Important:</strong> Competitor bid data is NOT saved anywhere &mdash; it only exists while you're viewing the comparison. Once you refresh the page or close the browser, it's gone. This is intentional to protect competitive information. If you need to keep the comparison, take a screenshot or print the page.</div>
+
+    <div class="callout callout-info"><strong>What File Formats Work?</strong> SmartPlans can read Excel (<code>.xlsx</code>) and CSV (<code>.csv</code>) files. The spreadsheet needs to have columns for item names and some kind of pricing (unit cost, total cost, or both). SmartPlans automatically detects which columns are which &mdash; you don't need to rename anything.</div>
+
+    <h3>What the Matching Looks Like (Example)</h3>
+    <table>
+      <tr>
+        <th>Your Item</th>
+        <th>Their Item</th>
+        <th>Your Price</th>
+        <th>Their Price</th>
+        <th>Difference</th>
+      </tr>
+      <tr>
+        <td>Cat6A Plenum Cable</td>
+        <td>CAT6A Cable, Plenum</td>
+        <td>$0.55/ft</td>
+        <td>$0.48/ft</td>
+        <td style="color:#dc2626;font-weight:600;">-$0.07 (They're cheaper)</td>
+      </tr>
+      <tr>
+        <td>IP Dome Camera</td>
+        <td>Axis P3245-V Dome</td>
+        <td>$850</td>
+        <td>$920</td>
+        <td style="color:#16a34a;font-weight:600;">+$70 (You're cheaper)</td>
+      </tr>
+      <tr>
+        <td>48-Port Patch Panel</td>
+        <td>Patch Panel 48-Port Cat6A</td>
+        <td>$406</td>
+        <td>$395</td>
+        <td style="color:#dc2626;font-weight:600;">-$11 (They're cheaper)</td>
+      </tr>
+    </table>
 
     <!-- ============================================================ -->
     <!-- EDITABLE BOM TABLE -->

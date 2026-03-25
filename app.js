@@ -665,6 +665,16 @@ function esc(str) {
   d.textContent = str;
   return d.innerHTML;
 }
+function _safeParseDisciplines(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed.startsWith('[')) { try { return JSON.parse(trimmed); } catch(e) { /* fall through */ } }
+    return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+}
 
 function formatFileSize(bytes) {
   if (bytes < 1024) return bytes + " B";
@@ -5753,7 +5763,7 @@ function _restoreStateFromPayload(id, pkg, est) {
   state.projectType = pkg?.project?.type || est?.project_type || '';
   state.projectLocation = pkg?.project?.location || est?.project_location || '';
   state.preparedFor = pkg?.project?.preparedFor || est?.prepared_for || '';
-  state.disciplines = pkg?.project?.disciplines || (est?.disciplines ? (typeof est.disciplines === 'string' ? JSON.parse(est.disciplines) : est.disciplines) : []);
+  state.disciplines = pkg?.project?.disciplines || (est?.disciplines ? _safeParseDisciplines(est.disciplines) : []);
   state.pricingTier = pkg?.pricingConfig?.tier || est?.pricing_tier || 'mid';
   state.codeJurisdiction = pkg?.project?.codeJurisdiction || pkg?.project?.jurisdiction || '';
   state.prevailingWage = pkg?.project?.prevailingWage || '';
@@ -5925,7 +5935,7 @@ async function showSavedEstimates() {
 
   container.innerHTML = (!cloudOk ? '<div style="padding:8px 14px;margin-bottom:10px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;font-size:12px;color:var(--accent-amber);">⚠ Cloud unavailable — showing cached and offline estimates</div>' : '') +
     estimates.map(est => {
-      const discArr = est.disciplines ? (typeof est.disciplines === 'string' ? JSON.parse(est.disciplines) : est.disciplines) : [];
+      const discArr = est.disciplines ? _safeParseDisciplines(est.disciplines) : [];
       const dateStr = est.updated_at ? new Date(est.updated_at.endsWith('Z') ? est.updated_at : est.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
       const isCurrent = state.estimateId === est.id;
       return `<div class="est-card" style="${isCurrent ? 'border-color:var(--accent-indigo);' : ''}${est._isLocal ? 'border-left:3px solid var(--accent-amber);' : ''}">
@@ -6178,7 +6188,7 @@ async function restoreRevision(estimateId, revId, revNum) {
       status: 'analyzed',
     };
     if (rev.disciplines) {
-      payload.disciplines = typeof rev.disciplines === 'string' ? JSON.parse(rev.disciplines) : rev.disciplines;
+      payload.disciplines = _safeParseDisciplines(rev.disciplines);
     }
 
     const putRes = await fetchWithRetry(`/api/estimates/${estimateId}`, {
