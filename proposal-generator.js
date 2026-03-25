@@ -961,32 +961,48 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
   },
 
   // Extract grand total from every possible source
+  // SINGLE SOURCE OF TRUTH: The detailed BOM breakdown (categories grouped,
+  // markups already in sell prices, + contingency). This matches the
+  // Investment Summary table shown in the proposal body.
   _extractGrandTotal(state) {
     const analysis = state.aiAnalysis || '';
     const brainResults = state.brainResults || state.lastBrainResults || {};
 
-    // Method 1 (PRIMARY): Financial Engine's fully-loaded bid price
-    // This includes markups, G&A overhead, profit, and contingency
+    // Method 1 (PRIMARY): BOM-computed total from _buildFinancialTableHtml
+    // This is the detailed breakdown the client sees in the proposal body.
+    // It groups BOM categories (which already contain sell prices with markup)
+    // and adds 10% contingency. The hero number MUST match this table.
+    if (state._bomGrandTotal && state._bomGrandTotal > 1000) {
+      return state._bomGrandTotal;
+    }
+
+    // Method 1b: Compute the BOM total on-the-fly if not yet cached
+    // (same logic as _buildFinancialTableHtml uses)
+    try {
+      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis) {
+        let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+        if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
+          bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
+        }
+        if (bom && bom.categories && bom.categories.length > 0) {
+          const subtotal = bom.categories.reduce((s, c) => s + (c.subtotal || 0), 0);
+          if (subtotal > 1000) {
+            const contingency = this._round(subtotal * 0.10);
+            const total = this._round(subtotal + contingency);
+            state._bomGrandTotal = total;
+            return total;
+          }
+        }
+      }
+    } catch (e) { /* export engine not available */ }
+
+    // Method 2: Financial Engine's brain result (legacy/fallback)
     const finEngine = brainResults?.wave2_5_fin?.FINANCIAL_ENGINE
       || brainResults?.wave2?.FINANCIAL_ENGINE
       || {};
     if (finEngine?.project_summary?.grand_total > 1000) {
       return finEngine.project_summary.grand_total;
     }
-
-    // Method 2: Export engine's calculated fully-loaded total
-    try {
-      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._getFullyLoadedTotal) {
-        let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
-        if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
-          bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
-        }
-        if (bom && bom.grandTotal > 0) {
-          const loaded = SmartPlansExport._getFullyLoadedTotal(state, bom);
-          if (loaded > 1000) return loaded;
-        }
-      }
-    } catch (e) { /* export engine not available */ }
 
     // Method 3: Sum Material + Labor with markups + contingency
     const materialPricer = brainResults?.wave2?.MATERIAL_PRICER || {};
@@ -996,11 +1012,6 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
     if (matTotal + labTotal > 1000) {
       const subtotal = matTotal + labTotal;
       return this._round(subtotal * 1.10);
-    }
-
-    // Method 4: Cached BOM total (raw — last resort)
-    if (state._bomGrandTotal && state._bomGrandTotal > 0) {
-      return state._bomGrandTotal;
     }
 
     // Method 4 (LAST RESORT): Regex on raw analysis text
@@ -1158,9 +1169,10 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity.`;
         throw new Error('AI returned insufficient content. Please try again.');
       }
 
-      // Extract total from the AI-generated text FIRST (source of truth)
-      const proposalTotal = this._extractTotalFromProposalText(aiText);
-      const grandTotal = proposalTotal || this._extractGrandTotal(state);
+      // Use BOM-computed total as the single source of truth.
+      // The AI proposal text may contain a different number — ignore it
+      // in favor of the deterministic BOM breakdown + contingency total.
+      const grandTotal = this._extractGrandTotal(state);
       const grandTotalDisplay = grandTotal ? this._formatMoney(grandTotal) : 'See Detailed Proposal';
 
       progressCallback(60, 'Building executive Word document…');

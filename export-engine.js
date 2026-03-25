@@ -156,11 +156,26 @@ const SmartPlansExport = {
     },
 
     // ─── Get fully loaded bid total (with markups, G&A, profit, contingency) ──
+    // SINGLE SOURCE OF TRUTH: The BOM category subtotals (which already contain
+    // sell prices with markup applied by the AI) + 10% contingency. This matches
+    // the proposal's Investment Summary table exactly.
     _getFullyLoadedTotal(state, bom) {
-        // Priority 1: Financial Engine's calculated grand total
-        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
-        if (finEngine?.project_summary?.grand_total > 1000) {
-            return this._round(finEngine.project_summary.grand_total);
+        // Priority 1: BOM-computed total cached by proposal generator
+        // This is the detailed breakdown total the client sees in the proposal.
+        if (state._bomGrandTotal && state._bomGrandTotal > 1000) {
+            return this._round(state._bomGrandTotal);
+        }
+
+        // Priority 1b: Compute from BOM categories directly (same logic as
+        // ProposalGenerator._buildFinancialTableHtml — categories already
+        // contain sell prices, just sum + 10% contingency)
+        if (bom && bom.categories && bom.categories.length > 0) {
+            const subtotal = bom.categories.reduce((s, c) => s + (c.subtotal || 0), 0);
+            if (subtotal > 1000) {
+                const contingency = this._round(subtotal * 0.10);
+                const total = this._round(subtotal + contingency);
+                return total;
+            }
         }
 
         // Priority 2: Calculate from bid strategy if user applied one
@@ -171,8 +186,13 @@ const SmartPlansExport = {
             }
         }
 
-        // Priority 3: Apply default markups to raw BOM
-        // Material markup (default 50%) + Labor markup (default 50%) + Contingency (10%)
+        // Priority 3: Financial Engine's brain result (legacy fallback)
+        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+        if (finEngine?.project_summary?.grand_total > 1000) {
+            return this._round(finEngine.project_summary.grand_total);
+        }
+
+        // Priority 4: Apply default markups to raw BOM (last resort)
         const matMarkup = (state.markup?.material ?? 50) / 100;
         const labMarkup = (state.markup?.labor ?? 50) / 100;
         const contingencyPct = 0.10;
