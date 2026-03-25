@@ -5454,13 +5454,54 @@ async function saveEstimate(showToast = true) {
     const method = state.estimateId ? 'PUT' : 'POST';
 
     const jsonBody = JSON.stringify(payload);
-    console.log(`[SmartPlans] Saving estimate (${(jsonBody.length / 1024).toFixed(0)}KB) via ${method} ${url}`);
-    const res = await fetchWithRetry(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: jsonBody,
-      _timeout: 60000,
-    }, 3);
+    const sizeKB = (jsonBody.length / 1024).toFixed(0);
+    console.log(`[SmartPlans] Saving estimate (${sizeKB}KB) via ${method} ${url}`);
+
+    // If payload is large (>100KB), try direct fetch with long timeout first
+    // to avoid issues with corporate proxies (CheckPoint) aborting large POSTs
+    let res;
+    if (jsonBody.length > 100000) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: jsonBody,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (directErr) {
+        console.warn(`[SmartPlans] Direct save failed (${directErr.message}), trying chunked fallback...`);
+        // Fallback: save without export_data first, then PUT export_data separately
+        const lightPayload = { ...payload, export_data: null };
+        const lightRes = await fetchWithRetry(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(lightPayload),
+          _timeout: 30000,
+        }, 3);
+        const lightData = await lightRes.json();
+        if (lightData.error) throw new Error(lightData.error);
+        const estId = state.estimateId || lightData.id;
+        if (!state.estimateId && lightData.id) state.estimateId = lightData.id;
+        // Now PUT just the export_data
+        res = await fetchWithRetry(`/api/estimates/${estId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ export_data: exportPkg }),
+          _timeout: 120000,
+        }, 3);
+      }
+    } else {
+      res = await fetchWithRetry(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: jsonBody,
+        _timeout: 60000,
+      }, 3);
+    }
 
     const data = await res.json();
     if (data.error) throw new Error(data.error);
