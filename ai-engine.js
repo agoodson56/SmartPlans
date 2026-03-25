@@ -190,13 +190,14 @@ const SmartBrains = {
                   let chunkIdx = 0;
                   for (const chunk of chunks) {
                     chunkIdx++;
-                    const chunkName = `${entry.name.replace('.pdf', '')}_chunk${chunkIdx}.pdf`;
+                    const chunkName = `${entry.name.replace('.pdf', '')}_chunk${chunkIdx}.jpg`;
+                    const chunkMime = chunk.type || 'image/jpeg'; // Chunks are rendered as JPEG
                     progressCallback(pct, `Uploading chunk ${chunkIdx}/${chunks.length}: ${chunkName} (${Math.round(chunk.size / 1024 / 1024)} MB)…`, null);
 
                     const chunkData = {
                       name: chunkName,
                       category,
-                      mimeType: finalMime,
+                      mimeType: chunkMime,
                       size: chunk.size,
                       _isChunk: true,
                       _chunkIndex: chunkIdx,
@@ -205,7 +206,7 @@ const SmartBrains = {
                     };
 
                     try {
-                      const uploadResult = await this._uploadToFileAPI(chunk, finalMime, chunkName);
+                      const uploadResult = await this._uploadToFileAPI(chunk, chunkMime, chunkName);
                       if (uploadResult && uploadResult.fileUri) {
                         let cleanUri = uploadResult.fileUri;
                         const proxyMatch = cleanUri.match(/___(\s*https?:\/\/[^_]+)___/);
@@ -227,12 +228,10 @@ const SmartBrains = {
                     }
                     encoded[category].push(chunkData);
                   }
-                  // Also keep inline version of first pages for brains that need quick access
-                  fileData.base64 = base64;
-                  fileData._hasChunks = true;
-                  fileData._chunkCount = chunks.length;
-                  encoded[category].push(fileData);
-                  continue; // Skip the normal upload path
+                  // DON'T include the full PDF as inline — it's too large (57MB = 77MB base64)
+                  // The chunks cover all pages. Skip adding the parent fileData entry.
+                  console.log(`[SmartBrains] ✓ All ${chunks.length} chunks uploaded. Skipping full-file inline (${fileSizeMB} MB too large).`);
+                  continue; // Skip the normal upload path — chunks are sufficient
                 } catch (splitErr) {
                   console.warn(`[SmartBrains] PDF splitting failed for ${entry.name}, using single upload:`, splitErr.message);
                   // Fall through to single upload
