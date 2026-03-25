@@ -73,6 +73,7 @@
 
 <nav class="guide-nav">
   <div class="container">
+    <a href="#estimator-checklist" style="background:#BF9000;color:white;border-color:#BF9000;font-weight:700;">Estimator's Checklist</a>
     <a href="#overview">Overview</a>
     <a href="#getting-started">Getting Started</a>
     <a href="#workflow">7-Step Workflow</a>
@@ -100,6 +101,198 @@
 
 <div class="guide-body">
   <div class="container">
+
+    <!-- ============================================================ -->
+    <!-- ESTIMATOR'S REVIEW CHECKLIST -->
+    <!-- ============================================================ -->
+    <h2 id="estimator-checklist" style="font-size:24px;margin-top:0;">Estimator's Review Checklist <span class="badge-new">ESSENTIAL</span></h2>
+    <p style="font-size:16px;font-weight:600;color:#1a1a2e;margin-bottom:4px;">How to Turn an AI Estimate into a Winning Bid</p>
+    <p>This section is your practical, step-by-step guide to reviewing and refining the SmartPlans AI-generated estimate before it becomes your final bid. Whether you are a junior estimator building your first proposal or a seasoned veteran looking for a systematic checklist, this guide ensures nothing falls through the cracks.</p>
+
+    <!-- 1. Understanding What SmartPlans Gives You -->
+    <h3>1. Understanding What SmartPlans Gives You</h3>
+    <p>SmartPlans reads your drawings and specifications using a 27-brain AI engine. It counts devices, estimates cable quantities, prices materials, calculates labor, and generates a professional proposal. That is a tremendous head start, but it is <strong>not</strong> a replacement for estimator judgment.</p>
+
+    <div class="callout callout-info"><strong>Key Mindset:</strong> The AI estimate is a strong starting point. Your job is to <strong>verify, refine, and finalize</strong>. Think of it as a first draft written by a very fast but occasionally imperfect assistant.</div>
+
+    <table>
+      <tr><th>What the AI Does Well</th><th>Where the AI Needs Your Help</th></tr>
+      <tr><td>Counts symbols quickly across dozens of sheets</td><td>May miscount devices shown in legends or detail callouts as actual installed devices</td></tr>
+      <tr><td>Catches buried spec requirements humans often skip</td><td>Cannot judge constructability, site access, or real-world labor conditions</td></tr>
+      <tr><td>Applies consistent pricing across every line item</td><td>May select the wrong manufacturer or product line if the spec is ambiguous</td></tr>
+      <tr><td>Generates RFIs from gaps in the drawings</td><td>Cannot read the general contractor's mind about schedule, phasing, or logistics</td></tr>
+      <tr><td>Processes addenda and layers in scope changes</td><td>May hallucinate quantities when drawings are blurry or cluttered</td></tr>
+    </table>
+
+    <div class="callout callout-warn"><strong>Bottom Line:</strong> Trust the AI for speed and coverage. Trust yourself for accuracy and context. The combination of both is what wins bids.</div>
+
+    <!-- 2. Step-by-Step Review Process -->
+    <h3>2. Step-by-Step Review Process</h3>
+    <p>Work through these seven checks in order. Each one builds on the previous, and skipping any of them is where estimators lose money.</p>
+
+    <!-- A. Verify Device Counts -->
+    <h4>A. Verify Device Counts (MOST CRITICAL)</h4>
+    <p>Device counts drive everything downstream: cable quantities, labor hours, and material costs. If the counts are wrong, the entire estimate is wrong.</p>
+
+    <ol class="step-list">
+      <li>Open your construction drawings side-by-side with the SmartPlans Bill of Materials (BOM).</li>
+      <li>Pick 2 to 3 representative floors and hand-count key devices: cameras, card readers, door contacts, pull stations, speakers, WAPs, and data drops.</li>
+      <li>Compare your hand counts to the AI counts for those same floors. Calculate the percentage difference.</li>
+      <li>If the AI is within 5%, the counts are likely reliable across the full set. If the difference exceeds 15%, recount the entire drawing set carefully.</li>
+    </ol>
+
+    <div class="callout callout-warn"><strong>Common AI Counting Errors:</strong>
+      <ul style="margin-bottom:0">
+        <li>Counting devices shown in <strong>detail drawings or legends</strong> as actual installed devices</li>
+        <li>Missing devices on <strong>reflected ceiling plans</strong> (RCPs) that are separate from the floor plans</li>
+        <li>Double-counting devices shown on <strong>both architectural and low-voltage sheets</strong></li>
+        <li>Confusing similar symbols across disciplines (e.g., smoke detector vs. speaker/strobe)</li>
+      </ul>
+    </div>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> If the AI count is within 5% of your hand count, it is likely correct across the full drawing set. If it is off by more than 15%, do a full recount. Between 5% and 15%, spot-check additional floors before deciding.</div>
+
+    <!-- B. Check Cable Quantities -->
+    <h4>B. Check Cable Quantities</h4>
+    <p>Cable is one of the highest-cost materials on any low-voltage project. A 20% error in cable quantities can swing your bid by tens of thousands of dollars.</p>
+
+    <table>
+      <tr><th>Check</th><th>What to Look For</th><th>Typical Range</th></tr>
+      <tr><td><strong>Average run length</strong></td><td>Divide total cable footage by device count. Does the average make sense for the building size?</td><td>150 to 250 ft in most commercial buildings</td></tr>
+      <tr><td><strong>Conduit quantities</strong></td><td>AI often underestimates underground and exterior conduit. Check site plans for trenching runs.</td><td>Varies widely; verify against site drawings</td></tr>
+      <tr><td><strong>Backbone cable</strong></td><td>Compare backbone fiber and copper counts against the riser diagram. Count the number of risers and IDF-to-MDF connections.</td><td>Should match riser diagram exactly</td></tr>
+      <tr><td><strong>Waste factor</strong></td><td>Ensure a waste factor is included. Standard is 10% for cable, 15% for conduit fittings.</td><td>1.10x multiplier on cable; 1.15x on fittings</td></tr>
+    </table>
+
+    <div class="callout callout-tip"><strong>Quick Cable Sanity Check:</strong> Total cable = Device count x Average run length x 1.1 (waste). If the AI total is more than 15% different from this formula, investigate the individual runs.</div>
+
+    <!-- C. Review Material Specifications -->
+    <h4>C. Review Material Specifications</h4>
+    <p>The spec book is the law of the project. If the AI priced the wrong product line, you will either overbid (and lose the job) or underbid (and lose money).</p>
+
+    <ul>
+      <li><strong>Manufacturer match</strong> — Verify the AI selected the correct manufacturer. If the spec says Axis cameras but the AI priced Hanwha, correct it before generating your proposal.</li>
+      <li><strong>Approved equals</strong> — Check whether the spec allows "approved equal" substitutions or is locked to a specific brand. If substitutions are allowed, you may be able to use lower-cost products.</li>
+      <li><strong>Cable types</strong> — Confirm plenum vs. riser rated, Cat6 vs. Cat6A, and fiber strand counts match the spec requirements exactly.</li>
+      <li><strong>OFCI items</strong> — Look for spec sections that designate equipment as Owner-Furnished, Contractor-Installed (OFCI). These items should be priced at $0 for material but still carry labor hours for installation.</li>
+    </ul>
+
+    <div class="callout callout-info"><strong>Note:</strong> Use the <strong>Editable BOM</strong> feature to correct any manufacturer or pricing errors directly in the table. Changes recalculate totals in real time.</div>
+
+    <!-- D. Validate Labor Hours -->
+    <h4>D. Validate Labor Hours</h4>
+    <p>Labor is typically 40% to 60% of a low-voltage bid. The AI estimates labor using industry benchmarks, but your company's actual productivity rates may differ significantly.</p>
+
+    <table>
+      <tr><th>Task</th><th>Typical Labor Benchmark</th><th>Notes</th></tr>
+      <tr><td>Data drop (rough-in + trim)</td><td>1.5 to 2.5 hours</td><td>Includes pulling cable, terminating, testing</td></tr>
+      <tr><td>Camera install (indoor dome)</td><td>2 to 4 hours</td><td>Mount, cable, configure, aim</td></tr>
+      <tr><td>Camera install (outdoor PTZ)</td><td>4 to 8 hours</td><td>Conduit, weatherproof housing, aiming, programming</td></tr>
+      <tr><td>Card reader + door hardware</td><td>4 to 8 hours per door</td><td>Reader, REX, door contact, electric lock, wiring</td></tr>
+      <tr><td>Fire alarm device</td><td>1 to 2 hours</td><td>Smoke, pull station, horn/strobe</td></tr>
+      <tr><td>Cable pulling (open ceiling)</td><td>80 to 150 ft per hour per person</td><td>J-hooks, open plenum</td></tr>
+      <tr><td>Cable pulling (in conduit)</td><td>40 to 80 ft per hour per person</td><td>Pre-installed conduit with pull string</td></tr>
+    </table>
+
+    <div class="callout callout-warn"><strong>Adjust for Conditions:</strong> The benchmarks above assume standard 9 to 10 ft ceilings, open access, and normal working conditions. Add 25% to 50% for high ceilings (over 15 ft), occupied spaces, secure facilities, or confined areas. Union projects may also have different productivity rates and crew composition requirements.</div>
+
+    <!-- E. Check Subcontractor Scope -->
+    <h4>E. Check Subcontractor Scope</h4>
+    <p>Most low-voltage projects require coordination with other trades. Missing a subcontractor scope item means you will pay for it out of your own pocket.</p>
+
+    <table>
+      <tr><th>Common Sub Scope</th><th>Typically Provided By</th><th>Your Responsibility</th></tr>
+      <tr><td>120V power to devices</td><td>Electrical contractor</td><td>Verify who provides power drops to cameras, access panels, etc.</td></tr>
+      <tr><td>Trenching and underground conduit</td><td>Civil / site contractor</td><td>Get a real quote; AI estimates are rough percentages</td></tr>
+      <tr><td>Fire alarm (if separate contract)</td><td>Fire alarm sub</td><td>Confirm whether FA is in your scope or a separate bid package</td></tr>
+      <tr><td>Core drilling and firestopping</td><td>Specialty sub</td><td>Count penetrations from the drawings; get a per-hole quote</td></tr>
+      <tr><td>Painting, patching, ceiling repair</td><td>General trades</td><td>Clarify in your exclusions if not included</td></tr>
+    </table>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> Use the <strong>Supplier Quote</strong> feature in SmartPlans to export your BOM to subcontractors and suppliers. Import their real pricing back in to replace the AI estimates for these line items.</div>
+
+    <!-- F. Review Pricing -->
+    <h4>F. Review Pricing</h4>
+    <p>The AI Grand Total represents the <strong>raw estimated cost</strong> based on the selected pricing tier and regional multiplier. Your final bid price will layer additional costs on top.</p>
+
+    <ul>
+      <li><strong>Rate Library</strong> — Apply your company's known pricing from past projects. This overrides AI estimates with your actual historical costs.</li>
+      <li><strong>High-dollar items</strong> — Individually verify pricing on servers, NVRs, head-end equipment, fire alarm control panels, and generators. A $2,000 error on a single head-end unit changes your bid significantly.</li>
+      <li><strong>Regional accuracy</strong> — Confirm the regional pricing multiplier is appropriate. Sacramento pricing is not the same as San Francisco pricing. Adjust the multiplier in project setup if needed.</li>
+      <li><strong>Benchmark feature</strong> — If you have actuals from past projects recorded in SmartPlans, use the Benchmark feature to compare AI pricing against your real-world costs.</li>
+    </ul>
+
+    <div class="callout callout-warn"><strong>Important:</strong> The AI Grand Total is the raw material + labor cost. Your <strong>proposal price</strong> adds labor markup, material markup, overhead, burden, profit, and contingency on top. Make sure you understand the difference before quoting a number to a GC.</div>
+
+    <!-- G. Finalize Exclusions & Assumptions -->
+    <h4>G. Finalize Exclusions &amp; Assumptions</h4>
+    <p>Exclusions and assumptions are your legal protection. A missing exclusion can cost you the entire profit margin on a project. This is not optional.</p>
+
+    <ol class="step-list">
+      <li>Review the auto-generated exclusions that SmartPlans created from the AI analysis. Remove any that do not apply to your project.</li>
+      <li>Add project-specific exclusions. Common examples: "Excludes work above 30 ft requiring scaffolding or lifts," "Assumes normal business hours access (7AM to 5PM)," "Excludes permit fees unless noted."</li>
+      <li>Verify your assumptions match reality. If you assumed open ceilings but the building has hard-lid ceilings, your labor estimate is wrong. Call the GC or owner's rep to clarify unknowns.</li>
+      <li>Review clarifications to ensure scope boundaries are crystal clear. Ambiguity in scope is where disputes and change orders originate.</li>
+    </ol>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> Use the <strong>Exclusions &amp; Assumptions Builder</strong> and load the discipline-specific templates as a starting point. Then customize for your project. It is far better to have too many exclusions than too few.</div>
+
+    <!-- 3. Common Pitfalls That Lose Money -->
+    <h3>3. Common Pitfalls That Lose Money</h3>
+    <p>These are the top ten mistakes that cost estimators real dollars. Every one of them has happened on actual projects. Learn from the losses of others.</p>
+
+    <table>
+      <tr><th>#</th><th>Pitfall</th><th>How to Avoid It</th></tr>
+      <tr><td><strong>1</strong></td><td>Not reading the spec addenda</td><td>Upload all addenda to SmartPlans. The AI reads them, but you should too. Addenda frequently change quantities, products, or scope.</td></tr>
+      <tr><td><strong>2</strong></td><td>Missing liquidated damages clauses</td><td>Read the general conditions carefully. LD clauses can be $500 to $5,000 per day. Factor schedule risk into your contingency.</td></tr>
+      <tr><td><strong>3</strong></td><td>Underestimating travel and per diem</td><td>Use the SmartPlans Travel &amp; Per Diem calculator. Account for crew size, multiple mobilizations, and realistic hotel rates.</td></tr>
+      <tr><td><strong>4</strong></td><td>Forgetting permit fees and inspections</td><td>Contact the local AHJ (Authority Having Jurisdiction) for permit costs. Budget for re-inspection fees as well.</td></tr>
+      <tr><td><strong>5</strong></td><td>Not accounting for phased construction</td><td>Working around occupied spaces is 25% to 50% slower. Use Multi-Phase Pricing to structure phased bids properly.</td></tr>
+      <tr><td><strong>6</strong></td><td>Missing prevailing wage requirements</td><td>Check for Davis-Bacon (federal) or state prevailing wage. SmartPlans supports both; set the correct wage type in project setup.</td></tr>
+      <tr><td><strong>7</strong></td><td>Underestimating conduit and pathway</td><td>Conduit is the most frequently under-bid item in low-voltage work. Walk the site if possible. Add 15% to 20% contingency on pathway.</td></tr>
+      <tr><td><strong>8</strong></td><td>Not including commissioning and testing labor</td><td>Budget 8% to 12% of total labor hours for system testing, commissioning, and owner training.</td></tr>
+      <tr><td><strong>9</strong></td><td>Forgetting warranty period costs</td><td>Most contracts require 1 to 2 years of warranty. Budget for service calls, replacement parts, and return trips.</td></tr>
+      <tr><td><strong>10</strong></td><td>Not reading the general conditions</td><td>Who provides temporary power? Dumpsters? Material hoisting? If the GC does not, the cost falls on you.</td></tr>
+    </table>
+
+    <!-- 4. Before You Submit -->
+    <h3>4. Before You Submit</h3>
+    <p>Use this final checklist before sending your bid. Print it out and check off each item. Rushing a bid out the door without this review is the single most common cause of bad bids.</p>
+
+    <table>
+      <tr><th style="width:40px;">&#10003;</th><th>Pre-Submission Check</th><th>Details</th></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Device quantities verified</strong></td><td>Hand-counted at least 2 to 3 representative floors against AI counts</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Pricing is current</strong></td><td>Material pricing reflects current distributor quotes, not stale data</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Exclusions are complete</strong></td><td>Every scope boundary is explicitly stated</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Markups are appropriate</strong></td><td>Material markup, labor markup, overhead, profit, and contingency are set correctly</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Travel is included</strong></td><td>If the project is out of town, travel costs are calculated and added</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Bonds and insurance factored</strong></td><td>Performance bond (typically 1% to 3% of contract) and insurance costs are included</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Bid form filled correctly</strong></td><td>GC's bid form is complete with all required fields, signatures, and attachments</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Second-person review</strong></td><td>Another person has reviewed the numbers independently</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Submission requirements met</strong></td><td>Correct format, on time, all required documents attached (bid bond, license, insurance cert)</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Addenda acknowledged</strong></td><td>All addenda are listed and acknowledged on the bid form</td></tr>
+    </table>
+
+    <div class="callout callout-warn"><strong>Golden Rule:</strong> Have a second person review your numbers before submission. Fresh eyes catch errors that you have gone blind to after hours of estimating. This single practice prevents more bid disasters than any other.</div>
+
+    <!-- 5. Using SmartPlans Features to Improve Accuracy -->
+    <h3>5. Using SmartPlans Features to Improve Accuracy</h3>
+    <p>SmartPlans includes several features specifically designed to help you refine the AI estimate. Use them.</p>
+
+    <table>
+      <tr><th>Feature</th><th>How It Helps Your Review</th><th>When to Use</th></tr>
+      <tr><td><strong>Supplier Quotes</strong></td><td>Export the BOM to your vendors. Import their real pricing back in. Replaces AI estimates with actual distributor pricing.</td><td>Always for high-value items. Ideally for the entire BOM on competitive bids.</td></tr>
+      <tr><td><strong>Bid Strategy</strong></td><td>Set confidence-based markups per category. Low-confidence items get higher contingency automatically.</td><td>After you complete your review and know which categories you trust and which are uncertain.</td></tr>
+      <tr><td><strong>Rate Library</strong></td><td>Save rates from completed projects. Apply them to new estimates for consistent, real-world pricing.</td><td>Every project. Your Rate Library gets more valuable over time.</td></tr>
+      <tr><td><strong>Actuals Feedback</strong></td><td>Record what you actually spent after a project completes. SmartPlans tracks variance and builds benchmarks.</td><td>After project closeout. This is how the system learns and improves.</td></tr>
+      <tr><td><strong>Multi-Phase Pricing</strong></td><td>Structure base bid plus add/deduct alternates and optional phases. Proposals include a phase summary table.</td><td>Whenever the bid documents call for alternates or phased pricing.</td></tr>
+      <tr><td><strong>Editable BOM</strong></td><td>Click any quantity or price cell to edit it. Totals recalculate in real time.</td><td>Whenever you find an error during your review. Correct it immediately.</td></tr>
+      <tr><td><strong>Version History</strong></td><td>Every save creates a revision. Compare revisions side-by-side and restore previous versions.</td><td>Before major changes. Save first, then make edits. You can always roll back.</td></tr>
+    </table>
+
+    <div class="callout callout-tip"><strong>Pro Tip:</strong> The estimators who win the most work are the ones who build their Rate Library and record Actuals religiously. After 10 to 15 projects, your historical data becomes your single greatest competitive advantage.</div>
+
+    <hr style="border:none;border-top:2px solid rgba(191,144,0,0.3);margin:40px 0;">
 
     <!-- ============================================================ -->
     <!-- OVERVIEW -->
