@@ -25,7 +25,8 @@ export async function onRequestGet(context) {
 
         return Response.json({ revisions: res.results || [] });
     } catch (err) {
-        return Response.json({ error: 'Failed to load revisions: ' + err.message }, { status: 500 });
+        console.error('Failed to load revisions:', err.message);
+        return Response.json({ error: 'Failed to load revisions' }, { status: 500 });
     }
 }
 
@@ -65,6 +66,7 @@ export async function onRequestPost(context) {
 
         return Response.json({ id: revId, revision_number: revNum, success: true }, { status: 201 });
     } catch (err) {
-        return Response.json({ error: 'Failed to create revision: ' + err.message }, { status: 500 });
+        console.error('Failed to create revision:', err.message);
+        return Response.json({ error: 'Failed to create revision' }, { status: 500 });
     }
 }

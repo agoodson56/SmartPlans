@@ -6,6 +6,8 @@
 
 const ProposalGenerator = {
 
+  _round(val) { return Math.round((val || 0) * 100) / 100; },
+
   COMPANY: {
     name: '3D Technology Services, Inc.',
     address: '11365 Sunrise Gold Circle',
@@ -834,8 +836,8 @@ ACCEPTANCE & SIGNATURE BLOCK
     // Calculate totals
     const lineItems = Object.values(groups).filter(g => g.total > 0);
     const subtotal = lineItems.reduce((s, g) => s + g.total, 0);
-    const contingency = Math.round(subtotal * 0.10 * 100) / 100;
-    const grandTotal = Math.round((subtotal + contingency) * 100) / 100;
+    const contingency = this._round(subtotal * 0.10);
+    const grandTotal = this._round(subtotal + contingency);
 
     // Cache the grand total so _extractGrandTotal uses the same number
     state._bomGrandTotal = grandTotal;
@@ -986,7 +988,7 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
     const labTotal = laborCalc?.total_with_markup || laborCalc?.grand_total || 0;
     if (matTotal + labTotal > 1000) {
       const subtotal = matTotal + labTotal;
-      return Math.round(subtotal * 1.10 * 100) / 100;
+      return this._round(subtotal * 1.10);
     }
 
     // Method 4: Cached BOM total (raw — last resort)

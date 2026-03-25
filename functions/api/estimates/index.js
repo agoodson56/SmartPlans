@@ -44,7 +44,8 @@ export async function onRequestGet(context) {
         ).all();
         return Response.json({ estimates: res.results || [] });
     } catch (err) {
-        return Response.json({ error: 'Failed to load estimates: ' + err.message }, { status: 500 });
+        console.error('Failed to load estimates:', err.message);
+        return Response.json({ error: 'Failed to load estimates' }, { status: 500 });
     }
 }
 
@@ -107,7 +108,8 @@ export async function onRequestPost(context) {
 
         return Response.json({ id, success: true }, { status: 201 });
     } catch (err) {
-        return Response.json({ error: 'Failed to save estimate: ' + err.message }, { status: 500 });
+        console.error('Failed to save estimate:', err.message);
+        return Response.json({ error: 'Failed to save estimate' }, { status: 500 });
     }
 }
 

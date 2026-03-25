@@ -73,7 +73,13 @@ export async function onRequestGet({ request, env }) {
     try {
         const url = new URL(request.url);
         const category = url.searchParams.get('category') || '';
-        const search = url.searchParams.get('search') || '';
+        let search = url.searchParams.get('search') || '';
+
+        // Validate search input
+        if (search.length > 100) {
+            return jsonResp({ error: 'Search query too long (max 100 characters)' }, 400, origin);
+        }
+        search = search.replace(/[%_]/g, '');
 
         let sql = `SELECT * FROM rate_library`;
         const conditions = [];
@@ -98,7 +104,8 @@ export async function onRequestGet({ request, env }) {
 
         return jsonResp({ rates: res.results || [] }, 200, origin);
     } catch (err) {
-        return jsonResp({ error: 'Failed to load rates: ' + err.message }, 500, origin);
+        console.error('Failed to load rates:', err.message);
+        return jsonResp({ error: 'Failed to load rates' }, 500, origin);
     }
 }
 
@@ -107,6 +114,11 @@ export async function onRequestPost({ request, env }) {
     const origin = request.headers.get('Origin') || '';
     const authErr = authorize(request, env);
     if (authErr) return authErr;
+
+    const contentLength = parseInt(request.headers.get('content-length') || '0');
+    if (contentLength > 10 * 1024 * 1024) {
+        return jsonResp({ error: 'Request too large' }, 413, origin);
+    }
 
     try {
         const body = await request.json();
@@ -131,7 +143,8 @@ export async function onRequestPost({ request, env }) {
 
         return jsonResp({ id, success: true }, 201, origin);
     } catch (err) {
-        return jsonResp({ error: 'Failed to create rate: ' + err.message }, 500, origin);
+        console.error('Failed to create rate:', err.message);
+        return jsonResp({ error: 'Failed to create rate' }, 500, origin);
     }
 }
 
@@ -173,7 +186,8 @@ export async function onRequestPut({ request, env }) {
 
         return jsonResp({ success: true }, 200, origin);
     } catch (err) {
-        return jsonResp({ error: 'Failed to update rate: ' + err.message }, 500, origin);
+        console.error('Failed to update rate:', err.message);
+        return jsonResp({ error: 'Failed to update rate' }, 500, origin);
     }
 }
 
@@ -193,6 +207,7 @@ export async function onRequestDelete({ request, env }) {
         await env.DB.prepare(`DELETE FROM rate_library WHERE id = ?`).bind(id).run();
         return jsonResp({ success: true }, 200, origin);
     } catch (err) {
-        return jsonResp({ error: 'Failed to delete rate: ' + err.message }, 500, origin);
+        console.error('Failed to delete rate:', err.message);
+        return jsonResp({ error: 'Failed to delete rate' }, 500, origin);
     }
 }

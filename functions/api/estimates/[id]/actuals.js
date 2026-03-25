@@ -22,7 +22,8 @@ export async function onRequestGet(context) {
 
         return Response.json({ actuals: res.results || [] });
     } catch (err) {
-        return Response.json({ error: 'Failed to load actuals: ' + err.message }, { status: 500 });
+        console.error('Failed to load actuals:', err.message);
+        return Response.json({ error: 'Failed to load actuals' }, { status: 500 });
     }
 }
 
@@ -32,6 +33,11 @@ export async function onRequestPost(context) {
 
     if (!isValidId(id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
+    }
+
+    const contentLength = parseInt(request.headers.get('content-length') || '0');
+    if (contentLength > 10 * 1024 * 1024) {
+        return Response.json({ error: 'Request too large' }, { status: 413 });
     }
 
     try {
@@ -93,6 +99,7 @@ export async function onRequestPost(context) {
 
         return Response.json({ success: true, inserted }, { status: 201 });
     } catch (err) {
-        return Response.json({ error: 'Failed to save actuals: ' + err.message }, { status: 500 });
+        console.error('Failed to save actuals:', err.message);
+        return Response.json({ error: 'Failed to save actuals' }, { status: 500 });
     }
 }

@@ -37,6 +37,7 @@ const QuotaMonitor = {
   // ── Start monitoring on app load ──
   start() {
     this.check(); // Immediate first check
+    if (this._checkInterval) clearInterval(this._checkInterval);
     this._checkInterval = setInterval(() => this.check(), this.CHECK_INTERVAL_MS);
   },
 
@@ -210,6 +211,7 @@ const UsageStats = {
   // ── Start on app load ──
   start() {
     this.fetch();
+    if (this._refreshInterval) clearInterval(this._refreshInterval);
     this._refreshInterval = setInterval(() => this.fetch(), 30000); // Refresh every 30s
     
     // Admin mode: tap logo 5 times to show reset button
@@ -773,6 +775,7 @@ function render() {
 // ─── Step Navigation ───
 function renderStepNav() {
   const nav = document.getElementById("step-nav");
+  if (!nav) return;
   let html = "";
   STEPS.forEach((step, i) => {
     const isActive = i === state.currentStep;
@@ -806,6 +809,7 @@ function renderStepNav() {
 // ─── Content Router ───
 function renderContent() {
   const main = document.getElementById("step-content");
+  if (!main) return;
 
   try {
     if (state.analyzing) {
@@ -820,7 +824,17 @@ function renderContent() {
       case 3: renderStep3(main); break;
       case 4: renderStep4(main); break;
       case 5: renderStep5(main); break;
-      case 6: renderStep6(main); break;
+      case 6:
+        if (state.analyzing) {
+          main.innerHTML = `<div style="padding:60px 20px;text-align:center;">
+            <div style="font-size:48px;margin-bottom:16px;">⏳</div>
+            <div style="font-size:16px;font-weight:600;color:var(--text-primary);">Analysis in progress…</div>
+            <div style="font-size:13px;color:var(--text-muted);margin-top:8px;">Please wait while the analysis completes.</div>
+          </div>`;
+          return;
+        }
+        renderStep6(main);
+        break;
     }
   } catch (err) {
     console.error('Render error:', err);
@@ -835,6 +849,7 @@ function renderContent() {
 // ─── Footer ───
 function renderFooter() {
   const footer = document.getElementById("step-footer");
+  if (!footer) return;
 
   if (state.analyzing) {
     footer.innerHTML = "";
@@ -919,6 +934,7 @@ function renderFooter() {
 
 function scrollContentTop() {
   const main = document.getElementById("step-content");
+  if (!main) return;
   main.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -2939,7 +2955,7 @@ function renderStep6(container) {
         if (bcFile) bcFile.value = '';
       });
 
-      if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) {}
+      if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) { console.warn('Silent error:', e); }
     } catch (err) {
       console.error('[SmartPlans] Bid comparison error:', err);
       resultsDiv.innerHTML = `<p style="color:#ef4444;font-size:12px;">Failed to parse bid: ${esc(err.message)}</p>`;
@@ -3412,7 +3428,7 @@ function initExclusionsPanel(container) {
       </div>
     `).join('');
 
-    if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) {}
+    if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) { console.warn('Silent error:', e); }
     listEl.querySelectorAll('.excl-move-up').forEach(btn => btn.addEventListener('click', () => moveExclItem(btn.dataset.exclId, -1)));
     listEl.querySelectorAll('.excl-move-down').forEach(btn => btn.addEventListener('click', () => moveExclItem(btn.dataset.exclId, 1)));
     listEl.querySelectorAll('.excl-edit-btn').forEach(btn => btn.addEventListener('click', () => editExclItem(btn.dataset.exclId)));
@@ -3447,7 +3463,7 @@ function initExclusionsPanel(container) {
       const v = inp.value.trim();
       if (!v || v === cur) { renderExclList(); return; }
       item.text = v;
-      if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, text: v }) }).catch(() => {});
+      if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, text: v }) }).catch(() => { console.warn('Fetch failed silently'); });
       renderExclList();
       if (typeof spToast === 'function') spToast('Item updated', 'success');
     }
@@ -3459,7 +3475,7 @@ function initExclusionsPanel(container) {
     const idx = state.exclusions.findIndex(e => e.id === id);
     if (idx < 0) return;
     state.exclusions.splice(idx, 1);
-    if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {});
+    if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => { console.warn('Fetch failed silently'); });
     renderExclList();
     if (typeof spToast === 'function') spToast('Item removed', 'success');
   }
@@ -3469,7 +3485,7 @@ function initExclusionsPanel(container) {
     const maxOrder = state.exclusions.filter(e => e.type === state._exclusionsTab).reduce((m, e) => Math.max(m, e.sort_order || 0), 0);
     const newItem = { id: crypto.randomUUID().replace(/-/g, ''), type: state._exclusionsTab, text: t, category: category || 'General', sort_order: maxOrder + 1 };
     state.exclusions.push(newItem);
-    if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItem) }).catch(() => {});
+    if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItem) }).catch(() => { console.warn('Fetch failed silently'); });
     renderExclList();
   }
 
@@ -3506,7 +3522,7 @@ function initExclusionsPanel(container) {
         const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: d.type, text: d.text, category: d.category || 'General', sort_order: d.sort_order || 0 };
         state.exclusions.push(ni); newItems.push(ni); added++;
       }
-      if (state.estimateId && newItems.length > 0) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItems) }).catch(() => {});
+      if (state.estimateId && newItems.length > 0) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItems) }).catch(() => { console.warn('Fetch failed silently'); });
       renderExclList();
       if (typeof spToast === 'function') spToast(`${added} default items loaded`, 'success');
     });
@@ -3519,7 +3535,7 @@ function initExclusionsPanel(container) {
       if (!state.aiAnalysis) { if (typeof spToast === 'function') spToast('Run the AI analysis first', 'warning'); return; }
       autoGenBtn.disabled = true;
       autoGenBtn.innerHTML = '<i data-lucide="loader" style="width:12px;height:12px;"></i> Generating...';
-      if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) {}
+      if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) { console.warn('Silent error:', e); }
       try {
         const snippet = (state.aiAnalysis || '').substring(0, 8000);
         const discs = state.disciplines.join(', ');
@@ -3549,7 +3565,7 @@ function initExclusionsPanel(container) {
             const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: s.type, text: s.text.trim(), category: s.category || 'General', sort_order: maxO + 1 };
             state.exclusions.push(ni); newItems.push(ni); added++;
           }
-          if (state.estimateId && newItems.length > 0) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItems) }).catch(() => {});
+          if (state.estimateId && newItems.length > 0) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItems) }).catch(() => { console.warn('Fetch failed silently'); });
           renderExclList();
           if (typeof spToast === 'function') spToast(`${added} AI-generated items added`, 'success');
         } else { if (typeof spToast === 'function') spToast('Could not parse AI suggestions', 'warning'); }
@@ -3559,7 +3575,7 @@ function initExclusionsPanel(container) {
       } finally {
         autoGenBtn.disabled = false;
         autoGenBtn.innerHTML = '<i data-lucide="sparkles" style="width:12px;height:12px;"></i> Auto-Generate';
-        if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) {}
+        if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) { console.warn('Silent error:', e); }
       }
     });
   }
@@ -4694,7 +4710,7 @@ async function callGeminiAPI(progressCallback) {
             const chunk = JSON.parse(jsonStr);
             const cp = chunk?.candidates?.[0]?.content?.parts || [];
             for (const p of cp) { if (p.text && !p.thought) text += p.text; }
-          } catch (e) {}
+          } catch (e) { console.warn('Silent error:', e); }
         }
       }
     }
@@ -4936,7 +4952,7 @@ ${primaryAnalysis.substring(0, 28000)}
             const chunk = JSON.parse(jsonStr);
             const cp = chunk?.candidates?.[0]?.content?.parts || [];
             for (const p of cp) { if (p.text && !p.thought) text += p.text; }
-          } catch (e) {}
+          } catch (e) { console.warn('Silent error:', e); }
         }
       }
     }
@@ -5029,6 +5045,7 @@ function renderAnalysis(container) {
   const ringEl = document.getElementById("analysis-ring");
 
   function updateProgress(pct, text, brainStatus) {
+    if (!pctEl || !barEl || !ringEl) return;
     const p = Math.min(Math.round(pct), 100);
     pctEl.textContent = p + "%";
     barEl.style.width = p + "%";
@@ -6597,25 +6614,28 @@ document.addEventListener("DOMContentLoaded", () => {
   // Start usage stats — cross-device bid counter & cost tracker
   UsageStats.start();
 
-  // Online/offline detection
-  window.addEventListener('offline', () => {
-    spToast('You are offline. Changes will not be saved.', 'error');
-    document.body.classList.add('is-offline');
-  });
-  window.addEventListener('online', () => {
-    spToast('Back online!', 'success');
-    document.body.classList.remove('is-offline');
-  });
+  // Online/offline detection — only attach once
+  if (!window._spListenersAttached) {
+    window._spListenersAttached = true;
+    window.addEventListener('offline', () => {
+      spToast('You are offline. Changes will not be saved.', 'error');
+      document.body.classList.add('is-offline');
+    });
+    window.addEventListener('online', () => {
+      spToast('Back online!', 'success');
+      document.body.classList.remove('is-offline');
+    });
 
-  // Unsaved changes warning — prevent accidental navigation loss
-  window.addEventListener('beforeunload', (e) => {
-    const hasWork = state.projectName.trim() ||
-      state.planFiles.length > 0 ||
-      state.legendFiles.length > 0 ||
-      state.analyzing;
-    if (hasWork && !state.analysisComplete) {
-      e.preventDefault();
-      e.returnValue = '';
-    }
-  });
+    // Unsaved changes warning — prevent accidental navigation loss
+    window.addEventListener('beforeunload', (e) => {
+      const hasWork = state.projectName.trim() ||
+        state.planFiles.length > 0 ||
+        state.legendFiles.length > 0 ||
+        state.analyzing;
+      if (hasWork && !state.analysisComplete) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+  }
 });

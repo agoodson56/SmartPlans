@@ -6,6 +6,8 @@
 
 const SmartPlansExport = {
 
+    _round(val) { return Math.round((val || 0) * 100) / 100; },
+
     // ─── Build structured data package ─────────────────────────
     buildExportPackage(state) {
         const now = new Date();
@@ -26,17 +28,17 @@ const SmartPlansExport = {
                     const item = bom.categories[catIdx].items[itemIdx];
                     if (override.qty != null) item.qty = override.qty;
                     item.unitCost = override.unitCost;
-                    item.extCost = Math.round(item.qty * override.unitCost * 100) / 100;
+                    item.extCost = this._round(item.qty * override.unitCost);
                 }
             }
             // Recalculate category subtotals and grand total
             bom.grandTotal = 0;
             for (const cat of bom.categories) {
                 cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
-                cat.subtotal = Math.round(cat.subtotal * 100) / 100;
+                cat.subtotal = this._round(cat.subtotal);
                 bom.grandTotal += cat.subtotal;
             }
-            bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
+            bom.grandTotal = this._round(bom.grandTotal);
         }
 
         return {
@@ -78,7 +80,7 @@ const SmartPlansExport = {
                 includeBurden: state.includeBurden,
                 burdenMultiplier: burdenMult,
                 loadedRates: Object.fromEntries(
-                    Object.entries(state.laborRates).map(([k, v]) => [k, +(v * burdenMult).toFixed(2)])
+                    Object.entries(state.laborRates).map(([k, v]) => [k, this._round(v * burdenMult)])
                 ),
                 markup: { ...state.markup },
             },
@@ -155,14 +157,14 @@ const SmartPlansExport = {
         // Priority 1: Financial Engine's calculated grand total
         const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
         if (finEngine?.project_summary?.grand_total > 1000) {
-            return Math.round(finEngine.project_summary.grand_total * 100) / 100;
+            return this._round(finEngine.project_summary.grand_total);
         }
 
         // Priority 2: Calculate from bid strategy if user applied one
         if (state.bidStrategy?.applied) {
             const result = this.applyBidStrategy?.(state);
             if (result?.grandTotalWithStrategy > 1000) {
-                return Math.round(result.grandTotalWithStrategy * 100) / 100;
+                return this._round(result.grandTotalWithStrategy);
             }
         }
 
@@ -196,7 +198,7 @@ const SmartPlansExport = {
         const contingency = subtotal * contingencyPct;
         const grandTotal = subtotal + contingency;
 
-        return grandTotal > 1000 ? Math.round(grandTotal * 100) / 100 : bom.grandTotal;
+        return grandTotal > 1000 ? this._round(grandTotal) : bom.grandTotal;
     },
 
     // ─── Parse AI analysis into structured sections ────────────
@@ -282,7 +284,7 @@ const SmartPlansExport = {
                 total += bom.categories[ci].subtotal;
                 return { index: ci, name: bom.categories[ci].name, subtotal: bom.categories[ci].subtotal };
             }).filter(Boolean);
-            total = Math.round(total * 100) / 100;
+            total = this._round(total);
             const displayTotal = phase.type === 'deduct' ? -Math.abs(total) : total;
             return {
                 id: phase.id,
@@ -294,7 +296,7 @@ const SmartPlansExport = {
             };
         });
         const totalIfAllAccepted = result.filter(p => p.includeInProposal).reduce((s, p) => s + p.total, 0);
-        return { phases: result, totalIfAllAccepted: Math.round(totalIfAllAccepted * 100) / 100 };
+        return { phases: result, totalIfAllAccepted: this._round(totalIfAllAccepted) };
     },
 
     // ─── Extract RFI data ──────────────────────────────────────
@@ -488,8 +490,8 @@ const SmartPlansExport = {
                 category: this._guessCategory(cells[0]),
                 budgeted_qty: qty,
                 unit: unit,
-                unit_cost: Math.round(unitCost * 100) / 100,
-                budgeted_cost: Math.round(extCost * 100) / 100,
+                unit_cost: this._round(unitCost),
+                budgeted_cost: this._round(extCost),
             });
         }
 
@@ -507,7 +509,7 @@ const SmartPlansExport = {
                         budgeted_qty: qty,
                         unit: 'ea',
                         unit_cost: unitCost,
-                        budgeted_cost: Math.round(qty * unitCost * 100) / 100,
+                        budgeted_cost: this._round(qty * unitCost),
                     });
                 }
             }
@@ -666,7 +668,7 @@ const SmartPlansExport = {
                 description: phase.description,
                 phase: phase.name.toLowerCase().replace(/[-\s]+/g, '_').replace(/[^a-z0-9_]/g, '').replace(/_+/g, '_'),
                 task_type: 'phase',
-                budgeted_material: Math.round(projectTotalMaterial * phase.materialPct * 100) / 100,
+                budgeted_material: this._round(projectTotalMaterial * phase.materialPct),
                 budgeted_labor_hrs: Math.round(projectTotalLabor * phase.laborPct * 10) / 10,
                 children: [],
             };
@@ -688,7 +690,7 @@ const SmartPlansExport = {
                     building: loc.building,
                     task_type: 'location_task',
                     phase: phaseWBS.phase,
-                    budgeted_material: Math.round(locMatBudget * 100) / 100,
+                    budgeted_material: this._round(locMatBudget),
                     budgeted_labor_hrs: Math.round(locLaborBudget * 10) / 10,
                     children: [],
                 };
@@ -702,7 +704,7 @@ const SmartPlansExport = {
                         name: taskLabels[taskKey] || taskKey,
                         task_type: 'task',
                         phase: phaseWBS.phase,
-                        budgeted_material: Math.round((locMatBudget / taskCount) * 100) / 100,
+                        budgeted_material: this._round(locMatBudget / taskCount),
                         budgeted_labor_hrs: Math.round((locLaborBudget / taskCount) * 10) / 10,
                     });
                 });
@@ -722,7 +724,7 @@ const SmartPlansExport = {
                 total_locations: locationBudgets.length,
                 total_tasks: phases.reduce((s, p) =>
                     s + p.children.reduce((s2, loc) => s2 + loc.children.length, 0) + p.children.length, 0) + phases.length,
-                project_material_budget: Math.round(projectTotalMaterial * 100) / 100,
+                project_material_budget: this._round(projectTotalMaterial),
                 project_labor_hrs: Math.round(projectTotalLabor * 10) / 10,
             },
         };
@@ -895,8 +897,8 @@ const SmartPlansExport = {
                             item: cleanName,
                             qty: qty,
                             unit: unit,
-                            unitCost: Math.round(unitCost * 100) / 100,
-                            extCost: Math.round(extCost * 100) / 100,
+                            unitCost: this._round(unitCost),
+                            extCost: this._round(extCost),
                             mfg: mfg,
                             partNumber: partNumber,
                             category: this._guessCategory(cleanName),
@@ -940,8 +942,8 @@ const SmartPlansExport = {
                                 item: label,
                                 qty: 1,
                                 unit: 'ls',
-                                unitCost: Math.round(amount * 100) / 100,
-                                extCost: Math.round(amount * 100) / 100,
+                                unitCost: this._round(amount),
+                                extCost: this._round(amount),
                                 mfg: '',
                                 partNumber: '',
                                 category: this._guessCategory(label),
@@ -979,7 +981,7 @@ const SmartPlansExport = {
                 return emptyResult;
             }
 
-            return { categories, grandTotal: Math.round(grandTotal * 100) / 100 };
+            return { categories, grandTotal: this._round(grandTotal) };
 
         } catch (err) {
             console.error('[SmartPlans Export] BOM extraction failed:', err);
@@ -1260,7 +1262,7 @@ const SmartPlansExport = {
 
             Object.entries(state.laborRates).forEach(([key, rate]) => {
                 const label = key === "pm" ? "Project Manager" : key === "journeyman" ? "Journeyman Tech" : key === "lead" ? "Lead Tech" : key === "foreman" ? "Foreman" : key === "apprentice" ? "Apprentice" : "Programmer";
-                summaryData.push([label, rate, `${(burdenMult * 100 - 100).toFixed(0)}%`, +(rate * burdenMult).toFixed(2)]);
+                summaryData.push([label, rate, `${(burdenMult * 100 - 100).toFixed(0)}%`, this._round(rate * burdenMult)]);
             });
 
             const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
@@ -1294,7 +1296,7 @@ const SmartPlansExport = {
                                 item.description,
                                 item.unit,
                                 item[tier],
-                                +(item[tier] * regionMult).toFixed(2),
+                                this._round(item[tier] * regionMult),
                             ]);
                         }
                     }
@@ -1433,7 +1435,7 @@ const SmartPlansExport = {
         md += `| Classification | Base Rate | Burden | Loaded Rate |\n|---|---|---|---|\n`;
         Object.entries(state.laborRates).forEach(([key, rate]) => {
             const label = key === "pm" ? "Project Manager" : key === "journeyman" ? "Journeyman Tech" : key === "lead" ? "Lead Tech" : key === "foreman" ? "Foreman" : key === "apprentice" ? "Apprentice" : "Programmer";
-            md += `| ${label} | $${rate.toFixed(2)}/hr | ${(burdenMult * 100 - 100).toFixed(0)}% | $${(rate * burdenMult).toFixed(2)}/hr |\n`;
+            md += `| ${label} | $${rate.toFixed(2)}/hr | ${(burdenMult * 100 - 100).toFixed(0)}% | $${this._round(rate * burdenMult).toFixed(2)}/hr |\n`;
         });
         md += `\n`;
 
@@ -1897,16 +1899,16 @@ const SmartPlansExport = {
                             const key = `${catIndex}-${itemIndex}`;
                             if (overrides[key]) {
                                 item.unitCost = overrides[key].unitCost;
-                                item.extCost = Math.round(item.qty * overrides[key].unitCost * 100) / 100;
+                                item.extCost = this._round(item.qty * overrides[key].unitCost);
                             }
                             catSubtotal += item.extCost;
                         }
-                        cat.subtotal = Math.round(catSubtotal * 100) / 100;
+                        cat.subtotal = this._round(catSubtotal);
                         newTotal += cat.subtotal;
                     }
-                    newTotal = Math.round(newTotal * 100) / 100;
+                    newTotal = this._round(newTotal);
 
-                    const delta = Math.round((newTotal - oldTotal) * 100) / 100;
+                    const delta = this._round(newTotal - oldTotal);
                     const deltaPercent = oldTotal > 0 ? Math.round((delta / oldTotal) * 10000) / 100 : 0;
 
                     resolve({
@@ -2086,13 +2088,13 @@ const SmartPlansExport = {
 
                         // Calculate missing fields if possible
                         if (isNaN(unitCost) && !isNaN(qty) && !isNaN(extCost) && qty !== 0) {
-                            unitCost = Math.round((extCost / qty) * 100) / 100;
+                            unitCost = this._round(extCost / qty);
                         }
                         if (isNaN(qty) && !isNaN(unitCost) && !isNaN(extCost) && unitCost !== 0) {
-                            qty = Math.round((extCost / unitCost) * 100) / 100;
+                            qty = this._round(extCost / unitCost);
                         }
                         if (isNaN(extCost) && !isNaN(qty) && !isNaN(unitCost)) {
-                            extCost = Math.round(qty * unitCost * 100) / 100;
+                            extCost = this._round(qty * unitCost);
                         }
 
                         // Must have at least a name and some cost data
@@ -2109,7 +2111,7 @@ const SmartPlansExport = {
                         grandTotal += isNaN(extCost) ? 0 : extCost;
                     }
 
-                    grandTotal = Math.round(grandTotal * 100) / 100;
+                    grandTotal = this._round(grandTotal);
 
                     resolve({
                         competitorName: competitorName,
@@ -2256,17 +2258,17 @@ const SmartPlansExport = {
             }
         }
 
-        weAreHigherTotal = Math.round(weAreHigherTotal * 100) / 100;
-        weAreLowerTotal = Math.round(weAreLowerTotal * 100) / 100;
+        weAreHigherTotal = this._round(weAreHigherTotal);
+        weAreLowerTotal = this._round(weAreLowerTotal);
 
         return {
             matched: matched,
             onlyOurs: onlyOurs,
             onlyTheirs: theirUnmatched,
             summary: {
-                ourTotal: Math.round(ourTotal * 100) / 100,
-                theirTotal: Math.round(theirTotal * 100) / 100,
-                delta: Math.round(delta * 100) / 100,
+                ourTotal: this._round(ourTotal),
+                theirTotal: this._round(theirTotal),
+                delta: this._round(delta),
                 deltaPercent: deltaPercent,
                 weAreHigherCount: weAreHigherCount,
                 weAreLowerCount: weAreLowerCount,
@@ -2334,21 +2336,21 @@ const SmartPlansExport = {
                 const item = cat.items[itemIdx];
                 const key = `${catIdx}-${itemIdx}`;
                 if (overrides[key]) {
-                    catSubtotal += Math.round(overrides[key].qty * overrides[key].unitCost * 100) / 100;
+                    catSubtotal += this._round(overrides[key].qty * overrides[key].unitCost);
                 } else {
                     catSubtotal += item.extCost || 0;
                 }
             }
             newTotal += catSubtotal;
         }
-        newTotal = Math.round(newTotal * 100) / 100;
+        newTotal = this._round(newTotal);
 
         return {
             itemsMatched,
             itemsUnmatched,
             oldTotal,
             newTotal,
-            delta: Math.round((newTotal - oldTotal) * 100) / 100,
+            delta: this._round(newTotal - oldTotal),
         };
     },
 
@@ -2396,8 +2398,8 @@ const SmartPlansExport = {
             const matWithMarkup = materialCost * (1 + matPct / 100);
             const labWithMarkup = laborCost * (1 + labPct / 100);
             const subtotalWithMarkup = matWithMarkup + labWithMarkup;
-            const contingencyAmt = Math.round(subtotalWithMarkup * (contingencyPct / 100) * 100) / 100;
-            const finalPrice = Math.round((subtotalWithMarkup + contingencyAmt) * 100) / 100;
+            const contingencyAmt = this._round(subtotalWithMarkup * (contingencyPct / 100));
+            const finalPrice = this._round(subtotalWithMarkup + contingencyAmt);
 
             totalMaterial += materialCost;
             totalLabor += laborCost;
@@ -2406,8 +2408,8 @@ const SmartPlansExport = {
 
             categoryBreakdown.push({
                 name: catName,
-                materialCost: Math.round(materialCost * 100) / 100,
-                laborCost: Math.round(laborCost * 100) / 100,
+                materialCost: this._round(materialCost),
+                laborCost: this._round(laborCost),
                 materialMarkup: matPct,
                 laborMarkup: labPct,
                 confidence: confidence,
@@ -2417,15 +2419,15 @@ const SmartPlansExport = {
             });
         }
 
-        const grandTotalWithStrategy = Math.round((totalMaterial + totalLabor + totalMarkup + totalContingency) * 100) / 100;
+        const grandTotalWithStrategy = this._round(totalMaterial + totalLabor + totalMarkup + totalContingency);
 
         return {
             grandTotalWithStrategy,
             categories: categoryBreakdown,
-            totalMaterial: Math.round(totalMaterial * 100) / 100,
-            totalLabor: Math.round(totalLabor * 100) / 100,
-            totalMarkup: Math.round(totalMarkup * 100) / 100,
-            totalContingency: Math.round(totalContingency * 100) / 100,
+            totalMaterial: this._round(totalMaterial),
+            totalLabor: this._round(totalLabor),
+            totalMarkup: this._round(totalMarkup),
+            totalContingency: this._round(totalContingency),
         };
     },
 
@@ -2526,7 +2528,7 @@ const SmartPlansExport = {
                         const qty = colQty !== -1 ? (parseFloat(String(row[colQty] || '0').replace(/,/g, '')) || 0) : 0;
                         const unitCost = colUnitCost !== -1 ? parseCurrency(row[colUnitCost]) : 0;
                         let extCost = colExtCost !== -1 ? parseCurrency(row[colExtCost]) : 0;
-                        if (extCost === 0 && qty > 0 && unitCost > 0) extCost = Math.round(qty * unitCost * 100) / 100;
+                        if (extCost === 0 && qty > 0 && unitCost > 0) extCost = this._round(qty * unitCost);
                         if (extCost === 0 && unitCost > 0) extCost = unitCost;
                         const category = colCategory !== -1 ? String(row[colCategory] || '').trim() : '';
 
@@ -2540,7 +2542,7 @@ const SmartPlansExport = {
                         return;
                     }
 
-                    const total = Math.round(items.reduce((s, it) => s + it.extCost, 0) * 100) / 100;
+                    const total = this._round(items.reduce((s, it) => s + it.extCost, 0));
                     resolve({ competitorName, items, total });
                 } catch (err) {
                     reject(new Error('Failed to parse competitor bid: ' + err.message));
@@ -2563,16 +2565,16 @@ const SmartPlansExport = {
                     const item = bom.categories[catIdx].items[itemIdx];
                     if (override.qty != null) item.qty = override.qty;
                     item.unitCost = override.unitCost;
-                    item.extCost = Math.round(item.qty * override.unitCost * 100) / 100;
+                    item.extCost = this._round(item.qty * override.unitCost);
                 }
             }
             bom.grandTotal = 0;
             for (const cat of bom.categories) {
                 cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
-                cat.subtotal = Math.round(cat.subtotal * 100) / 100;
+                cat.subtotal = this._round(cat.subtotal);
                 bom.grandTotal += cat.subtotal;
             }
-            bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
+            bom.grandTotal = this._round(bom.grandTotal);
         }
 
         // Flatten our items
@@ -2624,7 +2626,7 @@ const SmartPlansExport = {
                     theirQty: comp.qty,
                     ourUnitCost: ourItem.unitCost,
                     theirUnitCost: comp.unitCost,
-                    variance: Math.round(variance * 100) / 100,
+                    variance: this._round(variance),
                     variancePct: Math.round(variancePct * 10) / 10,
                 });
             } else {
@@ -2644,13 +2646,13 @@ const SmartPlansExport = {
         const theirTotal = competitorData.total;
         const higherItems = matched.filter(m => m.variance > 0);
         const lowerItems = matched.filter(m => m.variance < 0);
-        const higherTotal = Math.round(higherItems.reduce((s, m) => s + m.variance, 0) * 100) / 100;
-        const lowerTotal = Math.round(Math.abs(lowerItems.reduce((s, m) => s + m.variance, 0)) * 100) / 100;
+        const higherTotal = this._round(higherItems.reduce((s, m) => s + m.variance, 0));
+        const lowerTotal = this._round(Math.abs(lowerItems.reduce((s, m) => s + m.variance, 0)));
 
         return {
             ourTotal,
             theirTotal,
-            difference: Math.round((ourTotal - theirTotal) * 100) / 100,
+            difference: this._round(ourTotal - theirTotal),
             matched,
             ourOnly,
             theirOnly,

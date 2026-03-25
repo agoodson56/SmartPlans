@@ -32,7 +32,8 @@ export async function onRequestGet(context) {
 
         return Response.json({ estimate: est });
     } catch (err) {
-        return Response.json({ error: 'Failed to load estimate: ' + err.message }, { status: 500 });
+        console.error('Failed to load estimate:', err.message);
+        return Response.json({ error: 'Failed to load estimate' }, { status: 500 });
     }
 }
 
@@ -129,7 +130,8 @@ export async function onRequestPut(context) {
 
         return Response.json({ success: true });
     } catch (err) {
-        return Response.json({ error: 'Failed to update estimate: ' + err.message }, { status: 500 });
+        console.error('Failed to update estimate:', err.message);
+        return Response.json({ error: 'Failed to update estimate' }, { status: 500 });
     }
 }
 
@@ -147,6 +149,7 @@ export async function onRequestDelete(context) {
         await env.DB.prepare(`DELETE FROM estimates WHERE id = ?`).bind(params.id).run();
         return Response.json({ success: true });
     } catch (err) {
-        return Response.json({ error: 'Failed to delete estimate: ' + err.message }, { status: 500 });
+        console.error('Failed to delete estimate:', err.message);
+        return Response.json({ error: 'Failed to delete estimate' }, { status: 500 });
     }
 }

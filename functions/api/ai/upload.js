@@ -25,6 +25,10 @@ export async function onRequestPost(context) {
         }
 
         const mimeType = file.type || 'application/octet-stream';
+        const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/tiff'];
+        if (!allowedMimeTypes.includes(mimeType)) {
+            return Response.json({ error: 'Unsupported file type' }, { status: 415 });
+        }
         const fileName = file.name || `smartplans_upload_${Date.now()}`;
 
         // Convert file to bytes
@@ -81,7 +85,7 @@ export async function onRequestPost(context) {
         if (!startResponse.ok) {
             const errText = await startResponse.text();
             return Response.json(
-                { error: `Upload session start failed (${startResponse.status}): ${errText.substring(0, 300)}` },
+                { error: 'Upload session start failed' },
                 { status: startResponse.status }
             );
         }
@@ -105,7 +109,7 @@ export async function onRequestPost(context) {
         if (!uploadResponse.ok) {
             const errText = await uploadResponse.text();
             return Response.json(
-                { error: `File upload failed (${uploadResponse.status}): ${errText.substring(0, 300)}` },
+                { error: 'File upload failed' },
                 { status: uploadResponse.status }
             );
         }
@@ -124,7 +128,7 @@ export async function onRequestPost(context) {
 
     } catch (err) {
         console.error('[Upload] Unexpected error:', err.message);
-        return Response.json({ error: 'Upload proxy error: ' + err.message }, { status: 500 });
+        return Response.json({ error: 'Upload proxy error' }, { status: 500 });
     }
 }
 

@@ -89,7 +89,8 @@ export async function onRequestGet(context) {
         const res = await stmt.all();
         return Response.json({ benchmarks: res.results || [] }, { headers: corsHeaders(origin) });
     } catch (err) {
-        return Response.json({ error: 'Failed to load benchmarks: ' + err.message }, { status: 500, headers: corsHeaders(origin) });
+        console.error('Failed to load benchmarks:', err.message);
+        return Response.json({ error: 'Failed to load benchmarks' }, { status: 500, headers: corsHeaders(origin) });
     }
 }
 
@@ -99,6 +100,11 @@ export async function onRequestPost(context) {
 
     if (!isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
+    }
+
+    const contentLength = parseInt(request.headers.get('content-length') || '0');
+    if (contentLength > 10 * 1024 * 1024) {
+        return Response.json({ error: 'Request too large' }, { status: 413, headers: corsHeaders(origin) });
     }
 
     const envToken = env.ESTIMATES_TOKEN;
@@ -161,6 +167,7 @@ export async function onRequestPost(context) {
 
         return Response.json({ success: true, updated }, { status: 200, headers: corsHeaders(origin) });
     } catch (err) {
-        return Response.json({ error: 'Failed to recalculate benchmarks: ' + err.message }, { status: 500, headers: corsHeaders(origin) });
+        console.error('Failed to recalculate benchmarks:', err.message);
+        return Response.json({ error: 'Failed to recalculate benchmarks' }, { status: 500, headers: corsHeaders(origin) });
     }
 }

@@ -120,7 +120,7 @@ export async function onRequestPost(context) {
                     // Send error event to client — no server-side fallback
                     // Client handles retries and model fallback
                     await writer.write(encoder.encode(
-                        `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, message: errText.substring(0, 500)})}\n\n`
+                        `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, message: 'AI service temporarily unavailable'})}\n\n`
                     ));
                     await writer.close();
                     return;
@@ -140,7 +140,7 @@ export async function onRequestPost(context) {
                 console.error(`[Proxy] Pipe error: ${err.message}`);
                 try {
                     await writer.write(encoder.encode(
-                        `data: ${JSON.stringify({_proxyError: true, status: 500, message: err.message})}\n\n`
+                        `data: ${JSON.stringify({_proxyError: true, status: 500, message: 'AI service temporarily unavailable'})}\n\n`
                     ));
                 } catch {}
                 try { await writer.close(); } catch {}
@@ -167,7 +167,7 @@ export async function onRequestPost(context) {
     } catch (err) {
         console.error(`[Proxy] Fatal error: ${err.message}`);
         return Response.json(
-            { error: 'Proxy error: ' + err.message },
+            { error: 'AI service temporarily unavailable' },
             { status: 500 }
         );
     }

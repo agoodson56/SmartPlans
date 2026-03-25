@@ -86,6 +86,11 @@ export async function onRequestPost(context) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
     }
 
+    const contentLength = parseInt(request.headers.get('content-length') || '0');
+    if (contentLength > 10 * 1024 * 1024) {
+        return Response.json({ error: 'Request too large' }, { status: 413, headers: corsHeaders(origin) });
+    }
+
     try {
         const body = await request.json();
 

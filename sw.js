@@ -39,31 +39,26 @@ self.addEventListener('fetch', (event) => {
     // Skip cross-origin requests — let the browser handle CDNs, fonts, Sentry, etc.
     if (url.origin !== self.location.origin) return;
 
-    // API calls — network first, cache GET responses as fallback
+    // API calls — network-only, never cache
     if (url.pathname.startsWith('/api/')) {
         if (event.request.method === 'GET') {
-            event.respondWith(
-                fetch(event.request)
-                    .then(response => {
-                        const clone = response.clone();
-                        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-                        return response;
-                    })
-                    .catch(() => caches.match(event.request))
-            );
+            event.respondWith(fetch(event.request));
         }
-        return; // Don't cache non-GET API calls
+        return;
     }
 
-    // Static assets — stale-while-revalidate
-    event.respondWith(
-        caches.match(event.request).then(cached => {
-            const fetchPromise = fetch(event.request).then(response => {
-                const clone = response.clone();
-                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-                return response;
-            }).catch(() => cached);
-            return cached || fetchPromise;
-        })
-    );
+    // Static assets only — stale-while-revalidate
+    const isStaticAsset = /\.(js|css|html|png|jpg|woff2|svg)$/.test(url.pathname);
+    if (isStaticAsset) {
+        event.respondWith(
+            caches.match(event.request).then(cached => {
+                const fetchPromise = fetch(event.request).then(response => {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                    return response;
+                }).catch(() => cached);
+                return cached || fetchPromise;
+            })
+        );
+    }
 });
