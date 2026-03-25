@@ -418,8 +418,16 @@ const SmartBrains = {
       return p;
     });
 
+    let _fileDataStripped = false;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const parts = [{ text: promptText }, ...cleanFileParts];
+      // If a previous attempt got 400 with fileData, strip file references and use inline only
+      let activeParts = cleanFileParts;
+      if (_fileDataStripped) {
+        activeParts = cleanFileParts.filter(p => !p.fileData);
+        console.warn(`[Brain:${brainDef.name}] Retrying WITHOUT fileData (inline_data only) — attempt ${attempt + 1}`);
+      }
+      const hasFileData = activeParts.some(p => p.fileData);
+      const parts = [{ text: promptText }, ...activeParts];
       // Low temperature for deterministic construction analysis
       const genConfig = {
         temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
@@ -543,6 +551,10 @@ const SmartBrains = {
                       throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
                     }
                     if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google 400 detail: ${chunk._debug}`);
+                    // 400 with fileData = file reference rejected. Mark for inline-only retry
+                    if (errStatus === 400 && hasFileData) {
+                      throw { _retryable: true, _stripFileData: true, status: 400, message: 'fileData rejected — will retry with inline_data only' };
+                    }
                     throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
                   }
 
@@ -591,6 +603,10 @@ const SmartBrains = {
       } catch (err) {
         lastError = err;
         if (err._retryable) {
+          if (err._stripFileData && !_fileDataStripped) {
+            _fileDataStripped = true;
+            console.warn(`[Brain:${brainDef.name}] fileData rejected by Google — will retry with inline_data only`);
+          }
           // Error from zero-timeout proxy — retryable (429/403/500+)
           const nextSlot = (brainDef.id + attempt + 1) % 18;
           console.warn(`[Brain:${brainDef.name}] Proxy reported API ${err.status}, rotating to key slot ${nextSlot}, retrying…`);
