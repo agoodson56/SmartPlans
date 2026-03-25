@@ -3340,8 +3340,18 @@ function initExclusionsPanel(container) {
         const resp = await fetch(GEMINI_CONFIG.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ _model: 'gemini-2.5-flash', _brainSlot: 0, contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 2000 } }) });
         const rawText = await resp.text();
         let aiText = '';
-        try { const lines = rawText.split('\n').filter(l => l.startsWith('data: ')); for (const l of lines) { const j = JSON.parse(l.slice(6)); aiText += j?.candidates?.[0]?.content?.parts?.[0]?.text || ''; } } catch(e) { aiText = rawText; }
-        const jsonMatch = aiText.match(/\[[\s\S]*\]/);
+        try {
+          const lines = rawText.split('\n').filter(l => l.startsWith('data: '));
+          if (lines.length > 0) {
+            for (const l of lines) { try { const j = JSON.parse(l.slice(6)); aiText += j?.candidates?.[0]?.content?.parts?.[0]?.text || ''; } catch(e2) {} }
+          }
+          if (!aiText) {
+            try { const direct = JSON.parse(rawText); aiText = direct?.candidates?.[0]?.content?.parts?.[0]?.text || ''; if (!aiText && rawText.includes('[')) aiText = rawText; } catch(e3) { aiText = rawText; }
+          }
+        } catch(e) { aiText = rawText; }
+        console.log('[SmartPlans] Auto-generate AI response:', aiText.substring(0, 200));
+        let jsonMatch = aiText.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) { const cb = aiText.match(/```(?:json)?\s*([\s\S]*?)```/); if (cb) jsonMatch = cb[1].match(/\[[\s\S]*\]/); }
         if (jsonMatch) {
           const suggestions = JSON.parse(jsonMatch[0]);
           let added = 0; const newItems = [];
@@ -5453,6 +5463,17 @@ async function saveEstimate(showToast = true) {
     const url = state.estimateId ? `/api/estimates/${state.estimateId}` : '/api/estimates';
     const method = state.estimateId ? 'PUT' : 'POST';
 
+    // Strip raw AI analysis text from export to reduce payload — it's already parsed into structured data
+    if (exportPkg && exportPkg.analysis) {
+      const slimAnalysis = {};
+      for (const [k, v] of Object.entries(exportPkg.analysis)) {
+        if (typeof v === 'string' && v.length > 5000) {
+          slimAnalysis[k] = v.substring(0, 5000) + '\n... [truncated for storage]';
+        } else { slimAnalysis[k] = v; }
+      }
+      exportPkg.analysis = slimAnalysis;
+      payload.export_data = exportPkg;
+    }
     const jsonBody = JSON.stringify(payload);
     const sizeKB = (jsonBody.length / 1024).toFixed(0);
     console.log(`[SmartPlans] Saving estimate (${sizeKB}KB) via ${method} ${url}`);
