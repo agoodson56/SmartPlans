@@ -32,7 +32,8 @@ export async function onRequestGet(context) {
 
         return Response.json({ revision: rev });
     } catch (err) {
-        return Response.json({ error: 'Failed to load revision: ' + err.message }, { status: 500 });
+        console.error('[Revision] Load error:', err);
+        return Response.json({ error: 'Failed to load revision' }, { status: 500 });
     }
 }
 
@@ -51,6 +52,7 @@ export async function onRequestDelete(context) {
 
         return Response.json({ success: true });
     } catch (err) {
-        return Response.json({ error: 'Failed to delete revision: ' + err.message }, { status: 500 });
+        console.error('[Revision] Delete error:', err);
+        return Response.json({ error: 'Failed to delete revision' }, { status: 500 });
     }
 }

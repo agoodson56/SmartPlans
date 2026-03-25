@@ -42,7 +42,8 @@ export async function onRequestGet(context) {
 
         return Response.json({ logs: res.results || [] });
     } catch (err) {
-        return Response.json({ error: 'Failed to load logs: ' + err.message }, { status: 500 });
+        console.error('[PM Logs] Load error:', err);
+        return Response.json({ error: 'Failed to load logs' }, { status: 500 });
     }
 }
 
@@ -104,6 +105,7 @@ export async function onRequestPost(context) {
 
         return Response.json({ id, success: true }, { status: 201 });
     } catch (err) {
-        return Response.json({ error: 'Failed to save log: ' + err.message }, { status: 500 });
+        console.error('[PM Logs] Save error:', err);
+        return Response.json({ error: 'Failed to save log' }, { status: 500 });
     }
 }

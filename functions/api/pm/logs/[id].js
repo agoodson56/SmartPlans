@@ -47,7 +47,8 @@ export async function onRequestDelete(context) {
         await env.DB.prepare('DELETE FROM pm_daily_logs WHERE id = ?').bind(logId).run();
         return Response.json({ success: true, deleted: logId });
     } catch (err) {
-        return Response.json({ error: 'Failed to delete log: ' + err.message }, { status: 500 });
+        console.error('[PM Logs] Delete error:', err);
+        return Response.json({ error: 'Failed to delete log' }, { status: 500 });
     }
 }
 

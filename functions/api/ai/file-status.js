@@ -76,6 +76,6 @@ export async function onRequestGet(context) {
 
     } catch (err) {
         console.error('[FileStatus] Error:', err.message);
-        return Response.json({ error: 'File status check error: ' + err.message }, { status: 500 });
+        return Response.json({ error: 'File status check error' }, { status: 500 });
     }
 }

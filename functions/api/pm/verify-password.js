@@ -22,6 +22,20 @@ function isAllowedOrigin(origin) {
 }
 
 /**
+ * Constant-time string comparison to prevent timing attacks.
+ * crypto.timingSafeEqual is not available for strings in Cloudflare Workers,
+ * so we implement it manually using bitwise OR accumulation.
+ */
+function timingSafeCompare(a, b) {
+    if (a.length !== b.length) return false;
+    let result = 0;
+    for (let i = 0; i < a.length; i++) {
+        result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+    return result === 0;
+}
+
+/**
  * Hash a password using PBKDF2 with 100,000 iterations.
  * If saltHex is provided, converts from hex; otherwise generates a new 16-byte salt.
  * Returns { hash, salt } where both are hex strings.
@@ -101,11 +115,11 @@ export async function onRequestPost(context) {
         if (roleSalt) {
             // PBKDF2 path — salt exists, verify with PBKDF2
             const result = await hashPasswordPBKDF2(password, roleSalt);
-            return Response.json({ valid: result.hash === storedHash });
+            return Response.json({ valid: timingSafeCompare(result.hash, storedHash) });
         } else {
             // Legacy SHA-256 path — no salt stored, try SHA-256
             const legacyHash = await hashPasswordSHA256(password);
-            if (legacyHash === storedHash) {
+            if (timingSafeCompare(legacyHash, storedHash)) {
                 // Auto-upgrade: re-hash with PBKDF2 and store salt
                 try {
                     const upgraded = await hashPasswordPBKDF2(password);

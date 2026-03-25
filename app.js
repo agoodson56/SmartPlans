@@ -691,7 +691,7 @@ function showValidationToast(errors) {
   const toast = document.createElement("div");
   toast.id = "validation-toast";
   toast.style.cssText = "position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--surface-2,#1e1e2e);border:1px solid var(--red-dim,#f87171);color:var(--text-primary,#fff);padding:12px 20px;border-radius:10px;z-index:9999;max-width:400px;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.4);";
-  toast.innerHTML = errors.map(e => "<div style='margin:2px 0;'>⚠ " + e + "</div>").join("");
+  toast.innerHTML = errors.map(e => "<div style='margin:2px 0;'>⚠ " + esc(e) + "</div>").join("");
   document.body.appendChild(toast);
   setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4000);
 }

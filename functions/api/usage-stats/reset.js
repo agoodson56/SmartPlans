@@ -59,7 +59,7 @@ export async function onRequestPost(context) {
         );
     } catch (err) {
         console.error('Stats reset error:', err);
-        return Response.json({ error: 'Failed to reset stats: ' + err.message }, { status: 500 });
+        return Response.json({ error: 'Failed to reset stats' }, { status: 500 });
     }
 }
 

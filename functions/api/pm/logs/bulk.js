@@ -51,7 +51,8 @@ export async function onRequestPost(context) {
             { headers: { 'Access-Control-Allow-Origin': corsOrigin } }
         );
     } catch (err) {
-        return Response.json({ error: 'Bulk delete failed: ' + err.message }, { status: 500 });
+        console.error('[PM Logs] Bulk delete error:', err);
+        return Response.json({ error: 'Bulk delete failed' }, { status: 500 });
     }
 }
 
