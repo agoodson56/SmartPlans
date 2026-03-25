@@ -183,10 +183,17 @@ const SmartBrains = {
               try {
                 const uploadResult = await this._uploadToFileAPI(entry.rawFile, finalMime, entry.name);
                 if (uploadResult && uploadResult.fileUri) {
-                  fileData.fileUri = uploadResult.fileUri;
+                  // Fix corporate proxy URL mangling (e.g. CheckPoint rewrites googleapis URLs)
+                  let cleanUri = uploadResult.fileUri;
+                  const proxyMatch = cleanUri.match(/___(\s*https?:\/\/[^_]+)___/);
+                  if (proxyMatch) {
+                    cleanUri = proxyMatch[1].trim();
+                    console.warn(`[SmartBrains] Fixed proxy-mangled File URI → ${cleanUri}`);
+                  }
+                  fileData.fileUri = cleanUri;
                   fileData.uploadedName = uploadResult.name;
                   fileData._usedKeyName = uploadResult._usedKeyName; // Track which key uploaded this file
-                  console.log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${uploadResult.fileUri} (key: ${uploadResult._usedKeyName})`);
+                  console.log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${cleanUri} (key: ${uploadResult._usedKeyName})`);
                 } else {
                   // Fallback to inline if upload fails
                   console.warn(`[SmartBrains] File API upload returned no URI, falling back to inline for ${entry.name}`);
