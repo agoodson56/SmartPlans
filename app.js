@@ -757,6 +757,19 @@ function getFormatInfo(label) {
   return FILE_FORMATS.find(f => f.label === label) || null;
 }
 
+// ─── Extract BOM filtered by selected disciplines ────────────
+// Convenience wrapper: extracts BOM from AI analysis, then removes
+// categories for unselected disciplines. All UI code should use this
+// instead of calling SmartPlansExport._extractBOMFromAnalysis directly.
+function getFilteredBOM(aiAnalysis, disciplines) {
+  if (typeof SmartPlansExport === 'undefined') return { categories: [], grandTotal: 0 };
+  const bom = SmartPlansExport._extractBOMFromAnalysis(aiAnalysis);
+  if (typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
+    return SmartPlansExport._filterBOMByDisciplines(bom, disciplines);
+  }
+  return bom;
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // RENDERING
@@ -1807,7 +1820,7 @@ function renderStep5(container) {
 // ─── Bid Strategy Card Builder ───
 function buildBidStrategyCard(st) {
   if (!st.aiAnalysis) return '';
-  const bom = SmartPlansExport._extractBOMFromAnalysis(st.aiAnalysis);
+  const bom = getFilteredBOM(st.aiAnalysis, st.disciplines);
   if (!bom || !bom.categories || bom.categories.length === 0) return '';
   const bs = st.bidStrategy;
   const fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1944,7 +1957,7 @@ function bindBidStrategyEvents(container) {
 }
 
 function recalcBidStrategySummary() {
-  const bom = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis);
+  const bom = getFilteredBOM(state.aiAnalysis, state.disciplines);
   if (!bom || !bom.categories) return;
   const bs = state.bidStrategy;
   const isLaborCat = (name) => /labor|install|rough|trim|commission|program|test|mobiliz/i.test(name);
@@ -2392,7 +2405,7 @@ function renderStep6(container) {
   // ── Editable BOM Table ──
   let bomTableHtml = '';
   if (state.aiAnalysis) {
-    const _bomData = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis);
+    const _bomData = getFilteredBOM(state.aiAnalysis, state.disciplines);
     const _bomOverrides = state.supplierPriceOverrides || {};
     const _overrideCount = Object.keys(_bomOverrides).length;
     // Apply overrides to a working copy
@@ -3008,7 +3021,7 @@ function renderStep6(container) {
     // Store override
     const [ci, ii] = key.split('-').map(Number);
     // Get original values to detect if this is a real edit
-    const origBom = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis);
+    const origBom = getFilteredBOM(state.aiAnalysis, state.disciplines);
     const origItem = origBom.categories[ci] && origBom.categories[ci].items[ii];
     const origQty = origItem ? origItem.qty : 0;
     const origCost = origItem ? origItem.unitCost : 0;
@@ -3064,7 +3077,7 @@ function renderStep6(container) {
     const summaryBar = document.getElementById('bom-summary-bar');
     if (summaryBar) {
       if (overrideCount > 0) {
-        const origBomFull = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis);
+        const origBomFull = getFilteredBOM(state.aiAnalysis, state.disciplines);
         const origGrand = origBomFull.grandTotal;
         const delta = grandTotal - origGrand;
         const deltaStr = delta >= 0 ? '+' + _fmtD(delta) : '-' + _fmtD(Math.abs(delta));
@@ -6295,7 +6308,7 @@ async function showActualsPanel(estimateId, projectName) {
       document.getElementById('actuals-body').innerHTML = '<div style="text-align:center;padding:40px;"><div style="font-size:42px;margin-bottom:14px;">📋</div><div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">No Analysis Data</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6;">This estimate does not have AI analysis data. Run an analysis first, then record actuals.</div></div>';
       return;
     }
-    const bom = SmartPlansExport._extractBOMFromAnalysis(analysisText);
+    const bom = getFilteredBOM(analysisText, state.disciplines);
     const actualsMap = {};
     existingActuals.forEach(a => { actualsMap[(a.category || '') + '::' + (a.item_name || '')] = a; });
     _renderActualsTable(estimateId, projectName, bom, actualsMap);
@@ -6553,7 +6566,7 @@ function _applyBenchmarksToBOM() {
 if (typeof buildBidStrategyCard === 'undefined') { var buildBidStrategyCard = function() { return ''; }; }
 
 // BID PHASES / ALTERNATES
-function getBidPhaseBOM() { if (!state.aiAnalysis) return { categories: [], grandTotal: 0 }; const bom = SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis); const overrides = state.supplierPriceOverrides || {}; for (const [key, ov] of Object.entries(overrides)) { const [ci, ii] = key.split('-').map(Number); if (bom.categories[ci] && bom.categories[ci].items[ii]) { const it = bom.categories[ci].items[ii]; if (ov.qty != null) it.qty = ov.qty; it.unitCost = ov.unitCost; it.extCost = Math.round(it.qty * ov.unitCost * 100) / 100; } } if (Object.keys(overrides).length > 0) { bom.grandTotal = 0; for (const cat of bom.categories) { cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0); cat.subtotal = Math.round(cat.subtotal * 100) / 100; bom.grandTotal += cat.subtotal; } bom.grandTotal = Math.round(bom.grandTotal * 100) / 100; } return bom; }
+function getBidPhaseBOM() { if (!state.aiAnalysis) return { categories: [], grandTotal: 0 }; const bom = getFilteredBOM(state.aiAnalysis, state.disciplines); const overrides = state.supplierPriceOverrides || {}; for (const [key, ov] of Object.entries(overrides)) { const [ci, ii] = key.split('-').map(Number); if (bom.categories[ci] && bom.categories[ci].items[ii]) { const it = bom.categories[ci].items[ii]; if (ov.qty != null) it.qty = ov.qty; it.unitCost = ov.unitCost; it.extCost = Math.round(it.qty * ov.unitCost * 100) / 100; } } if (Object.keys(overrides).length > 0) { bom.grandTotal = 0; for (const cat of bom.categories) { cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0); cat.subtotal = Math.round(cat.subtotal * 100) / 100; bom.grandTotal += cat.subtotal; } bom.grandTotal = Math.round(bom.grandTotal * 100) / 100; } return bom; }
 function getPhaseTotal(phase, bom) { if (phase.type === 'base') { const ae = new Set(); state.bidPhases.forEach(p => { if (p.id !== 'base') p.categoryIndices.forEach(ci => ae.add(ci)); }); let t = 0; bom.categories.forEach((cat, ci) => { if (!ae.has(ci)) t += cat.subtotal; }); return Math.round(t * 100) / 100; } let t = 0; phase.categoryIndices.forEach(ci => { if (bom.categories[ci]) t += bom.categories[ci].subtotal; }); return Math.round(t * 100) / 100; }
 function getBaseBidCategoryIndices(bom) { const ae = new Set(); state.bidPhases.forEach(p => { if (p.id !== 'base') p.categoryIndices.forEach(ci => ae.add(ci)); }); const idx = []; bom.categories.forEach((_, ci) => { if (!ae.has(ci)) idx.push(ci); }); return idx; }
 function buildBidPhasesCard(st) { if (!st.aiAnalysis) return ''; const bom = getBidPhaseBOM(); if (bom.categories.length === 0) return ''; const _fmt = (v) => { const abs = Math.abs(v); const str = '$' + abs.toLocaleString('en-US', {minimumFractionDigits:0,maximumFractionDigits:0}); return v < 0 ? '(' + str + ')' : str; }; const ptm = { base: {label:'Base Bid',bc:'bid-phase-badge--base'}, add: {label:'Add Alternate',bc:'bid-phase-badge--add'}, deduct: {label:'Deduct Alt',bc:'bid-phase-badge--deduct'}, optional: {label:'Optional',bc:'bid-phase-badge--optional'} }; let pr='',sr='',rt=0; st.bidPhases.forEach((phase, pi) => { const m = ptm[phase.type]||ptm.optional; const tot = getPhaseTotal(phase,bom); const dt = phase.type==='deduct' ? -Math.abs(tot) : tot; if (phase.includeInProposal) rt += dt; let ac = phase.type==='base' ? getBaseBidCategoryIndices(bom) : phase.categoryIndices; const cn = ac.map(ci => bom.categories[ci] ? esc(bom.categories[ci].name) : '').filter(Boolean); let cah=''; if (phase.type!=='base') { const avail=[]; bom.categories.forEach((cat,ci) => { const at = st.bidPhases.find(p => p.id!=='base' && p.id!==phase.id && p.categoryIndices.includes(ci)); if (!at) avail.push({ci,name:cat.name,chk:phase.categoryIndices.includes(ci)}); else if (phase.categoryIndices.includes(ci)) avail.push({ci,name:cat.name,chk:true}); }); cah = '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">' + avail.map(a => '<label class="bid-phase-cat-chip' + (a.chk?' bid-phase-cat-chip--active':'') + '" style="cursor:pointer;"><input type="checkbox" ' + (a.chk?'checked ':'') + 'style="display:none;" data-bid-phase-cat="' + phase.id + '" data-cat-idx="' + a.ci + '">' + esc(a.name) + '</label>').join('') + (avail.length===0?'<span style="font-size:11px;color:var(--text-muted);font-style:italic;">All categories assigned to other phases</span>':'') + '</div>'; } pr += '<div class="bid-phase-row" data-phase-idx="'+pi+'" style="padding:14px 16px;border:1px solid rgba(0,0,0,0.06);margin-bottom:8px;background:var(--bg-surface-2);"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;"><span class="bid-phase-badge '+m.bc+'">'+m.label+'</span>' + (phase.type==='base' ? '<span style="font-weight:600;font-size:13px;color:var(--text-primary);">'+esc(phase.name)+'</span>' : '<input type="text" class="bid-phase-name-input" data-phase-id="'+phase.id+'" value="'+esc(phase.name)+'" style="flex:1;padding:4px 8px;border:1px solid rgba(0,0,0,0.08);background:transparent;font-size:13px;font-weight:600;color:var(--text-primary);min-width:120px;outline:none;font-family:var(--font-sans);" />') + '</div><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:14px;font-weight:700;color:'+(phase.type==='deduct'?'#D97706':'var(--accent-teal)')+';">'+_fmt(dt)+'</span><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--text-muted);" title="Include in Proposal"><input type="checkbox" '+(phase.includeInProposal?'checked ':'')+' data-bid-phase-proposal="'+phase.id+'" style="accent-color:#0D9488;">Proposal</label>' + (phase.type!=='base' ? '<button data-bid-phase-remove="'+phase.id+'" title="Remove phase" style="background:none;border:1px solid rgba(225,29,72,0.2);color:#E11D48;cursor:pointer;font-size:12px;padding:2px 6px;line-height:1;">x</button>' : '') + '</div></div><div style="margin-top:6px;font-size:11px;color:var(--text-muted);">' + (cn.length>0 ? cn.join(', ') : '<em>No categories assigned</em>') + '</div>' + cah + '</div>'; sr += '<tr style="border-bottom:1px solid rgba(0,0,0,0.04);"><td style="padding:6px 10px;font-size:12px;color:var(--text-primary);">'+esc(phase.name)+'</td><td style="padding:6px 10px;font-size:11px;"><span class="bid-phase-badge '+m.bc+'" style="font-size:10px;padding:2px 6px;">'+m.label+'</span></td><td style="padding:6px 10px;font-size:12px;color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(cn.join(', ')||'—')+'</td><td style="padding:6px 10px;font-size:13px;font-weight:600;text-align:right;color:'+(phase.type==='deduct'?'#D97706':'var(--text-primary)')+';">'+_fmt(dt)+'</td><td style="padding:6px 10px;text-align:center;font-size:12px;">'+(phase.includeInProposal?'✓':'—')+'</td></tr>'; }); const st2 = '<div style="margin-top:16px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:rgba(13,148,136,0.06);"><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Phase</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Type</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Categories</th><th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Amount</th><th style="padding:8px 10px;text-align:center;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Proposal</th></tr></thead><tbody>'+sr+'<tr style="background:rgba(13,148,136,0.08);"><td colspan="3" style="padding:8px 10px;font-size:13px;font-weight:700;color:var(--text-primary);text-align:right;">Total if all accepted</td><td style="padding:8px 10px;font-size:14px;font-weight:700;color:var(--accent-teal);text-align:right;">'+_fmt(rt)+'</td><td></td></tr></tbody></table></div>'; return '<div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div><div class="info-card" style="margin-bottom:22px;border:1px solid rgba(13,148,136,0.15);background:#FFFFFF;"><div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="bid-phases-toggle"><div class="info-card-title" style="margin-bottom:0;"><i data-lucide="layers" style="width:16px;height:16px;"></i> Bid Phases &amp; Alternates</div><span id="bid-phases-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">'+(st._bidPhasesOpen?'▼':'▶')+'</span></div><div id="bid-phases-collapsible" style="display:'+(st._bidPhasesOpen?'block':'none')+';margin-top:12px;"><div class="info-card-body" style="margin-bottom:12px;">Structure your bid with base and alternate pricing. Assign BOM categories to each phase — unassigned categories stay in the Base Bid.</div>'+pr+'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;"><button id="bid-phase-add-add" style="padding:6px 14px;border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.04);color:#059669;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Add Alternate</button><button id="bid-phase-add-deduct" style="padding:6px 14px;border:1px solid rgba(217,119,6,0.3);background:rgba(217,119,6,0.04);color:#D97706;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Deduct Alternate</button><button id="bid-phase-add-optional" style="padding:6px 14px;border:1px solid rgba(0,0,0,0.1);background:rgba(0,0,0,0.02);color:var(--text-muted);cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Optional Phase</button></div>'+st2+'</div></div>'; }

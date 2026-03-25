@@ -91,7 +91,7 @@ Write detailed paragraphs (NOT just bullets) covering:
 - Quality Management: ISO 9001-aligned quality system with documented inspection checkpoints
 
 ## 3. Detailed Scope of Work
-Create a subsection (### heading) for EACH discipline found in the analysis. Under each, provide:
+Create a subsection (### heading) for ONLY the selected disciplines: ${disciplines}. Do NOT include sections for any other disciplines — if a discipline is not listed here, it is not in scope and must not appear anywhere in the proposal. Under each selected discipline, provide:
 - Detailed description of what will be installed
 - EXACT material quantities from the analysis data (e.g., "Install 200 Cat 6A data outlets")
 - Installation standards that will be followed
@@ -802,6 +802,10 @@ ACCEPTANCE & SIGNATURE BLOCK
     try {
       if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis) {
         bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+        // Filter out categories for unselected disciplines
+        if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
+          bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
+        }
       }
     } catch (e) { console.warn('[ProposalGen] BOM extraction failed:', e); }
 
@@ -973,7 +977,10 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
     // Method 2: Export engine's calculated fully-loaded total
     try {
       if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._getFullyLoadedTotal) {
-        const bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+        let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+        if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
+          bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
+        }
         if (bom && bom.grandTotal > 0) {
           const loaded = SmartPlansExport._getFullyLoadedTotal(state, bom);
           if (loaded > 1000) return loaded;
@@ -1082,11 +1089,11 @@ Write EXACTLY this structure in markdown:
 Write 2-3 powerful paragraphs. Open with a compelling hook about the project. State the total scope concisely. Close with why ${co.name} is the best choice. Reference BICSI RCDD, NICET, and 20+ years.
 
 ## Scope of Work
-A concise bullet list of what's included, organized by discipline. Use real quantities from the analysis data. Keep to 10-15 key items max.
+A concise bullet list of what's included, organized ONLY by the selected disciplines: ${disciplines}. Do NOT include any disciplines that are not listed. Use real quantities from the analysis data. Keep to 10-15 key items max.
 
 ## Investment Summary
 Create a markdown table with these columns: | System | Description | Investment |
-Include 4-8 line items that summarize the major cost categories from the analysis. Add a TOTAL row at the bottom.
+Include 4-8 line items that summarize the major cost categories from the analysis for the selected disciplines ONLY. Add a TOTAL row at the bottom.
 
 ## Key Differentiators
 3-4 bullet points on why ${co.name} is the best choice. Keep each to 1-2 sentences max.
