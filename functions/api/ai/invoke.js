@@ -119,8 +119,10 @@ export async function onRequestPost(context) {
 
                     // Send error event to client — no server-side fallback
                     // Client handles retries and model fallback
+                    // Include sanitized Google error for debugging (strip API keys)
+                    const safeErr = errText.replace(/key=[^&"\s]+/gi, 'key=REDACTED').substring(0, 300);
                     await writer.write(encoder.encode(
-                        `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, message: 'AI service temporarily unavailable'})}\n\n`
+                        `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, message: 'AI service temporarily unavailable', _debug: safeErr})}\n\n`
                     ));
                     await writer.close();
                     return;

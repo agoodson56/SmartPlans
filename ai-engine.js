@@ -542,6 +542,7 @@ const SmartBrains = {
                     if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
                       throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
                     }
+                    if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google 400 detail: ${chunk._debug}`);
                     throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
                   }
 
@@ -672,6 +673,7 @@ const SmartBrains = {
                     // Handle proxy errors in fallback too
                     if (chunk._proxyError) {
                       console.warn(`[Brain:${brainDef.name}] Fallback proxy error: ${chunk.status} ${chunk.message}`);
+                      if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google says: ${chunk._debug}`);
                       break;
                     }
                     const cp = chunk?.candidates?.[0]?.content?.parts || [];
