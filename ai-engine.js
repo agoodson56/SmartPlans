@@ -172,18 +172,82 @@ const SmartBrains = {
               size: entry.rawFile.size,
             };
 
-            // Large files → upload to Gemini File API (server-side)
+            // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
-              progressCallback(pct, `Uploading large file: ${entry.name} (${Math.round(entry.rawFile.size / 1024 / 1024)} MB)…`, null);
-              // Show upload progress bar
+              const CHUNK_THRESHOLD = 20 * 1024 * 1024; // Split PDFs over 20MB into chunks
+              const PAGES_PER_CHUNK = 25;
+              const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
+
+              // Try chunking large PDFs using PDF.js
+              if (finalMime === 'application/pdf' && entry.rawFile.size > CHUNK_THRESHOLD && typeof pdfjsLib !== 'undefined') {
+                progressCallback(pct, `Splitting large PDF: ${entry.name} (${fileSizeMB} MB)…`, null);
+                console.log(`[SmartBrains] Splitting ${entry.name} (${fileSizeMB} MB) into ${PAGES_PER_CHUNK}-page chunks…`);
+
+                try {
+                  const chunks = await this._splitPDFIntoChunks(entry.rawFile, PAGES_PER_CHUNK);
+                  console.log(`[SmartBrains] Split ${entry.name} into ${chunks.length} chunks`);
+
+                  let chunkIdx = 0;
+                  for (const chunk of chunks) {
+                    chunkIdx++;
+                    const chunkName = `${entry.name.replace('.pdf', '')}_chunk${chunkIdx}.pdf`;
+                    progressCallback(pct, `Uploading chunk ${chunkIdx}/${chunks.length}: ${chunkName} (${Math.round(chunk.size / 1024 / 1024)} MB)…`, null);
+
+                    const chunkData = {
+                      name: chunkName,
+                      category,
+                      mimeType: finalMime,
+                      size: chunk.size,
+                      _isChunk: true,
+                      _chunkIndex: chunkIdx,
+                      _totalChunks: chunks.length,
+                      _originalName: entry.name,
+                    };
+
+                    try {
+                      const uploadResult = await this._uploadToFileAPI(chunk, finalMime, chunkName);
+                      if (uploadResult && uploadResult.fileUri) {
+                        let cleanUri = uploadResult.fileUri;
+                        const proxyMatch = cleanUri.match(/___(\s*https?:\/\/[^_]+)___/);
+                        if (proxyMatch) { cleanUri = proxyMatch[1].trim(); }
+                        chunkData.fileUri = cleanUri;
+                        chunkData.uploadedName = uploadResult.name;
+                        chunkData._usedKeyName = uploadResult._usedKeyName;
+                        console.log(`[SmartBrains] ✓ Uploaded chunk ${chunkIdx}/${chunks.length}: ${chunkName} → ${cleanUri}`);
+                      } else {
+                        // Fallback: send chunk as inline base64
+                        const chunkB64 = await this._fileToBase64(chunk);
+                        chunkData.base64 = chunkB64.base64;
+                        console.warn(`[SmartBrains] Chunk ${chunkIdx} upload failed, using inline`);
+                      }
+                    } catch (chunkErr) {
+                      const chunkB64 = await this._fileToBase64(chunk);
+                      chunkData.base64 = chunkB64.base64;
+                      console.warn(`[SmartBrains] Chunk ${chunkIdx} upload error, using inline:`, chunkErr.message);
+                    }
+                    encoded[category].push(chunkData);
+                  }
+                  // Also keep inline version of first pages for brains that need quick access
+                  fileData.base64 = base64;
+                  fileData._hasChunks = true;
+                  fileData._chunkCount = chunks.length;
+                  encoded[category].push(fileData);
+                  continue; // Skip the normal upload path
+                } catch (splitErr) {
+                  console.warn(`[SmartBrains] PDF splitting failed for ${entry.name}, using single upload:`, splitErr.message);
+                  // Fall through to single upload
+                }
+              }
+
+              // Single file upload (non-PDF, or splitting failed, or under chunk threshold)
+              progressCallback(pct, `Uploading large file: ${entry.name} (${fileSizeMB} MB)…`, null);
               const uploadContainer = document.getElementById('upload-progress-container');
               if (uploadContainer) uploadContainer.style.display = 'block';
-              console.log(`[SmartBrains] Uploading ${entry.name} (${Math.round(entry.rawFile.size / 1024 / 1024)} MB) via File API…`);
+              console.log(`[SmartBrains] Uploading ${entry.name} (${fileSizeMB} MB) via File API…`);
 
               try {
                 const uploadResult = await this._uploadToFileAPI(entry.rawFile, finalMime, entry.name);
                 if (uploadResult && uploadResult.fileUri) {
-                  // Fix corporate proxy URL mangling (e.g. CheckPoint rewrites googleapis URLs)
                   let cleanUri = uploadResult.fileUri;
                   const proxyMatch = cleanUri.match(/___(\s*https?:\/\/[^_]+)___/);
                   if (proxyMatch) {
@@ -192,10 +256,9 @@ const SmartBrains = {
                   }
                   fileData.fileUri = cleanUri;
                   fileData.uploadedName = uploadResult.name;
-                  fileData._usedKeyName = uploadResult._usedKeyName; // Track which key uploaded this file
+                  fileData._usedKeyName = uploadResult._usedKeyName;
                   console.log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${cleanUri} (key: ${uploadResult._usedKeyName})`);
                 } else {
-                  // Fallback to inline if upload fails
                   console.warn(`[SmartBrains] File API upload returned no URI, falling back to inline for ${entry.name}`);
                   fileData.base64 = base64;
                 }
@@ -323,6 +386,73 @@ const SmartBrains = {
       reader.onerror = () => reject(new Error('File read failed'));
       reader.readAsDataURL(file);
     });
+  },
+
+  // Split a large PDF into smaller chunk files using PDF.js
+  async _splitPDFIntoChunks(rawFile, pagesPerChunk) {
+    const arrayBuffer = await rawFile.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const totalPages = pdf.numPages;
+    const chunks = [];
+
+    // For each chunk of pages, render to a new PDF-like blob
+    // Since PDF.js can't create PDFs, we split the raw bytes by uploading page ranges
+    // Alternative: create image-based chunks from rendered pages
+    const chunkCount = Math.ceil(totalPages / pagesPerChunk);
+    console.log(`[SmartBrains] PDF has ${totalPages} pages → ${chunkCount} chunks of ~${pagesPerChunk} pages`);
+
+    // Strategy: slice the original file into byte-range chunks
+    // This won't create valid standalone PDFs, so instead we render pages to canvas → PNG → blob
+    for (let c = 0; c < chunkCount; c++) {
+      const startPage = c * pagesPerChunk + 1;
+      const endPage = Math.min((c + 1) * pagesPerChunk, totalPages);
+
+      // Render pages to images and combine into a single blob
+      const canvases = [];
+      for (let p = startPage; p <= endPage; p++) {
+        try {
+          const page = await pdf.getPage(p);
+          const scale = 2.0; // 2x for readable text
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          canvases.push(canvas);
+        } catch (e) {
+          console.warn(`[SmartBrains] Failed to render page ${p}:`, e.message);
+        }
+      }
+
+      if (canvases.length === 0) continue;
+
+      // Combine canvases into a single tall image
+      const totalHeight = canvases.reduce((h, c) => h + c.height, 0);
+      const maxWidth = Math.max(...canvases.map(c => c.width));
+      const combined = document.createElement('canvas');
+      combined.width = maxWidth;
+      combined.height = Math.min(totalHeight, 32000); // Canvas height limit
+      const ctx = combined.getContext('2d');
+      let y = 0;
+      for (const c of canvases) {
+        if (y + c.height > combined.height) break;
+        ctx.drawImage(c, 0, y);
+        y += c.height;
+      }
+
+      // Convert to JPEG blob (much smaller than PNG for drawings)
+      const blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.85));
+      if (blob) {
+        // Create a File object so it works with _uploadToFileAPI
+        const chunkFile = new File([blob], `chunk_${c + 1}.jpg`, { type: 'image/jpeg' });
+        chunks.push(chunkFile);
+        console.log(`[SmartBrains] Chunk ${c + 1}: pages ${startPage}-${endPage} → ${Math.round(blob.size / 1024)} KB JPEG`);
+      }
+    }
+
+    pdf.destroy();
+    return chunks;
   },
 
   // ═══════════════════════════════════════════════════════════
