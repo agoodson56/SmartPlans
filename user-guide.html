@@ -317,25 +317,335 @@
     <h2 id="step1">Step 1 — Tell Us About Your Project</h2>
 
     <h3>What Is This?</h3>
-    <p>This is where you fill in the basic details about your project. SmartPlans needs to know what you are bidding so it can give you the right prices and the right devices.</p>
+    <p>Step 1 is the single most important page in SmartPlans. Every field you fill in here controls how the AI reads your drawings, what prices it uses, how it calculates labor, and what appears on your final proposal. Getting Step 1 right means your estimate is built on the correct foundation. Getting it wrong means every number downstream is off.</p>
+    <p>This page is divided into four major sections: <strong>Project Information</strong>, <strong>Prevailing Wage / Davis-Bacon</strong>, <strong>Travel &amp; Per Diem</strong>, and <strong>Pricing &amp; Rate Configuration</strong>. Every field is explained below in the order it appears on screen.</p>
 
-    <h3>How to Use It</h3>
+    <div class="callout callout-warn"><strong>Do not skip fields on this page.</strong> SmartPlans uses these inputs to drive material pricing, labor costing, regional adjustments, wage compliance, and travel budgets. A blank field does not mean zero — it means the AI will use a default, and that default may not match your project.</div>
+
+    <!-- ── PROJECT INFORMATION ── -->
+    <h3>Section: Project Information</h3>
+
+    <h4>1. Project Name <span class="badge badge-teal">Required</span></h4>
+    <p>A free-text name for this bid. This name appears on the proposal cover page, in the exported BOM, in the SmartPM project schedule, and in your Saved Estimates list. Use something descriptive enough that you can find it six months from now.</p>
+    <p><strong>Example:</strong> <code>Sunrise Medical Center Phase 2</code></p>
+
+    <h4>2. Prepared For <span class="badge badge-gold">Optional</span></h4>
+    <p>The name of the general contractor, government agency, or end-client who will receive this bid. This value is printed on the proposal cover page. If you leave it blank, the cover page will omit the "Prepared For" line.</p>
+    <p><strong>Example:</strong> <code>Turner Construction — Sacramento Division</code></p>
+
+    <h4>3. Project Type <span class="badge badge-teal">Required</span></h4>
+    <p>A dropdown that tells the AI what kind of work this is. The selection changes how the AI interprets existing conditions versus new work on your plans.</p>
+    <table>
+      <tr><th>Option</th><th>What It Means</th><th>How the AI Uses It</th></tr>
+      <tr><td>New Construction</td><td>Ground-up building. Nothing exists yet.</td><td>AI assumes every device on the plans is new. No reuse of existing infrastructure.</td></tr>
+      <tr><td>Renovation</td><td>Existing building being remodeled.</td><td>AI looks for "existing to remain" vs. "new" callouts. May reduce cable quantities where pathways already exist.</td></tr>
+      <tr><td>Tenant Improvement</td><td>Interior build-out within an existing shell.</td><td>AI assumes ceiling grid, pathways, and backboard space may already be in place. Adjusts labor hours for TI-style work.</td></tr>
+      <tr><td>Design-Build</td><td>Contractor designs and builds the system.</td><td>AI adds engineering and design hours. Includes submittal preparation time in the labor estimate.</td></tr>
+      <tr><td>Retrofit / Upgrade</td><td>Replacing or upgrading existing systems.</td><td>AI accounts for demolition of old devices and potential reuse of existing cabling and pathways.</td></tr>
+    </table>
+
+    <h4>4. Disciplines <span class="badge badge-teal">Required</span></h4>
+    <p>Checkboxes for every low-voltage system you are bidding. Only the systems you check will appear in the Bill of Materials, the proposal, and the SmartPM project schedule. Everything else is filtered out.</p>
+    <table>
+      <tr><th>Discipline</th><th>What It Covers</th></tr>
+      <tr><td>CCTV</td><td>IP cameras, NVRs, video management software (VMS), camera mounting hardware, PoE switches</td></tr>
+      <tr><td>Structured Cabling</td><td>Cat6/6A cabling, fiber optic backbone, patch panels, cable management, racks, J-hooks, pathway</td></tr>
+      <tr><td>Access Control</td><td>Card readers, electrified locks, door contacts, request-to-exit (REX) devices, access control panels, credentials</td></tr>
+      <tr><td>Fire Alarm</td><td>Smoke detectors, pull stations, notification appliances (horns/strobes), fire alarm control panels (FACP), annunciators</td></tr>
+      <tr><td>Audio Visual</td><td>Speakers, amplifiers, displays, projectors, control processors, digital signage, AV racks</td></tr>
+      <tr><td>Intrusion Detection</td><td>Motion sensors, glass break detectors, door/window contacts, intrusion panels, keypads</td></tr>
+    </table>
+
+    <div class="callout callout-info"><strong>Why is Structured Cabling always checked?</strong> Every single system needs cables to work. Cameras need home runs back to the IDF. Card readers need cable to the access control panel. Speakers need cabling to the amplifier. Structured Cabling is always included regardless of which other disciplines you select. You cannot uncheck it.</div>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> If you are only bidding one discipline (e.g., just CCTV), uncheck everything else. The AI will still count every symbol on the plans, but it will only price and include the disciplines you checked. This keeps your BOM and proposal clean.</div>
+
+    <h4>5. File Format <span class="badge badge-gold">Optional</span></h4>
+    <p>Tells SmartPlans what format your drawings are in. This affects how the AI processes the images and how accurate the device counting will be.</p>
+    <table>
+      <tr><th>Option</th><th>Source</th><th>Quality</th><th>Notes</th></tr>
+      <tr><td>Vector PDF (from CAD)</td><td>Exported directly from AutoCAD, Revit, or Bluebeam</td><td><strong>Best</strong> — crisp lines, scalable symbols</td><td>AI can read text labels and symbol shapes with high accuracy</td></tr>
+      <tr><td>Scanned PDF</td><td>Paper drawings run through a scanner</td><td><strong>OK</strong> — depends on scan resolution</td><td>300 DPI minimum recommended. Skewed or low-res scans reduce accuracy.</td></tr>
+      <tr><td>Photos / Screenshots</td><td>Phone camera, snipping tool, or screen capture</td><td><strong>Low</strong> — perspective distortion, uneven lighting</td><td>Use only as a last resort. Expect the AI to miss 10-20% of devices.</td></tr>
+    </table>
+    <p>A quality indicator appears next to your selection so you know what to expect.</p>
+
+    <h4>6. Specific Items to Count <span class="badge badge-gold">Optional</span></h4>
+    <p>A free-text field where you tell the AI exactly what to look for on the plans. The more specific you are, the more accurate the count. If you leave this blank, the AI will use its own judgment based on the symbol legend and drawing content.</p>
+    <p><strong>Good examples:</strong></p>
+    <ul>
+      <li><code>Count all 4MP dome cameras and 8MP bullet cameras separately</code></li>
+      <li><code>Look for wireless access points (WAPs) shown as triangles with "W"</code></li>
+      <li><code>Count pull stations and horn/strobes on fire alarm sheets only</code></li>
+    </ul>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> This field is especially useful when drawings use non-standard symbols or when you need the AI to distinguish between similar devices (e.g., indoor vs. outdoor cameras).</div>
+
+    <h4>7. Known Quantities <span class="badge badge-gold">Optional</span></h4>
+    <p>If you have already hand-counted some items from the plans, enter them here. SmartPlans uses your known quantities as a verification benchmark. After the AI completes its count, you can compare the AI totals against your known quantities to gauge accuracy.</p>
+    <p><strong>Example:</strong> <code>48 cameras, 12 card readers, 6 pull stations</code></p>
+
+    <div class="callout callout-info"><strong>How it works:</strong> Your known quantities do not override the AI count. They appear side-by-side in the review step so you can spot discrepancies. If the AI says 52 cameras and you hand-counted 48, you know to look more closely.</div>
+
+    <h4>8. Building Code Jurisdiction <span class="badge badge-gold">Optional</span></h4>
+    <p>The building code edition that governs this project. The AI uses this to check code-related requirements like maximum travel distance to pull stations, notification appliance spacing, and ADA mounting heights.</p>
+    <p><strong>Examples:</strong> <code>IBC 2021</code>, <code>California CBC 2022</code>, <code>NFPA 72 2022</code></p>
+
+    <h4>9. Project Location <span class="badge badge-teal">Required</span></h4>
+    <p>The city and state where the project is located. SmartPlans uses this for two critical calculations:</p>
+    <ul>
+      <li><strong>Regional pricing</strong> — Material and labor costs vary dramatically by geography. A camera install in San Francisco costs significantly more than the same install in rural Oklahoma.</li>
+      <li><strong>Travel calculation</strong> — If you enable the Travel section, the project location is the destination for mileage and airfare calculations.</li>
+    </ul>
+
+    <div class="callout callout-warn"><strong>Do not skip the location.</strong> If you leave it blank, SmartPlans uses national average pricing, which may be 20-40% off from your actual local costs.</div>
+
+    <!-- ── PREVAILING WAGE / DAVIS-BACON ── -->
+    <h3>Section: Prevailing Wage / Davis-Bacon</h3>
+    <p>This section controls whether your estimate uses prevailing wage labor rates. Prevailing wage is required on public works projects (schools, government buildings, hospitals) and on any project receiving federal funding. If you are bidding private commercial work, set this to "None."</p>
+
+    <h4>10. Prevailing Wage Type <span class="badge badge-teal">Required</span></h4>
+    <p>A dropdown that determines which wage table SmartPlans uses for labor pricing.</p>
+    <table>
+      <tr><th>Option</th><th>When to Use It</th><th>What Happens</th></tr>
+      <tr><td>None</td><td>Private commercial work, no government funding</td><td>Uses your custom labor rates from the Pricing section below. No wage compliance requirements.</td></tr>
+      <tr><td>Davis-Bacon (Federal)</td><td>Federally funded projects (VA hospitals, military bases, federal courthouses, HUD housing)</td><td>Loads federal prevailing wage rates published by the U.S. Department of Labor. Rates vary by county.</td></tr>
+      <tr><td>State Prevailing Wage (CA DIR)</td><td>California public works projects over $1,000</td><td>Loads California DIR (Department of Industrial Relations) wage determinations. Rates are published per county, per trade classification.</td></tr>
+      <tr><td>Project Labor Agreement (PLA)</td><td>Projects with a negotiated PLA between the owner and labor unions</td><td>Loads PLA-specific rates which are typically higher than standard prevailing wage. Check the PLA document for exact rates.</td></tr>
+    </table>
+
+    <p>When you select any option other than "None," a wage rate panel appears with the following controls:</p>
+
+    <h4>California County Selector</h4>
+    <p>If the project is in California, pick the county from a dropdown of all 58 California counties. Selecting a county auto-populates ALL labor classification rates with the published DIR and Davis-Bacon rates for that county. You do not need to look up rates manually.</p>
+
+    <h4>Other States Selector</h4>
+    <p>For projects outside California, SmartPlans includes prevailing wage data for 19 states with metro-level wage data. First pick the state, then pick the metro area. Rates are loaded for all classifications.</p>
+
+    <h4>Labor Classifications</h4>
+    <p>Once you select a county or metro area, SmartPlans displays the loaded rate for each classification. Here is what each person does on the jobsite:</p>
+    <table>
+      <tr><th>Classification</th><th>Role on the Jobsite</th></tr>
+      <tr><td>Comm Installer (Journeyman)</td><td>The backbone of your crew. Pulls cable, mounts devices, terminates jacks, installs conduit and pathway. Does the majority of the physical installation work.</td></tr>
+      <tr><td>Comm Technician (Lead)</td><td>Handles complex tasks: terminating fiber, programming head-end equipment, testing and certifying cable runs, troubleshooting. Supervises 2-4 installers.</td></tr>
+      <tr><td>Foreman</td><td>On-site supervisor. Manages the daily schedule, coordinates with the GC, handles material deliveries, runs safety meetings, keeps the crew productive. Usually does not pull cable.</td></tr>
+      <tr><td>Apprentice</td><td>Entry-level worker learning the trade. Assists with cable pulling, material staging, cleanup, and basic device mounting. Paid at a percentage of the journeyman rate.</td></tr>
+      <tr><td>Electrician</td><td>Licensed electrician for tasks requiring an electrical license: running power circuits to panels, connecting to building power, fire alarm device wiring in some jurisdictions.</td></tr>
+    </table>
+
+    <h4>Blended Crew Rate</h4>
+    <p>SmartPlans calculates a <strong>Blended Crew Rate</strong> that represents the average hourly cost of your field crew based on a realistic crew mix:</p>
+    <table>
+      <tr><th>Classification</th><th>Crew Mix %</th><th>Why This Percentage</th></tr>
+      <tr><td>Comm Installer (Journeyman)</td><td>60%</td><td>Most of the crew are journeymen doing the bulk of the installation work</td></tr>
+      <tr><td>Comm Technician (Lead)</td><td>25%</td><td>One lead tech per crew handles terminations, testing, and supervision</td></tr>
+      <tr><td>Foreman</td><td>10%</td><td>One foreman may cover multiple crews or split time between projects</td></tr>
+      <tr><td>Apprentice</td><td>5%</td><td>Apprentice ratio is limited by union rules and apprenticeship programs</td></tr>
+    </table>
+    <p><strong>Formula:</strong> <code>Blended Rate = (Journeyman &times; 0.60) + (Lead &times; 0.25) + (Foreman &times; 0.10) + (Apprentice &times; 0.05)</code></p>
+
+    <div class="callout callout-info"><strong>Why blended?</strong> Using a single blended rate simplifies estimating. Instead of assigning individual classifications to each task, SmartPlans applies the blended rate to all field labor hours. This averages out to be very close to reality across a full project.</div>
+
+    <h4>11. Work Shift <span class="badge badge-gold">Optional</span></h4>
+    <p>The shift schedule your crew will work. Off-shift work adds a 10-20% labor premium because workers receive shift differentials.</p>
+    <table>
+      <tr><th>Shift</th><th>Typical Hours</th><th>Premium</th></tr>
+      <tr><td>1st Shift (Standard)</td><td>7:00 AM – 3:30 PM</td><td>None — base rate</td></tr>
+      <tr><td>2nd Shift</td><td>3:30 PM – 12:00 AM</td><td>+10% labor premium</td></tr>
+      <tr><td>3rd Shift / Overnight</td><td>12:00 AM – 7:00 AM</td><td>+15-20% labor premium</td></tr>
+      <tr><td>Weekends Only</td><td>Sat/Sun, 8-10 hour days</td><td>+50% overtime (or double-time per CBA)</td></tr>
+      <tr><td>Split Shift</td><td>Work around building occupants (e.g., 6-9 AM then 6-9 PM)</td><td>+15% — inefficiency from split schedule</td></tr>
+      <tr><td>Mixed</td><td>Some 1st shift, some off-hours</td><td>+10% average premium</td></tr>
+      <tr><td>4/10s</td><td>Four 10-hour days, Mon-Thu</td><td>Minimal — last 2 hrs/day may be OT depending on jurisdiction</td></tr>
+    </table>
+
+    <div class="callout callout-warn"><strong>Healthcare and occupied buildings:</strong> Hospitals, schools, and occupied office buildings frequently require off-shift or weekend work. If the specs mention "work during non-business hours," select the appropriate shift here. Forgetting to account for shift premium is one of the most common bidding mistakes.</div>
+
+    <!-- ── TRAVEL & PER DIEM ── -->
+    <h3>Section: Travel &amp; Per Diem</h3>
+    <p>This section is for out-of-town projects where your crew needs to travel to the jobsite. The travel cost is calculated as a <strong>separate line item</strong> on your bid — it is not mixed into labor or materials. This makes it easy for the GC to see exactly what travel costs, and it is standard practice on government and prevailing wage work.</p>
+
+    <h4>12. Include Travel Costs <span class="badge badge-gold">Optional</span></h4>
+    <p>A checkbox that enables the entire Travel section. When unchecked, all travel fields are hidden and no travel cost is added to the bid. Check this box if your crew will need to drive or fly to the project and stay overnight.</p>
+
+    <h4>13. Crew Size</h4>
+    <p>The number of technicians who will travel to the jobsite. This multiplies hotel and per diem costs. Do not include the project manager here unless they will be on-site and staying overnight.</p>
+    <p><strong>Example:</strong> A crew of 4 technicians staying 5 nights at $150/night = 4 &times; 5 &times; $150 = $3,000 in hotel costs per trip.</p>
+
+    <h4>14. Number of Trips</h4>
+    <p>How many separate mobilizations to the jobsite. Most projects have at least two trips:</p>
+    <ul>
+      <li><strong>Trip 1 — Rough-In:</strong> Pull cable, install backboards, mount boxes, run pathway</li>
+      <li><strong>Trip 2 — Trim-Out:</strong> Mount devices, terminate, test, and commission</li>
+    </ul>
+    <p>Large projects may have 3-5 trips. Each trip is a separate round of hotel, per diem, and travel costs.</p>
+
+    <h4>15. Days Per Trip</h4>
+    <p>The number of working days on-site per trip. This is calendar working days, not including travel days. If you drive on Sunday and start work Monday through Friday, that is 5 days. SmartPlans uses this to calculate hotel nights and per diem days.</p>
+
+    <h4>16. Hotel $/Night</h4>
+    <p>The nightly hotel rate per room. SmartPlans assumes one room per person (prevailing wage projects typically require single occupancy).</p>
+
+    <div class="callout callout-info"><strong>What is the GSA rate?</strong> GSA stands for General Services Administration. The federal government publishes maximum hotel rates for every city in the country. These "GSA rates" are the standard benchmark for government-funded projects. If your project is Davis-Bacon, use the GSA rate for that city. You can look up GSA rates at <code>gsa.gov/travel/plan-book/per-diem-rates</code>. Rates range from $98/night in rural areas to $350+/night in major cities.</div>
+
+    <h4>17. Per Diem $/Day</h4>
+    <p>The daily meals and incidentals allowance per person per day. Per diem covers:</p>
+    <ul>
+      <li><strong>Breakfast</strong> — typically $15-20</li>
+      <li><strong>Lunch</strong> — typically $15-20</li>
+      <li><strong>Dinner</strong> — typically $30-40</li>
+      <li><strong>Incidentals</strong> — tips, laundry, personal phone calls, parking meters</li>
+    </ul>
+    <p>The GSA standard M&amp;IE (Meals &amp; Incidentals) rate is <strong>$79/day</strong> for most California counties. Higher-cost cities like San Francisco and Los Angeles have rates of $79-$84/day. Check the GSA per diem lookup for your project city.</p>
+
+    <h4>18. Mileage (Round Trip Miles)</h4>
+    <p>The total round-trip driving distance in miles from your office to the jobsite. SmartPlans multiplies this by the IRS standard mileage rate (<strong>$0.70/mile for 2024</strong>) to calculate mileage reimbursement.</p>
+
+    <div class="callout callout-warn"><strong>Mileage OR Airfare — not both.</strong> Use mileage for projects you will drive to (typically under 500 miles). Use airfare for projects 500+ miles away. Do not enter both.</div>
+
+    <h4>19. Airfare $/Person</h4>
+    <p>Round-trip economy airfare per person. Use this for projects that are too far to drive (roughly 500+ miles or any project requiring a flight). Check current airfare prices on Google Flights or your corporate travel tool.</p>
+
+    <h4>20. Rental Car $/Day</h4>
+    <p>Daily rental car rate. Your crew will need a vehicle at the jobsite, typically a truck or SUV that can carry tools, ladders, and materials. Enterprise/National corporate rates for a full-size truck run $65-120/day depending on the city.</p>
+
+    <h4>21. Parking $/Day</h4>
+    <p>Daily parking cost at the jobsite or hotel. Urban jobsites (downtown hospitals, high-rises) can run $25-50/day for parking. Suburban and rural sites may have free parking. Do not forget hotel parking — some city hotels charge $30-40/night.</p>
+
+    <h4>Travel Cost Calculation</h4>
+    <p>SmartPlans calculates total travel cost using these formulas:</p>
+    <table>
+      <tr><th>Line Item</th><th>Formula</th><th>Example (4 crew, 2 trips, 5 days, Sacramento)</th></tr>
+      <tr><td>Hotel</td><td>Crew &times; Trips &times; Days &times; $/Night</td><td>4 &times; 2 &times; 5 &times; $150 = <strong>$6,000</strong></td></tr>
+      <tr><td>Per Diem</td><td>Crew &times; Trips &times; Days &times; $/Day</td><td>4 &times; 2 &times; 5 &times; $79 = <strong>$3,160</strong></td></tr>
+      <tr><td>Mileage</td><td>Trips &times; Miles &times; $0.70</td><td>2 &times; 300 &times; $0.70 = <strong>$420</strong></td></tr>
+      <tr><td>Airfare</td><td>Crew &times; Trips &times; $/Person</td><td>(Not used — driving distance)</td></tr>
+      <tr><td>Rental Car</td><td>Trips &times; Days &times; $/Day</td><td>2 &times; 5 &times; $85 = <strong>$850</strong></td></tr>
+      <tr><td>Parking</td><td>Trips &times; Days &times; $/Day</td><td>2 &times; 5 &times; $20 = <strong>$200</strong></td></tr>
+      <tr><td><strong>TOTAL TRAVEL</strong></td><td colspan="2"><strong>$6,000 + $3,160 + $420 + $850 + $200 = $10,630</strong></td></tr>
+    </table>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> Travel is often the make-or-break line item on out-of-town bids. Double-check your crew size, number of trips, and days per trip. Underestimating trips (e.g., assuming one trip when you need three) is one of the fastest ways to lose money on a project.</div>
+
+    <!-- ── PRICING & RATE CONFIGURATION ── -->
+    <h3>Section: Pricing &amp; Rate Configuration</h3>
+    <p>This is the <strong>most important section for getting the right bid price</strong>. Every dollar on your estimate flows through these settings. Material prices, labor rates, markups, and burden — they all live here.</p>
+
+    <h4>22. Material Pricing Tier <span class="badge badge-teal">Required</span></h4>
+    <p>Controls which price level SmartPlans uses for every item in the BOM. The tier affects all material costs across all disciplines.</p>
+    <table>
+      <tr><th>Tier</th><th>Description</th><th>Example: 4MP Dome Camera</th><th>Example: Cat6A Cable (1000ft)</th></tr>
+      <tr><td><strong>Budget</strong></td><td>Entry-level products. Off-brand or value lines. Meets minimum spec requirements.</td><td>~$120</td><td>~$180</td></tr>
+      <tr><td><strong>Mid-Range</strong></td><td>Standard name-brand products. Axis, Hanwha, Lenel, Belden. <em>This is the default.</em></td><td>~$350</td><td>~$320</td></tr>
+      <tr><td><strong>Premium</strong></td><td>Top-tier products. Axis Q-series, Genetec, Lenel BlueDiamond, Belden REVConnect.</td><td>~$650</td><td>~$480</td></tr>
+    </table>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> If the spec calls out specific manufacturers and model numbers, the tier matters less because SmartPlans will try to match the exact product. The tier is most impactful on design-build projects where you choose the products.</div>
+
+    <h4>23. Regional Cost Multiplier <span class="badge badge-teal">Required</span></h4>
+    <p>A multiplier applied to ALL material costs to account for regional price differences. Materials cost more on the coasts and in remote locations due to shipping, demand, and local market conditions.</p>
+    <table>
+      <tr><th>Region</th><th>Multiplier</th><th>Effect on a $10,000 Material Bill</th></tr>
+      <tr><td>Rural / Low-Cost Areas</td><td>0.80</td><td>$8,000</td></tr>
+      <tr><td>National Average</td><td>1.00</td><td>$10,000</td></tr>
+      <tr><td>West Coast (CA, OR, WA)</td><td>1.25</td><td>$12,500</td></tr>
+      <tr><td>Northeast (NY, MA, CT, NJ)</td><td>1.35</td><td>$13,500</td></tr>
+      <tr><td>Hawaii</td><td>1.40</td><td>$14,000</td></tr>
+    </table>
+
+    <div class="callout callout-info"><strong>How it works:</strong> SmartPlans multiplies every raw material price by this value. If a Cat6A cable box costs $320 at the national average and you select West Coast (1.25), SmartPlans prices it at $320 &times; 1.25 = $400.</div>
+
+    <h4>24. Labor Rates</h4>
+    <p>Six labor classifications with customizable hourly rates. If you are using prevailing wage (Section 10 above), these fields are auto-populated and locked. If you selected "None" for prevailing wage, enter your company's standard billing rates here.</p>
+    <table>
+      <tr><th>Classification</th><th>Typical Range</th><th>What They Do</th></tr>
+      <tr><td>Journeyman Tech</td><td>$45 – $85/hr</td><td>Standard installation work: cable pulling, device mounting, terminations, conduit installation, firestopping</td></tr>
+      <tr><td>Lead Tech</td><td>$55 – $95/hr</td><td>Supervises small crews (2-4 people), handles complex tasks like fiber splicing, head-end rack builds, system testing and certification</td></tr>
+      <tr><td>Foreman</td><td>$60 – $110/hr</td><td>On-site supervisor. Manages daily schedule, coordinates with GC superintendent, handles safety and material logistics. Typically Lead rate + 10%</td></tr>
+      <tr><td>Apprentice</td><td>$25 – $50/hr</td><td>Entry-level worker in a registered apprenticeship program. Assists with cable pulling, material staging, cleanup, basic mounting. Typically 55% of journeyman rate</td></tr>
+      <tr><td>Project Manager</td><td>$65 – $120/hr</td><td>Off-site management: submittals, RFI responses, scheduling, procurement, billing, change order management. PM hours are typically 8-12% of total field labor hours</td></tr>
+      <tr><td>Programmer</td><td>$75 – $130/hr</td><td>System configuration and commissioning: access control database setup, CCTV camera configuration, fire alarm programming, integration and testing</td></tr>
+    </table>
+
+    <h4>25. Include Labor Burden <span class="badge badge-teal">Important</span></h4>
+    <p>A checkbox with an adjustable percentage (default: <strong>35%</strong>). Labor burden is the additional cost on top of a worker's base hourly wage that covers taxes, insurance, and benefits. Every employer pays these costs — they are real and must be included in your bid.</p>
+
+    <p><strong>Components of labor burden:</strong></p>
+    <table>
+      <tr><th>Component</th><th>Typical %</th><th>What It Is</th></tr>
+      <tr><td>FICA</td><td>7.65%</td><td>Social Security (6.2%) + Medicare (1.45%) employer match. Every employer pays this — it is federal law.</td></tr>
+      <tr><td>FUTA / SUTA</td><td>2 – 6%</td><td>Federal and state unemployment insurance. FUTA is 0.6% (after credit). SUTA varies by state and your company's experience rating.</td></tr>
+      <tr><td>Workers Compensation</td><td>5 – 12%</td><td>Injury insurance. Low-voltage work is typically classification code 5537. Rates vary by state and your company's loss history (mod rate).</td></tr>
+      <tr><td>General Liability</td><td>3 – 5%</td><td>Commercial General Liability (CGL) insurance allocated per labor dollar. Your CGL policy premium divided across all labor.</td></tr>
+      <tr><td>Health &amp; Welfare</td><td>8 – 15%</td><td>Medical, dental, and vision insurance for employees. Union projects have fixed H&amp;W contributions per hour worked.</td></tr>
+      <tr><td>Pension / 401k</td><td>0 – 6%</td><td>Retirement contributions. Union projects have fixed pension contributions. Non-union may have 401k match.</td></tr>
+    </table>
+
+    <p><strong>Formula:</strong></p>
+    <p><code>Loaded Rate = Base Hourly Rate &times; (1 + Burden %)</code></p>
+    <p><strong>Example:</strong> A journeyman at $68.90/hr with 35% burden: <code>$68.90 &times; 1.35 = $93.02/hr loaded</code></p>
+
+    <div class="callout callout-warn"><strong>Do not skip burden.</strong> If you bid at bare labor rates without burden, you are losing 35% on every labor dollar. On a $200,000 labor bid, that is $70,000 in unrecovered costs. Burden is not profit — it is real expense your company pays on every paycheck.</div>
+
+    <h4>26. Markup Percentages</h4>
+    <p>Four separate markup categories. Markup is applied after all costs are calculated. This is how your company makes profit and covers overhead (rent, trucks, office staff, insurance, tools).</p>
+    <table>
+      <tr><th>Markup Type</th><th>Default</th><th>Applied To</th><th>Example</th></tr>
+      <tr><td>Material Markup</td><td>50%</td><td>All material costs (after regional multiplier)</td><td>$100 cost &rarr; $150 sell price</td></tr>
+      <tr><td>Labor Markup</td><td>50%</td><td>All labor costs (after burden is applied)</td><td>$100 loaded labor &rarr; $150 sell price</td></tr>
+      <tr><td>Equipment Markup</td><td>15%</td><td>Rental equipment: lifts, cable pullers, fusion splicers</td><td>$1,000 rental &rarr; $1,150 sell price</td></tr>
+      <tr><td>Subcontractor Markup</td><td>10%</td><td>Work performed by subcontractors (e.g., fire alarm sub, electrician)</td><td>$50,000 sub cost &rarr; $55,000 sell price</td></tr>
+    </table>
+
+    <div class="callout callout-info"><strong>Why different markups?</strong> Materials carry higher markup because you handle procurement, warehousing, delivery, and warranty. Equipment has lower markup because there is less risk. Subcontractor markup is lowest because the sub carries their own overhead and insurance — you are just managing them.</div>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> Industry standard for low-voltage contractors is 40-60% on materials and labor. If you are bidding competitively against larger firms, 40-45% may win more work. If you are the only qualified bidder, 55-60% is reasonable. Adjust based on your market.</div>
+
+    <!-- ── HOW THE BID PRICE IS CALCULATED ── -->
+    <h3>Section: How the Bid Price Is Calculated</h3>
+    <p>This is the complete formula SmartPlans uses to get from AI-counted quantities to your final bid number. Understanding this formula lets you reverse-engineer any line item and explain your pricing to a GC.</p>
+
     <ol class="step-list">
-      <li>Type your <strong>project name</strong> in the first box. Example: "Sunrise Medical Phase 2".</li>
-      <li>Pick your <strong>city and state</strong> from the location fields. This helps SmartPlans use the right prices for your area.</li>
-      <li>Check the boxes for the <strong>systems you are bidding</strong>. These are things like CCTV (cameras), Access Control (card readers and door locks), Audio Visual, Fire Alarm, and Intrusion Detection.</li>
-      <li>Pick your <strong>pricing tier</strong>. There are three choices:
-        <ul>
-          <li><strong>Budget</strong> — The lowest-cost products. Good for tight budgets.</li>
-          <li><strong>Mid-Range</strong> — Standard, name-brand products. This is the default.</li>
-          <li><strong>Premium</strong> — Top-of-the-line, expensive products.</li>
-        </ul>
-      </li>
+      <li><strong>Raw Material Cost</strong><br>
+        <code>Raw Materials = AI Quantities &times; Tier Unit Prices &times; Regional Multiplier</code><br>
+        The AI counts every device on the plans. Each device is priced at Budget, Mid, or Premium tier. The regional multiplier adjusts for local market conditions.</li>
+
+      <li><strong>Material Sell Price</strong><br>
+        <code>Material Sell = Raw Materials &times; (1 + Material Markup %)</code><br>
+        Your material markup (default 50%) is applied to the raw cost. This covers procurement, handling, and profit.</li>
+
+      <li><strong>Labor Cost (Loaded)</strong><br>
+        <code>Labor Cost = AI Labor Hours &times; Hourly Rate &times; (1 + Burden %)</code><br>
+        The AI estimates hours for each task (cable pull, device mount, termination, testing). Hours are multiplied by the blended rate, then burden is applied.</li>
+
+      <li><strong>Labor Sell Price</strong><br>
+        <code>Labor Sell = Loaded Labor &times; (1 + Labor Markup %)</code><br>
+        Your labor markup (default 50%) is applied to the fully loaded labor cost.</li>
+
+      <li><strong>Equipment Sell Price</strong><br>
+        <code>Equipment Sell = Equipment Costs &times; (1 + Equipment Markup %)</code><br>
+        Rental equipment (lifts, testers, pullers) with your equipment markup (default 15%).</li>
+
+      <li><strong>Subcontractor Sell Price</strong><br>
+        <code>Sub Sell = Subcontractor Costs &times; (1 + Sub Markup %)</code><br>
+        Any subcontracted work with your sub markup (default 10%).</li>
+
+      <li><strong>Subtotal</strong><br>
+        <code>Subtotal = Material Sell + Labor Sell + Equipment Sell + Sub Sell + Travel</code><br>
+        All sell prices plus the travel line item (if enabled) are added together.</li>
+
+      <li><strong>Contingency</strong><br>
+        <code>Contingency = Subtotal &times; 10%</code><br>
+        A 10% contingency to cover unknowns: change orders, scope creep, material waste, rework, and unforeseen conditions.</li>
+
+      <li><strong>Grand Total</strong><br>
+        <code>GRAND TOTAL = Subtotal + Contingency</code><br>
+        This is your final bid number — the price on the proposal cover page.</li>
     </ol>
 
-    <div class="callout callout-info"><strong>Why is Structured Cabling always checked?</strong> Every system needs cables to work. Cameras need cables. Card readers need cables. Speakers need cables. So Structured Cabling is always included no matter what systems you pick.</div>
+    <div class="callout callout-warn"><strong>Sanity Check:</strong> After SmartPlans generates your estimate, check the ratio of materials to labor. For most low-voltage projects, materials should be 40-55% and labor should be 45-60% of the pre-markup total. If materials are 80% and labor is 20%, something is wrong — either the AI overcounted devices or undercounted labor hours. Go back to Step 6 and review.</div>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> The more details you fill in, the better your estimate will be. Do not skip the location — it changes the prices.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> You can adjust any of these percentages on Step 1 and SmartPlans will instantly recalculate the entire estimate. Use this to run "what-if" scenarios: What happens if I drop markup to 40%? What if burden goes up to 42%? What if I use Budget tier instead of Mid? This is how experienced estimators dial in a competitive number.</div>
 
     <!-- ============================================================ -->
     <!-- STEP 2 -->
