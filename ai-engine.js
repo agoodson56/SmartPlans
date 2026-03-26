@@ -3748,6 +3748,7 @@ Return ONLY valid JSON:
         wave1_75: wave175Results, wave2: wave2Results, wave2_25: wave225Results,
         wave2_5_fin: wave25FinResults, wave2_75: wave275Results,
         wave3: wave3Results, wave3_5: context.wave3_5, wave3_75: context.wave3_75,
+        wave3_85_corrected: context.wave3_85?.ESTIMATE_CORRECTOR || null,
       },
       brainStatus: { ...this._brainStatus },
       stats: {

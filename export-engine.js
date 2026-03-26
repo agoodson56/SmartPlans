@@ -213,36 +213,48 @@ const SmartPlansExport = {
 
     // ─── Get fully loaded bid total ──
     _getFullyLoadedTotal(state, bom) {
-        // Priority 1: Cached from prior computation
-        if (state._bomGrandTotal && state._bomGrandTotal > 1000) {
-            return this._round(state._bomGrandTotal);
+        // Priority 1: Estimate Corrector's corrected grand total (most accurate — post-correction)
+        const corrector = state.brainResults?.wave3_85_corrected;
+        if (corrector?.corrected_grand_total > 1000) {
+            const val = this._round(corrector.corrected_grand_total);
+            console.log(`[Export] Grand total from Estimate Corrector: $${val.toLocaleString()}`);
+            state._bomGrandTotal = val;
+            return val;
         }
 
-        // Priority 2: Bid strategy if user applied one
+        // Priority 2: Financial Engine brain (has real labor from plan analysis)
+        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+        if (finEngine?.project_summary?.grand_total > 1000) {
+            const val = this._round(finEngine.project_summary.grand_total);
+            console.log(`[Export] Grand total from Financial Engine: $${val.toLocaleString()}`);
+            state._bomGrandTotal = val;
+            return val;
+        }
+
+        // Priority 3: Bid strategy if user applied one
         if (state.bidStrategy?.applied) {
             const result = this.applyBidStrategy?.(state);
             if (result?.grandTotalWithStrategy > 1000) {
+                console.log(`[Export] Grand total from Bid Strategy: $${result.grandTotalWithStrategy.toLocaleString()}`);
                 return this._round(result.grandTotalWithStrategy);
             }
         }
 
-        // Priority 3: Compute with full markups from BOM
+        // Priority 4: Compute with full markups from BOM (fallback)
         if (bom?.categories?.length > 0) {
             const breakdown = this._computeFullBreakdown(state, bom);
             if (breakdown.grandTotal > 1000) {
+                console.log(`[Export] Grand total from BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
                 state._bomGrandTotal = breakdown.grandTotal;
                 state._bomBreakdown = breakdown;
                 return breakdown.grandTotal;
             }
         }
 
-        // Priority 4: Financial Engine brain result (legacy)
-        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
-        if (finEngine?.project_summary?.grand_total > 1000) {
-            return this._round(finEngine.project_summary.grand_total);
-        }
-
-        return bom?.grandTotal || 0;
+        // Priority 5: Raw BOM + 10% contingency (last resort)
+        const rawTotal = bom?.grandTotal || 0;
+        console.warn(`[Export] Grand total fallback: raw BOM $${rawTotal} + 10%`);
+        return this._round(rawTotal * 1.1);
     },
 
     // ─── Parse AI analysis into structured sections ────────────
