@@ -29,6 +29,9 @@ const SmartPlansExport = {
                     if (override.qty != null) item.qty = override.qty;
                     item.unitCost = override.unitCost;
                     item.extCost = this._round(item.qty * override.unitCost);
+                    if (override.mfg) item.mfg = override.mfg;
+                    if (override.partNumber) item.partNumber = override.partNumber;
+                    if (override.isSubstitute) item._isSubstitute = true;
                 }
             }
             // Recalculate category subtotals and grand total
@@ -2131,13 +2134,16 @@ INSTRUCTIONS:
 6. The supplier may use different names for the same products
 7. If a supplier item clearly doesn't match any BOM item, skip it
 
+IMPORTANT: Suppliers often provide SUBSTITUTE products (different manufacturer, different part number) when the originally specified item is discontinued, unavailable, or they have a better deal. Extract the supplier's ACTUAL manufacturer and part number — these may differ from what's in my BOM.
+
 Return ONLY valid JSON array (no markdown, no explanation):
 [
-  { "bomIndex": 0, "supplierItem": "Their item name", "supplierUnitCost": 123.45, "confidence": "high" },
-  { "bomIndex": 3, "supplierItem": "Their item name", "supplierUnitCost": 67.89, "confidence": "medium" }
+  { "bomIndex": 0, "supplierItem": "Their item name", "supplierMfg": "Their manufacturer", "supplierPartNumber": "Their part#", "supplierUnitCost": 123.45, "confidence": "high", "isSubstitute": false },
+  { "bomIndex": 3, "supplierItem": "Their item name", "supplierMfg": "Alternate MFG", "supplierPartNumber": "ALT-123", "supplierUnitCost": 67.89, "confidence": "medium", "isSubstitute": true }
 ]
 
 confidence: "high" = exact part# or MFG match, "medium" = description match, "low" = functional match
+isSubstitute: true if the supplier is offering a different MFG/model than what we specified
 
 Return ONLY the JSON array. No other text.`;
 
@@ -2215,15 +2221,26 @@ Return ONLY the JSON array. No other text.`;
             if (!bomItem) { itemsSkipped++; continue; }
 
             const overrideKey = `${bomItem.catIndex}-${bomItem.itemIndex}`;
-            overrides[overrideKey] = { unitCost: match.supplierUnitCost };
+            overrides[overrideKey] = {
+                unitCost: match.supplierUnitCost,
+                mfg: match.supplierMfg || null,
+                partNumber: match.supplierPartNumber || null,
+                supplierItem: match.supplierItem || null,
+                isSubstitute: match.isSubstitute || false,
+            };
             itemsUpdated++;
 
             matchDetails.push({
                 ourItem: bomItem.name,
+                ourMfg: bomItem.mfg,
+                ourPartNumber: bomItem.partNumber,
                 theirItem: match.supplierItem || 'Unknown',
+                theirMfg: match.supplierMfg || '',
+                theirPartNumber: match.supplierPartNumber || '',
                 oldCost: bomItem.currentUnitCost,
                 newCost: match.supplierUnitCost,
                 confidence: match.confidence || 'medium',
+                isSubstitute: match.isSubstitute || false,
             });
         }
 
@@ -2896,6 +2913,9 @@ Return ONLY the JSON array. No other text.`;
                     if (override.qty != null) item.qty = override.qty;
                     item.unitCost = override.unitCost;
                     item.extCost = this._round(item.qty * override.unitCost);
+                    if (override.mfg) item.mfg = override.mfg;
+                    if (override.partNumber) item.partNumber = override.partNumber;
+                    if (override.isSubstitute) item._isSubstitute = true;
                 }
             }
             bom.grandTotal = 0;
