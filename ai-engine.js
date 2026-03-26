@@ -49,15 +49,15 @@ const SmartBrains = {
     // API keys are stored server-side as Cloudflare secrets (GEMINI_KEY_0 … GEMINI_KEY_17)
     // No keys in client code — all calls go through /api/ai/invoke proxy
     apiKeys: [],  // Empty — proxy handles key selection
-    model: 'gemini-3.1-pro-preview',          // ALL brains use 3.1 Pro
-    accuracyModel: 'gemini-3.1-pro-preview',   // ALL brains use 3.1 Pro
-    proModel: 'gemini-3.1-pro-preview',        // Gemini 3.1 Pro — released Feb 19, 2026
+    model: 'gemini-2.5-pro',                   // Primary: stable, reliable
+    accuracyModel: 'gemini-2.5-pro',            // Accuracy brains: stable
+    proModel: 'gemini-3.1-pro-preview',         // Text-only brains (no files): use 3.1 for thinking
     useProxy: true,                          // ENABLED — route all calls through server-side proxy
     proxyEndpoint: '/api/ai/invoke',
-    maxRetries: 10,
-    retryBaseDelay: 1500,
-    timeout: 150000,                         // 2.5 min for Flash brains
-    proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
+    maxRetries: 5,                           // Fail faster → hit model fallback sooner
+    retryBaseDelay: 2000,
+    timeout: 120000,                         // 2 min for Flash brains
+    proTimeout: 180000,                      // 3 min for Pro (reduced from 5 to avoid 524 timeouts)
   },
 
 
@@ -174,8 +174,8 @@ const SmartBrains = {
 
             // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
-              const CHUNK_THRESHOLD = 20 * 1024 * 1024; // Split PDFs over 20MB into chunks
-              const PAGES_PER_CHUNK = 25;
+              const CHUNK_THRESHOLD = 45 * 1024 * 1024; // Split PDFs over 45MB into chunks (smaller files upload fine as single)
+              const PAGES_PER_CHUNK = 30;
               const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
 
               // Try chunking large PDFs using PDF.js
