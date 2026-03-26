@@ -748,9 +748,51 @@ const SmartBrains = {
       }
     }
 
-    // ── Model Fallback: If Pro model failed, retry once with Flash ──
+    // ── Model Fallback: If primary model failed, try alternative models ──
+    const fallbackModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    const triedModel = modelName;
+    for (const fbModel of fallbackModels) {
+      if (fbModel === triedModel) continue; // skip the one that already failed
+      console.warn(`[Brain:${brainDef.name}] ${triedModel} failed — falling back to ${fbModel}`);
+      try {
+        const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
+        const fbBody = { contents: [{ parts: fbParts }], generationConfig: genConfig, _model: fbModel, _brainSlot: keySlot };
+        if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
+        const ctrl = new AbortController();
+        const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
+        const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fbBody), signal: ctrl.signal });
+        clearTimeout(tmr);
+        let fbText = '', fbThought = '';
+        const fbReader = fbResp.body.getReader();
+        const fbDec = new TextDecoder();
+        while (true) {
+          const { done, value } = await fbReader.read();
+          if (done) break;
+          for (const line of fbDec.decode(value, { stream: true }).split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const ch = JSON.parse(line.substring(6));
+              if (ch._proxyError) { if (ch.status === 503 || ch.status >= 500) break; continue; }
+              for (const p of (ch?.candidates?.[0]?.content?.parts || [])) {
+                if (p.text && p.thought) fbThought += p.text;
+                else if (p.text) fbText += p.text;
+              }
+            } catch (e) { console.warn('[Brain] parse skip:', e.message); }
+          }
+        }
+        if (fbText && fbText.length >= 20) {
+          console.log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
+          return fbText;
+        }
+        console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty`);
+      } catch (fbErr) {
+        console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} failed: ${fbErr.message}`);
+      }
+    }
+
+    // ── Legacy fallback path (kept for backward compat) ──
     if (brainDef.useProModel && modelName !== this.config.model) {
-      console.warn(`[Brain:${brainDef.name}] Pro model failed — falling back to ${this.config.model}`);
+      console.warn(`[Brain:${brainDef.name}] All fallbacks failed — last attempt with ${this.config.model}`);
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts];
         const fbGenConfig = {
