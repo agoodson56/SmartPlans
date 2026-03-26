@@ -841,13 +841,21 @@ ACCEPTANCE & SIGNATURE BLOCK
       }
     }
 
-    // Calculate totals
+    // Calculate totals — the grand total MUST come from _extractGrandTotal
+    // so it is identical to export-engine.js _getFullyLoadedTotal.
+    // _extractGrandTotal sums the raw BOM category subtotals (not the grouped
+    // line items) + 10% contingency, which matches the BOM Excel BID PRICE.
     const lineItems = Object.values(groups).filter(g => g.total > 0);
     const subtotal = lineItems.reduce((s, g) => s + g.total, 0);
     const contingency = this._round(subtotal * 0.10);
-    const grandTotal = this._round(subtotal + contingency);
 
-    // Cache the grand total so _extractGrandTotal uses the same number
+    // Use the authoritative grand total from _extractGrandTotal (which mirrors
+    // _getFullyLoadedTotal exactly: raw BOM category subtotals + 10% contingency).
+    // The grouping above can shift rounding vs. summing raw categories, so we
+    // MUST NOT derive the grand total from the grouped subtotal.
+    const grandTotal = this._extractGrandTotal(state) || this._round(subtotal + contingency);
+
+    // Cache so downstream consumers (hero section, export) use the same number
     state._bomGrandTotal = grandTotal;
 
     // Build Word-compatible HTML table
@@ -965,48 +973,33 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
   },
 
   // Pre-compute and cache the BOM grand total so ALL consumers use the SAME number.
-  // Must be called before _extractGrandTotal, _buildFinancialTableHtml, or any export.
+  // Delegates to _extractGrandTotal which uses the identical formula as
+  // export-engine.js _getFullyLoadedTotal.
   _precomputeBOMTotal(state) {
     if (state._bomGrandTotal && state._bomGrandTotal > 1000) return; // Already computed
-    try {
-      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis) {
-        const analysis = state.aiAnalysis || '';
-        let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
-        if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
-          bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
-        }
-        if (bom && bom.categories && bom.categories.length > 0) {
-          const subtotal = bom.categories.reduce((s, c) => s + (c.subtotal || 0), 0);
-          if (subtotal > 1000) {
-            const contingency = this._round(subtotal * 0.10);
-            state._bomGrandTotal = this._round(subtotal + contingency);
-            console.log(`[ProposalGen] Pre-computed BOM total: $${state._bomGrandTotal} (subtotal $${subtotal} + 10% contingency $${contingency})`);
-          }
-        }
-      }
-    } catch (e) { console.warn('[ProposalGen] Pre-compute BOM total failed:', e); }
+    const total = this._extractGrandTotal(state);
+    if (total && total > 1000) {
+      console.log(`[ProposalGen] Pre-computed BOM total: $${state._bomGrandTotal}`);
+    }
   },
 
-  // Extract grand total from every possible source
-  // SINGLE SOURCE OF TRUTH: The detailed BOM breakdown (categories grouped,
-  // markups already in sell prices, + contingency). This matches the
-  // Investment Summary table shown in the proposal body.
+  // Extract grand total — MUST return the SAME number as export-engine.js
+  // _getFullyLoadedTotal so that the proposal hero number, the BOM Excel
+  // BID PRICE, the SmartPM Contract Value, and the JSON grandTotal all match.
+  //
+  // Formula (identical to _getFullyLoadedTotal Priority 1b):
+  //   sum of filtered BOM category subtotals + 10% contingency
   _extractGrandTotal(state) {
-    const analysis = state.aiAnalysis || '';
-    const brainResults = state.brainResults || state.lastBrainResults || {};
-
-    // Method 1 (PRIMARY): BOM-computed total from _buildFinancialTableHtml
-    // This is the detailed breakdown the client sees in the proposal body.
-    // It groups BOM categories (which already contain sell prices with markup)
-    // and adds 10% contingency. The hero number MUST match this table.
+    // Priority 1: Use the SAME cached number that buildExportPackage / exportBOM uses
     if (state._bomGrandTotal && state._bomGrandTotal > 1000) {
       return state._bomGrandTotal;
     }
 
-    // Method 1b: Compute the BOM total on-the-fly if not yet cached
-    // (same logic as _buildFinancialTableHtml uses)
+    // Priority 2: Compute it the SAME way _getFullyLoadedTotal does
+    //   — extract BOM, filter by disciplines, sum category subtotals + 10% contingency
     try {
       if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis) {
+        const analysis = state.aiAnalysis || '';
         let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
         if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
           bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
@@ -1022,38 +1015,6 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
         }
       }
     } catch (e) { /* export engine not available */ }
-
-    // Method 2: Financial Engine's brain result (legacy/fallback)
-    const finEngine = brainResults?.wave2_5_fin?.FINANCIAL_ENGINE
-      || brainResults?.wave2?.FINANCIAL_ENGINE
-      || {};
-    if (finEngine?.project_summary?.grand_total > 1000) {
-      return finEngine.project_summary.grand_total;
-    }
-
-    // Method 3: Sum Material + Labor with markups + contingency
-    const materialPricer = brainResults?.wave2?.MATERIAL_PRICER || {};
-    const laborCalc = brainResults?.wave2_25?.LABOR_CALCULATOR || brainResults?.wave2?.LABOR_CALCULATOR || {};
-    const matTotal = materialPricer?.total_with_markup || materialPricer?.grand_total || 0;
-    const labTotal = laborCalc?.total_with_markup || laborCalc?.grand_total || 0;
-    if (matTotal + labTotal > 1000) {
-      const subtotal = matTotal + labTotal;
-      return this._round(subtotal * 1.10);
-    }
-
-    // Method 4 (LAST RESORT): Regex on raw analysis text
-    const textPatterns = [
-      /GRAND\s*TOTAL[^\$]*\$([\d,]+\.?\d*)/i,
-      /Grand\s*Total[^\n]*\$([\d,]+\.?\d*)/i,
-      /TOTAL\s*PROJECT\s*INVESTMENT[^\$]*\$([\d,]+\.?\d*)/i,
-    ];
-    for (const pattern of textPatterns) {
-      const match = analysis.match(pattern);
-      if (match) {
-        const num = parseFloat(match[1].replace(/,/g, ''));
-        if (num > 1000) return num;
-      }
-    }
 
     return null;
   },
