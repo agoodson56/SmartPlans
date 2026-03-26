@@ -155,30 +155,67 @@ const SmartPlansExport = {
         };
     },
 
-    // ─── Get fully loaded bid total (with markups, G&A, profit, contingency) ──
-    // SINGLE SOURCE OF TRUTH: The BOM category subtotals (which already contain
-    // sell prices with markup applied by the AI) + 10% contingency. This matches
-    // the proposal's Investment Summary table exactly.
+    // ─── Classify BOM categories into material/equipment/subs ──
+    _classifyBOM(bom) {
+        let materials = 0, equipment = 0, subs = 0;
+        for (const cat of (bom?.categories || [])) {
+            const n = (cat.name || '').toLowerCase();
+            if (/subcontract|civil|traffic|safety|insurance|parking/.test(n)) {
+                subs += (cat.subtotal || 0);
+            } else if (/equipment|condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
+                equipment += (cat.subtotal || 0);
+            } else {
+                materials += (cat.subtotal || 0);
+            }
+        }
+        return { materials, equipment, subs };
+    },
+
+    // ─── Compute full bid price breakdown with all markups ──
+    // SINGLE SOURCE OF TRUTH: Every output reads from this.
+    _computeFullBreakdown(state, bom) {
+        const { materials, equipment, subs } = this._classifyBOM(bom);
+        const cfg = state.pricingConfig?.markup || state.markup || {};
+        const matPct = (cfg.material ?? 50) / 100;
+        const labPct = (cfg.labor ?? 50) / 100;
+        const eqPct = (cfg.equipment ?? 15) / 100;
+        const subPct = (cfg.subcontractor ?? 10) / 100;
+        const burdenRate = state.pricingConfig?.burdenRate || 0.35;
+        const includeBurden = state.pricingConfig?.includeBurden !== false;
+        const contingencyPct = 0.10;
+
+        // Labor estimate: based on loaded crew rates and material cost
+        // ELV labor typically runs 80-120% of material cost
+        const laborBase = this._round(materials * 1.0);
+
+        const matSell = this._round(materials * (1 + matPct));
+        const labSell = this._round(laborBase * (1 + labPct));
+        const eqSell = this._round(equipment * (1 + eqPct));
+        const subSell = this._round(subs * (1 + subPct));
+        const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
+        const travel = this._round(state.travelCosts?.totalTravel || 0);
+
+        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
+        const contingency = this._round(subtotal * contingencyPct);
+        const grandTotal = this._round(subtotal + contingency);
+
+        return {
+            materials, equipment, subs, laborBase,
+            matPct, labPct, eqPct, subPct,
+            matSell, labSell, eqSell, subSell,
+            burden, burdenRate: includeBurden ? burdenRate : 0,
+            travel, subtotal, contingency, contingencyPct, grandTotal
+        };
+    },
+
+    // ─── Get fully loaded bid total ──
     _getFullyLoadedTotal(state, bom) {
-        // Priority 1: BOM-computed total cached by proposal generator
-        // This is the detailed breakdown total the client sees in the proposal.
+        // Priority 1: Cached from prior computation
         if (state._bomGrandTotal && state._bomGrandTotal > 1000) {
             return this._round(state._bomGrandTotal);
         }
 
-        // Priority 1b: Compute from BOM categories directly (same logic as
-        // ProposalGenerator._buildFinancialTableHtml — categories already
-        // contain sell prices, just sum + 10% contingency)
-        if (bom && bom.categories && bom.categories.length > 0) {
-            const subtotal = bom.categories.reduce((s, c) => s + (c.subtotal || 0), 0);
-            if (subtotal > 1000) {
-                const contingency = this._round(subtotal * 0.10);
-                const total = this._round(subtotal + contingency);
-                return total;
-            }
-        }
-
-        // Priority 2: Calculate from bid strategy if user applied one
+        // Priority 2: Bid strategy if user applied one
         if (state.bidStrategy?.applied) {
             const result = this.applyBidStrategy?.(state);
             if (result?.grandTotalWithStrategy > 1000) {
@@ -186,42 +223,23 @@ const SmartPlansExport = {
             }
         }
 
-        // Priority 3: Financial Engine's brain result (legacy fallback)
+        // Priority 3: Compute with full markups from BOM
+        if (bom?.categories?.length > 0) {
+            const breakdown = this._computeFullBreakdown(state, bom);
+            if (breakdown.grandTotal > 1000) {
+                state._bomGrandTotal = breakdown.grandTotal;
+                state._bomBreakdown = breakdown;
+                return breakdown.grandTotal;
+            }
+        }
+
+        // Priority 4: Financial Engine brain result (legacy)
         const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
         if (finEngine?.project_summary?.grand_total > 1000) {
             return this._round(finEngine.project_summary.grand_total);
         }
 
-        // Priority 4: Apply default markups to raw BOM (last resort)
-        const matMarkup = (state.markup?.material ?? 50) / 100;
-        const labMarkup = (state.markup?.labor ?? 50) / 100;
-        const contingencyPct = 0.10;
-
-        let totalMaterial = 0;
-        let totalLabor = 0;
-        let totalSub = 0;
-        const laborCategories = ['labor', 'installation labor', 'project management'];
-
-        for (const cat of (bom.categories || [])) {
-            const isLabor = laborCategories.some(l => cat.name.toLowerCase().includes(l));
-            const isSub = cat.name.toLowerCase().includes('subcontractor');
-            if (isSub) {
-                totalSub += cat.subtotal;
-            } else if (isLabor) {
-                totalLabor += cat.subtotal;
-            } else {
-                totalMaterial += cat.subtotal;
-            }
-        }
-
-        const materialWithMarkup = totalMaterial * (1 + matMarkup);
-        const laborWithMarkup = totalLabor * (1 + labMarkup);
-        const subWithMarkup = totalSub * 1.15; // 15% sub markup
-        const subtotal = materialWithMarkup + laborWithMarkup + subWithMarkup;
-        const contingency = subtotal * contingencyPct;
-        const grandTotal = subtotal + contingency;
-
-        return grandTotal > 1000 ? this._round(grandTotal) : bom.grandTotal;
+        return bom?.grandTotal || 0;
     },
 
     // ─── Parse AI analysis into structured sections ────────────

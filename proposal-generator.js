@@ -817,53 +817,35 @@ ACCEPTANCE & SIGNATURE BLOCK
       return ''; // No BOM data — skip financial table
     }
 
-    // Group BOM categories into proposal-level line items
-    const groups = {
-      materials: { label: 'Materials', total: 0 },
-      labor: { label: 'Labor', total: 0 },
-      equipment: { label: 'Equipment', total: 0 },
-      subcontractors: { label: 'Subcontractors', total: 0 },
-      travel: { label: 'Travel & Per Diem', total: 0 },
-    };
+    // Use the SAME breakdown as export-engine.js — single source of truth
+    const bd = SmartPlansExport._computeFullBreakdown(state, bom);
 
-    for (const cat of bom.categories) {
-      const name = cat.name.toLowerCase();
-      if (/travel|per diem|hotel|accommodat/i.test(name)) {
-        groups.travel.total += cat.subtotal;
-      } else if (/labor|install|rough|trim|commission|program|test|mobiliz/i.test(name)) {
-        groups.labor.total += cat.subtotal;
-      } else if (/subcontract|civil|electric|insurance|safety|amtrak|incidental/i.test(name)) {
-        groups.subcontractors.total += cat.subtotal;
-      } else if (/equipment|lift|excavat|vacuum|tool|rental/i.test(name)) {
-        groups.equipment.total += cat.subtotal;
-      } else {
-        groups.materials.total += cat.subtotal;
-      }
-    }
+    // Cache so all downstream consumers use the same number
+    state._bomGrandTotal = bd.grandTotal;
+    state._bomBreakdown = bd;
 
-    // Calculate totals — the grand total MUST come from _extractGrandTotal
-    // so it is identical to export-engine.js _getFullyLoadedTotal.
-    // _extractGrandTotal sums the raw BOM category subtotals (not the grouped
-    // line items) + 10% contingency, which matches the BOM Excel BID PRICE.
-    const lineItems = Object.values(groups).filter(g => g.total > 0);
-    const subtotal = lineItems.reduce((s, g) => s + g.total, 0);
-    const contingency = this._round(subtotal * 0.10);
+    // Build line items for the table
+    const lineItems = [
+      { label: 'Materials', base: bd.materials, markup: `${Math.round(bd.matPct * 100)}%`, sell: bd.matSell },
+      { label: 'Labor', base: bd.laborBase, markup: `${Math.round(bd.labPct * 100)}%`, sell: bd.labSell },
+      { label: 'Equipment', base: bd.equipment, markup: `${Math.round(bd.eqPct * 100)}%`, sell: bd.eqSell },
+      { label: 'Subcontractors', base: bd.subs, markup: `${Math.round(bd.subPct * 100)}%`, sell: bd.subSell },
+    ].filter(g => g.base > 0);
+    if (bd.burden > 0) lineItems.push({ label: 'Burden/Overhead', base: bd.laborBase, markup: `${Math.round(bd.burdenRate * 100)}%`, sell: bd.burden });
+    if (bd.travel > 0) lineItems.push({ label: 'Travel/Incidentals', base: bd.travel, markup: '—', sell: bd.travel });
 
-    // Use the authoritative grand total from _extractGrandTotal (which mirrors
-    // _getFullyLoadedTotal exactly: raw BOM category subtotals + 10% contingency).
-    // The grouping above can shift rounding vs. summing raw categories, so we
-    // MUST NOT derive the grand total from the grouped subtotal.
-    const grandTotal = this._extractGrandTotal(state) || this._round(subtotal + contingency);
+    const subtotal = bd.subtotal;
+    const contingency = bd.contingency;
+    const grandTotal = bd.grandTotal;
 
-    // Cache so downstream consumers (hero section, export) use the same number
-    state._bomGrandTotal = grandTotal;
-
-    // Build Word-compatible HTML table
+    // Build Word-compatible HTML table with Base Cost + Markup + Sell Price
     let rows = '';
     lineItems.forEach(g => {
       rows += `<tr>
         <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${g.label}</font></td>
-        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(g.total)}</font></td>
+        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(g.base)}</font></td>
+        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:center;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${g.markup}</font></td>
+        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(g.sell)}</font></td>
       </tr>`;
     });
 
@@ -880,20 +862,22 @@ ACCEPTANCE & SIGNATURE BLOCK
 
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20pt;">
   <tr>
-    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};width:60%;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Category</b></font></td>
+    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};width:35%;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Category</b></font></td>
+    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:right;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Base Cost</b></font></td>
+    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:center;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Markup</b></font></td>
     <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:right;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Sell Price</b></font></td>
   </tr>
   ${rows}
   <tr>
-    <td bgcolor="#2B4A6A" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>SUBTOTAL</b></font></td>
+    <td colspan="3" bgcolor="#2B4A6A" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>SUBTOTAL</b></font></td>
     <td bgcolor="#2B4A6A" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(subtotal)}</b></font></td>
   </tr>
   <tr>
-    <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency 10%</font></td>
+    <td colspan="3" style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency 10%</font></td>
     <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(contingency)}</font></td>
   </tr>
   <tr>
-    <td bgcolor="${b.navy}" style="padding:12pt 14pt;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>GRAND TOTAL</b></font></td>
+    <td colspan="3" bgcolor="${b.navy}" style="padding:12pt 14pt;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>GRAND TOTAL</b></font></td>
     <td bgcolor="${b.navy}" style="padding:12pt 14pt;text-align:right;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(grandTotal)}</b></font></td>
   </tr>
 </table>
@@ -990,31 +974,29 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
   // Formula (identical to _getFullyLoadedTotal Priority 1b):
   //   sum of filtered BOM category subtotals + 10% contingency
   _extractGrandTotal(state) {
-    // Priority 1: Use the SAME cached number that buildExportPackage / exportBOM uses
+    // Priority 1: Use cached number from _computeFullBreakdown
     if (state._bomGrandTotal && state._bomGrandTotal > 1000) {
       return state._bomGrandTotal;
     }
 
-    // Priority 2: Compute it the SAME way _getFullyLoadedTotal does
-    //   — extract BOM, filter by disciplines, sum category subtotals + 10% contingency
+    // Priority 2: Compute using the SAME function as export-engine.js
     try {
-      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis) {
+      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._computeFullBreakdown) {
         const analysis = state.aiAnalysis || '';
         let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
         if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
           bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
         }
-        if (bom && bom.categories && bom.categories.length > 0) {
-          const subtotal = bom.categories.reduce((s, c) => s + (c.subtotal || 0), 0);
-          if (subtotal > 1000) {
-            const contingency = this._round(subtotal * 0.10);
-            const total = this._round(subtotal + contingency);
-            state._bomGrandTotal = total;
-            return total;
+        if (bom?.categories?.length > 0) {
+          const bd = SmartPlansExport._computeFullBreakdown(state, bom);
+          if (bd.grandTotal > 1000) {
+            state._bomGrandTotal = bd.grandTotal;
+            state._bomBreakdown = bd;
+            return bd.grandTotal;
           }
         }
       }
-    } catch (e) { /* export engine not available */ }
+    } catch (e) { console.warn('[ProposalGen] _extractGrandTotal error:', e); }
 
     return null;
   },
