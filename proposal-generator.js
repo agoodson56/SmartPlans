@@ -48,7 +48,11 @@ const ProposalGenerator = {
     // Pull the FULL analysis — the bid report has the real numbers
     const analysisSummary = (state.aiAnalysis || '').substring(0, 20000);
 
-    // Extract the grand total from MULTIPLE sources for reliability
+    // CRITICAL: Pre-compute BOM grand total BEFORE anything else.
+    // This ensures the SAME number is used in the AI prompt, the
+    // financial table, the hero section, and the export package.
+    // Without this, _extractGrandTotal falls through to different methods.
+    this._precomputeBOMTotal(state);
     const grandTotal = this._extractGrandTotal(state);
     const grandTotalDisplay = grandTotal ? this._formatMoney(grandTotal) : null;
 
@@ -960,6 +964,29 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
 `;
   },
 
+  // Pre-compute and cache the BOM grand total so ALL consumers use the SAME number.
+  // Must be called before _extractGrandTotal, _buildFinancialTableHtml, or any export.
+  _precomputeBOMTotal(state) {
+    if (state._bomGrandTotal && state._bomGrandTotal > 1000) return; // Already computed
+    try {
+      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis) {
+        const analysis = state.aiAnalysis || '';
+        let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+        if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
+          bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
+        }
+        if (bom && bom.categories && bom.categories.length > 0) {
+          const subtotal = bom.categories.reduce((s, c) => s + (c.subtotal || 0), 0);
+          if (subtotal > 1000) {
+            const contingency = this._round(subtotal * 0.10);
+            state._bomGrandTotal = this._round(subtotal + contingency);
+            console.log(`[ProposalGen] Pre-computed BOM total: $${state._bomGrandTotal} (subtotal $${subtotal} + 10% contingency $${contingency})`);
+          }
+        }
+      }
+    } catch (e) { console.warn('[ProposalGen] Pre-compute BOM total failed:', e); }
+  },
+
   // Extract grand total from every possible source
   // SINGLE SOURCE OF TRUTH: The detailed BOM breakdown (categories grouped,
   // markups already in sell prices, + contingency). This matches the
@@ -1172,6 +1199,7 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity.`;
       // Use BOM-computed total as the single source of truth.
       // The AI proposal text may contain a different number — ignore it
       // in favor of the deterministic BOM breakdown + contingency total.
+      this._precomputeBOMTotal(state);
       const grandTotal = this._extractGrandTotal(state);
       const grandTotalDisplay = grandTotal ? this._formatMoney(grandTotal) : 'See Detailed Proposal';
 
