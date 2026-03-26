@@ -2360,7 +2360,7 @@ function renderStep6(container) {
         </div>
         <div style="margin-top:12px;">
           <div id="supplier-import-zone" class="upload-zone" style="border:2px dashed rgba(20,184,166,0.25);border-radius:10px;padding:18px;text-align:center;cursor:pointer;transition:all 0.2s;background:rgba(20,184,166,0.02);">
-            <input type="file" accept=".xlsx,.csv" id="supplier-file-input" style="display:none;">
+            <input type="file" accept=".xlsx,.csv,.pdf" id="supplier-file-input" style="display:none;">
             <div style="font-size:20px;margin-bottom:4px;"><i data-lucide="download" style="width:22px;height:22px;color:#14B8A6;"></i></div>
             <div style="font-size:12px;font-weight:600;color:var(--text-primary);">Import Supplier Pricing</div>
             <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Drop completed pricing file here or click to browse · XLSX or CSV</div>
@@ -2824,18 +2824,37 @@ function renderStep6(container) {
 
   async function handleSupplierImport(file) {
     try {
-      const result = await SmartPlansExport.importSupplierPricing(file, state);
+      const ext = (file.name || '').split('.').pop().toLowerCase();
+      const isPDF = ext === 'pdf';
+
+      if (isPDF) {
+        spToast('Reading supplier PDF with AI... this may take 30-60 seconds', 'info');
+      }
+
+      const result = isPDF
+        ? await SmartPlansExport.importSupplierPDF(file, state)
+        : await SmartPlansExport.importSupplierPricing(file, state);
       // Show confirmation before applying
       const delta = result.delta >= 0 ? `+$${result.delta.toLocaleString()}` : `-$${Math.abs(result.delta).toLocaleString()}`;
       const pct = result.deltaPercent >= 0 ? `+${result.deltaPercent.toFixed(1)}%` : `${result.deltaPercent.toFixed(1)}%`;
+      let matchInfo = '';
+      if (result.matchDetails && result.matchDetails.length > 0) {
+        const top5 = result.matchDetails.slice(0, 5);
+        matchInfo = '\n\nTop matches:\n' + top5.map(m =>
+          `  ${m.ourItem.substring(0, 35)} → $${m.oldCost} → $${m.newCost} (${m.confidence})`
+        ).join('\n');
+        if (result.matchDetails.length > 5) matchInfo += `\n  ... and ${result.matchDetails.length - 5} more`;
+      }
       const confirmed = confirm(
         `Supplier Pricing Import Summary\n\n` +
+        `Supplier: ${result.supplierName || 'Unknown'}\n` +
         `Items Updated: ${result.itemsUpdated} of ${result.itemsTotal}\n` +
-        `Items Unchanged: ${result.itemsUnchanged}\n\n` +
-        `Old Total: $${result.oldTotal.toLocaleString()}\n` +
+        (result.itemsSkipped ? `Items Skipped: ${result.itemsSkipped}\n` : '') +
+        `\nOld Total: $${result.oldTotal.toLocaleString()}\n` +
         `New Total: $${result.newTotal.toLocaleString()}\n` +
-        `Change: ${delta} (${pct})\n\n` +
-        `Apply supplier pricing?`
+        `Change: ${delta} (${pct})` +
+        matchInfo +
+        `\n\nApply supplier pricing?`
       );
       if (!confirmed) return;
 

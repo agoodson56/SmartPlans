@@ -2077,6 +2077,192 @@ const SmartPlansExport = {
         });
     },
 
+    // ─── AI-Powered Supplier PDF Import ─────────────────────────
+    // Uses Gemini to extract pricing from any supplier PDF quote
+    // Handles any format — tables, line items, quotes, proposals
+    async importSupplierPDF(file, state) {
+        // Step 1: Convert PDF to base64
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const bytes = new Uint8Array(reader.result);
+                let binary = '';
+                for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                resolve(btoa(binary));
+            };
+            reader.onerror = () => reject(new Error('Failed to read PDF'));
+            reader.readAsArrayBuffer(file);
+        });
+
+        // Step 2: Build our BOM item list for Gemini to match against
+        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
+        const bomItems = [];
+        for (let ci = 0; ci < bom.categories.length; ci++) {
+            const cat = bom.categories[ci];
+            for (let ii = 0; ii < cat.items.length; ii++) {
+                const it = cat.items[ii];
+                bomItems.push({
+                    catIndex: ci,
+                    itemIndex: ii,
+                    name: it.item || it.name,
+                    mfg: it.mfg || '',
+                    partNumber: it.partNumber || '',
+                    qty: it.qty,
+                    unit: it.unit,
+                    currentUnitCost: it.unitCost,
+                });
+            }
+        }
+
+        // Step 3: Send PDF + BOM list to Gemini for extraction and matching
+        const prompt = `You are a construction material pricing expert. I'm uploading a supplier PDF quote/proposal.
+
+TASK: Extract every priced line item from this PDF and match it to my BOM items below.
+
+MY BOM ITEMS (match the supplier's items to these):
+${bomItems.map((b, i) => `[${i}] ${b.name} | MFG: ${b.mfg} | Part#: ${b.partNumber} | Qty: ${b.qty} ${b.unit} | Current: $${b.currentUnitCost}`).join('\n')}
+
+INSTRUCTIONS:
+1. Read the entire PDF and find ALL priced items
+2. For each priced item, find the BEST matching item from my BOM list above
+3. Match by: manufacturer + part number (best), item description similarity (good), or function (acceptable)
+4. Extract the UNIT COST from the supplier (not extended/total — divide by qty if needed)
+5. Items in the PDF may be in completely different order than my BOM
+6. The supplier may use different names for the same products
+7. If a supplier item clearly doesn't match any BOM item, skip it
+
+Return ONLY valid JSON array (no markdown, no explanation):
+[
+  { "bomIndex": 0, "supplierItem": "Their item name", "supplierUnitCost": 123.45, "confidence": "high" },
+  { "bomIndex": 3, "supplierItem": "Their item name", "supplierUnitCost": 67.89, "confidence": "medium" }
+]
+
+confidence: "high" = exact part# or MFG match, "medium" = description match, "low" = functional match
+
+Return ONLY the JSON array. No other text.`;
+
+        // Step 4: Call Gemini with the PDF
+        const apiKeys = [];
+        for (let k = 0; k <= 17; k++) {
+            const keyName = `GEMINI_KEY_${k}`;
+            apiKeys.push(keyName);
+        }
+
+        const requestBody = {
+            contents: [{
+                parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType: 'application/pdf', data: base64 } }
+                ]
+            }],
+            generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 8192,
+            },
+            _model: 'gemini-3.1-pro-preview',
+            _brainSlot: Math.floor(Math.random() * 18),
+        };
+
+        const response = await fetch('/api/ai/invoke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+        });
+
+        // Step 5: Parse SSE response
+        let fullText = '';
+        const reader2 = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+            const { done, value } = await reader2.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            for (const line of chunk.split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const parsed = JSON.parse(line.substring(6));
+                    if (parsed._proxyError) throw new Error('AI service error: ' + parsed.message);
+                    const parts = parsed?.candidates?.[0]?.content?.parts || [];
+                    for (const p of parts) {
+                        if (p.text && !p.thought) fullText += p.text;
+                    }
+                } catch (e) { /* skip unparseable lines */ }
+            }
+        }
+
+        // Step 6: Parse Gemini's JSON response
+        const jsonMatch = fullText.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) throw new Error('AI could not extract pricing from this PDF. Try an Excel file instead.');
+
+        let matches;
+        try {
+            matches = JSON.parse(jsonMatch[0]);
+        } catch (e) {
+            throw new Error('AI returned malformed pricing data. Try again or use an Excel file.');
+        }
+
+        // Step 7: Build overrides from AI matches
+        const overrides = {};
+        let itemsUpdated = 0;
+        let itemsSkipped = 0;
+        const matchDetails = [];
+
+        for (const match of matches) {
+            if (match.bomIndex == null || match.supplierUnitCost == null) continue;
+            if (match.supplierUnitCost <= 0) continue;
+
+            const bomItem = bomItems[match.bomIndex];
+            if (!bomItem) { itemsSkipped++; continue; }
+
+            const overrideKey = `${bomItem.catIndex}-${bomItem.itemIndex}`;
+            overrides[overrideKey] = { unitCost: match.supplierUnitCost };
+            itemsUpdated++;
+
+            matchDetails.push({
+                ourItem: bomItem.name,
+                theirItem: match.supplierItem || 'Unknown',
+                oldCost: bomItem.currentUnitCost,
+                newCost: match.supplierUnitCost,
+                confidence: match.confidence || 'medium',
+            });
+        }
+
+        // Step 8: Calculate totals with new pricing
+        const oldTotal = bom.grandTotal;
+        let newTotal = 0;
+        for (let ci = 0; ci < bom.categories.length; ci++) {
+            const cat = bom.categories[ci];
+            let catSub = 0;
+            for (let ii = 0; ii < cat.items.length; ii++) {
+                const item = cat.items[ii];
+                const key = `${ci}-${ii}`;
+                if (overrides[key]) {
+                    item.unitCost = overrides[key].unitCost;
+                    item.extCost = this._round(item.qty * overrides[key].unitCost);
+                }
+                catSub += item.extCost;
+            }
+            cat.subtotal = this._round(catSub);
+            newTotal += cat.subtotal;
+        }
+        newTotal = this._round(newTotal);
+
+        const supplierName = file.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
+
+        return {
+            itemsUpdated,
+            itemsSkipped,
+            itemsTotal: bomItems.length,
+            oldTotal,
+            newTotal,
+            delta: this._round(newTotal - oldTotal),
+            deltaPercent: oldTotal > 0 ? Math.round(((newTotal - oldTotal) / oldTotal) * 10000) / 100 : 0,
+            overrides,
+            supplierName,
+            matchDetails,
+        };
+    },
+
     // ─── Competitor Bid Import & Comparison ────────────────────
     // Imports a competitor bid from an uploaded Excel or CSV file.
     // Auto-detects header row, maps columns flexibly, and extracts line items.
