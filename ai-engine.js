@@ -51,7 +51,7 @@ const SmartBrains = {
     apiKeys: [],  // Empty — proxy handles key selection
     model: 'gemini-2.5-pro',                   // Primary: stable, reliable
     accuracyModel: 'gemini-2.5-pro',            // Accuracy brains: stable
-    proModel: 'gemini-3.1-pro-preview',         // Text-only brains (no files): use 3.1 for thinking
+    proModel: 'gemini-2.5-pro',                 // ALL brains stable (3.1-preview too unreliable)
     useProxy: true,                          // ENABLED — route all calls through server-side proxy
     proxyEndpoint: '/api/ai/invoke',
     maxRetries: 5,                           // Fail faster → hit model fallback sooner
