@@ -756,7 +756,9 @@ const SmartBrains = {
       console.warn(`[Brain:${brainDef.name}] ${triedModel} failed — falling back to ${fbModel}`);
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
-        const fbBody = { contents: [{ parts: fbParts }], generationConfig: genConfig, _model: fbModel, _brainSlot: keySlot };
+        const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
+        if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
+        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: keySlot };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
         const ctrl = new AbortController();
         const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
