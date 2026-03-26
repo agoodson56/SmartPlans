@@ -49,15 +49,15 @@ const SmartBrains = {
     // API keys are stored server-side as Cloudflare secrets (GEMINI_KEY_0 … GEMINI_KEY_17)
     // No keys in client code — all calls go through /api/ai/invoke proxy
     apiKeys: [],  // Empty — proxy handles key selection
-    model: 'gemini-2.5-pro',                   // Primary: stable, reliable
-    accuracyModel: 'gemini-2.5-pro',            // Accuracy brains: stable
-    proModel: 'gemini-2.5-pro',                 // ALL brains stable (3.1-preview too unreliable)
+    model: 'gemini-2.5-pro',                   // File-reading brains: stable 2.5-pro (reads drawings, specs)
+    accuracyModel: 'gemini-2.5-pro',            // Verification brains: stable 2.5-pro
+    proModel: 'gemini-3.1-pro-preview',         // TEXT-ONLY thinking brains: 3.1-pro (pricing, financial, reports)
     useProxy: true,                          // ENABLED — route all calls through server-side proxy
     proxyEndpoint: '/api/ai/invoke',
-    maxRetries: 5,                           // Fail faster → hit model fallback sooner
-    retryBaseDelay: 2000,
-    timeout: 120000,                         // 2 min for Flash brains
-    proTimeout: 180000,                      // 3 min for Pro (reduced from 5 to avoid 524 timeouts)
+    maxRetries: 3,                           // 3 attempts then fallback (was 5 — still too slow)
+    retryBaseDelay: 1500,
+    timeout: 90000,                          // 90s for stable brains (under Cloudflare 100s limit)
+    proTimeout: 90000,                       // 90s for Pro too (must stay under Cloudflare 100s 524 limit)
   },
 
 
