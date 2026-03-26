@@ -411,7 +411,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
 
 <!-- Word footer — appears on EVERY page -->
 <div style="mso-element:footer" id="f1">
-  <p style="text-align:center;font-size:8pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding-top:4pt;border-top:1pt solid ${b.teal};">
+  <p style="text-align:center;font-size:8pt;font-weight:bold;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding-top:4pt;border-top:1pt solid ${b.teal};">
     3D CONFIDENTIAL
   </p>
 </div>
@@ -1194,7 +1194,7 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity.`;
 
 <!-- Footer -->
 <div style="mso-element:footer" id="f1">
-  <p style="text-align:center;font-size:8pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding-top:4pt;border-top:1pt solid ${b.teal};">
+  <p style="text-align:center;font-size:8pt;font-weight:bold;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding-top:4pt;border-top:1pt solid ${b.teal};">
     3D CONFIDENTIAL
   </p>
 </div>
