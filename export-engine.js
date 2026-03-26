@@ -1777,7 +1777,7 @@ const SmartPlansExport = {
             ['Date', now.toLocaleDateString()],
             ['Estimate ID', estimateId],
             [],
-            ['Row#', 'Category', 'MFG', 'Part Number', 'Item Description', 'Qty', 'Unit', 'AI Unit Cost (Reference)', 'Supplier Unit Cost (FILL IN)'],
+            ['Row#', 'Category', 'MFG', 'Part Number', 'Item Description', 'Qty', 'Unit', 'Supplier Unit Cost', 'Supplier Extended Cost'],
         ];
 
         const dataRows = [];
@@ -1798,20 +1798,19 @@ const SmartPlansExport = {
                     item.item,
                     item.qty,
                     item.unit,
-                    item.unitCost,
-                    '',  // Supplier fills this in
+                    '',  // Supplier fills in unit cost
+                    '',  // Supplier fills in extended cost
                 ]);
             }
 
-            // Category subtotal
-            dataRows.push(['', '', '', '', `SUBTOTAL — ${cat.name}`, '', '', cat.subtotal, '']);
+            // Category subtotal row (no pricing shown)
+            dataRows.push(['', '', '', '', `SUBTOTAL — ${cat.name}`, '', '', '', '']);
             dataRows.push([]);
-            grandTotal += cat.subtotal;
         }
 
-        // Grand total
+        // Grand total row (no pricing — supplier calculates their own)
         dataRows.push([]);
-        dataRows.push(['', '', '', '', 'GRAND TOTAL', '', '', grandTotal, '']);
+        dataRows.push(['', '', '', '', 'TOTAL', '', '', '', '']);
 
         const allRows = [...headerRows, ...dataRows];
 
@@ -1834,8 +1833,8 @@ const SmartPlansExport = {
                     { wch: 50 },  // Item Description
                     { wch: 8 },   // Qty
                     { wch: 8 },   // Unit
-                    { wch: 20 },  // AI Unit Cost
-                    { wch: 24 },  // Supplier Unit Cost
+                    { wch: 20 },  // Supplier Unit Cost
+                    { wch: 24 },  // Supplier Extended Cost
                 ];
                 XLSX.utils.book_append_sheet(wb, ws, 'Supplier BOM');
 
