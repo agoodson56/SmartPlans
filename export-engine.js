@@ -224,19 +224,28 @@ const SmartPlansExport = {
             }
         }
 
-        // Priority 1: Estimate Corrector's corrected grand total (most accurate — post-correction)
-        const corrector = state.brainResults?.wave3_85_corrected;
-        if (corrector?.corrected_grand_total > 1000) {
-            const val = this._round(corrector.corrected_grand_total);
-            console.log(`[Export] ✅ Grand total from Estimate Corrector: $${val.toLocaleString()}`);
+        // Priority 1: Financial Engine brain (fully-loaded bid price with labor, overhead, profit, contingency)
+        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+        if (finEngine?.project_summary?.grand_total > 1000) {
+            const val = this._round(finEngine.project_summary.grand_total);
+            console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
         }
 
-        // Priority 2: Financial Engine brain (has real labor from plan analysis)
-        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
-        if (finEngine?.project_summary?.grand_total > 1000) {
-            const val = this._round(finEngine.project_summary.grand_total);
+        // Priority 2: Estimate Corrector's corrected grand total (raw BOM only — fallback)
+        const corrector = state.brainResults?.wave3_85_corrected;
+        if (corrector?.corrected_grand_total > 1000) {
+            const val = this._round(corrector.corrected_grand_total);
+            console.log(`[Export] ⚠️ Using Estimate Corrector total (raw BOM, no markups): $${val.toLocaleString()}`);
+            state._bomGrandTotal = val;
+            return val;
+        }
+
+        // Priority 3: Compute from BOM + markups (last resort)
+        const finEngineAlt = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+        if (finEngineAlt?.project_summary?.grand_total > 1000) {
+            const val = this._round(finEngineAlt.project_summary.grand_total);
             console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
