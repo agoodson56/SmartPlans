@@ -213,11 +213,22 @@ const SmartPlansExport = {
 
     // ─── Get fully loaded bid total ──
     _getFullyLoadedTotal(state, bom) {
+        // DEBUG: Log what brain results we have
+        console.log(`[Export] brainResults available: ${!!state.brainResults}`);
+        if (state.brainResults) {
+            console.log(`[Export] wave3_85_corrected: ${!!state.brainResults.wave3_85_corrected}, corrected_grand_total: ${state.brainResults.wave3_85_corrected?.corrected_grand_total}`);
+            console.log(`[Export] wave2_5_fin: ${!!state.brainResults.wave2_5_fin}, FINANCIAL_ENGINE: ${!!state.brainResults.wave2_5_fin?.FINANCIAL_ENGINE}`);
+            if (state.brainResults.wave2_5_fin?.FINANCIAL_ENGINE) {
+                const fe = state.brainResults.wave2_5_fin.FINANCIAL_ENGINE;
+                console.log(`[Export] Financial Engine project_summary: ${JSON.stringify(fe.project_summary || 'MISSING').substring(0, 500)}`);
+            }
+        }
+
         // Priority 1: Estimate Corrector's corrected grand total (most accurate — post-correction)
         const corrector = state.brainResults?.wave3_85_corrected;
         if (corrector?.corrected_grand_total > 1000) {
             const val = this._round(corrector.corrected_grand_total);
-            console.log(`[Export] Grand total from Estimate Corrector: $${val.toLocaleString()}`);
+            console.log(`[Export] ✅ Grand total from Estimate Corrector: $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
         }
@@ -226,7 +237,7 @@ const SmartPlansExport = {
         const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
         if (finEngine?.project_summary?.grand_total > 1000) {
             const val = this._round(finEngine.project_summary.grand_total);
-            console.log(`[Export] Grand total from Financial Engine: $${val.toLocaleString()}`);
+            console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
         }
