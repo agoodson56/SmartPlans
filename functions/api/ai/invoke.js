@@ -14,11 +14,19 @@ export async function onRequestPost(context) {
         const brainSlot = body._brainSlot || 0;
         const requestedModel = body._model || 'gemini-2.5-flash';
         const uploadKeyName = body._uploadKeyName || null;
+        const cacheName = body._cacheName || null;
 
         // Remove custom fields before forwarding
         delete body._brainSlot;
         delete body._model;
         delete body._uploadKeyName;
+        delete body._cacheName;
+
+        // If using context cache, add it to the request body
+        if (cacheName) {
+            body.cachedContent = cacheName;
+            console.log(`[Proxy] Brain ${brainSlot} using context cache: ${cacheName}`);
+        }
 
         // Select API key — Tier 2 keys first (higher rate limits), then Tier 1 fallback
         // Tier 2 (2000 RPM): keys 10-17 (SmartP3, SmartP4)

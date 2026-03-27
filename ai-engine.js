@@ -49,15 +49,15 @@ const SmartBrains = {
     // API keys are stored server-side as Cloudflare secrets (GEMINI_KEY_0 … GEMINI_KEY_17)
     // No keys in client code — all calls go through /api/ai/invoke proxy
     apiKeys: [],  // Empty — proxy handles key selection
-    model: 'gemini-2.5-pro',                   // File-reading brains: stable 2.5-pro (reads drawings, specs)
-    accuracyModel: 'gemini-2.5-pro',            // Verification brains: stable 2.5-pro
-    proModel: 'gemini-3.1-pro-preview',         // TEXT-ONLY thinking brains: 3.1-pro (pricing, financial, reports)
+    model: 'gemini-3.1-pro-preview',          // ALL brains use 3.1 Pro (original config that worked)
+    accuracyModel: 'gemini-3.1-pro-preview',   // ALL brains use 3.1 Pro
+    proModel: 'gemini-3.1-pro-preview',        // ALL brains use 3.1 Pro
     useProxy: true,                          // ENABLED — route all calls through server-side proxy
     proxyEndpoint: '/api/ai/invoke',
-    maxRetries: 3,                           // 3 attempts then fallback (was 5 — still too slow)
+    maxRetries: 10,                          // Original: 10 retries with key rotation
     retryBaseDelay: 1500,
-    timeout: 90000,                          // 90s for stable brains (under Cloudflare 100s limit)
-    proTimeout: 90000,                       // 90s for Pro too (must stay under Cloudflare 100s 524 limit)
+    timeout: 150000,                         // 2.5 min for standard brains
+    proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
   },
 
 
@@ -579,12 +579,20 @@ const SmartBrains = {
         keySlot = (brainDef.id + attempt) % 18;
       }
 
+      // If context cache is available, use it instead of sending files
+      // Remove fileData parts since they're already in the cache
+      let finalParts = parts;
+      const useCache = this._contextCache && hasUploadedFiles;
+      if (useCache) {
+        finalParts = parts.filter(p => !p.fileData); // Strip file references — they're in the cache
+      }
+
       const body = {
-        contents: [{ parts }],
+        contents: [{ parts: finalParts }],
         generationConfig: genConfig,
-        _model: modelName,
+        _model: useCache ? this._contextCache.model : modelName,
         _brainSlot: keySlot,
-        ...(uploadKeyName ? { _uploadKeyName: uploadKeyName } : {}),
+        ...(useCache ? { _cacheName: this._contextCache.name, _uploadKeyName: this._contextCache.keyName } : (uploadKeyName ? { _uploadKeyName: uploadKeyName } : {})),
       };
 
       // ── DIAGNOSTIC: Log parts structure on first attempt ──
@@ -3458,6 +3466,47 @@ Return ONLY valid JSON:
     const encodedFiles = await this._encodeAllFiles(state, progressCallback);
     const totalFiles = Object.values(encodedFiles).reduce((s, arr) => s + arr.length, 0);
     console.log(`[SmartBrains] Encoded ${totalFiles} files`);
+
+    // ═══ CONTEXT CACHING — Upload files once, all brains reference the cache ═══
+    // Saves ~90% on API costs by avoiding re-processing files for each brain
+    let _contextCache = null;
+    try {
+      const fileUris = [];
+      const uploadKeyName = Object.values(encodedFiles).flat().find(f => f._usedKeyName)?._usedKeyName;
+      for (const files of Object.values(encodedFiles)) {
+        for (const f of files) {
+          if (f.fileUri) {
+            fileUris.push({ fileUri: f.fileUri, mimeType: f.mimeType || 'application/pdf' });
+          }
+        }
+      }
+      if (fileUris.length > 0) {
+        progressCallback(4, '🧠 Creating context cache (saves 90% on API costs)…', this._brainStatus);
+        const cacheResp = await fetch('/api/ai/cache', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileUris,
+            model: 'models/gemini-2.5-pro',
+            systemInstruction: 'You are an expert low-voltage ELV construction estimator analyzing construction drawings and specifications. Extract precise device counts, material quantities, and cost data.',
+            ttl: '3600s',
+            _uploadKeyName: uploadKeyName,
+          }),
+        });
+        const cacheData = await cacheResp.json();
+        if (cacheData.success && cacheData.cacheName) {
+          _contextCache = { name: cacheData.cacheName, model: 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
+          console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
+        } else {
+          console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error || cacheData._debug);
+        }
+      }
+    } catch (cacheErr) {
+      console.warn('[SmartBrains] Context cache unavailable, using standard mode:', cacheErr.message);
+    }
+
+    // Store cache reference for brains to use
+    this._contextCache = _contextCache;
 
     // Build shared context — expanded for 7 waves
     const context = {
