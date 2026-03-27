@@ -695,6 +695,27 @@ const SmartBrains = {
                     throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
                   }
 
+                  // Capture token usage from final chunk
+                  if (chunk.usageMetadata) {
+                    const um = chunk.usageMetadata;
+                    const cached = um.cachedContentTokenCount || 0;
+                    const prompt = um.promptTokenCount || 0;
+                    const output = um.candidatesTokenCount || 0;
+                    const fresh = prompt - cached;
+                    // Gemini pricing: $0.00025/1K cached, $0.0025/1K fresh input, $0.01/1K output
+                    const cost = (cached * 0.00025 + fresh * 0.0025 + output * 0.01) / 1000;
+                    const savings = cached > 0 ? ((cached * (0.0025 - 0.00025)) / 1000) : 0;
+                    if (!this._sessionCost) this._sessionCost = { totalCost: 0, totalSavings: 0, totalCached: 0, totalFresh: 0, totalOutput: 0, brainCalls: 0 };
+                    this._sessionCost.totalCost += cost;
+                    this._sessionCost.totalSavings += savings;
+                    this._sessionCost.totalCached += cached;
+                    this._sessionCost.totalFresh += fresh;
+                    this._sessionCost.totalOutput += output;
+                    this._sessionCost.brainCalls++;
+                    if (cached > 0) {
+                      console.log(`[Brain:${brainDef.name}] Tokens: ${prompt} prompt (${cached} CACHED/${fresh} fresh) + ${output} output = $${cost.toFixed(4)} (saved $${savings.toFixed(4)})`);
+                    }
+                  }
                   const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
                   for (const p of chunkParts) {
                     if (p.text && p.thought) {
@@ -3720,6 +3741,21 @@ Return ONLY valid JSON:
     progressCallback(92, '📝 Wave 4: Writing final report…', this._brainStatus);
     const wave4Results = await this._runWave(4, ['REPORT_WRITER'], encodedFiles, state, context, progressCallback);
     console.log('[SmartBrains] ═══ Wave 4 Complete ═══');
+
+    // Log session cost summary
+    if (this._sessionCost) {
+      const sc = this._sessionCost;
+      console.log(`[SmartBrains] ═══ API COST SUMMARY ═══`);
+      console.log(`[SmartBrains]   Brain calls: ${sc.brainCalls}`);
+      console.log(`[SmartBrains]   Tokens: ${sc.totalCached.toLocaleString()} cached + ${sc.totalFresh.toLocaleString()} fresh + ${sc.totalOutput.toLocaleString()} output`);
+      console.log(`[SmartBrains]   Total cost: $${sc.totalCost.toFixed(4)}`);
+      console.log(`[SmartBrains]   Cache savings: $${sc.totalSavings.toFixed(4)}`);
+      console.log(`[SmartBrains]   Effective rate: $${(sc.totalCost / Math.max(sc.brainCalls, 1)).toFixed(4)} per brain`);
+      if (sc.totalCached > 0) {
+        const pctCached = ((sc.totalCached / (sc.totalCached + sc.totalFresh)) * 100).toFixed(1);
+        console.log(`[SmartBrains]   Cache hit rate: ${pctCached}%`);
+      }
+    }
 
     // Extract final report
     const report = wave4Results.REPORT_WRITER;
