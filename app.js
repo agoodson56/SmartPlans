@@ -7079,6 +7079,9 @@ function buildChangeOrderCard(st) {
           <button id="co-copy-btn" style="padding:8px 16px;border:1px solid rgba(234,88,12,0.3);background:rgba(234,88,12,0.06);color:#EA580C;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
             📋 Copy to Clipboard
           </button>
+          <button id="co-pdf-btn" style="padding:8px 16px;border:1px solid rgba(234,88,12,0.3);background:rgba(234,88,12,0.06);color:#EA580C;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
+            📄 Save as PDF
+          </button>
           <span id="co-copy-status" style="font-size:11px;color:var(--accent-emerald);display:none;">Copied!</span>
         </div>
       </div>
@@ -7126,6 +7129,73 @@ function bindChangeOrderEvents(container) {
         const status = document.getElementById('co-copy-status');
         if (status) { status.style.display = 'inline'; setTimeout(() => { status.style.display = 'none'; }, 2000); }
       });
+    });
+  }
+
+  // PDF Export
+  const pdfBtn = document.getElementById('co-pdf-btn');
+  if (pdfBtn) {
+    pdfBtn.addEventListener('click', () => {
+      const cos = extractPotentialChangeOrders(state).filter(c => !state._excludedCOs.has(c.id));
+      const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+      const total = cos.reduce((s, c) => s + c.estimatedCost, 0);
+      const sevColors = { critical: '#DC2626', high: '#EA580C', medium: '#D97706', low: '#65A30D' };
+      const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+      const rows = cos.map(c => `
+        <tr>
+          <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;font-size:11px;">${c.id}</td>
+          <td style="padding:8px 10px;border:1px solid #ddd;font-size:12px;">${c.description}${c.recommendation ? '<br><em style="font-size:10px;color:#666;">' + c.recommendation + '</em>' : ''}</td>
+          <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;">
+            <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:white;background:${sevColors[c.severity] || '#D97706'};">${c.severity.toUpperCase()}</span>
+          </td>
+          <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;font-weight:600;">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'TBD'}</td>
+          <td style="padding:8px 10px;border:1px solid #ddd;font-size:10px;color:#666;">${c.source}</td>
+        </tr>`).join('');
+
+      const html = `<!DOCTYPE html><html><head><title>Potential Change Orders — ${state.projectName || 'Project'}</title>
+        <style>
+          *{margin:0;padding:0;box-sizing:border-box}
+          body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;padding:40px;max-width:1000px;margin:0 auto}
+          @media print{body{padding:20px}}
+        </style></head><body>
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #EA580C;padding-bottom:16px;margin-bottom:24px;">
+          <div>
+            <h1 style="font-size:22px;color:#EA580C;margin-bottom:4px;">Potential Change Orders</h1>
+            <div style="font-size:14px;font-weight:600;">${state.projectName || 'Project'}</div>
+            <div style="font-size:12px;color:#666;">${state.preparedFor ? 'Prepared for: ' + state.preparedFor + ' | ' : ''}${date}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:24px;font-weight:800;color:#EA580C;">${fmt(total)}</div>
+            <div style="font-size:11px;color:#666;">${cos.length} items identified</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="background:#EA580C;color:white;">
+              <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;border:1px solid #EA580C;">CO#</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;border:1px solid #EA580C;">DESCRIPTION</th>
+              <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;border:1px solid #EA580C;">SEVERITY</th>
+              <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;border:1px solid #EA580C;">EST. IMPACT</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;border:1px solid #EA580C;">SOURCE</th>
+            </tr>
+          </thead>
+          <tbody>${rows}
+            <tr style="background:#FFF7ED;">
+              <td colspan="3" style="padding:10px;border:1px solid #ddd;font-weight:700;text-align:right;font-size:13px;">TOTAL ESTIMATED IMPACT</td>
+              <td style="padding:10px;border:1px solid #ddd;text-align:right;font-weight:800;font-size:14px;color:#EA580C;">${fmt(total)}</td>
+              <td style="border:1px solid #ddd;"></td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top:24px;font-size:10px;color:#999;text-align:center;">
+          Generated by SmartPlans AI — 3D Technology Services Inc. | 3D CONFIDENTIAL
+        </div>
+        <script>window.onload=function(){window.print();}</script>
+      </body></html>`;
+
+      const win = window.open('', '_blank');
+      if (win) { win.document.write(html); win.document.close(); }
     });
   }
 }
