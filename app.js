@@ -331,6 +331,7 @@ const STEPS = [
   { id: "specs", title: "Specifications", subtitle: "Upload spec docs", icon: "📄" },
   { id: "addenda", title: "Addenda", subtitle: "Changes & updates", icon: "📝" },
   { id: "review", title: "Review & Analyze", subtitle: "Final check", icon: "🔍" },
+  { id: "travel", title: "Travel & Costs", subtitle: "Per diem & incidentals", icon: "✈️" },
   { id: "results", title: "Results & RFIs", subtitle: "Analysis complete", icon: "✅" },
 ];
 
@@ -569,12 +570,22 @@ const state = {
   workShift: "",
   priorEstimate: "",
 
-  // Travel & Per Diem
+  // Travel & Per Diem (configured on Stage 6 after analysis)
   travel: {
     enabled: false,
-    crewSize: 4,
+    // Scheduling
+    calcMode: 'byTechs',  // 'byTechs' or 'bySchedule'
+    techCount: 4,
+    projectDays: 30,       // deadline days for bySchedule mode
+    hoursPerDay: 8,
+    // AI-recommended (populated after analysis)
+    aiRecommendedTechs: null,
+    aiRecommendedDays: null,
+    aiCrewBreakdown: null,
+    aiReasoning: null,
+    // Trips
     numTrips: 1,
-    daysPerTrip: 10,
+    // Costs
     hotelPerNight: 175,
     perDiemPerDay: 79,     // GSA per diem rate
     mileageRoundTrip: 0,   // miles
@@ -582,8 +593,22 @@ const state = {
     airfarePerPerson: 0,
     rentalCarPerDay: 85,
     parkingPerDay: 25,
+    tollsPerTrip: 0,
+  },
+  // Incidentals (configured on Stage 6)
+  incidentals: {
+    permits: 0,
+    insurance: 0,
+    bonding: 0,
+    equipmentRental: 0,
+    fuelTransit: 0,
+    unexpectedBufferPct: 5,  // percentage of direct costs
   },
   _travelOpen: false,
+
+  // Change Orders
+  _changeOrdersOpen: false,
+  _excludedCOs: new Set(),
 
   // Pricing Configuration (loaded from PRICING_DB defaults)
   pricingTier: "mid",  // "budget", "mid", "premium"
@@ -714,6 +739,7 @@ function canProceed() {
     case 3: return true; // specs optional
     case 4: return state.hasAddenda !== null;
     case 5: return true;
+    case 6: return true; // travel/incidentals — always allow proceeding
     default: return false;
   }
 }
@@ -763,9 +789,13 @@ function getFormatInfo(label) {
 // instead of calling SmartPlansExport._extractBOMFromAnalysis directly.
 function getFilteredBOM(aiAnalysis, disciplines) {
   if (typeof SmartPlansExport === 'undefined') return { categories: [], grandTotal: 0 };
-  const bom = SmartPlansExport._extractBOMFromAnalysis(aiAnalysis);
+  let bom = SmartPlansExport._extractBOMFromAnalysis(aiAnalysis);
   if (typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
-    return SmartPlansExport._filterBOMByDisciplines(bom, disciplines);
+    bom = SmartPlansExport._filterBOMByDisciplines(bom, disciplines);
+  }
+  // Inject travel & incidentals if enabled
+  if (typeof injectTravelIntoBOM === 'function') {
+    bom = injectTravelIntoBOM(bom);
   }
   return bom;
 }
@@ -846,8 +876,9 @@ function renderContent() {
           </div>`;
           return;
         }
-        renderStep6(main);
+        renderStep6Travel(main);
         break;
+      case 7: renderStep7(main); break;
     }
   } catch (err) {
     console.error('Render error:', err);
@@ -872,7 +903,7 @@ function renderFooter() {
 
   footer.style.display = "flex";
 
-  if (state.currentStep === 6) {
+  if (state.currentStep === 7) {
     footer.innerHTML = `
       <button class="footer-btn--restart" id="btn-restart">🔄 Start New Analysis</button>
     `;
@@ -905,7 +936,7 @@ function renderFooter() {
       <span class="footer-step-indicator">Step ${state.currentStep + 1} of ${STEPS.length}</span>
     </div>
     <button class="footer-btn footer-btn--next" id="btn-next" ${!can || (state.currentStep === 5 && QuotaMonitor.isBlocked()) ? "disabled" : ""}>
-      ${state.currentStep === 5 ? "🔍 Begin Analysis" : "Next →"}
+      ${state.currentStep === 5 ? "🔍 Begin Analysis" : state.currentStep === 6 ? "📊 View Results →" : "Next →"}
     </button>
   `;
 
@@ -1190,96 +1221,9 @@ function renderStep0(container) {
       <textarea class="form-textarea" id="prior-estimate" placeholder="Describe any prior estimate data…">${esc(state.priorEstimate)}</textarea>
     </div>
 
-    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0 8px;"></div>
-    <div style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 0;" id="travel-toggle">
-      <span style="font-size:22px;">✈️</span>
-      <div>
-        <div style="font-weight:700;font-size:15px;color:var(--text-primary);">Travel & Per Diem</div>
-        <div style="font-size:12px;color:var(--text-muted);">Hotel, meals, mileage, airfare — for out-of-town projects. Adds a separate travel line item to your bid.</div>
-      </div>
-      <span style="margin-left:auto;font-size:18px;color:var(--text-muted);transition:transform 0.2s;" id="travel-chevron">${state._travelOpen ? '▼' : '▶'}</span>
-    </div>
-
-    <div id="travel-panel" style="display:${state._travelOpen ? 'block' : 'none'};margin-top:12px;">
-
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);">
-          <input type="checkbox" id="travel-enabled" ${state.travel.enabled ? 'checked' : ''} style="width:16px;height:16px;">
-          Include travel costs in estimate
-        </label>
-      </div>
-
-      ${state.travel.enabled ? `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-crew">Crew Size</label>
-          <input class="form-input travel-input" type="number" min="1" max="20" id="travel-crew" value="${state.travel.crewSize}" style="font-size:14px;padding:8px 10px;">
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-trips">Number of Trips</label>
-          <input class="form-input travel-input" type="number" min="1" max="50" id="travel-trips" value="${state.travel.numTrips}" style="font-size:14px;padding:8px 10px;">
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-days">Days Per Trip</label>
-          <input class="form-input travel-input" type="number" min="1" max="365" id="travel-days" value="${state.travel.daysPerTrip}" style="font-size:14px;padding:8px 10px;">
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-hotel">Hotel $/night</label>
-          <input class="form-input travel-input" type="number" min="0" step="5" id="travel-hotel" value="${state.travel.hotelPerNight}" style="font-size:14px;padding:8px 10px;">
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-perdiem">Per Diem $/day (meals)</label>
-          <input class="form-input travel-input" type="number" min="0" step="1" id="travel-perdiem" value="${state.travel.perDiemPerDay}" style="font-size:14px;padding:8px 10px;">
-          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA rate: $79/day (most CA counties)</div>
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-mileage">Mileage (round trip miles)</label>
-          <input class="form-input travel-input" type="number" min="0" id="travel-mileage" value="${state.travel.mileageRoundTrip}" style="font-size:14px;padding:8px 10px;">
-          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@ $${state.travel.mileageRate}/mile (IRS 2024)</div>
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-airfare">Airfare $/person</label>
-          <input class="form-input travel-input" type="number" min="0" step="25" id="travel-airfare" value="${state.travel.airfarePerPerson}" style="font-size:14px;padding:8px 10px;">
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-rental">Rental Car $/day</label>
-          <input class="form-input travel-input" type="number" min="0" step="5" id="travel-rental" value="${state.travel.rentalCarPerDay}" style="font-size:14px;padding:8px 10px;">
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="travel-parking">Parking $/day</label>
-          <input class="form-input travel-input" type="number" min="0" step="5" id="travel-parking" value="${state.travel.parkingPerDay}" style="font-size:14px;padding:8px 10px;">
-        </div>
-      </div>
-
-      ${(() => {
-        const t = state.travel;
-        const totalNights = t.crewSize * t.numTrips * t.daysPerTrip;
-        const hotel = totalNights * t.hotelPerNight;
-        const perdiem = totalNights * t.perDiemPerDay;
-        const mileage = t.numTrips * t.mileageRoundTrip * t.mileageRate;
-        const airfare = t.crewSize * t.numTrips * t.airfarePerPerson;
-        const rental = t.numTrips * t.daysPerTrip * t.rentalCarPerDay;
-        const parking = t.numTrips * t.daysPerTrip * t.parkingPerDay;
-        const total = hotel + perdiem + mileage + airfare + rental + parking;
-        const fmt = n => '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-        return `
-      <div class="info-card info-card--amber" style="margin-top:16px;">
-        <div class="info-card-title">🧮 Travel Cost Estimate</div>
-        <div class="info-card-body" style="font-size:12px;">
-          <div style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;">
-            <div>🏨 Hotel (${totalNights} nights × ${fmt(t.hotelPerNight)})</div><div style="text-align:right;font-weight:600;">${fmt(hotel)}</div>
-            <div>🍽️ Per Diem (${totalNights} person-days × ${fmt(t.perDiemPerDay)})</div><div style="text-align:right;font-weight:600;">${fmt(perdiem)}</div>
-            ${t.mileageRoundTrip > 0 ? `<div>🚗 Mileage (${t.numTrips} trips × ${t.mileageRoundTrip} mi)</div><div style="text-align:right;font-weight:600;">${fmt(mileage)}</div>` : ''}
-            ${t.airfarePerPerson > 0 ? `<div>✈️ Airfare (${t.crewSize} × ${t.numTrips} trips)</div><div style="text-align:right;font-weight:600;">${fmt(airfare)}</div>` : ''}
-            ${t.rentalCarPerDay > 0 ? `<div>🚙 Rental Car (${t.numTrips * t.daysPerTrip} days)</div><div style="text-align:right;font-weight:600;">${fmt(rental)}</div>` : ''}
-            ${t.parkingPerDay > 0 ? `<div>🅿️ Parking (${t.numTrips * t.daysPerTrip} days)</div><div style="text-align:right;font-weight:600;">${fmt(parking)}</div>` : ''}
-            <div style="border-top:1px solid rgba(255,255,255,0.15);padding-top:4px;font-weight:700;color:var(--accent-amber);">TOTAL TRAVEL</div>
-            <div style="border-top:1px solid rgba(255,255,255,0.15);padding-top:4px;text-align:right;font-weight:700;color:var(--accent-amber);font-size:14px;">${fmt(total)}</div>
-          </div>
-        </div>
-      </div>`;
-      })()}
-      ` : ''}
+    <div class="info-card info-card--amber" style="margin-top:24px;">
+      <div class="info-card-title">✈️ Travel & Per Diem</div>
+      <div class="info-card-body">Travel, per diem, and incidental costs are configured in <strong>Stage 7</strong> after the AI analysis completes. The AI will recommend crew size and schedule based on your project scope.</div>
     </div>
 
     <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0 8px;"></div>
@@ -1475,32 +1419,6 @@ function renderStep0(container) {
   shiftSelect.addEventListener("change", () => { state.workShift = shiftSelect.value; renderStep0(container); renderFooter(); });
 
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
-
-  // Travel panel toggle
-  document.getElementById('travel-toggle').addEventListener('click', () => {
-    state._travelOpen = !state._travelOpen;
-    renderStep0(container);
-  });
-
-  // Travel enabled checkbox
-  const travelEnabled = document.getElementById('travel-enabled');
-  if (travelEnabled) {
-    travelEnabled.addEventListener('change', () => { state.travel.enabled = travelEnabled.checked; renderStep0(container); });
-  }
-
-  // Travel inputs
-  const travelMap = {
-    'travel-crew': 'crewSize', 'travel-trips': 'numTrips', 'travel-days': 'daysPerTrip',
-    'travel-hotel': 'hotelPerNight', 'travel-perdiem': 'perDiemPerDay',
-    'travel-mileage': 'mileageRoundTrip', 'travel-airfare': 'airfarePerPerson',
-    'travel-rental': 'rentalCarPerDay', 'travel-parking': 'parkingPerDay',
-  };
-  document.querySelectorAll('.travel-input').forEach(input => {
-    input.addEventListener('change', e => {
-      const key = travelMap[e.target.id];
-      if (key) { state.travel[key] = parseFloat(e.target.value) || 0; renderStep0(container); }
-    });
-  });
 
   // Pricing panel toggle
   document.getElementById("pricing-toggle").addEventListener("click", () => {
@@ -1943,7 +1861,7 @@ function bindBidStrategyEvents(container) {
         const f = (v) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         spToast('Bid strategy applied. Grand total: ' + f(result.grandTotalWithStrategy), 'success');
       }
-      renderStep6(container);
+      renderStep7(container);
     });
   }
   const resetBtn = document.getElementById('bs-reset-default');
@@ -1951,7 +1869,7 @@ function bindBidStrategyEvents(container) {
     resetBtn.addEventListener('click', () => {
       state.bidStrategy.categoryMarkups = {};
       state.bidStrategy.applied = false;
-      renderStep6(container);
+      renderStep7(container);
     });
   }
 }
@@ -2103,8 +2021,341 @@ function renderBidComparison(comparison, competitorName) {
   return html;
 }
 
-// ─── Step 6: Results & RFIs ───
-function renderStep6(container) {
+// ─── Travel & Incidentals Computation ───
+function computeTravelIncidentals() {
+  const t = state.travel;
+  const inc = state.incidentals;
+
+  // Get total labor hours from AI
+  const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
+  const totalLaborHours = laborCalc?.total_hours || 0;
+
+  // Calculate scheduling
+  let techs, workDays;
+  if (t.calcMode === 'byTechs') {
+    techs = t.techCount || 4;
+    workDays = totalLaborHours > 0 ? Math.ceil(totalLaborHours / (techs * t.hoursPerDay)) : (t.projectDays || 30);
+  } else {
+    workDays = t.projectDays || 30;
+    techs = totalLaborHours > 0 ? Math.ceil(totalLaborHours / (workDays * t.hoursPerDay)) : (t.techCount || 4);
+  }
+
+  const totalPersonDays = techs * t.numTrips * workDays;
+  const totalTripDays = t.numTrips * workDays;
+
+  // Travel costs
+  const hotel = totalPersonDays * t.hotelPerNight;
+  const perdiem = totalPersonDays * t.perDiemPerDay;
+  const mileage = t.numTrips * (t.mileageRoundTrip || 0) * t.mileageRate;
+  const airfare = techs * t.numTrips * (t.airfarePerPerson || 0);
+  const rental = totalTripDays * (t.rentalCarPerDay || 0);
+  const parking = totalTripDays * (t.parkingPerDay || 0);
+  const tolls = t.numTrips * (t.tollsPerTrip || 0);
+  const travelSubtotal = hotel + perdiem + mileage + airfare + rental + parking + tolls;
+
+  // Incidentals
+  const permits = inc.permits || 0;
+  const insurance = inc.insurance || 0;
+  const bonding = inc.bonding || 0;
+  const equipmentRental = inc.equipmentRental || 0;
+  const fuelTransit = inc.fuelTransit || 0;
+  const incidentalsSubtotal = permits + insurance + bonding + equipmentRental + fuelTransit;
+
+  // Unexpected buffer — based on travel + incidentals subtotal
+  const bufferBase = travelSubtotal + incidentalsSubtotal;
+  const unexpectedBuffer = bufferBase * ((inc.unexpectedBufferPct || 0) / 100);
+
+  const grandTotal = travelSubtotal + incidentalsSubtotal + unexpectedBuffer;
+
+  return {
+    totalLaborHours, techs, workDays, totalPersonDays, totalTripDays,
+    hotel, perdiem, mileage, airfare, rental, parking, tolls,
+    travelSubtotal,
+    permits, insurance, bonding, equipmentRental, fuelTransit,
+    incidentalsSubtotal, unexpectedBuffer, grandTotal,
+  };
+}
+
+// ─── Inject travel & incidentals into BOM as a category ───
+function injectTravelIntoBOM(bom) {
+  if (!state.travel.enabled) return bom;
+  const costs = computeTravelIncidentals();
+  if (costs.grandTotal <= 0) return bom;
+
+  const travelItems = [];
+  const addItem = (name, qty, unit, unitCost) => {
+    if (unitCost > 0 && qty > 0) travelItems.push({ name, qty, unit, unitCost: Math.round(unitCost * 100) / 100, extCost: Math.round(qty * unitCost * 100) / 100 });
+  };
+
+  addItem(`Hotel (${costs.techs} techs × ${costs.workDays} days × ${state.travel.numTrips} trip${state.travel.numTrips > 1 ? 's' : ''})`, costs.totalPersonDays, 'NIGHT', state.travel.hotelPerNight);
+  addItem(`Per Diem / Meals (${costs.totalPersonDays} person-days)`, costs.totalPersonDays, 'DAY', state.travel.perDiemPerDay);
+  if (state.travel.mileageRoundTrip > 0) addItem(`Mileage (${state.travel.mileageRoundTrip} mi RT × ${state.travel.numTrips} trips)`, state.travel.numTrips * state.travel.mileageRoundTrip, 'MI', state.travel.mileageRate);
+  if (state.travel.airfarePerPerson > 0) addItem(`Airfare (${costs.techs} techs × ${state.travel.numTrips} trips)`, costs.techs * state.travel.numTrips, 'EA', state.travel.airfarePerPerson);
+  if (state.travel.rentalCarPerDay > 0) addItem(`Rental Vehicle (${costs.totalTripDays} days)`, costs.totalTripDays, 'DAY', state.travel.rentalCarPerDay);
+  if (state.travel.parkingPerDay > 0) addItem(`Parking (${costs.totalTripDays} days)`, costs.totalTripDays, 'DAY', state.travel.parkingPerDay);
+  if (state.travel.tollsPerTrip > 0) addItem(`Tolls (${state.travel.numTrips} trips)`, state.travel.numTrips, 'EA', state.travel.tollsPerTrip);
+  if (state.incidentals.permits > 0) addItem('Permits & Fees', 1, 'LS', state.incidentals.permits);
+  if (state.incidentals.insurance > 0) addItem('Insurance / Bonding', 1, 'LS', state.incidentals.insurance + (state.incidentals.bonding || 0));
+  if (state.incidentals.equipmentRental > 0) addItem('Equipment Rental', 1, 'LS', state.incidentals.equipmentRental);
+  if (state.incidentals.fuelTransit > 0) addItem('Fuel / Transit Costs', 1, 'LS', state.incidentals.fuelTransit);
+  if (costs.unexpectedBuffer > 0) addItem(`Contingency Buffer (${state.incidentals.unexpectedBufferPct}%)`, 1, 'LS', Math.round(costs.unexpectedBuffer * 100) / 100);
+
+  const travelCategory = {
+    name: 'Travel, Per Diem & Incidentals',
+    subtotal: Math.round(costs.grandTotal * 100) / 100,
+    items: travelItems,
+  };
+
+  // Remove any existing travel category and append new one
+  const filtered = (bom.categories || []).filter(c => c.name !== 'Travel, Per Diem & Incidentals');
+  filtered.push(travelCategory);
+  const newTotal = filtered.reduce((sum, c) => sum + (c.subtotal || 0), 0);
+
+  return { ...bom, categories: filtered, grandTotal: Math.round(newTotal * 100) / 100 };
+}
+
+// ─── Step 6: Travel, Per Diem & Incidentals ───
+function renderStep6Travel(container) {
+  const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
+  const totalHours = laborCalc?.total_hours || 0;
+  const crew = laborCalc?.crew_recommendation || {};
+  const t = state.travel;
+  const inc = state.incidentals;
+  const costs = computeTravelIncidentals();
+  const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  container.innerHTML = `
+    <h2 class="step-heading">Travel, Per Diem & Incidentals</h2>
+    <p class="step-subheading">Configure travel costs, permits, and other project expenses. The AI has analyzed your plans and recommends the crew and schedule below.</p>
+
+    <!-- LABOR HOURS SUMMARY -->
+    <div style="background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.08));border:1px solid rgba(99,102,241,0.25);border-radius:12px;padding:20px;margin-bottom:20px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <span style="font-size:28px;">⏱️</span>
+        <div>
+          <div style="font-size:22px;font-weight:800;color:var(--accent-indigo);">${totalHours.toLocaleString()} Total Labor Hours</div>
+          <div style="font-size:12px;color:var(--text-muted);">From AI analysis (${laborCalc ? 'Labor Calculator brain' : 'not available'})</div>
+        </div>
+      </div>
+      ${crew.duration_weeks ? `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:8px;">
+        ${Object.entries(crew).filter(([k,v]) => k !== 'duration_weeks' && v > 0).map(([k,v]) => `
+          <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 12px;text-align:center;">
+            <div style="font-size:18px;font-weight:700;color:var(--text-primary);">${v}</div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:capitalize;">${k}</div>
+          </div>`).join('')}
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 12px;text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:var(--text-primary);">${crew.duration_weeks}</div>
+          <div style="font-size:11px;color:var(--text-muted);">Weeks</div>
+        </div>
+      </div>` : ''}
+      ${!totalHours ? '<div style="color:var(--accent-amber);font-size:12px;margin-top:8px;">⚠️ Labor hours not available from analysis. Enter scheduling manually below.</div>' : ''}
+    </div>
+
+    <!-- ENABLE TRAVEL -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;font-weight:600;color:var(--text-primary);">
+        <input type="checkbox" id="travel-enabled" ${t.enabled ? 'checked' : ''} style="width:18px;height:18px;">
+        Enable Travel & Per Diem Costs
+      </label>
+    </div>
+
+    ${t.enabled ? `
+    <!-- SCHEDULING MODE -->
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;margin-bottom:20px;">
+      <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:12px;">📅 Scheduling Mode</div>
+      <div style="display:flex;gap:12px;margin-bottom:16px;">
+        <label style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;border-radius:8px;border:2px solid ${t.calcMode === 'byTechs' ? 'var(--accent-indigo)' : 'rgba(255,255,255,0.08)'};cursor:pointer;background:${t.calcMode === 'byTechs' ? 'rgba(99,102,241,0.08)' : 'transparent'};">
+          <input type="radio" name="calc-mode" value="byTechs" ${t.calcMode === 'byTechs' ? 'checked' : ''} style="width:16px;height:16px;">
+          <div>
+            <div style="font-weight:600;font-size:13px;color:var(--text-primary);">By Techs</div>
+            <div style="font-size:11px;color:var(--text-muted);">I know how many techs — calculate days needed</div>
+          </div>
+        </label>
+        <label style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;border-radius:8px;border:2px solid ${t.calcMode === 'bySchedule' ? 'var(--accent-indigo)' : 'rgba(255,255,255,0.08)'};cursor:pointer;background:${t.calcMode === 'bySchedule' ? 'rgba(99,102,241,0.08)' : 'transparent'};">
+          <input type="radio" name="calc-mode" value="bySchedule" ${t.calcMode === 'bySchedule' ? 'checked' : ''} style="width:16px;height:16px;">
+          <div>
+            <div style="font-weight:600;font-size:13px;color:var(--text-primary);">By Schedule</div>
+            <div style="font-size:11px;color:var(--text-muted);">I have a deadline — calculate techs needed</div>
+          </div>
+        </label>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        ${t.calcMode === 'byTechs' ? `
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="sched-techs">Techs on Job</label>
+          <input class="form-input sched-input" type="number" min="1" max="50" id="sched-techs" value="${t.techCount}" style="font-size:14px;padding:8px 10px;">
+          ${t.aiRecommendedTechs ? `<div style="font-size:10px;color:var(--accent-indigo);margin-top:2px;">AI recommends: ${t.aiRecommendedTechs}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(16,185,129,0.08);border-radius:8px;padding:8px;">
+          <div style="font-size:20px;font-weight:800;color:var(--accent-emerald);">${costs.workDays}</div>
+          <div style="font-size:11px;color:var(--text-muted);">Work Days Needed</div>
+        </div>
+        ` : `
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="sched-days">Days to Complete</label>
+          <input class="form-input sched-input" type="number" min="1" max="365" id="sched-days" value="${t.projectDays}" style="font-size:14px;padding:8px 10px;">
+          ${t.aiRecommendedDays ? `<div style="font-size:10px;color:var(--accent-indigo);margin-top:2px;">AI recommends: ${t.aiRecommendedDays}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(16,185,129,0.08);border-radius:8px;padding:8px;">
+          <div style="font-size:20px;font-weight:800;color:var(--accent-emerald);">${costs.techs}</div>
+          <div style="font-size:11px;color:var(--text-muted);">Techs Needed</div>
+        </div>
+        `}
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="sched-trips">Number of Trips</label>
+          <input class="form-input sched-input" type="number" min="1" max="50" id="sched-trips" value="${t.numTrips}" style="font-size:14px;padding:8px 10px;">
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">
+        ${totalHours > 0 ? `${totalHours.toLocaleString()} hrs ÷ (${costs.techs} techs × ${t.hoursPerDay} hrs/day) = ${costs.workDays} work days | ${costs.totalPersonDays} total person-days` : 'Enter scheduling details manually — labor hours not available from analysis.'}
+      </div>
+    </div>
+
+    <!-- TRAVEL COSTS -->
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;margin-bottom:20px;">
+      <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:12px;">💰 Travel Costs</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-hotel">Hotel $/night</label>
+          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-hotel" data-key="hotelPerNight" value="${t.hotelPerNight}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-perdiem">Per Diem $/day</label>
+          <input class="form-input t6-input" type="number" min="0" step="1" id="t6-perdiem" data-key="perDiemPerDay" value="${t.perDiemPerDay}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA rate: $79/day</div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-mileage">Mileage (RT miles)</label>
+          <input class="form-input t6-input" type="number" min="0" id="t6-mileage" data-key="mileageRoundTrip" value="${t.mileageRoundTrip}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@ $${t.mileageRate}/mi</div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-airfare">Airfare $/person</label>
+          <input class="form-input t6-input" type="number" min="0" step="25" id="t6-airfare" data-key="airfarePerPerson" value="${t.airfarePerPerson}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-rental">Rental Car $/day</label>
+          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-rental" data-key="rentalCarPerDay" value="${t.rentalCarPerDay}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-parking">Parking $/day</label>
+          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-parking" data-key="parkingPerDay" value="${t.parkingPerDay}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-tolls">Tolls $/trip</label>
+          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-tolls" data-key="tollsPerTrip" value="${t.tollsPerTrip}" style="font-size:14px;padding:8px 10px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- OTHER INCIDENTALS -->
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;margin-bottom:20px;">
+      <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:12px;">📋 Other Incidentals</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="inc-permits">Permits & Fees ($)</label>
+          <input class="form-input inc-input" type="number" min="0" step="100" id="inc-permits" data-key="permits" value="${inc.permits}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="inc-insurance">Insurance ($)</label>
+          <input class="form-input inc-input" type="number" min="0" step="100" id="inc-insurance" data-key="insurance" value="${inc.insurance}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="inc-bonding">Bonding ($)</label>
+          <input class="form-input inc-input" type="number" min="0" step="100" id="inc-bonding" data-key="bonding" value="${inc.bonding}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="inc-equipment">Equipment Rental ($)</label>
+          <input class="form-input inc-input" type="number" min="0" step="100" id="inc-equipment" data-key="equipmentRental" value="${inc.equipmentRental}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="inc-fuel">Fuel / Transit ($)</label>
+          <input class="form-input inc-input" type="number" min="0" step="50" id="inc-fuel" data-key="fuelTransit" value="${inc.fuelTransit}" style="font-size:14px;padding:8px 10px;">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="inc-buffer">Unexpected Buffer (%)</label>
+          <input class="form-input inc-input" type="number" min="0" max="25" step="1" id="inc-buffer" data-key="unexpectedBufferPct" value="${inc.unexpectedBufferPct}" style="font-size:14px;padding:8px 10px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- COST SUMMARY -->
+    <div style="background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(251,191,36,0.06));border:1px solid rgba(245,158,11,0.3);border-radius:12px;padding:20px;">
+      <div style="font-weight:800;font-size:16px;color:var(--accent-amber);margin-bottom:12px;">🧮 Stage 7 Cost Summary</div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:4px 16px;font-size:13px;">
+        <div>🏨 Hotel (${costs.totalPersonDays} person-nights)</div><div style="text-align:right;font-weight:600;">${fmt(costs.hotel)}</div>
+        <div>🍽️ Per Diem (${costs.totalPersonDays} person-days)</div><div style="text-align:right;font-weight:600;">${fmt(costs.perdiem)}</div>
+        ${costs.mileage > 0 ? `<div>🚗 Mileage</div><div style="text-align:right;font-weight:600;">${fmt(costs.mileage)}</div>` : ''}
+        ${costs.airfare > 0 ? `<div>✈️ Airfare</div><div style="text-align:right;font-weight:600;">${fmt(costs.airfare)}</div>` : ''}
+        ${costs.rental > 0 ? `<div>🚙 Rental Vehicle</div><div style="text-align:right;font-weight:600;">${fmt(costs.rental)}</div>` : ''}
+        ${costs.parking > 0 ? `<div>🅿️ Parking</div><div style="text-align:right;font-weight:600;">${fmt(costs.parking)}</div>` : ''}
+        ${costs.tolls > 0 ? `<div>🛣️ Tolls</div><div style="text-align:right;font-weight:600;">${fmt(costs.tolls)}</div>` : ''}
+        <div style="border-top:1px solid rgba(255,255,255,0.12);padding-top:4px;font-weight:600;">Travel Subtotal</div>
+        <div style="border-top:1px solid rgba(255,255,255,0.12);padding-top:4px;text-align:right;font-weight:600;">${fmt(costs.travelSubtotal)}</div>
+        ${costs.permits > 0 ? `<div>📋 Permits & Fees</div><div style="text-align:right;font-weight:600;">${fmt(costs.permits)}</div>` : ''}
+        ${costs.insurance > 0 ? `<div>🛡️ Insurance</div><div style="text-align:right;font-weight:600;">${fmt(costs.insurance)}</div>` : ''}
+        ${costs.bonding > 0 ? `<div>📎 Bonding</div><div style="text-align:right;font-weight:600;">${fmt(costs.bonding)}</div>` : ''}
+        ${costs.equipmentRental > 0 ? `<div>🔧 Equipment Rental</div><div style="text-align:right;font-weight:600;">${fmt(costs.equipmentRental)}</div>` : ''}
+        ${costs.fuelTransit > 0 ? `<div>⛽ Fuel / Transit</div><div style="text-align:right;font-weight:600;">${fmt(costs.fuelTransit)}</div>` : ''}
+        ${costs.incidentalsSubtotal > 0 ? `
+        <div style="border-top:1px solid rgba(255,255,255,0.12);padding-top:4px;font-weight:600;">Incidentals Subtotal</div>
+        <div style="border-top:1px solid rgba(255,255,255,0.12);padding-top:4px;text-align:right;font-weight:600;">${fmt(costs.incidentalsSubtotal)}</div>
+        ` : ''}
+        ${costs.unexpectedBuffer > 0 ? `<div>⚠️ Contingency Buffer (${inc.unexpectedBufferPct}%)</div><div style="text-align:right;font-weight:600;">${fmt(costs.unexpectedBuffer)}</div>` : ''}
+        <div style="border-top:2px solid rgba(245,158,11,0.4);padding-top:8px;margin-top:4px;font-weight:800;font-size:16px;color:var(--accent-amber);">STAGE 7 TOTAL</div>
+        <div style="border-top:2px solid rgba(245,158,11,0.4);padding-top:8px;margin-top:4px;text-align:right;font-weight:800;font-size:18px;color:var(--accent-amber);">${fmt(costs.grandTotal)}</div>
+      </div>
+      <div style="margin-top:12px;font-size:11px;color:var(--text-muted);">This amount will be added as a "Travel, Per Diem & Incidentals" category in the BOM on the Results page.</div>
+    </div>
+    ` : `
+    <div class="info-card info-card--emerald" style="margin-top:8px;">
+      <div class="info-card-title">💡 Local Project</div>
+      <div class="info-card-body">Travel costs are disabled. Enable the checkbox above if this is an out-of-town project requiring hotel, per diem, or other travel expenses.</div>
+    </div>
+    `}
+  `;
+
+  // Event bindings
+  document.getElementById('travel-enabled').addEventListener('change', e => {
+    state.travel.enabled = e.target.checked;
+    renderStep6Travel(container);
+  });
+
+  document.querySelectorAll('input[name="calc-mode"]').forEach(radio => {
+    radio.addEventListener('change', e => {
+      state.travel.calcMode = e.target.value;
+      renderStep6Travel(container);
+    });
+  });
+
+  const schedTechs = document.getElementById('sched-techs');
+  if (schedTechs) schedTechs.addEventListener('change', e => { state.travel.techCount = parseInt(e.target.value) || 4; renderStep6Travel(container); });
+
+  const schedDays = document.getElementById('sched-days');
+  if (schedDays) schedDays.addEventListener('change', e => { state.travel.projectDays = parseInt(e.target.value) || 30; renderStep6Travel(container); });
+
+  const schedTrips = document.getElementById('sched-trips');
+  if (schedTrips) schedTrips.addEventListener('change', e => { state.travel.numTrips = parseInt(e.target.value) || 1; renderStep6Travel(container); });
+
+  document.querySelectorAll('.t6-input').forEach(input => {
+    input.addEventListener('change', e => {
+      const key = e.target.dataset.key;
+      if (key) { state.travel[key] = parseFloat(e.target.value) || 0; renderStep6Travel(container); }
+    });
+  });
+
+  document.querySelectorAll('.inc-input').forEach(input => {
+    input.addEventListener('change', e => {
+      const key = e.target.dataset.key;
+      if (key) { state.incidentals[key] = parseFloat(e.target.value) || 0; renderStep6Travel(container); }
+    });
+  });
+}
+
+// ─── Step 7: Results & RFIs ───
+function renderStep7(container) {
   const rfis = getRelevantRFIs();
   const accuracy = getAccuracyEstimate();
   const tl = getTrafficLight(accuracy);
@@ -2660,6 +2911,8 @@ function renderStep6(container) {
 
     ${buildBidPhasesCard(state)}
 
+    ${buildChangeOrderCard(state)}
+
     <div class="info-card" id="bid-compare-card" style="border-left:3px solid #0D9488;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" id="bid-compare-toggle">
         <h3 class="info-card-title" style="margin:0;">
@@ -2734,12 +2987,12 @@ function renderStep6(container) {
   // Bind RFI events
   document.getElementById("rfi-select-all").addEventListener("click", () => {
     rfis.forEach(r => state.selectedRFIs.add(r.id));
-    renderStep6(container);
+    renderStep7(container);
   });
 
   document.getElementById("rfi-clear-all").addEventListener("click", () => {
     state.selectedRFIs.clear();
-    renderStep6(container);
+    renderStep7(container);
   });
 
   document.querySelectorAll("[data-rfi-check]").forEach(btn => {
@@ -2748,7 +3001,7 @@ function renderStep6(container) {
       const id = btn.dataset.rfiCheck;
       if (state.selectedRFIs.has(id)) state.selectedRFIs.delete(id);
       else state.selectedRFIs.add(id);
-      renderStep6(container);
+      renderStep7(container);
     });
   });
 
@@ -2757,7 +3010,7 @@ function renderStep6(container) {
       if (e.target.closest("[data-rfi-check]")) return;
       const id = row.dataset.rfiToggle;
       state.expandedRFI = state.expandedRFI === id ? null : id;
-      renderStep6(container);
+      renderStep7(container);
     });
   });
 
@@ -2967,6 +3220,7 @@ function renderStep6(container) {
   initExclusionsPanel(container);
   bindBidStrategyEvents(container);
   bindBidPhasesEvents(container);
+  bindChangeOrderEvents(container);
 
   // ── Bid Compare toggle ──
   const bcToggle = document.getElementById('bid-compare-toggle');
@@ -3032,7 +3286,7 @@ function renderStep6(container) {
   if (bomResetBtn) {
     bomResetBtn.addEventListener('click', () => {
       state.supplierPriceOverrides = {};
-      renderStep6(container);
+      renderStep7(container);
     });
   }
 
@@ -3117,7 +3371,7 @@ function renderStep6(container) {
           <button id="bom-reset-overrides" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.06);color:#ef4444;font-size:11px;font-weight:600;cursor:pointer;">Reset to AI Prices</button>`;
         // Re-bind reset button
         const newResetBtn = document.getElementById('bom-reset-overrides');
-        if (newResetBtn) newResetBtn.addEventListener('click', () => { state.supplierPriceOverrides = {}; renderStep6(container); });
+        if (newResetBtn) newResetBtn.addEventListener('click', () => { state.supplierPriceOverrides = {}; renderStep7(container); });
       } else {
         summaryBar.style.display = 'none';
       }
@@ -5197,7 +5451,22 @@ async function runGeminiAnalysis(updateProgress) {
       state.analyzing = false;
       state.analysisComplete = true;
       state.completedSteps.add("review");
-      state.currentStep = 6;
+      // Populate AI crew recommendation from Labor Calculator
+      const laborCalc = result.brainResults?.wave2_25?.LABOR_CALCULATOR;
+      if (laborCalc) {
+        const totalHrs = laborCalc.total_hours || 0;
+        const crew = laborCalc.crew_recommendation || {};
+        const totalTechs = (crew.journeyman || 0) + (crew.apprentice || 0) + (crew.foreman || 0);
+        const durationWeeks = crew.duration_weeks || 8;
+        state.travel.aiRecommendedTechs = totalTechs || 4;
+        state.travel.aiRecommendedDays = durationWeeks * 5;
+        state.travel.aiCrewBreakdown = crew;
+        state.travel.aiReasoning = `${totalHrs} total labor hours across ${Object.entries(crew).filter(([k,v]) => k !== 'duration_weeks' && v > 0).map(([k,v]) => `${v} ${k}`).join(', ')}`;
+        // Pre-fill with AI recommendation
+        state.travel.techCount = state.travel.aiRecommendedTechs;
+        state.travel.projectDays = state.travel.aiRecommendedDays;
+      }
+      state.currentStep = 6; // Go to Travel & Costs stage
       render();
       scrollContentTop();
       saveEstimate(true);
@@ -5906,8 +6175,8 @@ function _restoreStateFromPayload(id, pkg, est) {
   if (pkg?.analysis?.rawMarkdown) {
     state.aiAnalysis = pkg.analysis.rawMarkdown;
     state.analysisComplete = true;
-    state.completedSteps = new Set(['setup', 'legend', 'plans', 'specs', 'addenda', 'review']);
-    state.currentStep = 6;
+    state.completedSteps = new Set(['setup', 'legend', 'plans', 'specs', 'addenda', 'review', 'travel']);
+    state.currentStep = 7;
   } else {
     state.aiAnalysis = null;
     state.analysisComplete = false;
@@ -6621,12 +6890,252 @@ function _applyBenchmarksToBOM() {
 // BID STRATEGY CARD STUB
 if (typeof buildBidStrategyCard === 'undefined') { var buildBidStrategyCard = function() { return ''; }; }
 
+// ═══════════════════════════════════════════════════════════════
+// POTENTIAL CHANGE ORDERS — Extract from existing brain data
+// ═══════════════════════════════════════════════════════════════
+
+function extractPotentialChangeOrders(st) {
+  const cos = [];
+  let id = 1;
+  const br = st.brainResults || {};
+
+  // Parse "$5,000-$8,000" or "$5000" or "5000" into numeric midpoint
+  function parseImpact(str) {
+    if (!str) return 0;
+    const s = String(str).replace(/[,$]/g, '');
+    const range = s.match(/([\d.]+)\s*[-–to]+\s*([\d.]+)/);
+    if (range) return Math.round((parseFloat(range[1]) + parseFloat(range[2])) / 2);
+    const single = s.match(/([\d.]+)/);
+    return single ? Math.round(parseFloat(single[1])) : 0;
+  }
+
+  // 1. Devil's Advocate challenges
+  const da = br.wave3?.DEVILS_ADVOCATE;
+  if (da?.challenges) {
+    da.challenges.forEach(c => {
+      cos.push({
+        id: `CO-${String(id++).padStart(3, '0')}`,
+        description: c.description || c.issue || 'Unspecified challenge',
+        category: c.category || 'scope_gap',
+        estimatedCost: parseImpact(c.estimated_impact),
+        severity: c.severity || 'medium',
+        source: "Devil's Advocate",
+        recommendation: c.recommendation || '',
+      });
+    });
+  }
+
+  // 2. Devil's Advocate missed_items (if separate from challenges)
+  if (da?.missed_items && Array.isArray(da.missed_items)) {
+    da.missed_items.forEach(item => {
+      const desc = typeof item === 'string' ? item : (item.description || item.item || JSON.stringify(item));
+      const cost = typeof item === 'object' ? parseImpact(item.estimated_cost || item.estimated_impact) : 0;
+      // Avoid duplicates with challenges
+      if (!cos.some(c => c.description === desc)) {
+        cos.push({
+          id: `CO-${String(id++).padStart(3, '0')}`,
+          description: desc,
+          category: 'missing_item',
+          estimatedCost: cost,
+          severity: 'high',
+          source: "Devil's Advocate",
+          recommendation: typeof item === 'object' ? (item.recommendation || '') : '',
+        });
+      }
+    });
+  }
+
+  // 3. Cross Validator issues
+  const cv = br.wave3?.CROSS_VALIDATOR;
+  if (cv?.issues && Array.isArray(cv.issues)) {
+    cv.issues.forEach(issue => {
+      const desc = typeof issue === 'string' ? issue : (issue.description || issue.issue || '');
+      if (desc && !cos.some(c => c.description === desc)) {
+        cos.push({
+          id: `CO-${String(id++).padStart(3, '0')}`,
+          description: desc,
+          category: typeof issue === 'object' ? (issue.category || 'scope_gap') : 'scope_gap',
+          estimatedCost: typeof issue === 'object' ? parseImpact(issue.estimated_impact) : 0,
+          severity: typeof issue === 'object' ? (issue.severity || 'medium') : 'medium',
+          source: 'Cross Validator',
+          recommendation: typeof issue === 'object' ? (issue.recommendation || '') : '',
+        });
+      }
+    });
+  }
+
+  // 4. Special Conditions — flag items that may not be in BOM
+  const sc = br.wave1?.SPECIAL_CONDITIONS;
+  if (sc) {
+    const flagSections = [
+      { key: 'permits', label: 'Permit / Inspection', sev: 'medium' },
+      { key: 'site_conditions', label: 'Site Condition', sev: 'medium' },
+    ];
+    flagSections.forEach(({ key, label, sev }) => {
+      const items = sc[key];
+      if (Array.isArray(items)) {
+        items.forEach(item => {
+          const desc = typeof item === 'string' ? item : (item.description || item.item || item.name || '');
+          const cost = typeof item === 'object' ? parseImpact(item.cost || item.estimated_cost) : 0;
+          if (desc && !cos.some(c => c.description === desc)) {
+            cos.push({
+              id: `CO-${String(id++).padStart(3, '0')}`,
+              description: `${label}: ${desc}`,
+              category: key,
+              estimatedCost: cost,
+              severity: sev,
+              source: 'Special Conditions',
+              recommendation: '',
+            });
+          }
+        });
+      }
+    });
+  }
+
+  // Sort by severity (critical > high > medium > low), then by cost descending
+  const sevOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+  cos.sort((a, b) => (sevOrder[a.severity] || 3) - (sevOrder[b.severity] || 3) || (b.estimatedCost - a.estimatedCost));
+
+  return cos;
+}
+
+function buildChangeOrderCard(st) {
+  const cos = extractPotentialChangeOrders(st);
+  if (cos.length === 0) return '';
+
+  const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const sevBadge = s => {
+    const colors = { critical: '#DC2626', high: '#EA580C', medium: '#D97706', low: '#65A30D' };
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:white;background:${colors[s] || colors.medium};">${esc(s)}</span>`;
+  };
+
+  const included = cos.filter(c => !st._excludedCOs.has(c.id));
+  const totalValue = included.reduce((s, c) => s + c.estimatedCost, 0);
+  const bySev = {};
+  included.forEach(c => { bySev[c.severity] = (bySev[c.severity] || 0) + 1; });
+
+  let rows = '';
+  cos.forEach(c => {
+    const excluded = st._excludedCOs.has(c.id);
+    rows += `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);${excluded ? 'opacity:0.4;' : ''}">
+      <td style="padding:8px 10px;text-align:center;">
+        <input type="checkbox" class="co-include-cb" data-co-id="${esc(c.id)}" ${excluded ? '' : 'checked'} style="width:14px;height:14px;accent-color:#0D9488;">
+      </td>
+      <td style="padding:8px 10px;font-size:11px;font-weight:600;color:var(--text-muted);white-space:nowrap;">${esc(c.id)}</td>
+      <td style="padding:8px 10px;font-size:12px;color:var(--text-primary);max-width:300px;">
+        ${esc(c.description)}
+        ${c.recommendation ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic;">${esc(c.recommendation)}</div>` : ''}
+      </td>
+      <td style="padding:8px 10px;text-align:center;">${sevBadge(c.severity)}</td>
+      <td style="padding:8px 10px;font-size:12px;font-weight:600;text-align:right;color:var(--text-primary);">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : '<span style="color:var(--text-muted);font-weight:400;">TBD</span>'}</td>
+      <td style="padding:8px 10px;font-size:10px;color:var(--text-muted);white-space:nowrap;">${esc(c.source)}</td>
+    </tr>`;
+  });
+
+  return `
+    <div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div>
+    <div class="info-card" id="change-orders-card" style="border-left:3px solid #EA580C;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="co-toggle">
+        <h3 class="info-card-title" style="margin:0;">
+          <i data-lucide="alert-triangle" style="width:16px;height:16px;"></i>
+          POTENTIAL CHANGE ORDERS
+          <span style="font-size:11px;font-weight:400;color:rgba(0,0,0,0.4);margin-left:8px;">(${cos.length} items | ${fmt(totalValue)} estimated)</span>
+        </h3>
+        <span id="co-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">${st._changeOrdersOpen ? '▼' : '▶'}</span>
+      </div>
+      <div id="co-collapsible" style="display:${st._changeOrdersOpen ? 'block' : 'none'};margin-top:12px;">
+        <p style="color:rgba(0,0,0,0.5);font-size:12px;margin-bottom:16px;">
+          Items identified by the AI that may result in change orders during construction. These are scope gaps, missing items, or conditions not fully captured in the base bid. Use this to prepare your client or build contingency.
+        </p>
+
+        <!-- Severity Summary -->
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+          ${Object.entries(bySev).map(([sev, count]) => `
+            <div style="display:flex;align-items:center;gap:4px;">${sevBadge(sev)} <span style="font-size:12px;font-weight:600;">×${count}</span></div>
+          `).join('')}
+          <div style="margin-left:auto;font-size:14px;font-weight:700;color:#EA580C;">Total: ${fmt(totalValue)}</div>
+        </div>
+
+        <!-- Table -->
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr style="background:rgba(234,88,12,0.06);">
+                <th style="padding:8px 10px;width:36px;border-bottom:2px solid rgba(234,88,12,0.15);"></th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">CO#</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">Description</th>
+                <th style="padding:8px 10px;text-align:center;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">Severity</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">Est. Impact</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">Source</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
+          <button id="co-copy-btn" style="padding:8px 16px;border:1px solid rgba(234,88,12,0.3);background:rgba(234,88,12,0.06);color:#EA580C;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
+            📋 Copy to Clipboard
+          </button>
+          <span id="co-copy-status" style="font-size:11px;color:var(--accent-emerald);display:none;">Copied!</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function bindChangeOrderEvents(container) {
+  const toggle = document.getElementById('co-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      state._changeOrdersOpen = !state._changeOrdersOpen;
+      const body = document.getElementById('co-collapsible');
+      const icon = document.getElementById('co-toggle-icon');
+      if (body) body.style.display = state._changeOrdersOpen ? 'block' : 'none';
+      if (icon) icon.textContent = state._changeOrdersOpen ? '▼' : '▶';
+    });
+  }
+
+  document.querySelectorAll('.co-include-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const coId = cb.dataset.coId;
+      if (cb.checked) state._excludedCOs.delete(coId);
+      else state._excludedCOs.add(coId);
+      renderStep7(container);
+    });
+  });
+
+  const copyBtn = document.getElementById('co-copy-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const cos = extractPotentialChangeOrders(state).filter(c => !state._excludedCOs.has(c.id));
+      const fmt = n => '$' + (n || 0).toLocaleString('en-US');
+      let text = `POTENTIAL CHANGE ORDERS — ${state.projectName || 'Project'}\n`;
+      text += '─'.repeat(80) + '\n';
+      text += 'CO#\tSeverity\tEst. Impact\tDescription\n';
+      text += '─'.repeat(80) + '\n';
+      cos.forEach(c => {
+        text += `${c.id}\t${c.severity.toUpperCase()}\t${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'TBD'}\t${c.description}\n`;
+      });
+      const total = cos.reduce((s, c) => s + c.estimatedCost, 0);
+      text += '─'.repeat(80) + '\n';
+      text += `TOTAL ESTIMATED IMPACT: ${fmt(total)} (${cos.length} items)\n`;
+
+      navigator.clipboard.writeText(text).then(() => {
+        const status = document.getElementById('co-copy-status');
+        if (status) { status.style.display = 'inline'; setTimeout(() => { status.style.display = 'none'; }, 2000); }
+      });
+    });
+  }
+}
+
 // BID PHASES / ALTERNATES
 function getBidPhaseBOM() { if (!state.aiAnalysis) return { categories: [], grandTotal: 0 }; const bom = getFilteredBOM(state.aiAnalysis, state.disciplines); const overrides = state.supplierPriceOverrides || {}; for (const [key, ov] of Object.entries(overrides)) { const [ci, ii] = key.split('-').map(Number); if (bom.categories[ci] && bom.categories[ci].items[ii]) { const it = bom.categories[ci].items[ii]; if (ov.qty != null) it.qty = ov.qty; it.unitCost = ov.unitCost; it.extCost = Math.round(it.qty * ov.unitCost * 100) / 100; } } if (Object.keys(overrides).length > 0) { bom.grandTotal = 0; for (const cat of bom.categories) { cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0); cat.subtotal = Math.round(cat.subtotal * 100) / 100; bom.grandTotal += cat.subtotal; } bom.grandTotal = Math.round(bom.grandTotal * 100) / 100; } return bom; }
 function getPhaseTotal(phase, bom) { if (phase.type === 'base') { const ae = new Set(); state.bidPhases.forEach(p => { if (p.id !== 'base') p.categoryIndices.forEach(ci => ae.add(ci)); }); let t = 0; bom.categories.forEach((cat, ci) => { if (!ae.has(ci)) t += cat.subtotal; }); return Math.round(t * 100) / 100; } let t = 0; phase.categoryIndices.forEach(ci => { if (bom.categories[ci]) t += bom.categories[ci].subtotal; }); return Math.round(t * 100) / 100; }
 function getBaseBidCategoryIndices(bom) { const ae = new Set(); state.bidPhases.forEach(p => { if (p.id !== 'base') p.categoryIndices.forEach(ci => ae.add(ci)); }); const idx = []; bom.categories.forEach((_, ci) => { if (!ae.has(ci)) idx.push(ci); }); return idx; }
 function buildBidPhasesCard(st) { if (!st.aiAnalysis) return ''; const bom = getBidPhaseBOM(); if (bom.categories.length === 0) return ''; const _fmt = (v) => { const abs = Math.abs(v); const str = '$' + abs.toLocaleString('en-US', {minimumFractionDigits:0,maximumFractionDigits:0}); return v < 0 ? '(' + str + ')' : str; }; const ptm = { base: {label:'Base Bid',bc:'bid-phase-badge--base'}, add: {label:'Add Alternate',bc:'bid-phase-badge--add'}, deduct: {label:'Deduct Alt',bc:'bid-phase-badge--deduct'}, optional: {label:'Optional',bc:'bid-phase-badge--optional'} }; let pr='',sr='',rt=0; st.bidPhases.forEach((phase, pi) => { const m = ptm[phase.type]||ptm.optional; const tot = getPhaseTotal(phase,bom); const dt = phase.type==='deduct' ? -Math.abs(tot) : tot; if (phase.includeInProposal) rt += dt; let ac = phase.type==='base' ? getBaseBidCategoryIndices(bom) : phase.categoryIndices; const cn = ac.map(ci => bom.categories[ci] ? esc(bom.categories[ci].name) : '').filter(Boolean); let cah=''; if (phase.type!=='base') { const avail=[]; bom.categories.forEach((cat,ci) => { const at = st.bidPhases.find(p => p.id!=='base' && p.id!==phase.id && p.categoryIndices.includes(ci)); if (!at) avail.push({ci,name:cat.name,chk:phase.categoryIndices.includes(ci)}); else if (phase.categoryIndices.includes(ci)) avail.push({ci,name:cat.name,chk:true}); }); cah = '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">' + avail.map(a => '<label class="bid-phase-cat-chip' + (a.chk?' bid-phase-cat-chip--active':'') + '" style="cursor:pointer;"><input type="checkbox" ' + (a.chk?'checked ':'') + 'style="display:none;" data-bid-phase-cat="' + phase.id + '" data-cat-idx="' + a.ci + '">' + esc(a.name) + '</label>').join('') + (avail.length===0?'<span style="font-size:11px;color:var(--text-muted);font-style:italic;">All categories assigned to other phases</span>':'') + '</div>'; } pr += '<div class="bid-phase-row" data-phase-idx="'+pi+'" style="padding:14px 16px;border:1px solid rgba(0,0,0,0.06);margin-bottom:8px;background:var(--bg-surface-2);"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;"><span class="bid-phase-badge '+m.bc+'">'+m.label+'</span>' + (phase.type==='base' ? '<span style="font-weight:600;font-size:13px;color:var(--text-primary);">'+esc(phase.name)+'</span>' : '<input type="text" class="bid-phase-name-input" data-phase-id="'+phase.id+'" value="'+esc(phase.name)+'" style="flex:1;padding:4px 8px;border:1px solid rgba(0,0,0,0.08);background:transparent;font-size:13px;font-weight:600;color:var(--text-primary);min-width:120px;outline:none;font-family:var(--font-sans);" />') + '</div><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:14px;font-weight:700;color:'+(phase.type==='deduct'?'#D97706':'var(--accent-teal)')+';">'+_fmt(dt)+'</span><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--text-muted);" title="Include in Proposal"><input type="checkbox" '+(phase.includeInProposal?'checked ':'')+' data-bid-phase-proposal="'+phase.id+'" style="accent-color:#0D9488;">Proposal</label>' + (phase.type!=='base' ? '<button data-bid-phase-remove="'+phase.id+'" title="Remove phase" style="background:none;border:1px solid rgba(225,29,72,0.2);color:#E11D48;cursor:pointer;font-size:12px;padding:2px 6px;line-height:1;">x</button>' : '') + '</div></div><div style="margin-top:6px;font-size:11px;color:var(--text-muted);">' + (cn.length>0 ? cn.join(', ') : '<em>No categories assigned</em>') + '</div>' + cah + '</div>'; sr += '<tr style="border-bottom:1px solid rgba(0,0,0,0.04);"><td style="padding:6px 10px;font-size:12px;color:var(--text-primary);">'+esc(phase.name)+'</td><td style="padding:6px 10px;font-size:11px;"><span class="bid-phase-badge '+m.bc+'" style="font-size:10px;padding:2px 6px;">'+m.label+'</span></td><td style="padding:6px 10px;font-size:12px;color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(cn.join(', ')||'—')+'</td><td style="padding:6px 10px;font-size:13px;font-weight:600;text-align:right;color:'+(phase.type==='deduct'?'#D97706':'var(--text-primary)')+';">'+_fmt(dt)+'</td><td style="padding:6px 10px;text-align:center;font-size:12px;">'+(phase.includeInProposal?'✓':'—')+'</td></tr>'; }); const st2 = '<div style="margin-top:16px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:rgba(13,148,136,0.06);"><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Phase</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Type</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Categories</th><th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Amount</th><th style="padding:8px 10px;text-align:center;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Proposal</th></tr></thead><tbody>'+sr+'<tr style="background:rgba(13,148,136,0.08);"><td colspan="3" style="padding:8px 10px;font-size:13px;font-weight:700;color:var(--text-primary);text-align:right;">Total if all accepted</td><td style="padding:8px 10px;font-size:14px;font-weight:700;color:var(--accent-teal);text-align:right;">'+_fmt(rt)+'</td><td></td></tr></tbody></table></div>'; return '<div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div><div class="info-card" style="margin-bottom:22px;border:1px solid rgba(13,148,136,0.15);background:#FFFFFF;"><div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="bid-phases-toggle"><div class="info-card-title" style="margin-bottom:0;"><i data-lucide="layers" style="width:16px;height:16px;"></i> Bid Phases &amp; Alternates</div><span id="bid-phases-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">'+(st._bidPhasesOpen?'▼':'▶')+'</span></div><div id="bid-phases-collapsible" style="display:'+(st._bidPhasesOpen?'block':'none')+';margin-top:12px;"><div class="info-card-body" style="margin-bottom:12px;">Structure your bid with base and alternate pricing. Assign BOM categories to each phase — unassigned categories stay in the Base Bid.</div>'+pr+'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;"><button id="bid-phase-add-add" style="padding:6px 14px;border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.04);color:#059669;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Add Alternate</button><button id="bid-phase-add-deduct" style="padding:6px 14px;border:1px solid rgba(217,119,6,0.3);background:rgba(217,119,6,0.04);color:#D97706;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Deduct Alternate</button><button id="bid-phase-add-optional" style="padding:6px 14px;border:1px solid rgba(0,0,0,0.1);background:rgba(0,0,0,0.02);color:var(--text-muted);cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Optional Phase</button></div>'+st2+'</div></div>'; }
-function bindBidPhasesEvents(container) { const toggle = document.getElementById('bid-phases-toggle'); if (toggle) { toggle.addEventListener('click', () => { state._bidPhasesOpen = !state._bidPhasesOpen; const body = document.getElementById('bid-phases-collapsible'); const icon = document.getElementById('bid-phases-toggle-icon'); if (body) body.style.display = state._bidPhasesOpen ? 'block' : 'none'; if (icon) icon.textContent = state._bidPhasesOpen ? '▼' : '▶'; }); } const ah = {'bid-phase-add-add':'add','bid-phase-add-deduct':'deduct','bid-phase-add-optional':'optional'}; for (const [bi,ty] of Object.entries(ah)) { const btn = document.getElementById(bi); if (btn) btn.addEventListener('click', () => { state._bidPhaseCounter++; const n = state.bidPhases.filter(p=>p.type===ty).length+1; const lb = {add:`Add Alternate #${n}`,deduct:`Deduct Alternate #${n}`,optional:`Optional Phase #${n}`}; state.bidPhases.push({id:`phase-${Date.now()}-${state._bidPhaseCounter}`,name:lb[ty],type:ty,categoryIndices:[],includeInProposal:ty!=='optional'}); state._bidPhasesOpen=true; renderStep6(container); }); } document.querySelectorAll('[data-bid-phase-remove]').forEach(b => { b.addEventListener('click', e => { e.stopPropagation(); state.bidPhases = state.bidPhases.filter(p => p.id !== b.dataset.bidPhaseRemove); renderStep6(container); }); }); document.querySelectorAll('.bid-phase-name-input').forEach(inp => { inp.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === inp.dataset.phaseId); if (ph) ph.name = inp.value.trim() || ph.name; }); }); document.querySelectorAll('[data-bid-phase-proposal]').forEach(cb => { cb.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === cb.dataset.bidPhaseProposal); if (ph) { ph.includeInProposal = cb.checked; renderStep6(container); } }); }); document.querySelectorAll('[data-bid-phase-cat]').forEach(cb => { cb.addEventListener('change', () => { const pid = cb.dataset.bidPhaseCat; const ci = parseInt(cb.dataset.catIdx); const ph = state.bidPhases.find(p => p.id === pid); if (!ph) return; if (cb.checked) { state.bidPhases.forEach(p => { if (p.id!=='base' && p.id!==pid) p.categoryIndices = p.categoryIndices.filter(c=>c!==ci); }); if (!ph.categoryIndices.includes(ci)) ph.categoryIndices.push(ci); } else { ph.categoryIndices = ph.categoryIndices.filter(c=>c!==ci); } renderStep6(container); }); }); }
+function bindBidPhasesEvents(container) { const toggle = document.getElementById('bid-phases-toggle'); if (toggle) { toggle.addEventListener('click', () => { state._bidPhasesOpen = !state._bidPhasesOpen; const body = document.getElementById('bid-phases-collapsible'); const icon = document.getElementById('bid-phases-toggle-icon'); if (body) body.style.display = state._bidPhasesOpen ? 'block' : 'none'; if (icon) icon.textContent = state._bidPhasesOpen ? '▼' : '▶'; }); } const ah = {'bid-phase-add-add':'add','bid-phase-add-deduct':'deduct','bid-phase-add-optional':'optional'}; for (const [bi,ty] of Object.entries(ah)) { const btn = document.getElementById(bi); if (btn) btn.addEventListener('click', () => { state._bidPhaseCounter++; const n = state.bidPhases.filter(p=>p.type===ty).length+1; const lb = {add:`Add Alternate #${n}`,deduct:`Deduct Alternate #${n}`,optional:`Optional Phase #${n}`}; state.bidPhases.push({id:`phase-${Date.now()}-${state._bidPhaseCounter}`,name:lb[ty],type:ty,categoryIndices:[],includeInProposal:ty!=='optional'}); state._bidPhasesOpen=true; renderStep7(container); }); } document.querySelectorAll('[data-bid-phase-remove]').forEach(b => { b.addEventListener('click', e => { e.stopPropagation(); state.bidPhases = state.bidPhases.filter(p => p.id !== b.dataset.bidPhaseRemove); renderStep7(container); }); }); document.querySelectorAll('.bid-phase-name-input').forEach(inp => { inp.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === inp.dataset.phaseId); if (ph) ph.name = inp.value.trim() || ph.name; }); }); document.querySelectorAll('[data-bid-phase-proposal]').forEach(cb => { cb.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === cb.dataset.bidPhaseProposal); if (ph) { ph.includeInProposal = cb.checked; renderStep7(container); } }); }); document.querySelectorAll('[data-bid-phase-cat]').forEach(cb => { cb.addEventListener('change', () => { const pid = cb.dataset.bidPhaseCat; const ci = parseInt(cb.dataset.catIdx); const ph = state.bidPhases.find(p => p.id === pid); if (!ph) return; if (cb.checked) { state.bidPhases.forEach(p => { if (p.id!=='base' && p.id!==pid) p.categoryIndices = p.categoryIndices.filter(c=>c!==ci); }); if (!ph.categoryIndices.includes(ci)) ph.categoryIndices.push(ci); } else { ph.categoryIndices = ph.categoryIndices.filter(c=>c!==ci); } renderStep7(container); }); }); }
 
 // Warn before leaving page if user has unsaved work
 window.addEventListener("beforeunload", e => {

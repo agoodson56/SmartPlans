@@ -148,6 +148,12 @@ const SmartPlansExport = {
             assumptions: (state.exclusions || []).filter(e => e.type === 'assumption').map(e => ({ text: e.text, category: e.category })),
             clarifications: (state.exclusions || []).filter(e => e.type === 'clarification').map(e => ({ text: e.text, category: e.category })),
 
+            // Potential Change Orders — scope gaps identified by AI
+            potentialChangeOrders: typeof extractPotentialChangeOrders === 'function'
+                ? extractPotentialChangeOrders(state).filter(c => !(state._excludedCOs || new Set()).has(c.id))
+                    .map(c => ({ id: c.id, description: c.description, category: c.category, estimatedCost: c.estimatedCost, severity: c.severity, source: c.source }))
+                : [],
+
             // Structured MDF/IDF data for SmartPM Infrastructure module
             // AI-generated budgets — locked from field manipulation
             infrastructure: this._extractInfrastructure(state),
@@ -196,7 +202,8 @@ const SmartPlansExport = {
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
         const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
-        const travel = this._round(state.travelCosts?.totalTravel || 0);
+        const travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
+            ? this._round(computeTravelIncidentals().grandTotal || 0) : 0;
 
         const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
         const contingency = this._round(subtotal * contingencyPct);
@@ -224,10 +231,24 @@ const SmartPlansExport = {
             }
         }
 
+        // Compute deterministic travel/incidentals from Stage 6 (overrides AI travel)
+        let stage6Travel = 0;
+        if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
+            const tCosts = computeTravelIncidentals();
+            stage6Travel = this._round(tCosts.grandTotal || 0);
+            console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
+        }
+
         // Priority 1: Financial Engine brain (fully-loaded bid price with labor, overhead, profit, contingency)
         const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
         if (finEngine?.project_summary?.grand_total > 1000) {
-            const val = this._round(finEngine.project_summary.grand_total);
+            let val = this._round(finEngine.project_summary.grand_total);
+            // Replace AI-computed travel with deterministic Stage 6 travel
+            if (stage6Travel > 0) {
+                const aiTravel = this._round(finEngine.project_summary.total_travel || 0);
+                val = this._round(val - aiTravel + stage6Travel);
+                console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()})`);
+            }
             console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
