@@ -2044,9 +2044,11 @@ function computeTravelIncidentals() {
   const totalTripDays = t.numTrips * workDays;
 
   // Travel costs
-  const hotel = totalPersonDays * t.hotelPerNight;
-  const perdiem = totalPersonDays * t.perDiemPerDay;
-  const mileage = t.numTrips * (t.mileageRoundTrip || 0) * t.mileageRate;
+  const hotelRate = t.hotelPerNight || 175;
+  const perDiemRate = t.perDiemPerDay || 79;
+  const hotel = totalPersonDays * hotelRate;
+  const perdiem = totalPersonDays * perDiemRate;
+  const mileage = t.numTrips * (t.mileageRoundTrip || 0) * (t.mileageRate || 0.70);
   const airfare = techs * t.numTrips * (t.airfarePerPerson || 0);
   const rental = totalTripDays * (t.rentalCarPerDay || 0);
   const parking = totalTripDays * (t.parkingPerDay || 0);
@@ -2219,11 +2221,12 @@ function renderStep6Travel(container) {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-hotel">Hotel $/night</label>
-          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-hotel" data-key="hotelPerNight" value="${t.hotelPerNight}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-hotel" data-key="hotelPerNight" value="${t.hotelPerNight || 175}" placeholder="175" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA avg: $175/night</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-perdiem">Per Diem $/day</label>
-          <input class="form-input t6-input" type="number" min="0" step="1" id="t6-perdiem" data-key="perDiemPerDay" value="${t.perDiemPerDay}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input t6-input" type="number" min="0" step="1" id="t6-perdiem" data-key="perDiemPerDay" value="${t.perDiemPerDay || 79}" placeholder="79" style="font-size:14px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA rate: $79/day</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
