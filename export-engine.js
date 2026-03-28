@@ -1184,7 +1184,14 @@ const SmartPlansExport = {
             grandTotal += cat.subtotal || cat.items.reduce((sum, item) => sum + (item.extCost || 0), 0);
         }
 
-        return { categories: filteredCategories, grandTotal: this._round(grandTotal) };
+        let result = { categories: filteredCategories, grandTotal: this._round(grandTotal) };
+
+        // Inject travel & incidentals from Stage 7 (if available)
+        if (typeof injectTravelIntoBOM === 'function') {
+            result = injectTravelIntoBOM(result);
+        }
+
+        return result;
     },
 
     // ─── Extract AI's actual grand total from analysis text ─────
@@ -1241,6 +1248,7 @@ const SmartPlansExport = {
         }
 
         // Filter BOM to only include categories for selected disciplines
+        // (travel & incidentals are injected automatically by _filterBOMByDisciplines)
         bom = this._filterBOMByDisciplines(bom, state.disciplines);
 
         if (bom.categories.length === 0) {

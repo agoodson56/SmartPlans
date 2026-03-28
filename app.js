@@ -789,13 +789,10 @@ function getFormatInfo(label) {
 // instead of calling SmartPlansExport._extractBOMFromAnalysis directly.
 function getFilteredBOM(aiAnalysis, disciplines) {
   if (typeof SmartPlansExport === 'undefined') return { categories: [], grandTotal: 0 };
-  let bom = SmartPlansExport._extractBOMFromAnalysis(aiAnalysis);
+  const bom = SmartPlansExport._extractBOMFromAnalysis(aiAnalysis);
+  // Travel & incidentals are injected automatically by _filterBOMByDisciplines
   if (typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
-    bom = SmartPlansExport._filterBOMByDisciplines(bom, disciplines);
-  }
-  // Inject travel & incidentals if enabled
-  if (typeof injectTravelIntoBOM === 'function') {
-    bom = injectTravelIntoBOM(bom);
+    return SmartPlansExport._filterBOMByDisciplines(bom, disciplines);
   }
   return bom;
 }
