@@ -45,16 +45,17 @@ const ProposalGenerator = {
     const validUntil = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
       .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-    // Pull the FULL analysis — the bid report has the real numbers
-    const analysisSummary = (state.aiAnalysis || '').substring(0, 20000);
-
     // CRITICAL: Pre-compute BOM grand total BEFORE anything else.
-    // This ensures the SAME number is used in the AI prompt, the
-    // financial table, the hero section, and the export package.
-    // Without this, _extractGrandTotal falls through to different methods.
     this._precomputeBOMTotal(state);
     const grandTotal = this._extractGrandTotal(state);
     const grandTotalDisplay = grandTotal ? this._formatMoney(grandTotal) : null;
+
+    // Strip internal costs/markups from analysis before sending to AI
+    // Client must NEVER see base costs, markups, or internal pricing
+    const rawAnalysis = (state.aiAnalysis || '').substring(0, 20000);
+    const analysisSummary = rawAnalysis
+      .replace(/\b(base\s*cost|raw\s*cost|cost\s*before|markup\s*%?|burden|margin|profit\s*%|overhead\s*%|internal)\b[^\n]*\n/gi, '')
+      .replace(/\|\s*(?:Base\s*Cost|Markup|Burden|Margin|Profit)\s*\|/gi, '| — |');
 
     progressCallback(5, 'Crafting executive proposal with AI…');
 
@@ -68,13 +69,21 @@ DATE: ${dateStr}
 VALID UNTIL: ${validUntil}
 CONSULTANT: ${co.consultant}, ${co.title}
 
-═══ COMPLETE BID ANALYSIS DATA ═══
-The following contains the REAL material counts, labor hours, and pricing from our 21-brain AI analysis system. Use these EXACT numbers in the proposal — do NOT invent different numbers:
+TOTAL BID PRICE: ${grandTotalDisplay || 'See financial summary'}
+
+═══ SCOPE DATA (quantities only) ═══
+The following contains device counts, cable quantities, and scope details from our AI analysis. Use these quantities in the proposal — do NOT invent different numbers:
 
 ${analysisSummary}
 
-═══ CRITICAL PRICING RULE ═══
-This proposal is for a CLIENT. You must NEVER show internal costs, base costs, cost breakdowns, markup amounts, or markup percentages anywhere in the proposal. Only show SELL PRICES (the final price the client pays). You may show unit sell prices, quantities, and unit hours — but NEVER internal cost or markup columns. This applies to ALL tables and ALL text throughout the entire proposal.
+═══ ABSOLUTE PRICING RULES — VIOLATION = REJECTED PROPOSAL ═══
+This proposal goes directly to a CLIENT. Internal pricing is CONFIDENTIAL and must NEVER appear:
+- The ONLY dollar amount in the ENTIRE proposal body text is the TOTAL BID PRICE: ${grandTotalDisplay || 'the grand total'}
+- NEVER show: base costs, raw costs, unit costs, material costs, labor costs, markup %, burden %, overhead %, profit %, contingency %, per-item prices, category subtotals, or any cost breakdown
+- NEVER show any dollar figure other than the total bid price in paragraphs, summaries, or descriptions
+- Tables may show quantities and descriptions but NEVER individual prices — only the grand total
+- If ANY internal cost number appears anywhere, the proposal is IMMEDIATELY REJECTED
+- The financial table in the HTML template handles pricing display — the AI text must NOT duplicate or contradict it
 
 ═══ PROPOSAL REQUIREMENTS ═══
 Write a MINIMUM 10-page Fortune 500 executive proposal. Each section must have MULTIPLE rich paragraphs (not just bullet points). This proposal must convince the client that ${co.name} is the ONLY professional choice.
@@ -1043,7 +1052,13 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
         .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
       const refNum = `3DTSI-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 9000 + 1000)}`;
       const year = today.getFullYear();
-      const analysisSummary = (state.aiAnalysis || '').substring(0, 12000);
+      // Strip raw costs/markups from analysis before sending to AI — client should NEVER see internal numbers
+      const rawAnalysis = (state.aiAnalysis || '').substring(0, 12000);
+      const analysisSummary = rawAnalysis
+        .replace(/\b(cost|base\s*cost|raw\s*cost|markup|burden|margin|profit\s*%|overhead)\b[^\n]*\$/gi, '')
+        .replace(/\$[\d,]+\.\d{2}/g, '[REDACTED]');
+      const grandTotalForPrompt = this._extractGrandTotal(state);
+      const grandTotalStr = grandTotalForPrompt ? this._formatMoney(grandTotalForPrompt) : 'See proposal';
       // grandTotal extracted after AI generates text (below)
 
       progressCallback(10, 'Crafting concise executive summary with AI…');
@@ -1055,31 +1070,35 @@ TYPE: ${state.projectType || 'Low Voltage Installation'}
 LOCATION: ${projLoc}
 DISCIPLINES: ${disciplines}
 DATE: ${dateStr}
+TOTAL BID PRICE: ${grandTotalStr}
 
-═══ BID ANALYSIS DATA ═══
+═══ SCOPE DATA (quantities only — NO internal pricing) ═══
 ${analysisSummary}
 
-═══ RULES ═══
-- NEVER show internal costs, markups, or cost breakdowns. Show ONLY sell prices.
+═══ CRITICAL RULES ═══
+- The ONLY dollar amount you may show is the TOTAL BID PRICE: ${grandTotalStr}
+- NEVER show internal costs, raw costs, base costs, markups, margins, burden, overhead, profit percentages, or any cost breakdown
+- NEVER show per-item prices, category subtotals, material costs, or labor costs
+- The Investment Summary table must show descriptions and the total — NOT individual line item prices
+- If you mention any dollar amount other than ${grandTotalStr}, the proposal is REJECTED
 - Be concise but compelling. Every word must earn its place.
 - Use specific quantities and data from the analysis — do NOT make up numbers.
 
 Write EXACTLY this structure in markdown:
 
 ## Executive Summary
-Write 2-3 powerful paragraphs. Open with a compelling hook about the project. State the total scope concisely. Close with why ${co.name} is the best choice. Reference BICSI RCDD, NICET, and 20+ years.
+Write 2-3 powerful paragraphs. Open with a compelling hook about the project. State the total scope concisely. Close with the total investment of ${grandTotalStr} and why ${co.name} is the best choice. Reference BICSI RCDD, NICET, and 20+ years.
 
 ## Scope of Work
-A concise bullet list of what's included, organized ONLY by the selected disciplines: ${disciplines}. Do NOT include any disciplines that are not listed. Use real quantities from the analysis data. Keep to 10-15 key items max.
+A concise bullet list of what's included, organized ONLY by the selected disciplines: ${disciplines}. Do NOT include any disciplines that are not listed. Use real quantities from the analysis data. Keep to 10-15 key items max. Do NOT include prices on any line item.
 
 ## Investment Summary
-Create a markdown table with these columns: | System | Description | Investment |
-Include 4-8 line items that summarize the major cost categories from the analysis for the selected disciplines ONLY. Add a TOTAL row at the bottom.
+State the TOTAL PROJECT INVESTMENT as ${grandTotalStr}. You may list the major systems included (cameras, cabling, access control, etc.) but do NOT show individual prices for any line item. Only the grand total.
 
 ## Key Differentiators
 3-4 bullet points on why ${co.name} is the best choice. Keep each to 1-2 sentences max.
 
-IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity.`;
+IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The ONLY dollar figure in the entire document is ${grandTotalStr}.`;
 
       const requestBody = {
         contents: [{ parts: [{ text: prompt }] }],
