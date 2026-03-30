@@ -7598,6 +7598,7 @@ function buildSymbolInventoryCard(st) {
         </div>
         ${truncated ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">Showing first 500 of ${filtered.length.toLocaleString()} rows. Use the filter to narrow results.</div>` : ''}
         <div style="display:flex;gap:8px;margin-top:14px;">
+          ${(st.planFiles && st.planFiles.length > 0 && st.planFiles.some(f => f.rawFile)) ? `<button id="sym-inv-viewmap-btn" style="padding:6px 14px;border:1px solid rgba(16,185,129,0.4);border-radius:6px;background:rgba(16,185,129,0.1);color:#059669;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">🗺️ View on Plans</button>` : ''}
           <button id="sym-inv-copy-btn" style="padding:6px 14px;border:1px solid rgba(99,102,241,0.3);border-radius:6px;background:rgba(99,102,241,0.08);color:var(--accent-indigo);font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">📋 Copy Table</button>
           <button id="sym-inv-csv-btn" style="padding:6px 14px;border:1px solid rgba(99,102,241,0.3);border-radius:6px;background:rgba(99,102,241,0.08);color:var(--accent-indigo);font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">📥 Export CSV</button>
           ${duplicates.length > 0 ? `<button id="sym-inv-dups-btn" style="padding:6px 14px;border:1px solid rgba(245,158,11,0.3);border-radius:6px;background:rgba(245,158,11,0.08);color:#D97706;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">⚠️ Copy Duplicates</button>` : ''}
@@ -7737,6 +7738,611 @@ function bindSymbolInventoryEvents(container) {
         if (typeof spToast === 'function') spToast('Duplicate report copied', 'success');
       });
     });
+  }
+
+  // View on Plans button — launch the visual symbol map
+  const viewMapBtn = document.getElementById('sym-inv-viewmap-btn');
+  if (viewMapBtn) {
+    viewMapBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openSymbolMapViewer();
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VISUAL SYMBOL MAP — PDF viewer with zone-level device markers
+// Renders floor plan pages from the original PDFs and overlays
+// device count badges at SPATIAL_LAYOUT zone coordinates.
+// ═══════════════════════════════════════════════════════════════
+
+const _symMap = {
+  modal: null,
+  currentPage: 1,
+  totalPages: 0,
+  pdfDocs: [],       // Array of { pdf: PDFDocumentProxy, fileName: string, startPage: number }
+  rendering: false,
+  zoneDeviceMap: null, // Precomputed zone → device mapping
+  activePopup: null,
+};
+
+// Device type → color + emoji mapping for markers
+const _deviceColors = {
+  camera: { bg: 'rgba(220,38,38,0.85)', border: '#DC2626', emoji: '📷', label: 'Camera' },
+  data_outlet: { bg: 'rgba(99,102,241,0.85)', border: '#6366F1', emoji: '🔌', label: 'Data' },
+  card_reader: { bg: 'rgba(245,158,11,0.85)', border: '#F59E0B', emoji: '🔒', label: 'Access' },
+  access_control: { bg: 'rgba(245,158,11,0.85)', border: '#F59E0B', emoji: '🔒', label: 'Access' },
+  motion_detector: { bg: 'rgba(168,85,247,0.85)', border: '#A855F7', emoji: '📡', label: 'Motion' },
+  intrusion: { bg: 'rgba(168,85,247,0.85)', border: '#A855F7', emoji: '🚨', label: 'Intrusion' },
+  fire_alarm: { bg: 'rgba(239,68,68,0.85)', border: '#EF4444', emoji: '🔥', label: 'Fire' },
+  speaker: { bg: 'rgba(34,197,94,0.85)', border: '#22C55E', emoji: '🔊', label: 'Speaker' },
+  wap: { bg: 'rgba(59,130,246,0.85)', border: '#3B82F6', emoji: '📶', label: 'WAP' },
+  wireless_ap: { bg: 'rgba(59,130,246,0.85)', border: '#3B82F6', emoji: '📶', label: 'WAP' },
+  display: { bg: 'rgba(236,72,153,0.85)', border: '#EC4899', emoji: '📺', label: 'Display' },
+  intercom: { bg: 'rgba(20,184,166,0.85)', border: '#14B8A6', emoji: '📞', label: 'Intercom' },
+  _default: { bg: 'rgba(107,114,128,0.85)', border: '#6B7280', emoji: '📍', label: 'Device' },
+};
+
+function _getDeviceColor(type) {
+  const t = (type || '').toLowerCase().replace(/\s+/g, '_');
+  for (const [key, val] of Object.entries(_deviceColors)) {
+    if (key === '_default') continue;
+    if (t.includes(key)) return val;
+  }
+  return _deviceColors._default;
+}
+
+/**
+ * Build zone → device mapping by cross-referencing SPATIAL_LAYOUT zones with SYMBOL_SCANNER inventory.
+ * Returns Map<floorNumber, Array<{ zone, x_pct, y_pct, devices[], totalCount, isIdf }>>
+ */
+function _buildZoneDeviceMap() {
+  const spatial = state.brainResults?.wave0?.SPATIAL_LAYOUT;
+  const scanner = state.brainResults?.wave1?.SYMBOL_SCANNER;
+  if (!spatial?.floors || !scanner) return null;
+
+  const inventory = getSymbolInventoryData(state);
+  if (!inventory) return null;
+
+  const floorMap = new Map(); // floorIndex → zones[]
+
+  spatial.floors.forEach((floor, floorIdx) => {
+    const zones = [];
+    const floorLabel = floor.floor_label || `Floor ${floor.floor || floorIdx + 1}`;
+
+    // Add IDF markers
+    (floor.idf_locations || []).forEach(idf => {
+      zones.push({
+        zone: idf.label || idf.room_name || 'IDF',
+        x_pct: idf.approx_x_pct || 50,
+        y_pct: idf.approx_y_pct || 50,
+        isIdf: true,
+        roomName: idf.room_name || idf.label,
+        description: idf.description || '',
+        devices: [],
+        totalCount: 0,
+      });
+    });
+
+    // Add device zone markers
+    (floor.device_zones || []).forEach(dz => {
+      const zoneName = dz.zone || 'Unknown Zone';
+      // Match devices to this zone by fuzzy room name matching
+      const matchedDevices = [];
+      inventory.items.forEach(item => {
+        // Match if room name is contained in zone name or vice versa
+        const roomLc = item.room.toLowerCase();
+        const zoneLc = zoneName.toLowerCase();
+        const floorLc = (item.floor || '').toLowerCase();
+        const floorLabelLc = floorLabel.toLowerCase();
+
+        // Must match floor (if we have floor data)
+        const floorMatch = !item.floor || item.floor === 'Unknown Floor' ||
+          floorLabelLc.includes(String(floor.floor)) ||
+          floorLc.includes(String(floor.floor)) ||
+          floorLc.includes(floorLabelLc) ||
+          floorLabelLc.includes(floorLc);
+
+        if (!floorMatch) return;
+
+        // Room-to-zone matching: fuzzy containment
+        const roomWords = roomLc.split(/[\s\/,&-]+/).filter(w => w.length > 2);
+        const zoneWords = zoneLc.split(/[\s\/,&-]+/).filter(w => w.length > 2);
+        const hasOverlap = roomWords.some(rw => zoneWords.some(zw => rw.includes(zw) || zw.includes(rw)));
+        const directMatch = roomLc.includes(zoneLc) || zoneLc.includes(roomLc);
+
+        if (directMatch || hasOverlap) {
+          matchedDevices.push(item);
+        }
+      });
+
+      zones.push({
+        zone: zoneName,
+        x_pct: dz.approx_x_pct || 50,
+        y_pct: dz.approx_y_pct || 50,
+        isIdf: false,
+        nearestIdf: dz.nearest_idf || '',
+        devices: matchedDevices,
+        totalCount: matchedDevices.reduce((s, d) => s + d.qty, 0),
+      });
+    });
+
+    // Collect unmatched devices for this floor and place them in a fallback cluster
+    const matchedItemIdxs = new Set();
+    zones.forEach(z => z.devices.forEach(d => matchedItemIdxs.add(d._idx)));
+
+    const unmatched = inventory.items.filter(item => {
+      if (matchedItemIdxs.has(item._idx)) return false;
+      const floorLc = (item.floor || '').toLowerCase();
+      const floorLabelLc = floorLabel.toLowerCase();
+      return !item.floor || item.floor === 'Unknown Floor' ||
+        floorLabelLc.includes(String(floor.floor)) || floorLc.includes(String(floor.floor));
+    });
+
+    if (unmatched.length > 0) {
+      zones.push({
+        zone: 'Other / Unmatched',
+        x_pct: 50,
+        y_pct: 95,
+        isIdf: false,
+        devices: unmatched,
+        totalCount: unmatched.reduce((s, d) => s + d.qty, 0),
+      });
+    }
+
+    floorMap.set(floorIdx, { floorLabel, zones, sheetIds: floor.sheet_ids || [] });
+  });
+
+  return floorMap;
+}
+
+/**
+ * Open the Visual Symbol Map modal viewer.
+ */
+async function openSymbolMapViewer() {
+  if (typeof pdfjsLib === 'undefined') {
+    if (typeof spToast === 'function') spToast('PDF.js not loaded — cannot render plans', 'warning');
+    return;
+  }
+
+  const planFiles = (state.planFiles || []).filter(f => f.rawFile && f.type === 'application/pdf');
+  if (planFiles.length === 0) {
+    if (typeof spToast === 'function') spToast('No PDF plan files available in this session', 'warning');
+    return;
+  }
+
+  // Build zone-device mapping
+  _symMap.zoneDeviceMap = _buildZoneDeviceMap();
+
+  // Show loading modal immediately
+  _createSymbolMapModal();
+  _showMapLoading('Loading floor plans...');
+
+  // Load all PDF documents
+  _symMap.pdfDocs = [];
+  _symMap.totalPages = 0;
+
+  try {
+    for (const pf of planFiles) {
+      const ab = await pf.rawFile.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+      _symMap.pdfDocs.push({ pdf, fileName: pf.name, startPage: _symMap.totalPages + 1 });
+      _symMap.totalPages += pdf.numPages;
+    }
+  } catch (err) {
+    console.error('[SymbolMap] PDF load error:', err);
+    _showMapLoading('Failed to load PDF files: ' + err.message);
+    return;
+  }
+
+  _symMap.currentPage = 1;
+  await _renderMapPage(_symMap.currentPage);
+}
+
+function _createSymbolMapModal() {
+  // Remove existing modal if present
+  if (_symMap.modal) _symMap.modal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'symbol-map-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:10000;display:flex;flex-direction:column;';
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:rgba(0,0,0,0.6);border-bottom:1px solid rgba(255,255,255,0.1);flex-shrink:0;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-size:18px;">🗺️</span>
+        <span style="font-size:15px;font-weight:700;color:#fff;">Visual Symbol Map</span>
+        <span id="smap-page-info" style="font-size:12px;color:rgba(255,255,255,0.6);"></span>
+        <span id="smap-file-info" style="font-size:11px;color:rgba(255,255,255,0.4);font-style:italic;"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button id="smap-prev" style="padding:6px 14px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;background:rgba(255,255,255,0.08);color:#fff;font-size:12px;font-weight:600;cursor:pointer;" title="Previous page">◀ Prev</button>
+        <button id="smap-next" style="padding:6px 14px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;background:rgba(255,255,255,0.08);color:#fff;font-size:12px;font-weight:600;cursor:pointer;" title="Next page">Next ▶</button>
+        <span style="width:1px;height:24px;background:rgba(255,255,255,0.15);margin:0 4px;"></span>
+        <button id="smap-zoom-in" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;background:rgba(255,255,255,0.08);color:#fff;font-size:14px;cursor:pointer;" title="Zoom in">+</button>
+        <button id="smap-zoom-out" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;background:rgba(255,255,255,0.08);color:#fff;font-size:14px;cursor:pointer;" title="Zoom out">−</button>
+        <span id="smap-zoom-level" style="font-size:11px;color:rgba(255,255,255,0.5);min-width:40px;text-align:center;">100%</span>
+        <span style="width:1px;height:24px;background:rgba(255,255,255,0.15);margin:0 4px;"></span>
+        <button id="smap-close" style="padding:6px 14px;border:1px solid rgba(239,68,68,0.4);border-radius:6px;background:rgba(239,68,68,0.15);color:#FCA5A5;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">✕ Close</button>
+      </div>
+    </div>
+    <div style="display:flex;flex:1;overflow:hidden;">
+      <div id="smap-canvas-area" style="flex:1;overflow:auto;position:relative;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.3);">
+        <div id="smap-canvas-wrapper" style="position:relative;display:inline-block;">
+          <canvas id="smap-canvas" style="display:block;"></canvas>
+          <div id="smap-markers" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></div>
+        </div>
+        <div id="smap-loading" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:14px;text-align:center;"></div>
+      </div>
+      <div id="smap-sidebar" style="width:320px;background:rgba(15,15,20,0.95);border-left:1px solid rgba(255,255,255,0.08);overflow-y:auto;flex-shrink:0;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:12px;">📋 Devices on This Page</div>
+        <div id="smap-device-list" style="font-size:12px;color:rgba(255,255,255,0.7);"></div>
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.08);">
+          <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Legend</div>
+          <div id="smap-legend" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(modal);
+  _symMap.modal = modal;
+  _symMap._zoomScale = 1.0;
+
+  // Bind controls
+  document.getElementById('smap-close').addEventListener('click', _closeSymbolMapViewer);
+  document.getElementById('smap-prev').addEventListener('click', () => _navigateMapPage(-1));
+  document.getElementById('smap-next').addEventListener('click', () => _navigateMapPage(1));
+  document.getElementById('smap-zoom-in').addEventListener('click', () => _zoomMap(0.25));
+  document.getElementById('smap-zoom-out').addEventListener('click', () => _zoomMap(-0.25));
+
+  // Keyboard navigation
+  modal._keyHandler = (e) => {
+    if (e.key === 'Escape') _closeSymbolMapViewer();
+    if (e.key === 'ArrowLeft') _navigateMapPage(-1);
+    if (e.key === 'ArrowRight') _navigateMapPage(1);
+    if (e.key === '+' || e.key === '=') _zoomMap(0.25);
+    if (e.key === '-') _zoomMap(-0.25);
+  };
+  document.addEventListener('keydown', modal._keyHandler);
+
+  // Build legend
+  const legendEl = document.getElementById('smap-legend');
+  if (legendEl) {
+    const usedTypes = new Set();
+    const inv = getSymbolInventoryData(state);
+    if (inv) inv.items.forEach(i => usedTypes.add(i.type));
+    usedTypes.forEach(type => {
+      const c = _getDeviceColor(type);
+      legendEl.innerHTML += `<div style="display:flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(255,255,255,0.04);border-radius:4px;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${c.bg};border:1px solid ${c.border};flex-shrink:0;"></span>
+        <span style="font-size:10px;color:rgba(255,255,255,0.6);text-transform:capitalize;">${type.replace(/_/g, ' ')}</span>
+      </div>`;
+    });
+    // IDF marker
+    legendEl.innerHTML += `<div style="display:flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(255,255,255,0.04);border-radius:4px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:rgba(16,185,129,0.9);border:1px solid #10B981;flex-shrink:0;"></span>
+      <span style="font-size:10px;color:rgba(255,255,255,0.6);">IDF / MDF Room</span>
+    </div>`;
+  }
+}
+
+function _showMapLoading(msg) {
+  const el = document.getElementById('smap-loading');
+  if (el) el.innerHTML = `<div style="font-size:24px;margin-bottom:8px;">⏳</div>${msg}`;
+}
+
+function _closeSymbolMapViewer() {
+  if (_symMap.modal) {
+    if (_symMap.modal._keyHandler) document.removeEventListener('keydown', _symMap.modal._keyHandler);
+    _symMap.modal.remove();
+    _symMap.modal = null;
+  }
+  _symMap.pdfDocs = [];
+  _symMap.totalPages = 0;
+}
+
+function _navigateMapPage(delta) {
+  const newPage = _symMap.currentPage + delta;
+  if (newPage < 1 || newPage > _symMap.totalPages) return;
+  _symMap.currentPage = newPage;
+  _renderMapPage(newPage);
+}
+
+function _zoomMap(delta) {
+  _symMap._zoomScale = Math.max(0.25, Math.min(3.0, (_symMap._zoomScale || 1) + delta));
+  const zoomLabel = document.getElementById('smap-zoom-level');
+  if (zoomLabel) zoomLabel.textContent = Math.round(_symMap._zoomScale * 100) + '%';
+  // Re-render at new zoom
+  _renderMapPage(_symMap.currentPage);
+}
+
+/**
+ * Render a specific page with markers overlaid.
+ */
+async function _renderMapPage(globalPageNum) {
+  if (_symMap.rendering) return;
+  _symMap.rendering = true;
+
+  const loadingEl = document.getElementById('smap-loading');
+  if (loadingEl) loadingEl.style.display = 'block';
+
+  try {
+    // Find which PDF doc and which page within it
+    let pdfEntry = null;
+    let localPage = globalPageNum;
+    for (const entry of _symMap.pdfDocs) {
+      const pagesInDoc = entry.pdf.numPages;
+      if (localPage <= pagesInDoc) {
+        pdfEntry = entry;
+        break;
+      }
+      localPage -= pagesInDoc;
+    }
+
+    if (!pdfEntry) { _symMap.rendering = false; return; }
+
+    const page = await pdfEntry.pdf.getPage(localPage);
+
+    // Calculate scale to fit viewport while respecting zoom
+    const canvasArea = document.getElementById('smap-canvas-area');
+    const areaW = canvasArea.clientWidth - 40;
+    const areaH = canvasArea.clientHeight - 40;
+    const viewport0 = page.getViewport({ scale: 1.0 });
+    const fitScale = Math.min(areaW / viewport0.width, areaH / viewport0.height);
+    const renderScale = fitScale * (_symMap._zoomScale || 1);
+    const viewport = page.getViewport({ scale: renderScale });
+
+    // Render PDF page to canvas
+    const canvas = document.getElementById('smap-canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    // Update page info
+    const pageInfo = document.getElementById('smap-page-info');
+    if (pageInfo) pageInfo.textContent = `Page ${globalPageNum} of ${_symMap.totalPages}`;
+    const fileInfo = document.getElementById('smap-file-info');
+    if (fileInfo) fileInfo.textContent = pdfEntry.fileName + (pdfEntry.pdf.numPages > 1 ? ` (pg ${localPage})` : '');
+
+    // Update markers
+    _drawMapMarkers(canvas.width, canvas.height, globalPageNum);
+
+    // Update sidebar device list
+    _updateMapSidebar(globalPageNum);
+
+    if (loadingEl) loadingEl.style.display = 'none';
+  } catch (err) {
+    console.error('[SymbolMap] Render error:', err);
+    if (loadingEl) loadingEl.innerHTML = `<div style="color:#FCA5A5;">Render error: ${err.message}</div>`;
+  }
+
+  _symMap.rendering = false;
+}
+
+/**
+ * Draw zone markers on the overlay layer.
+ */
+function _drawMapMarkers(canvasW, canvasH, globalPageNum) {
+  const markersEl = document.getElementById('smap-markers');
+  if (!markersEl) return;
+  markersEl.innerHTML = '';
+  markersEl.style.width = canvasW + 'px';
+  markersEl.style.height = canvasH + 'px';
+
+  const zoneMap = _symMap.zoneDeviceMap;
+  if (!zoneMap) {
+    // No spatial data — show message
+    markersEl.innerHTML = `<div style="position:absolute;bottom:16px;left:16px;background:rgba(0,0,0,0.7);color:rgba(255,255,255,0.7);padding:8px 14px;border-radius:8px;font-size:11px;pointer-events:auto;">
+      ℹ️ No SPATIAL_LAYOUT data — zone coordinates unavailable. Devices listed in sidebar.
+    </div>`;
+    return;
+  }
+
+  // Determine which floor this page corresponds to
+  // Heuristic: page order matches floor order (floor 0 → page 1, floor 1 → page 2, etc.)
+  // For multi-page-per-floor plans, distribute evenly
+  const numFloors = zoneMap.size;
+  let floorIdx;
+  if (numFloors === 0) return;
+  if (_symMap.totalPages <= numFloors) {
+    floorIdx = globalPageNum - 1;
+  } else {
+    // Multiple pages per floor — distribute pages across floors proportionally
+    floorIdx = Math.min(Math.floor((globalPageNum - 1) * numFloors / _symMap.totalPages), numFloors - 1);
+  }
+
+  const floorData = zoneMap.get(floorIdx);
+  if (!floorData) return;
+
+  // Place markers
+  floorData.zones.forEach((zone, zIdx) => {
+    const x = (zone.x_pct / 100) * canvasW;
+    const y = (zone.y_pct / 100) * canvasH;
+
+    if (zone.isIdf) {
+      // IDF marker — green square
+      const marker = document.createElement('div');
+      marker.style.cssText = `position:absolute;left:${x - 14}px;top:${y - 14}px;width:28px;height:28px;background:rgba(16,185,129,0.9);border:2px solid #10B981;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,0.4);z-index:10;`;
+      marker.title = `${zone.zone} — ${zone.roomName || ''}`;
+      marker.textContent = '🏢';
+      marker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _showMapPopup(x, y, `<div style="font-weight:700;margin-bottom:4px;">🏢 ${esc(zone.zone)}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.6);">${esc(zone.roomName || '')} ${esc(zone.description || '')}</div>`);
+      });
+      markersEl.appendChild(marker);
+      // Label
+      const label = document.createElement('div');
+      label.style.cssText = `position:absolute;left:${x + 18}px;top:${y - 8}px;font-size:10px;font-weight:700;color:#10B981;text-shadow:0 1px 3px rgba(0,0,0,0.8);white-space:nowrap;pointer-events:none;`;
+      label.textContent = zone.zone;
+      markersEl.appendChild(label);
+    } else if (zone.totalCount > 0) {
+      // Device zone marker — colored circle with count
+      // Aggregate by device type for multi-color ring
+      const typeCounts = {};
+      zone.devices.forEach(d => {
+        const key = d.type;
+        if (!typeCounts[key]) typeCounts[key] = 0;
+        typeCounts[key] += d.qty;
+      });
+
+      const typeEntries = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
+      const primaryType = typeEntries[0]?.[0] || '';
+      const primaryColor = _getDeviceColor(primaryType);
+      const size = Math.min(48, Math.max(30, 20 + zone.totalCount * 0.5));
+      const halfSize = size / 2;
+
+      const marker = document.createElement('div');
+      marker.style.cssText = `position:absolute;left:${x - halfSize}px;top:${y - halfSize}px;width:${size}px;height:${size}px;background:${primaryColor.bg};border:2px solid ${primaryColor.border};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${zone.totalCount > 99 ? 10 : 12}px;font-weight:800;color:#fff;cursor:pointer;pointer-events:auto;box-shadow:0 2px 10px rgba(0,0,0,0.5);z-index:${10 + zone.totalCount};transition:transform 0.15s;`;
+      marker.textContent = zone.totalCount;
+      marker.title = `${zone.zone}: ${zone.totalCount} devices`;
+
+      marker.addEventListener('mouseenter', () => { marker.style.transform = 'scale(1.2)'; });
+      marker.addEventListener('mouseleave', () => { marker.style.transform = 'scale(1)'; });
+      marker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        let popupHtml = `<div style="font-weight:700;margin-bottom:6px;font-size:13px;">${esc(zone.zone)}</div>`;
+        popupHtml += `<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:8px;">${zone.totalCount} device${zone.totalCount !== 1 ? 's' : ''} in this zone</div>`;
+        typeEntries.forEach(([type, count]) => {
+          const c = _getDeviceColor(type);
+          popupHtml += `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${c.bg};flex-shrink:0;"></span>
+            <span style="flex:1;text-transform:capitalize;">${type.replace(/_/g, ' ')}</span>
+            <span style="font-weight:700;">${count}</span>
+          </div>`;
+        });
+        // Show rooms
+        const rooms = [...new Set(zone.devices.map(d => d.room))];
+        if (rooms.length > 0) {
+          popupHtml += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.1);font-size:10px;color:rgba(255,255,255,0.4);">Rooms: ${rooms.map(r => esc(r)).join(', ')}</div>`;
+        }
+        _showMapPopup(x, y, popupHtml);
+      });
+
+      markersEl.appendChild(marker);
+
+      // Zone label below marker
+      const label = document.createElement('div');
+      label.style.cssText = `position:absolute;left:${x}px;top:${y + halfSize + 4}px;transform:translateX(-50%);font-size:10px;font-weight:600;color:rgba(255,255,255,0.8);text-shadow:0 1px 4px rgba(0,0,0,0.9);white-space:nowrap;pointer-events:none;max-width:120px;overflow:hidden;text-overflow:ellipsis;text-align:center;`;
+      label.textContent = zone.zone;
+      markersEl.appendChild(label);
+
+      // If multiple device types, add small secondary badges
+      if (typeEntries.length > 1) {
+        typeEntries.slice(1, 3).forEach(([ type2, count2 ], i) => {
+          const c2 = _getDeviceColor(type2);
+          const badge = document.createElement('div');
+          const bx = x + halfSize + 2 + (i * 18);
+          const by = y - halfSize - 2;
+          badge.style.cssText = `position:absolute;left:${bx}px;top:${by}px;width:18px;height:18px;background:${c2.bg};border:1.5px solid ${c2.border};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,0.4);`;
+          badge.textContent = count2;
+          markersEl.appendChild(badge);
+        });
+      }
+    }
+  });
+
+  // Page floor label
+  const floorBadge = document.createElement('div');
+  floorBadge.style.cssText = 'position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.7);color:#fff;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;pointer-events:none;';
+  floorBadge.textContent = floorData.floorLabel;
+  markersEl.appendChild(floorBadge);
+
+  // Count badge
+  const totalOnPage = floorData.zones.reduce((s, z) => s + z.totalCount, 0);
+  if (totalOnPage > 0) {
+    const countBadge = document.createElement('div');
+    countBadge.style.cssText = 'position:absolute;top:12px;right:12px;background:rgba(99,102,241,0.85);color:#fff;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;pointer-events:none;';
+    countBadge.textContent = `${totalOnPage} devices mapped`;
+    markersEl.appendChild(countBadge);
+  }
+}
+
+function _showMapPopup(x, y, html) {
+  // Remove any existing popup
+  if (_symMap.activePopup) _symMap.activePopup.remove();
+
+  const popup = document.createElement('div');
+  popup.style.cssText = `position:absolute;left:${x + 20}px;top:${y - 10}px;background:rgba(20,20,30,0.95);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:12px 16px;font-size:12px;color:#fff;pointer-events:auto;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.6);min-width:180px;max-width:280px;`;
+  popup.innerHTML = html + `<div style="margin-top:8px;text-align:right;"><button onclick="this.closest('div[style]').remove()" style="padding:2px 10px;border:1px solid rgba(255,255,255,0.2);border-radius:4px;background:transparent;color:rgba(255,255,255,0.5);font-size:10px;cursor:pointer;">Close</button></div>`;
+
+  const markersEl = document.getElementById('smap-markers');
+  if (markersEl) markersEl.appendChild(popup);
+  _symMap.activePopup = popup;
+
+  // Close when clicking outside
+  setTimeout(() => {
+    const handler = (e) => {
+      if (!popup.contains(e.target)) {
+        popup.remove();
+        document.removeEventListener('click', handler);
+        if (_symMap.activePopup === popup) _symMap.activePopup = null;
+      }
+    };
+    document.addEventListener('click', handler);
+  }, 100);
+}
+
+function _updateMapSidebar(globalPageNum) {
+  const listEl = document.getElementById('smap-device-list');
+  if (!listEl) return;
+
+  const zoneMap = _symMap.zoneDeviceMap;
+  if (!zoneMap) {
+    // Fallback: show full inventory
+    const inv = getSymbolInventoryData(state);
+    if (!inv) { listEl.innerHTML = '<div style="color:rgba(255,255,255,0.4);">No device data available.</div>'; return; }
+    listEl.innerHTML = inv.items.slice(0, 50).map(i => `
+      <div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:6px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:${_getDeviceColor(i.type).bg};flex-shrink:0;"></span>
+        <span style="flex:1;text-transform:capitalize;font-size:11px;">${esc(i.type.replace(/_/g, ' '))}${i.subtype ? ' (' + esc(i.subtype) + ')' : ''}</span>
+        <span style="font-weight:700;font-size:12px;">${i.qty}</span>
+        <span style="font-size:10px;color:rgba(255,255,255,0.3);">${esc(i.room)}</span>
+      </div>`).join('');
+    return;
+  }
+
+  // Get floor for this page
+  const numFloors = zoneMap.size;
+  let floorIdx;
+  if (_symMap.totalPages <= numFloors) {
+    floorIdx = globalPageNum - 1;
+  } else {
+    floorIdx = Math.min(Math.floor((globalPageNum - 1) * numFloors / _symMap.totalPages), numFloors - 1);
+  }
+
+  const floorData = zoneMap.get(floorIdx);
+  if (!floorData) { listEl.innerHTML = '<div style="color:rgba(255,255,255,0.4);">No data for this page.</div>'; return; }
+
+  let html = '';
+  floorData.zones.forEach(zone => {
+    if (zone.isIdf) {
+      html += `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
+        <div style="font-size:12px;font-weight:700;color:#10B981;">🏢 ${esc(zone.zone)}</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.4);">${esc(zone.roomName || '')} ${esc(zone.description || '')}</div>
+      </div>`;
+    } else if (zone.totalCount > 0) {
+      // Aggregate by type
+      const typeCounts = {};
+      zone.devices.forEach(d => { typeCounts[d.type] = (typeCounts[d.type] || 0) + d.qty; });
+      html += `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
+        <div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:4px;">${esc(zone.zone)} <span style="font-weight:400;color:rgba(255,255,255,0.4);">(${zone.totalCount})</span></div>
+        ${Object.entries(typeCounts).map(([type, count]) => {
+          const c = _getDeviceColor(type);
+          return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0 2px 8px;">
+            <span style="width:7px;height:7px;border-radius:50%;background:${c.bg};flex-shrink:0;"></span>
+            <span style="flex:1;text-transform:capitalize;font-size:11px;color:rgba(255,255,255,0.7);">${type.replace(/_/g, ' ')}</span>
+            <span style="font-weight:700;font-size:11px;color:#fff;">×${count}</span>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+  });
+
+  const totalOnPage = floorData.zones.reduce((s, z) => s + z.totalCount, 0);
+  listEl.innerHTML = html || '<div style="color:rgba(255,255,255,0.4);">No devices mapped to this page.</div>';
+  if (totalOnPage > 0) {
+    listEl.innerHTML += `<div style="margin-top:12px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;font-weight:700;color:rgba(255,255,255,0.8);">Total: ${totalOnPage} devices</div>`;
   }
 }
 
