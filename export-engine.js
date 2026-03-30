@@ -145,6 +145,17 @@ const SmartPlansExport = {
             // Bid Phases / Alternates for multi-phase option pricing
             bidPhases: this._buildBidPhasesExport(state, filteredBom),
 
+            // Symbol Inventory Audit — per-sheet/per-location device breakdown for count verification
+            symbolInventory: typeof getSymbolInventoryData === 'function' ? (() => {
+                const inv = getSymbolInventoryData(state);
+                if (!inv) return null;
+                return {
+                    items: inv.items.map(i => ({ sheet: i.sheet, floor: i.floor, room: i.room, type: i.type, subtype: i.subtype, qty: i.qty, confidence: i.confidence })),
+                    duplicates: inv.duplicates.map(d => ({ label: d.label, sheets: d.sheets, totalQty: d.totalQty })),
+                    stats: inv.stats,
+                };
+            })() : null,
+
             rfis: this._extractRFIs(state),
 
             // Exclusions & Assumptions — legal protection lists for proposals

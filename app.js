@@ -616,6 +616,9 @@ const state = {
   ceilingHeight: 10,        // ft, typical finished ceiling height
   floorToFloorHeight: 14,   // ft, slab-to-slab height
   _cablePathwayOpen: false,
+  _symbolInventoryOpen: false,
+  _symbolInventorySort: 'sheet',     // 'sheet', 'type', 'room', 'floor'
+  _symbolInventoryFilter: '',         // device type filter
 
   // Pricing Configuration (loaded from PRICING_DB defaults)
   pricingTier: "mid",  // "budget", "mid", "premium"
@@ -3131,6 +3134,8 @@ function renderStep7(container) {
 
     ${buildChangeOrderCard(state)}
 
+    ${buildSymbolInventoryCard(state)}
+
     <div class="info-card" id="bid-compare-card" style="border-left:3px solid #0D9488;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" id="bid-compare-toggle">
         <h3 class="info-card-title" style="margin:0;">
@@ -3440,6 +3445,7 @@ function renderStep7(container) {
   bindCablePathwayEvents(container);
   bindBidPhasesEvents(container);
   bindChangeOrderEvents(container);
+  bindSymbolInventoryEvents(container);
 
   // ── Bid Compare toggle ──
   const bcToggle = document.getElementById('bid-compare-toggle');
@@ -7297,6 +7303,439 @@ function bindCablePathwayEvents(container) {
       const icon = document.getElementById('cable-pathway-toggle-icon');
       if (body) body.style.display = state._cablePathwayOpen ? 'block' : 'none';
       if (icon) icon.textContent = state._cablePathwayOpen ? '▼' : '▶';
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SYMBOL INVENTORY AUDIT — Per-sheet/per-location device verification
+// Extracts device_inventory from SYMBOL_SCANNER brain results
+// and cross-references sheets to detect potential duplicate counts
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Extract, normalize, and enrich the raw device inventory from SYMBOL_SCANNER.
+ * Returns { items[], duplicates[], deviceTypes[], sheetIds[], stats }.
+ */
+function getSymbolInventoryData(st) {
+  const scanner = st.brainResults?.wave1?.SYMBOL_SCANNER;
+  if (!scanner) return null;
+
+  // Gather items from device_inventory (preferred) or sheets[].symbols[].device_locations
+  let rawItems = [];
+
+  if (Array.isArray(scanner.device_inventory) && scanner.device_inventory.length > 0) {
+    rawItems = scanner.device_inventory.map((d, i) => ({
+      _idx: i,
+      type: String(d.type || 'unknown').toLowerCase().trim(),
+      subtype: (d.subtype || '').toLowerCase().trim(),
+      room: String(d.room || d.location || 'Unspecified').trim(),
+      floor: String(d.floor || 'Unknown Floor').trim(),
+      sheet: String(d.sheet || d.sheet_id || 'N/A').trim(),
+      qty: parseInt(d.qty || d.count || 1) || 1,
+      confidence: d.confidence || null,
+    }));
+  } else if (Array.isArray(scanner.sheets)) {
+    // Fallback: reconstruct from sheets[].symbols[].device_locations
+    scanner.sheets.forEach(sh => {
+      const sheetId = sh.sheet_id || sh.sheet_name || 'N/A';
+      (sh.symbols || []).forEach(sym => {
+        if (Array.isArray(sym.device_locations)) {
+          sym.device_locations.forEach(dl => {
+            rawItems.push({
+              _idx: rawItems.length,
+              type: String(sym.type || 'unknown').toLowerCase().trim(),
+              subtype: (sym.subtype || '').toLowerCase().trim(),
+              room: String(dl.room || dl.area || 'Unspecified').trim(),
+              floor: '',
+              sheet: String(sheetId).trim(),
+              qty: parseInt(dl.qty || dl.count || 1) || 1,
+              confidence: sym.confidence || null,
+            });
+          });
+        } else {
+          // No per-location breakdown — one aggregate row per symbol per sheet
+          rawItems.push({
+            _idx: rawItems.length,
+            type: String(sym.type || 'unknown').toLowerCase().trim(),
+            subtype: (sym.subtype || '').toLowerCase().trim(),
+            room: Array.isArray(sym.locations) ? sym.locations.join(', ') : 'Various',
+            floor: '',
+            sheet: String(sheetId).trim(),
+            qty: parseInt(sym.count || 1) || 1,
+            confidence: sym.confidence || null,
+          });
+        }
+      });
+    });
+  }
+
+  if (rawItems.length === 0) return null;
+
+  // Enrich floor data from PER_FLOOR_ANALYZER if available
+  const floorData = st.brainResults?.wave1_5?.PER_FLOOR_ANALYZER?.floor_breakdown || [];
+  if (floorData.length > 0) {
+    const sheetToFloor = {};
+    floorData.forEach(fb => {
+      (fb.sheets || []).forEach(s => { sheetToFloor[s] = fb.floor; });
+    });
+    rawItems.forEach(item => {
+      if ((!item.floor || item.floor === 'Unknown Floor') && sheetToFloor[item.sheet]) {
+        item.floor = sheetToFloor[item.sheet];
+      }
+    });
+  }
+
+  // Collect unique device types and sheet IDs
+  const deviceTypes = [...new Set(rawItems.map(d => d.type))].sort();
+  const sheetIds = [...new Set(rawItems.map(d => d.sheet))].sort((a, b) => {
+    // Natural sort: E1.01 before E2.01 before ED1.01
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  });
+
+  // Duplicate detection: same (type + subtype + room) appearing on different sheets
+  const locationMap = {};
+  rawItems.forEach(item => {
+    const key = `${item.type}|${item.subtype}|${item.room.toLowerCase()}`;
+    if (!locationMap[key]) locationMap[key] = [];
+    locationMap[key].push(item);
+  });
+
+  const duplicates = [];
+  for (const [key, items] of Object.entries(locationMap)) {
+    const uniqueSheets = [...new Set(items.map(i => i.sheet))];
+    if (uniqueSheets.length > 1) {
+      const [type, subtype, room] = key.split('|');
+      const totalQty = items.reduce((s, i) => s + i.qty, 0);
+      duplicates.push({
+        type, subtype, room,
+        sheets: uniqueSheets,
+        items,
+        totalQty,
+        label: `${type}${subtype ? ' – ' + subtype : ''} in "${room}"`,
+      });
+    }
+  }
+
+  // Stats
+  const totalSymbols = rawItems.reduce((s, i) => s + i.qty, 0);
+  const uniqueLocations = new Set(rawItems.map(i => `${i.room}|${i.floor}`)).size;
+
+  return {
+    items: rawItems,
+    duplicates,
+    deviceTypes,
+    sheetIds,
+    stats: {
+      totalSymbols,
+      totalRows: rawItems.length,
+      uniqueLocations,
+      sheetsScanned: sheetIds.length,
+      duplicateGroups: duplicates.length,
+      duplicateQty: duplicates.reduce((s, d) => s + d.totalQty, 0),
+    },
+  };
+}
+
+function buildSymbolInventoryCard(st) {
+  if (!st.aiAnalysis) return '';
+  const data = getSymbolInventoryData(st);
+  if (!data) return '';
+
+  const open = st._symbolInventoryOpen;
+  const { items, duplicates, deviceTypes, sheetIds, stats } = data;
+  const sortBy = st._symbolInventorySort || 'sheet';
+  const filterType = st._symbolInventoryFilter || '';
+
+  // Sort items
+  const sorted = [...items];
+  sorted.sort((a, b) => {
+    if (sortBy === 'sheet') return a.sheet.localeCompare(b.sheet, undefined, { numeric: true }) || a.room.localeCompare(b.room) || a.type.localeCompare(b.type);
+    if (sortBy === 'type') return a.type.localeCompare(b.type) || a.subtype.localeCompare(b.subtype) || a.sheet.localeCompare(b.sheet, undefined, { numeric: true });
+    if (sortBy === 'room') return a.room.localeCompare(b.room) || a.sheet.localeCompare(b.sheet, undefined, { numeric: true });
+    if (sortBy === 'floor') return a.floor.localeCompare(b.floor) || a.sheet.localeCompare(b.sheet, undefined, { numeric: true }) || a.room.localeCompare(b.room);
+    return 0;
+  });
+
+  // Apply type filter
+  const filtered = filterType ? sorted.filter(i => i.type === filterType) : sorted;
+  const filteredTotal = filtered.reduce((s, i) => s + i.qty, 0);
+
+  // Build rows for visible items (capped at 500 for performance)
+  const displayItems = filtered.slice(0, 500);
+  const truncated = filtered.length > 500;
+
+  // Identify which items are part of duplicate groups for highlighting
+  const dupItemIdxs = new Set();
+  duplicates.forEach(d => d.items.forEach(i => dupItemIdxs.add(i._idx)));
+
+  const rows = displayItems.map(item => {
+    const isDup = dupItemIdxs.has(item._idx);
+    const rowBg = isDup ? 'background:rgba(245,158,11,0.06);' : '';
+    const typeLabel = item.type.replace(/_/g, ' ');
+    const subtypeLabel = item.subtype ? item.subtype.replace(/_/g, ' ') : '';
+    const confBadge = item.confidence != null
+      ? `<span style="font-size:9px;padding:1px 5px;border-radius:10px;${item.confidence >= 90 ? 'background:rgba(16,185,129,0.1);color:#10B981;' : item.confidence >= 70 ? 'background:rgba(245,158,11,0.1);color:#D97706;' : 'background:rgba(220,38,38,0.1);color:#DC2626;'}">${item.confidence}%</span>`
+      : '';
+    return `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);${rowBg}">
+      <td style="padding:6px 10px;font-size:12px;font-weight:600;color:var(--accent-indigo);white-space:nowrap;">${esc(item.sheet)}</td>
+      <td style="padding:6px 10px;font-size:12px;color:var(--text-muted);">${esc(item.floor)}</td>
+      <td style="padding:6px 10px;font-size:12px;color:var(--text-primary);">${esc(item.room)}</td>
+      <td style="padding:6px 10px;font-size:12px;color:var(--text-primary);text-transform:capitalize;">${esc(typeLabel)}</td>
+      <td style="padding:6px 10px;font-size:11px;color:var(--text-muted);text-transform:capitalize;">${esc(subtypeLabel)}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:center;font-weight:700;">${item.qty}</td>
+      <td style="padding:6px 10px;text-align:center;">${confBadge}${isDup ? ' <span title="Appears on multiple sheets — possible duplicate" style="cursor:help;">⚠️</span>' : ''}</td>
+    </tr>`;
+  }).join('');
+
+  // Filter dropdown
+  const filterOptions = deviceTypes.map(t =>
+    `<option value="${esc(t)}"${filterType === t ? ' selected' : ''}>${t.replace(/_/g, ' ')}</option>`
+  ).join('');
+
+  // Sort buttons
+  const sortBtn = (key, label) =>
+    `<button data-sort="${key}" class="sym-inv-sort" style="padding:3px 10px;font-size:10px;font-weight:${sortBy === key ? '700' : '500'};border:1px solid ${sortBy === key ? 'rgba(99,102,241,0.3)' : 'rgba(0,0,0,0.1)'};border-radius:4px;background:${sortBy === key ? 'rgba(99,102,241,0.08)' : 'transparent'};color:${sortBy === key ? 'var(--accent-indigo)' : 'var(--text-muted)'};cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">${label}</button>`;
+
+  // Stats bar
+  const statsBar = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:16px;">
+      <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:var(--accent-indigo);">${stats.totalSymbols.toLocaleString()}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Total Counted</div>
+      </div>
+      <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:var(--accent-indigo);">${stats.uniqueLocations}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Unique Locations</div>
+      </div>
+      <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:var(--accent-indigo);">${stats.sheetsScanned}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Sheets Scanned</div>
+      </div>
+      ${stats.duplicateGroups > 0 ? `
+      <div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:#D97706;">⚠️ ${stats.duplicateGroups}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Potential Duplicates</div>
+      </div>` : `
+      <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.12);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:#10B981;">✓</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">No Duplicates Found</div>
+      </div>`}
+    </div>`;
+
+  // Duplicate alert panel
+  const dupPanel = duplicates.length > 0 ? `
+    <div style="margin-bottom:16px;padding:12px 14px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.2);border-radius:8px;">
+      <div style="font-size:12px;font-weight:700;color:#D97706;margin-bottom:8px;">⚠️ Potential Duplicate Counts (${duplicates.length} group${duplicates.length > 1 ? 's' : ''})</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">The following devices appear at the same location on multiple sheets. This may indicate enlarged details or partial plans that overlap — verify these are not double-counted.</div>
+      ${duplicates.slice(0, 20).map(d => `
+        <div style="padding:6px 0;border-bottom:1px solid rgba(245,158,11,0.1);display:flex;align-items:flex-start;gap:8px;">
+          <span style="font-size:14px;flex-shrink:0;">⚠️</span>
+          <div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary);text-transform:capitalize;">${esc(d.label)}</div>
+            <div style="font-size:11px;color:var(--text-muted);">Sheets: <strong>${d.sheets.map(s => esc(s)).join(', ')}</strong> &mdash; total qty across sheets: <strong>${d.totalQty}</strong></div>
+          </div>
+        </div>`).join('')}
+      ${duplicates.length > 20 ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">...and ${duplicates.length - 20} more groups</div>` : ''}
+    </div>` : '';
+
+  return `
+    <div id="sym-inv-wrapper">
+    <div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div>
+    <div class="info-card" style="margin-bottom:22px;border:1px solid rgba(99,102,241,0.15);background:#FFFFFF;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="sym-inv-toggle">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="info-card-title" style="margin-bottom:0;">
+            <i data-lucide="scan-search" style="width:16px;height:16px;"></i> Symbol Inventory Audit
+          </div>
+          <span style="background:rgba(99,102,241,0.12);color:var(--accent-indigo);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;">${stats.totalSymbols.toLocaleString()} symbols on ${stats.sheetsScanned} sheets</span>
+          ${stats.duplicateGroups > 0 ? `<span style="background:rgba(245,158,11,0.12);color:#D97706;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⚠️ ${stats.duplicateGroups} duplicate${stats.duplicateGroups > 1 ? 's' : ''}</span>` : ''}
+        </div>
+        <span id="sym-inv-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">${open ? '▼' : '▶'}</span>
+      </div>
+      <div id="sym-inv-collapsible" style="display:${open ? 'block' : 'none'};margin-top:12px;">
+        <div class="info-card-body" style="margin-bottom:12px;">
+          Every symbol counted by the AI, organized by sheet. Use this to verify counts and identify duplicates where the same device at the same location was counted on multiple sheets (enlarged details, partial plans, etc.).
+        </div>
+        ${statsBar}
+        ${dupPanel}
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+          <span style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Sort:</span>
+          ${sortBtn('sheet', 'Sheet #')}
+          ${sortBtn('floor', 'Floor')}
+          ${sortBtn('room', 'Room')}
+          ${sortBtn('type', 'Device Type')}
+          <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+            <span style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Filter:</span>
+            <select id="sym-inv-type-filter" style="padding:3px 8px;font-size:11px;border:1px solid rgba(0,0,0,0.12);border-radius:4px;background:white;color:var(--text-primary);">
+              <option value="">All Types (${stats.totalSymbols.toLocaleString()})</option>
+              ${filterOptions}
+            </select>
+          </span>
+        </div>
+        <div style="overflow-x:auto;max-height:600px;overflow-y:auto;border:1px solid rgba(0,0,0,0.06);border-radius:8px;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead style="position:sticky;top:0;z-index:1;">
+              <tr style="background:rgba(99,102,241,0.06);">
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);white-space:nowrap;">Sheet</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Floor</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Room / Area</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Device Type</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Subtype</th>
+                <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Qty</th>
+                <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Status</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            <tfoot>
+              <tr style="background:rgba(99,102,241,0.04);">
+                <td colspan="5" style="padding:8px 10px;font-size:12px;font-weight:700;color:var(--text-primary);">Total${filterType ? ' (' + filterType.replace(/_/g, ' ') + ')' : ''}</td>
+                <td style="padding:8px 10px;font-size:12px;font-weight:700;text-align:center;color:var(--accent-indigo);">${filteredTotal.toLocaleString()}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        ${truncated ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">Showing first 500 of ${filtered.length.toLocaleString()} rows. Use the filter to narrow results.</div>` : ''}
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button id="sym-inv-copy-btn" style="padding:6px 14px;border:1px solid rgba(99,102,241,0.3);border-radius:6px;background:rgba(99,102,241,0.08);color:var(--accent-indigo);font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">📋 Copy Table</button>
+          <button id="sym-inv-csv-btn" style="padding:6px 14px;border:1px solid rgba(99,102,241,0.3);border-radius:6px;background:rgba(99,102,241,0.08);color:var(--accent-indigo);font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">📥 Export CSV</button>
+          ${duplicates.length > 0 ? `<button id="sym-inv-dups-btn" style="padding:6px 14px;border:1px solid rgba(245,158,11,0.3);border-radius:6px;background:rgba(245,158,11,0.08);color:#D97706;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">⚠️ Copy Duplicates</button>` : ''}
+        </div>
+      </div>
+    </div>
+    </div>`;
+}
+
+function _reRenderSymbolInventory(container) {
+  const wrapper = document.getElementById('sym-inv-wrapper');
+  if (!wrapper) return;
+  state._symbolInventoryOpen = true;
+  const newHtml = buildSymbolInventoryCard(state);
+  const temp = document.createElement('div');
+  temp.innerHTML = newHtml;
+  const newWrapper = temp.querySelector('#sym-inv-wrapper');
+  if (newWrapper) {
+    wrapper.replaceWith(newWrapper);
+    bindSymbolInventoryEvents(container);
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+}
+
+function bindSymbolInventoryEvents(container) {
+  // Toggle expand/collapse
+  const toggle = document.getElementById('sym-inv-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      state._symbolInventoryOpen = !state._symbolInventoryOpen;
+      const body = document.getElementById('sym-inv-collapsible');
+      const icon = document.getElementById('sym-inv-toggle-icon');
+      if (body) body.style.display = state._symbolInventoryOpen ? 'block' : 'none';
+      if (icon) icon.textContent = state._symbolInventoryOpen ? '▼' : '▶';
+    });
+  }
+
+  // Sort buttons — re-render via wrapper replacement
+  container.querySelectorAll('.sym-inv-sort').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state._symbolInventorySort = btn.dataset.sort;
+      _reRenderSymbolInventory(container);
+    });
+  });
+
+  // Type filter dropdown
+  const filterSelect = document.getElementById('sym-inv-type-filter');
+  if (filterSelect) {
+    filterSelect.addEventListener('change', (e) => {
+      e.stopPropagation();
+      state._symbolInventoryFilter = filterSelect.value;
+      _reRenderSymbolInventory(container);
+    });
+  }
+
+  // Copy to clipboard button
+  const copyBtn = document.getElementById('sym-inv-copy-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const data = getSymbolInventoryData(state);
+      if (!data) return;
+      const filterType = state._symbolInventoryFilter || '';
+      const items = filterType ? data.items.filter(i => i.type === filterType) : data.items;
+      // Sort by sheet
+      items.sort((a, b) => a.sheet.localeCompare(b.sheet, undefined, { numeric: true }) || a.room.localeCompare(b.room));
+      const lines = ['Sheet\tFloor\tRoom\tDevice Type\tSubtype\tQty'];
+      items.forEach(i => {
+        lines.push(`${i.sheet}\t${i.floor}\t${i.room}\t${i.type.replace(/_/g, ' ')}\t${i.subtype.replace(/_/g, ' ')}\t${i.qty}`);
+      });
+      lines.push(`\nTotal:\t\t\t\t\t${items.reduce((s, i) => s + i.qty, 0)}`);
+      if (data.duplicates.length > 0) {
+        lines.push('\n--- POTENTIAL DUPLICATES ---');
+        data.duplicates.forEach(d => {
+          lines.push(`${d.label} — Sheets: ${d.sheets.join(', ')} — Total qty: ${d.totalQty}`);
+        });
+      }
+      navigator.clipboard.writeText(lines.join('\n')).then(() => {
+        if (typeof spToast === 'function') spToast('Inventory copied to clipboard', 'success');
+      });
+    });
+  }
+
+  // Export CSV button
+  const csvBtn = document.getElementById('sym-inv-csv-btn');
+  if (csvBtn) {
+    csvBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const data = getSymbolInventoryData(state);
+      if (!data) return;
+      const filterType = state._symbolInventoryFilter || '';
+      const items = filterType ? data.items.filter(i => i.type === filterType) : data.items;
+      items.sort((a, b) => a.sheet.localeCompare(b.sheet, undefined, { numeric: true }) || a.room.localeCompare(b.room));
+      const csvEsc = v => `"${String(v).replace(/"/g, '""')}"`;
+      const lines = ['Sheet,Floor,Room,Device Type,Subtype,Qty,Confidence,Duplicate Flag'];
+      const dupIdxs = new Set();
+      data.duplicates.forEach(d => d.items.forEach(i => dupIdxs.add(i._idx)));
+      items.forEach(i => {
+        lines.push([
+          csvEsc(i.sheet), csvEsc(i.floor), csvEsc(i.room),
+          csvEsc(i.type.replace(/_/g, ' ')), csvEsc(i.subtype.replace(/_/g, ' ')),
+          i.qty, i.confidence || '', dupIdxs.has(i._idx) ? 'POTENTIAL DUPLICATE' : ''
+        ].join(','));
+      });
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `symbol_inventory_${state.projectName || 'export'}_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (typeof spToast === 'function') spToast('CSV exported', 'success');
+    });
+  }
+
+  // Copy duplicates button
+  const dupsBtn = document.getElementById('sym-inv-dups-btn');
+  if (dupsBtn) {
+    dupsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const data = getSymbolInventoryData(state);
+      if (!data || data.duplicates.length === 0) return;
+      const lines = ['=== POTENTIAL DUPLICATE COUNTS ===', ''];
+      data.duplicates.forEach((d, i) => {
+        lines.push(`${i + 1}. ${d.label}`);
+        lines.push(`   Sheets: ${d.sheets.join(', ')}`);
+        lines.push(`   Total qty across all sheets: ${d.totalQty}`);
+        d.items.forEach(item => {
+          lines.push(`     - Sheet ${item.sheet}: ${item.qty} × ${item.type}${item.subtype ? ' (' + item.subtype + ')' : ''} in ${item.room}`);
+        });
+        lines.push('');
+      });
+      lines.push(`Total groups: ${data.duplicates.length}`);
+      lines.push(`Total items in duplicate groups: ${data.duplicates.reduce((s, d) => s + d.totalQty, 0)}`);
+      navigator.clipboard.writeText(lines.join('\n')).then(() => {
+        if (typeof spToast === 'function') spToast('Duplicate report copied', 'success');
+      });
     });
   }
 }
