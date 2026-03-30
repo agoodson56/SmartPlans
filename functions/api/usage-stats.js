@@ -97,7 +97,7 @@ export async function onRequestDelete(context) {
         if (!serverKey) {
             return Response.json({ error: 'Admin key not configured on server' }, { status: 500 });
         }
-        if (!adminKey || adminKey.trim() !== serverKey) {
+        if (!adminKey || !timingSafeCompare(adminKey.trim(), serverKey)) {
             return Response.json({ error: 'Unauthorized' }, { status: 403 });
         }
 
