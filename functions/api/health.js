@@ -4,6 +4,8 @@
 // POST /api/health  → logs client-side errors to D1 error_log table
 // ═══════════════════════════════════════════════════════════════
 
+import { isAllowedOrigin } from '../_shared/cors.js';
+
 // ── GET: Health check ──────────────────────────────────────────
 export async function onRequestGet(context) {
   const { env } = context;
@@ -43,8 +45,20 @@ export async function onRequestGet(context) {
 export async function onRequestPost(context) {
   const { request, env } = context;
 
+  // SEC: Validate origin to prevent external log-flooding
+  const origin = request.headers.get('Origin');
+  if (origin && !isAllowedOrigin(origin)) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
+
+    // Reject oversized payloads
+    const contentLength = parseInt(request.headers.get('Content-Length') || '0', 10);
+    if (contentLength > 10000) {
+      return Response.json({ error: 'Payload too large' }, { status: 413 });
+    }
 
     // Validate required fields
     if (!body.type || !body.message) {
@@ -82,7 +96,7 @@ export async function onRequestPost(context) {
       body.url ? String(body.url).substring(0, 500) : null,
       request.headers.get('User-Agent')?.substring(0, 500) || null,
       request.headers.get('CF-Connecting-IP') || null,
-      body.timestamp || new Date().toISOString(),
+      new Date().toISOString(), // SEC: Always use server time, never trust client timestamp
     ).run();
 
     return Response.json({ logged: true }, { status: 201 });

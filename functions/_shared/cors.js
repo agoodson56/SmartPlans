@@ -26,8 +26,7 @@ export function isAllowedOrigin(origin) {
         // SmartPM deployments
         'smartpm.pages.dev',
         'smartpm.3dtechnologyservices.com',
-        // Root domain
-        '3dtechnologyservices.com',
+        // SEC: Root domain removed — explicit subdomains only to prevent subdomain takeover attacks
         // Local development
         'localhost',
         '127.0.0.1',

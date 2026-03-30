@@ -131,21 +131,24 @@
     <script>
         // SheetJS CDN with fallback — try primary, then jsDelivr mirror
         (function () {
-            function loadScript(src, onSuccess, onFail) {
+            function loadScript(src, hash, onSuccess, onFail) {
                 var s = document.createElement('script');
                 s.src = src;
                 s.crossOrigin = 'anonymous';
+                if (hash) s.integrity = hash;
                 s.onload = onSuccess;
                 s.onerror = onFail;
                 document.head.appendChild(s);
             }
             loadScript(
                 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js',
+                'sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT',
                 function () { console.log('[SmartPlans] SheetJS loaded (primary CDN)'); },
                 function () {
                     console.warn('[SmartPlans] Primary SheetJS CDN failed, trying fallback…');
                     loadScript(
                         'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+                        null,
                         function () { console.log('[SmartPlans] SheetJS loaded (fallback CDN)'); },
                         function () { console.error('[SmartPlans] SheetJS failed to load from all CDNs — Excel export will use CSV fallback'); }
                     );
@@ -156,14 +159,16 @@
     <script>
         // PDF.js for text extraction — improves AI accuracy on specification documents
         (function () {
-            function loadScript(src, onSuccess, onFail) {
+            function loadScript(src, hash, onSuccess, onFail) {
                 var s = document.createElement('script'); s.src = src;
                 s.crossOrigin = 'anonymous';
+                if (hash) s.integrity = hash;
                 s.onload = onSuccess; s.onerror = onFail;
                 document.head.appendChild(s);
             }
             loadScript(
                 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+                'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e',
                 function () {
                     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
                     console.log('[SmartPlans] PDF.js loaded');
@@ -171,6 +176,7 @@
                 function () {
                     loadScript(
                         'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
+                        null,
                         function () {
                             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
                             console.log('[SmartPlans] PDF.js loaded (fallback CDN)');
@@ -181,7 +187,7 @@
             );
         })();
     </script>
-    <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js" crossorigin="anonymous" integrity="sha384-ieG+IKD0d/ZPXyCBTMVAbqsQdns8QGJR/e26WMw7M4fkaI/rHcS/YIoi+ah9WGge"></script>
     <script src="pricing-database.js"></script>
     <script src="prevailing-wages-ca.js"></script>
     <script src="prevailing-wages-national.js"></script>
@@ -190,7 +196,7 @@
     <script src="submittal-generator.js"></script>
     <script src="ai-engine.js"></script>
     <script src="app.js"
-        onerror="document.getElementById('step-content').innerHTML='<div style=\'padding:40px;color:#f43f5e;font-family:monospace;\'><h2>app.js failed to load (404)</h2><p>The script file was not found on the server.</p></div>'"></script>
+        onerror="(function(){var el=document.getElementById('step-content');if(el){el.textContent='';var d=document.createElement('div');d.style.cssText='padding:40px;color:#f43f5e;font-family:monospace;';var h=document.createElement('h2');h.textContent='app.js failed to load (404)';d.appendChild(h);var p=document.createElement('p');p.textContent='The script file was not found on the server.';d.appendChild(p);el.appendChild(d);}})()"></script>
     <script src="rate-library.js"></script>
     <script>
         if ('serviceWorker' in navigator) {

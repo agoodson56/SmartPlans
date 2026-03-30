@@ -4024,7 +4024,7 @@ function initExclusionsPanel(container) {
       const v = inp.value.trim();
       if (!v || v === cur) { renderExclList(); return; }
       item.text = v;
-      if (state.estimateId) { const _eiToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _eiToken }, body: JSON.stringify({ id: item.id, text: v }) }).catch(() => { console.warn('Fetch failed silently'); }); }
+      if (state.estimateId) { const _eiToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _eiToken }, body: JSON.stringify({ id: item.id, text: v }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
       renderExclList();
       if (typeof spToast === 'function') spToast('Item updated', 'success');
     }
@@ -4036,7 +4036,7 @@ function initExclusionsPanel(container) {
     const idx = state.exclusions.findIndex(e => e.id === id);
     if (idx < 0) return;
     state.exclusions.splice(idx, 1);
-    if (state.estimateId) { const _delToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-App-Token': _delToken }, body: JSON.stringify({ id }) }).catch(() => { console.warn('Fetch failed silently'); }); }
+    if (state.estimateId) { const _delToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-App-Token': _delToken }, body: JSON.stringify({ id }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
     renderExclList();
     if (typeof spToast === 'function') spToast('Item removed', 'success');
   }
@@ -4046,7 +4046,7 @@ function initExclusionsPanel(container) {
     const maxOrder = state.exclusions.filter(e => e.type === state._exclusionsTab).reduce((m, e) => Math.max(m, e.sort_order || 0), 0);
     const newItem = { id: crypto.randomUUID().replace(/-/g, ''), type: state._exclusionsTab, text: t, category: category || 'General', sort_order: maxOrder + 1 };
     state.exclusions.push(newItem);
-    if (state.estimateId) { const _addToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _addToken }, body: JSON.stringify(newItem) }).catch(() => { console.warn('Fetch failed silently'); }); }
+    if (state.estimateId) { const _addToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _addToken }, body: JSON.stringify(newItem) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
     renderExclList();
   }
 
@@ -4083,7 +4083,7 @@ function initExclusionsPanel(container) {
         const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: d.type, text: d.text, category: d.category || 'General', sort_order: d.sort_order || 0 };
         state.exclusions.push(ni); newItems.push(ni); added++;
       }
-      if (state.estimateId && newItems.length > 0) { const _defToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _defToken }, body: JSON.stringify(newItems) }).catch(() => { console.warn('Fetch failed silently'); }); }
+      if (state.estimateId && newItems.length > 0) { const _defToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _defToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
       renderExclList();
       if (typeof spToast === 'function') spToast(`${added} default items loaded`, 'success');
     });
@@ -4126,7 +4126,7 @@ function initExclusionsPanel(container) {
             const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: s.type, text: s.text.trim(), category: s.category || 'General', sort_order: maxO + 1 };
             state.exclusions.push(ni); newItems.push(ni); added++;
           }
-          if (state.estimateId && newItems.length > 0) { const _aiToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _aiToken }, body: JSON.stringify(newItems) }).catch(() => { console.warn('Fetch failed silently'); }); }
+          if (state.estimateId && newItems.length > 0) { const _aiToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _aiToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
           renderExclList();
           if (typeof spToast === 'function') spToast(`${added} AI-generated items added`, 'success');
         } else { if (typeof spToast === 'function') spToast('Could not parse AI suggestions', 'warning'); }
@@ -6195,9 +6195,9 @@ state.estimateId = null;
 function saveToLocalStorage(payload) {
   try {
     const key = state.estimateId || `sp_draft_${Date.now()}`;
-    const saved = JSON.parse(localStorage.getItem('sp_offline_estimates') || '{}');
+    const saved = JSON.parse(sessionStorage.getItem('sp_offline_estimates') || '{}');
     saved[key] = { ...payload, _savedAt: new Date().toISOString(), _id: key };
-    localStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
+    sessionStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
     if (!state.estimateId) state.estimateId = key;
     return true;
   } catch (e) {
@@ -6208,7 +6208,7 @@ function saveToLocalStorage(payload) {
 
 function getLocalEstimates() {
   try {
-    return JSON.parse(localStorage.getItem('sp_offline_estimates') || '{}');
+    return JSON.parse(sessionStorage.getItem('sp_offline_estimates') || '{}');
   } catch { return {}; }
 }
 
@@ -6216,7 +6216,7 @@ function removeLocalEstimate(id) {
   try {
     const saved = getLocalEstimates();
     delete saved[id];
-    localStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
+    sessionStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
   } catch { }
 }
 
