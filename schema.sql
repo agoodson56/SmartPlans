@@ -191,3 +191,16 @@ CREATE TABLE IF NOT EXISTS cost_benchmarks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_benchmarks_name ON cost_benchmarks(item_name);
+
+-- ═══════════════════════════════════════════════════════════════
+-- Rate Limits — IP-based brute-force protection for password endpoints
+-- key: e.g. "pw_fail:<ip>", expires_at: Unix timestamp
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS rate_limits (
+    key TEXT PRIMARY KEY,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    expires_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires_at);

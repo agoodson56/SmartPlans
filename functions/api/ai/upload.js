@@ -6,6 +6,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB hard limit
+const UPLOAD_TIMEOUT_MS = 25_000;          // 25 s per fetch call — leaves headroom under CF 30 s limit
 
 export async function onRequestPost(context) {
     const { env, request } = context;
@@ -69,25 +70,40 @@ export async function onRequestPost(context) {
         }
 
         // ── Step 1: Start resumable upload session ────────────────────
+        // AbortController ensures we don't hang if Gemini API is unresponsive
         const startUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
-        const startResponse = await fetch(startUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Goog-Upload-Protocol': 'resumable',
-                'X-Goog-Upload-Command': 'start',
-                'X-Goog-Upload-Header-Content-Length': bytes.length.toString(),
-                'X-Goog-Upload-Header-Content-Type': mimeType,
-            },
-            body: JSON.stringify({ file: { displayName: fileName } }),
-        });
+        const startController = new AbortController();
+        const startTimeout = setTimeout(() => startController.abort(), UPLOAD_TIMEOUT_MS);
+
+        let startResponse;
+        try {
+            startResponse = await fetch(startUrl, {
+                method: 'POST',
+                signal: startController.signal,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Goog-Upload-Protocol': 'resumable',
+                    'X-Goog-Upload-Command': 'start',
+                    'X-Goog-Upload-Header-Content-Length': bytes.length.toString(),
+                    'X-Goog-Upload-Header-Content-Type': mimeType,
+                },
+                body: JSON.stringify({ file: { displayName: fileName } }),
+            });
+        } catch (err) {
+            clearTimeout(startTimeout);
+            const isTimeout = err.name === 'AbortError';
+            console.error(`[Upload] Session start ${isTimeout ? 'timed out' : 'failed'}: ${err.message}`);
+            return Response.json(
+                { error: isTimeout ? 'Upload session timed out — Gemini API unresponsive' : 'Upload session start failed' },
+                { status: 504 }
+            );
+        }
+        clearTimeout(startTimeout);
 
         if (!startResponse.ok) {
-            const errText = await startResponse.text();
-            return Response.json(
-                { error: 'Upload session start failed' },
-                { status: startResponse.status }
-            );
+            const errText = await startResponse.text().catch(() => '');
+            console.error(`[Upload] Session start HTTP ${startResponse.status}: ${errText.substring(0, 200)}`);
+            return Response.json({ error: 'Upload session start failed' }, { status: startResponse.status });
         }
 
         const uploadUrl = startResponse.headers.get('X-Goog-Upload-URL');
@@ -96,33 +112,54 @@ export async function onRequestPost(context) {
         }
 
         // ── Step 2: Upload the file bytes ─────────────────────────────
-        const uploadResponse = await fetch(uploadUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Length': bytes.length.toString(),
-                'X-Goog-Upload-Offset': '0',
-                'X-Goog-Upload-Command': 'upload, finalize',
-            },
-            body: bytes,
-        });
+        // Separate timeout for the actual file upload (larger payload)
+        const uploadController = new AbortController();
+        const uploadTimeout = setTimeout(() => uploadController.abort(), UPLOAD_TIMEOUT_MS);
+
+        let uploadResponse;
+        try {
+            uploadResponse = await fetch(uploadUrl, {
+                method: 'POST',
+                signal: uploadController.signal,
+                headers: {
+                    'Content-Length': bytes.length.toString(),
+                    'X-Goog-Upload-Offset': '0',
+                    'X-Goog-Upload-Command': 'upload, finalize',
+                },
+                body: bytes,
+            });
+        } catch (err) {
+            clearTimeout(uploadTimeout);
+            const isTimeout = err.name === 'AbortError';
+            console.error(`[Upload] File upload ${isTimeout ? 'timed out' : 'failed'}: ${err.message}`);
+            return Response.json(
+                { error: isTimeout ? 'File upload timed out — file may be too large or connection slow' : 'File upload failed' },
+                { status: 504 }
+            );
+        }
+        clearTimeout(uploadTimeout);
 
         if (!uploadResponse.ok) {
-            const errText = await uploadResponse.text();
-            return Response.json(
-                { error: 'File upload failed' },
-                { status: uploadResponse.status }
-            );
+            const errText = await uploadResponse.text().catch(() => '');
+            console.error(`[Upload] File upload HTTP ${uploadResponse.status}: ${errText.substring(0, 200)}`);
+            return Response.json({ error: 'File upload failed' }, { status: uploadResponse.status });
         }
 
         const result = await uploadResponse.json();
 
+        // Validate that Gemini returned a usable file URI before responding
+        if (!result?.file?.uri) {
+            console.error('[Upload] Gemini returned no file URI:', JSON.stringify(result).substring(0, 200));
+            return Response.json({ error: 'Gemini File API did not return a file URI' }, { status: 502 });
+        }
+
         return Response.json({
-            fileUri: result.file?.uri,
-            name: result.file?.name,
-            displayName: result.file?.displayName,
-            mimeType: result.file?.mimeType,
-            sizeBytes: result.file?.sizeBytes,
-            state: result.file?.state,
+            fileUri: result.file.uri,
+            name: result.file.name,
+            displayName: result.file.displayName,
+            mimeType: result.file.mimeType,
+            sizeBytes: result.file.sizeBytes,
+            state: result.file.state,
             _usedKeyName: usedKeyName,
         });
 

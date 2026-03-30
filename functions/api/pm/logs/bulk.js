@@ -3,21 +3,7 @@
 // Dedicated endpoint (not the [id] catch-all) for clarity and safety
 // ═══════════════════════════════════════════════════════════════
 
-function isAllowedOrigin(origin) {
-    if (!origin) return true;
-    // Allow any SmartPlans or SmartPM Cloudflare Pages deploy
-    if (origin.endsWith('.pages.dev') && (origin.includes('smartplans-4g5') || origin.includes('smartpm'))) return true;
-    const allowed = [
-        'https://smartplans-4g5.pages.dev',
-        'https://smartplans.pages.dev',
-        'https://smartplans.3dtechnologyservices.com',
-        'https://smartpm.3dtechnologyservices.com',
-        'https://3dtechnologyservices.com',
-    ];
-    if (allowed.some(d => origin.startsWith(d))) return true;
-    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
-    return false;
-}
+import { isAllowedOrigin, timingSafeCompare } from '../../../../_shared/cors.js';
 
 export async function onRequestPost(context) {
     const { env, request } = context;
@@ -30,7 +16,7 @@ export async function onRequestPost(context) {
     const envToken = env.ESTIMATES_TOKEN;
     if (envToken) {
         const token = request.headers.get('X-App-Token') || '';
-        if (token !== envToken) {
+        if (!timingSafeCompare(token, envToken)) {
             return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
         }
     }

@@ -47,8 +47,21 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Static assets only — stale-while-revalidate
-    const isStaticAsset = /\.(js|css|html|png|jpg|woff2|svg)$/.test(url.pathname);
+    // JS files — network-first so deployments take effect immediately
+    const isJsFile = /\.js$/.test(url.pathname);
+    if (isJsFile) {
+        event.respondWith(
+            fetch(event.request).then(response => {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                return response;
+            }).catch(() => caches.match(event.request))
+        );
+        return;
+    }
+
+    // Other static assets (CSS, HTML, images) — stale-while-revalidate
+    const isStaticAsset = /\.(css|html|png|jpg|woff2|svg)$/.test(url.pathname);
     if (isStaticAsset) {
         event.respondWith(
             caches.match(event.request).then(cached => {

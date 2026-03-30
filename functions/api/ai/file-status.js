@@ -1,7 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
 // SMARTPLANS — File Status Check (polls Gemini File API)
 // Returns the current state of an uploaded file (PROCESSING → ACTIVE)
+// CORS/origin check handled by /api/ai/_middleware.js
 // ═══════════════════════════════════════════════════════════════
+
+import { timingSafeCompare } from '../../../_shared/cors.js';
 
 export async function onRequestGet(context) {
     const { env, request } = context;
@@ -10,7 +13,7 @@ export async function onRequestGet(context) {
     const envToken = env.ESTIMATES_TOKEN;
     if (envToken) {
         const token = request.headers.get('X-App-Token') || '';
-        if (token !== envToken) {
+        if (!timingSafeCompare(token, envToken)) {
             return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
     }

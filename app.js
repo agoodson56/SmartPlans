@@ -3985,7 +3985,8 @@ function initExclusionsPanel(container) {
     if (swapIdx < 0 || swapIdx >= filtered.length) return;
     const tmp = filtered[idx].sort_order; filtered[idx].sort_order = filtered[swapIdx].sort_order; filtered[swapIdx].sort_order = tmp;
     if (state.estimateId) {
-      fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      const _soToken = sessionStorage.getItem('sp_app_token') || '';
+      fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _soToken },
         body: JSON.stringify({ id: filtered[idx].id, items: [{ id: filtered[idx].id, sort_order: filtered[idx].sort_order }, { id: filtered[swapIdx].id, sort_order: filtered[swapIdx].sort_order }] })
       }).catch(err => console.warn('[SmartPlans] Sort order update failed:', err));
     }
@@ -4005,7 +4006,7 @@ function initExclusionsPanel(container) {
       const v = inp.value.trim();
       if (!v || v === cur) { renderExclList(); return; }
       item.text = v;
-      if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, text: v }) }).catch(() => { console.warn('Fetch failed silently'); });
+      if (state.estimateId) { const _eiToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _eiToken }, body: JSON.stringify({ id: item.id, text: v }) }).catch(() => { console.warn('Fetch failed silently'); }); }
       renderExclList();
       if (typeof spToast === 'function') spToast('Item updated', 'success');
     }
@@ -4017,7 +4018,7 @@ function initExclusionsPanel(container) {
     const idx = state.exclusions.findIndex(e => e.id === id);
     if (idx < 0) return;
     state.exclusions.splice(idx, 1);
-    if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => { console.warn('Fetch failed silently'); });
+    if (state.estimateId) { const _delToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-App-Token': _delToken }, body: JSON.stringify({ id }) }).catch(() => { console.warn('Fetch failed silently'); }); }
     renderExclList();
     if (typeof spToast === 'function') spToast('Item removed', 'success');
   }
@@ -4027,7 +4028,7 @@ function initExclusionsPanel(container) {
     const maxOrder = state.exclusions.filter(e => e.type === state._exclusionsTab).reduce((m, e) => Math.max(m, e.sort_order || 0), 0);
     const newItem = { id: crypto.randomUUID().replace(/-/g, ''), type: state._exclusionsTab, text: t, category: category || 'General', sort_order: maxOrder + 1 };
     state.exclusions.push(newItem);
-    if (state.estimateId) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItem) }).catch(() => { console.warn('Fetch failed silently'); });
+    if (state.estimateId) { const _addToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _addToken }, body: JSON.stringify(newItem) }).catch(() => { console.warn('Fetch failed silently'); }); }
     renderExclList();
   }
 
@@ -4064,7 +4065,7 @@ function initExclusionsPanel(container) {
         const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: d.type, text: d.text, category: d.category || 'General', sort_order: d.sort_order || 0 };
         state.exclusions.push(ni); newItems.push(ni); added++;
       }
-      if (state.estimateId && newItems.length > 0) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItems) }).catch(() => { console.warn('Fetch failed silently'); });
+      if (state.estimateId && newItems.length > 0) { const _defToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _defToken }, body: JSON.stringify(newItems) }).catch(() => { console.warn('Fetch failed silently'); }); }
       renderExclList();
       if (typeof spToast === 'function') spToast(`${added} default items loaded`, 'success');
     });
@@ -4107,7 +4108,7 @@ function initExclusionsPanel(container) {
             const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: s.type, text: s.text.trim(), category: s.category || 'General', sort_order: maxO + 1 };
             state.exclusions.push(ni); newItems.push(ni); added++;
           }
-          if (state.estimateId && newItems.length > 0) fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItems) }).catch(() => { console.warn('Fetch failed silently'); });
+          if (state.estimateId && newItems.length > 0) { const _aiToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _aiToken }, body: JSON.stringify(newItems) }).catch(() => { console.warn('Fetch failed silently'); }); }
           renderExclList();
           if (typeof spToast === 'function') spToast(`${added} AI-generated items added`, 'success');
         } else { if (typeof spToast === 'function') spToast('Could not parse AI suggestions', 'warning'); }
@@ -4125,7 +4126,7 @@ function initExclusionsPanel(container) {
   // Load from API on first render
   if (state.estimateId && !state._exclusionsLoaded) {
     state._exclusionsLoaded = true;
-    fetch(`/api/estimates/${state.estimateId}/exclusions`).then(r => r.json()).then(data => {
+    fetch(`/api/estimates/${state.estimateId}/exclusions`, { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' } }).then(r => r.json()).then(data => {
       if (data.exclusions && data.exclusions.length > 0) { state.exclusions = data.exclusions.map(e => ({ ...e, _saved: true })); renderExclList(); }
     }).catch(err => console.warn('[SmartPlans] Failed to load exclusions:', err));
   }

@@ -3,35 +3,20 @@
 // POST /api/estimates — Save a new estimate
 // ═══════════════════════════════════════════════════════════════
 
-function isAllowedOrigin(origin) {
-    if (!origin) return true;
-    // Allow any SmartPlans or SmartPM Cloudflare Pages deploy
-    if (origin.endsWith('.pages.dev') && (origin.includes('smartplans-4g5') || origin.includes('smartpm'))) return true;
-    const allowed = [
-        'https://smartplans-4g5.pages.dev',
-        'https://smartplans.pages.dev',
-        'https://smartplans.3dtechnologyservices.com',
-        'https://smartpm.3dtechnologyservices.com',
-        'https://3dtechnologyservices.com',
-    ];
-    if (allowed.some(d => origin.startsWith(d))) return true;
-    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
-    return false;
-}
+import { isAllowedOrigin, timingSafeCompare } from '../../_shared/cors.js';
 
 export async function onRequestGet(context) {
     const { env, request } = context;
 
-    // Origin check — same allowlist used across all PM endpoints
     const origin = request.headers.get('Origin') || '';
     if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
-    // Token check — require X-App-Token if ESTIMATES_TOKEN is configured
+    // Token check — timing-safe comparison to prevent token prefix leakage
     const envToken = env.ESTIMATES_TOKEN;
     if (envToken) {
         const token = request.headers.get('X-App-Token') || '';
-        if (token !== envToken) {
+        if (!timingSafeCompare(token, envToken)) {
             return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
         }
     }
@@ -52,15 +37,15 @@ export async function onRequestGet(context) {
 export async function onRequestPost(context) {
     const { env, request } = context;
 
-    // CRIT-1 fix: POST had zero auth — now matches GET security
     const origin = request.headers.get('Origin') || '';
     if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
+    // Token check — timing-safe comparison
     const envToken = env.ESTIMATES_TOKEN;
     if (envToken) {
         const token = request.headers.get('X-App-Token') || '';
-        if (token !== envToken) {
+        if (!timingSafeCompare(token, envToken)) {
             return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
         }
     }
@@ -81,9 +66,8 @@ export async function onRequestPost(context) {
             return Response.json({ error: 'Export data too large (max 5MB)' }, { status: 413 });
         }
 
-        // MED-3 fix: disciplines may arrive as a pre-stringified string from the client.
-        // If we JSON.stringify a string, we get double-encoded output (e.g. '"[...]"').
-        // Detect the type and only serialize when it's actually an object/array.
+        // disciplines may arrive as a pre-stringified string or an array.
+        // Only JSON.stringify when it's an array/object to avoid double-encoding.
         let disciplines = null;
         if (body.disciplines != null) {
             disciplines = typeof body.disciplines === 'string'
@@ -112,4 +96,3 @@ export async function onRequestPost(context) {
         return Response.json({ error: 'Failed to save estimate' }, { status: 500 });
     }
 }
-

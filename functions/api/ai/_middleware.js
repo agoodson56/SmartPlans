@@ -1,44 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
 // SMARTPLANS — AI API CORS Middleware
-// Restricts /api/ai/* to same-origin + Cloudflare Pages origins.
+// Restricts /api/ai/* to same-origin + SmartPlans/SmartPM origins.
 // Prevents external sites from using our Gemini proxy.
 // ═══════════════════════════════════════════════════════════════
 
-// Canonical isAllowedOrigin — keep in sync across all middleware files
-// Duplicated in: functions/api/ai/_middleware.js, functions/api/estimates/_middleware.js,
-//                functions/api/pm/_middleware.js, functions/api/usage-stats.js
-function isAllowedOrigin(origin) {
-    if (!origin) return true; // Same-origin
-
-    let hostname;
-    try {
-        hostname = new URL(origin).hostname;
-    } catch {
-        return false;
-    }
-
-    // SmartPlans origins (project suffix: -4g5)
-    if (hostname.endsWith('.pages.dev') && hostname.includes('smartplans-4g5')) return true;
-
-    // SmartPM origins
-    if (hostname.endsWith('.pages.dev') && hostname.includes('smartpm')) return true;
-
-    // Production domains
-    const allowedHostnames = [
-        'smartplans-4g5.pages.dev',
-        'smartplans.pages.dev',
-        'smartpm.pages.dev',
-        'smartplans.3dtechnologyservices.com',
-        'smartpm.3dtechnologyservices.com',
-        '3dtechnologyservices.com',
-    ];
-    if (allowedHostnames.includes(hostname)) return true;
-
-    // Local dev
-    if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
-
-    return false;
-}
+import { isAllowedOrigin } from '../../_shared/cors.js';
 
 export async function onRequest(context) {
     const { request } = context;
@@ -50,6 +16,7 @@ export async function onRequest(context) {
             return new Response(null, { status: 403 });
         }
         return new Response(null, {
+            status: 204,
             headers: {
                 'Access-Control-Allow-Origin': origin || 'https://smartplans-4g5.pages.dev',
                 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -70,7 +37,7 @@ export async function onRequest(context) {
     // Process the actual request
     const response = await context.next();
 
-    // CRIT-1 fix: Never re-wrap SSE streams — consuming response.body breaks the ReadableStream
+    // Never re-wrap SSE streams — consuming response.body breaks the ReadableStream
     // for cross-domain clients waiting on the event-stream. Clone headers only.
     if (response.headers.get('Content-Type')?.includes('text/event-stream')) {
         const headers = new Headers(response.headers);

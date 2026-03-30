@@ -3,37 +3,14 @@
 // Verifies a role password against the stored PBKDF2 hash.
 // Falls back to SHA-256 for legacy hashes and auto-upgrades them.
 // Returns { valid: true/false } — never returns the hash itself.
+// Rate-limited: 5 failed attempts per IP per 5 minutes → 429.
+// CORS/origin check handled by /api/pm/_middleware.js
 // ═══════════════════════════════════════════════════════════════
 
-function isAllowedOrigin(origin) {
-    if (!origin) return true;
-    // Allow any SmartPlans or SmartPM Cloudflare Pages deploy
-    if (origin.endsWith('.pages.dev') && (origin.includes('smartplans-4g5') || origin.includes('smartpm'))) return true;
-    const allowed = [
-        'https://smartplans-4g5.pages.dev',
-        'https://smartplans.pages.dev',
-        'https://smartplans.3dtechnologyservices.com',
-        'https://smartpm.3dtechnologyservices.com',
-        'https://3dtechnologyservices.com',
-    ];
-    if (allowed.some(d => origin.startsWith(d))) return true;
-    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
-    return false;
-}
+import { timingSafeCompare } from '../../../_shared/cors.js';
 
-/**
- * Constant-time string comparison to prevent timing attacks.
- * crypto.timingSafeEqual is not available for strings in Cloudflare Workers,
- * so we implement it manually using bitwise OR accumulation.
- */
-function timingSafeCompare(a, b) {
-    if (a.length !== b.length) return false;
-    let result = 0;
-    for (let i = 0; i < a.length; i++) {
-        result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    }
-    return result === 0;
-}
+const RATE_LIMIT_MAX = 5;          // max failed attempts
+const RATE_LIMIT_WINDOW_SEC = 300; // 5 minutes
 
 /**
  * Hash a password using PBKDF2 with 100,000 iterations.
@@ -67,12 +44,69 @@ async function hashPasswordSHA256(password) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Check and increment the failed-attempt counter for an IP.
+ * Returns true if the IP is over the limit (should block).
+ * Only increments on a failed attempt (caller passes incrementOnFail=true).
+ */
+async function isRateLimited(db, ip, incrementOnFail) {
+    try {
+        const key = `pw_fail:${ip}`;
+        const now = Math.floor(Date.now() / 1000);
+
+        // Clean up expired entries opportunistically (best-effort)
+        await db.prepare(`DELETE FROM rate_limits WHERE expires_at < ?`).bind(now).run();
+
+        const row = await db.prepare(
+            `SELECT attempts, expires_at FROM rate_limits WHERE key = ?`
+        ).bind(key).first();
+
+        if (row && row.expires_at > now) {
+            if (row.attempts >= RATE_LIMIT_MAX) return true; // already over limit
+            if (incrementOnFail) {
+                await db.prepare(
+                    `UPDATE rate_limits SET attempts = attempts + 1 WHERE key = ?`
+                ).bind(key).run();
+            }
+        } else if (incrementOnFail) {
+            const expiresAt = now + RATE_LIMIT_WINDOW_SEC;
+            await db.prepare(
+                `INSERT INTO rate_limits (key, attempts, expires_at)
+                 VALUES (?, 1, ?)
+                 ON CONFLICT(key) DO UPDATE SET attempts = 1, expires_at = excluded.expires_at`
+            ).bind(key, expiresAt).run();
+        }
+        return false;
+    } catch (err) {
+        // If rate_limits table doesn't exist yet, fail open (don't block)
+        console.warn('[verify-password] Rate limit check error (non-fatal):', err.message);
+        return false;
+    }
+}
+
+/**
+ * Clear the rate limit counter for an IP on successful login.
+ */
+async function clearRateLimit(db, ip) {
+    try {
+        await db.prepare(`DELETE FROM rate_limits WHERE key = ?`).bind(`pw_fail:${ip}`).run();
+    } catch { /* non-fatal */ }
+}
+
 export async function onRequestPost(context) {
     const { env, request } = context;
 
-    const origin = request.headers.get('Origin') || '';
-    if (origin && !isAllowedOrigin(origin)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    // Extract client IP for rate limiting
+    const ip = request.headers.get('CF-Connecting-IP') ||
+                request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ||
+                'unknown';
+
+    // Check rate limit before doing any work
+    if (await isRateLimited(env.DB, ip, false)) {
+        return Response.json(
+            { error: 'Too many failed attempts — please wait 5 minutes before trying again' },
+            { status: 429 }
+        );
     }
 
     try {
@@ -81,6 +115,7 @@ export async function onRequestPost(context) {
         const password = String(body.password || '').substring(0, 200);
 
         if (!role || !password) {
+            await isRateLimited(env.DB, ip, true);
             return Response.json({ valid: false });
         }
 
@@ -94,7 +129,10 @@ export async function onRequestPost(context) {
         }
 
         let stored;
-        try { stored = JSON.parse(row.value); } catch { return Response.json({ valid: false }); }
+        try { stored = JSON.parse(row.value); } catch {
+            await isRateLimited(env.DB, ip, true);
+            return Response.json({ valid: false });
+        }
 
         const storedHash = stored?.[role];
         if (!storedHash) {
@@ -115,11 +153,15 @@ export async function onRequestPost(context) {
         if (roleSalt) {
             // PBKDF2 path — salt exists, verify with PBKDF2
             const result = await hashPasswordPBKDF2(password, roleSalt);
-            return Response.json({ valid: timingSafeCompare(result.hash, storedHash) });
+            const valid = timingSafeCompare(result.hash, storedHash);
+            if (!valid) await isRateLimited(env.DB, ip, true);
+            else await clearRateLimit(env.DB, ip);
+            return Response.json({ valid });
         } else {
             // Legacy SHA-256 path — no salt stored, try SHA-256
             const legacyHash = await hashPasswordSHA256(password);
             if (timingSafeCompare(legacyHash, storedHash)) {
+                await clearRateLimit(env.DB, ip);
                 // Auto-upgrade: re-hash with PBKDF2 and store salt
                 try {
                     const upgraded = await hashPasswordPBKDF2(password);
@@ -143,6 +185,7 @@ export async function onRequestPost(context) {
                 }
                 return Response.json({ valid: true });
             }
+            await isRateLimited(env.DB, ip, true);
             return Response.json({ valid: false });
         }
 

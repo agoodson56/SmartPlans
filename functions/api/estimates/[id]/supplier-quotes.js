@@ -7,22 +7,7 @@ function isValidId(id) {
     return id && String(id).length <= 64 && /^[a-zA-Z0-9_-]+$/.test(String(id));
 }
 
-function isAllowedOrigin(origin) {
-    if (!origin) return true;
-    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
-    if (origin.endsWith('.pages.dev') && origin.includes('smartpm')) return true;
-    const allowedDomains = [
-        'https://smartplans-4g5.pages.dev',
-        'https://smartplans.pages.dev',
-        'https://smartpm.pages.dev',
-        'https://smartplans.3dtechnologyservices.com',
-        'https://smartpm.3dtechnologyservices.com',
-        'https://3dtechnologyservices.com',
-    ];
-    if (allowedDomains.some(d => origin.startsWith(d))) return true;
-    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
-    return false;
-}
+import { isAllowedOrigin, timingSafeCompare } from '../../../../_shared/cors.js';
 
 function corsHeaders(origin) {
     const headers = {};
@@ -44,7 +29,7 @@ export async function onRequestGet(context) {
     const envToken = context.env.ESTIMATES_TOKEN;
     if (envToken) {
         const token = context.request.headers.get('X-App-Token') || '';
-        if (token !== envToken) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        if (!timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     if (!isValidId(id)) {
@@ -74,7 +59,7 @@ export async function onRequestPost(context) {
     const envToken = context.env.ESTIMATES_TOKEN;
     if (envToken) {
         const token = context.request.headers.get('X-App-Token') || '';
-        if (token !== envToken) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        if (!timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     if (!isValidId(id)) {

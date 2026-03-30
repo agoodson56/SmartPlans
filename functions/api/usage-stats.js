@@ -5,34 +5,7 @@
 // DELETE: Reset counters (admin only via env secret)
 // ═══════════════════════════════════════════════════════════════
 
-// Canonical isAllowedOrigin — keep in sync across all middleware files
-// Duplicated in: functions/api/ai/_middleware.js, functions/api/estimates/_middleware.js,
-//                functions/api/pm/_middleware.js, functions/api/usage-stats.js
-function isAllowedOrigin(origin) {
-    if (!origin) return true; // Same-origin
-
-    // SmartPlans origins (project suffix: -4g5)
-    if (origin.endsWith('.pages.dev') && origin.includes('smartplans-4g5')) return true;
-
-    // SmartPM origins
-    if (origin.endsWith('.pages.dev') && origin.includes('smartpm')) return true;
-
-    // Production domains
-    const allowedDomains = [
-        'https://smartplans-4g5.pages.dev',
-        'https://smartplans.pages.dev',
-        'https://smartpm.pages.dev',
-        'https://smartplans.3dtechnologyservices.com',
-        'https://smartpm.3dtechnologyservices.com',
-        'https://3dtechnologyservices.com',
-    ];
-    if (allowedDomains.some(d => origin.startsWith(d))) return true;
-
-    // Local dev
-    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
-
-    return false;
-}
+import { isAllowedOrigin, timingSafeCompare } from '../_shared/cors.js';
 
 export async function onRequestGet(context) {
     const { env, request } = context;
@@ -73,7 +46,7 @@ export async function onRequestPost(context) {
     const envToken = env.ESTIMATES_TOKEN;
     if (envToken) {
         const token = request.headers.get('X-App-Token') || '';
-        if (token !== envToken) {
+        if (!timingSafeCompare(token, envToken)) {
             return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
         }
     }

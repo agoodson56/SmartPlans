@@ -7,22 +7,7 @@
 // DELETE ?id=                 Delete a rate
 // ═══════════════════════════════════════════════════════════════
 
-// Canonical isAllowedOrigin — keep in sync across all middleware files
-function isAllowedOrigin(origin) {
-    if (!origin) return true;
-    if (origin.endsWith('.pages.dev') && (origin.includes('smartplans-4g5') || origin.includes('smartpm'))) return true;
-    const allowed = [
-        'https://smartplans-4g5.pages.dev',
-        'https://smartplans.pages.dev',
-        'https://smartpm.pages.dev',
-        'https://smartplans.3dtechnologyservices.com',
-        'https://smartpm.3dtechnologyservices.com',
-        'https://3dtechnologyservices.com',
-    ];
-    if (allowed.some(d => origin.startsWith(d))) return true;
-    if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
-    return false;
-}
+import { isAllowedOrigin, timingSafeCompare } from '../_shared/cors.js';
 
 function corsHeaders(origin) {
     return {
@@ -41,7 +26,7 @@ function authorize(request, env) {
     const envToken = env.ESTIMATES_TOKEN;
     if (envToken) {
         const token = request.headers.get('X-App-Token') || '';
-        if (token !== envToken) {
+        if (!timingSafeCompare(token, envToken)) {
             return Response.json(
                 { error: 'Unauthorized — invalid or missing X-App-Token' },
                 { status: 401, headers: corsHeaders(origin) }
