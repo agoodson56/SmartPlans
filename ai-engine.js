@@ -66,8 +66,9 @@ const SmartBrains = {
   // ═══════════════════════════════════════════════════════════
 
   BRAINS: {
-    // ── Wave 0: Legend Pre-Processing (Gemini 3.1 Pro) ──
+    // ── Wave 0: Legend Pre-Processing + Spatial Layout (Gemini 3.1 Pro) ──
     LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 65536, useProModel: true },
+    SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
     // ── Wave 1: First Read — Document Intelligence ──
     SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     CODE_COMPLIANCE: { id: 2, name: 'Code Compliance', wave: 1, emoji: '📋', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
@@ -1068,6 +1069,7 @@ const SmartBrains = {
 
   _SCHEMAS: {
     LEGEND_DECODER: ['symbols', 'legend_quality'],
+    SPATIAL_LAYOUT: ['building_dimensions', 'floors'],
     SYMBOL_SCANNER: ['sheets', 'totals'],
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
@@ -1277,10 +1279,31 @@ Return ONLY valid JSON:
 PROJECT: ${context.projectName} | Type: ${context.projectType}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
-YOUR MISSION: Analyze ALL cable pathways, conduit (every type and size), cable tray, underground routes, and estimate cable/conduit quantities.
+SPATIAL LAYOUT DATA (from floor plan analysis — use this to calculate zone-based run lengths):
+${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 3000)}
+
+USER-PROVIDED BUILDING DIMENSIONS: Width=${context.floorPlateWidth || 0}ft, Depth=${context.floorPlateDepth || 0}ft, Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
+
+YOUR MISSION: Analyze ALL cable pathways, conduit (every type and size), cable tray, underground routes, and estimate cable/conduit quantities WITH PER-ZONE RUN LENGTHS.
+
+═══ CABLE RUN LENGTH CALCULATION — CRITICAL ═══
+For each cable type, break the run estimate down by ZONE (floor area served by one IDF):
+- Use the Spatial Layout data above to know where each IDF is and which zones it serves
+- For each zone, calculate: horizontal distance from zone centroid to IDF + ceiling height + 15ft slack
+- Manhattan distance formula: |zone_x - IDF_x| + |zone_y - IDF_y| (in feet)
+- If user provided floor plate dimensions, use those. Otherwise estimate from plan scale.
+- Add ceiling height for the vertical stub-up (default 10ft)
+- Add 15ft for termination, dressing, and slack loops
+- DO NOT use a flat 150ft average — calculate each zone separately
+
+ZONE RUN LENGTH EXAMPLES:
+- Zone directly next to IDF: 50ft horizontal + 10ft vertical + 15ft slack = 75ft per drop
+- Zone across the building: 180ft horizontal + 10ft vertical + 15ft slack = 205ft per drop
+- Zone one floor above IDF: 80ft horizontal + 14ft floor-to-floor + 10ft ceiling + 15ft slack = 119ft per drop
+- TIA-568 horizontal limit: 295ft (295ft is 100m max for Category cable — flag any zone exceeding this!)
 
 ANALYZE THOROUGHLY:
-1. Horizontal cable runs — type (Cat5e/6/6A), estimated average length per drop
+1. Horizontal cable runs — type (Cat5e/6/6A), PER-ZONE run lengths (not flat average)
 2. Backbone/riser cables — fiber (SM/MM) and copper between rooms
 3. Pathway types — J-hooks, cable tray, conduit (EMT/rigid/PVC/liquid-tight), innerduct
 4. ALL conduit runs with exact type and size:
@@ -1304,7 +1327,39 @@ ANALYZE THOROUGHLY:
 Return ONLY valid JSON:
 {
   "horizontal_cables": [
-    { "type": "cat6a", "count": 200, "avg_length_ft": 150, "total_ft": 30000, "rating": "plenum" }
+    {
+      "type": "cat6a",
+      "rating": "plenum",
+      "avg_length_ft": 148,
+      "count": 200,
+      "total_ft": 30000,
+      "zones": [
+        {
+          "zone_name": "2nd Floor East Wing",
+          "zone": "2nd Floor East Wing",
+          "idf_serving": "IDF-2E",
+          "floor": 2,
+          "approx_x_pct": 80,
+          "approx_y_pct": 40,
+          "device_count": 24,
+          "est_run_ft": 185,
+          "total_ft": 4440,
+          "basis": "Zone is ~150ft from IDF-2E horizontally + 10ft ceiling + 15ft slack + 10ft stub-up"
+        },
+        {
+          "zone_name": "3rd Floor Lobby",
+          "zone": "3rd Floor Lobby",
+          "idf_serving": "IDF-3W",
+          "floor": 3,
+          "approx_x_pct": 50,
+          "approx_y_pct": 80,
+          "device_count": 8,
+          "est_run_ft": 95,
+          "total_ft": 760,
+          "basis": "IDF-3W directly adjacent to lobby, short run"
+        }
+      ]
+    }
   ],
   "backbone_cables": [
     { "type": "fiber_sm_os2", "strand_count": 12, "runs": 3, "avg_length_ft": 300 }
@@ -2471,6 +2526,58 @@ Return ONLY valid JSON:
   "disciplines_covered": ["Structured Cabling", "CCTV"]
 }`,
 
+      // ── BRAIN 0.5: Spatial Layout (Wave 0 — parallel with Legend Decoder) ──
+      SPATIAL_LAYOUT: () => `You are a BUILDING SPATIAL ANALYST. Your job is to extract floor plan geometry, IDF/MDF room positions, and device zone positions so cable run lengths can be precisely calculated.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+USER-PROVIDED DIMENSIONS: Width=${context.floorPlateWidth || 0}ft, Depth=${context.floorPlateDepth || 0}ft, Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
+
+YOUR MISSION — Extract from the floor plans:
+1. SCALE BAR: Find the scale bar or title block scale notation (e.g., "1/8 inch = 1 ft" or "1:96"). Record the labeled scale.
+2. BUILDING DIMENSIONS: Measure or read the overall floor plate width and depth in feet. If dimension lines are shown on the plans, use those. Otherwise estimate from the scale bar.
+3. CEILING HEIGHT: Look for ceiling height notes, section cuts, or room finish schedules. Record typical finished ceiling height.
+4. FLOOR-TO-FLOOR HEIGHT: Look for section drawings or structural notes. Record slab-to-slab height.
+5. FOR EACH FLOOR — map out the following:
+   a. IDF/MDF/TR room locations: Record each telecom room name and its approximate position as a percentage of the floor plan (0% = left/top edge, 100% = right/bottom edge).
+   b. Device zones: Group areas of the floor plan into logical zones (e.g., "East Wing", "North Corridor", "Server Area") and record each zone's approximate centroid as a percentage.
+   c. Note which IDF serves each zone (by proximity).
+
+POSITION ESTIMATION RULES:
+- Use the floor plan as a coordinate grid: 0% left edge → 100% right edge (x), 0% top edge → 100% bottom edge (y)
+- Be as accurate as you can from visual inspection — ±10% is acceptable
+- If a building has an irregular shape, estimate based on the main occupied area
+- If multiple buildings, treat each as a separate floor with its own grid
+
+Return ONLY valid JSON:
+{
+  "scale_bar": { "found": true, "labeled_scale": "1/8 inch = 1 ft", "confidence": "high" },
+  "building_dimensions": {
+    "overall_width_ft": 220,
+    "overall_depth_ft": 180,
+    "confidence": "high",
+    "source": "Dimension lines on Sheet A1.01"
+  },
+  "ceiling_height_ft": 10,
+  "floor_to_floor_ft": 14,
+  "floors": [
+    {
+      "floor": 1,
+      "floor_label": "Level 1",
+      "floor_area_sf": 18500,
+      "idf_locations": [
+        { "label": "IDF-1A", "room_name": "Telecom Room 105", "approx_x_pct": 85, "approx_y_pct": 15, "description": "Northeast corner of floor" }
+      ],
+      "device_zones": [
+        { "zone": "Lobby / Entry", "approx_x_pct": 50, "approx_y_pct": 80, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 120, "floor": 1 },
+        { "zone": "West Office Wing", "approx_x_pct": 10, "approx_y_pct": 40, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 200, "floor": 1 },
+        { "zone": "East Corridor", "approx_x_pct": 80, "approx_y_pct": 50, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 60, "floor": 1 }
+      ]
+    }
+  ],
+  "multi_building": false,
+  "notes": []
+}`,
+
       // ── BRAIN 6: Shadow Scanner (Wave 1.5 — Second Read) ──────
       SHADOW_SCANNER: () => `You are an INDEPENDENT VERIFICATION SCANNER performing a SECOND COUNT of all ELV device symbols. You must use a COMPLETELY DIFFERENT methodology than a standard left-to-right scan.
 
@@ -3530,6 +3637,11 @@ Return ONLY valid JSON:
       specificItems: state.specificItems,
       knownQuantities: state.knownQuantities,
       travel: state.travel,
+      // Building dimensions for cable pathway spatial calculation
+      floorPlateWidth: state.floorPlateWidth || 0,
+      floorPlateDepth: state.floorPlateDepth || 0,
+      ceilingHeight: state.ceilingHeight || 10,
+      floorToFloorHeight: state.floorToFloorHeight || 14,
       pricingContext: this._buildPricingContext(state),
       wave0: null, wave1: null, wave1_5: null, wave1_75: null,
       wave2: null, wave2_25: null, wave2_5_fin: null, wave2_75: null,
@@ -3537,15 +3649,16 @@ Return ONLY valid JSON:
     };
 
     // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) — NON-FATAL ═══
-    progressCallback(5, '📖 Wave 0: Decoding symbol legend…', this._brainStatus);
+    progressCallback(5, '📖 Wave 0: Decoding legend + mapping spatial layout…', this._brainStatus);
     let wave0Results = {};
     try {
-      wave0Results = await this._runWave(0, ['LEGEND_DECODER'], encodedFiles, state, context, progressCallback);
-      console.log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded ═══');
+      wave0Results = await this._runWave(0, ['LEGEND_DECODER', 'SPATIAL_LAYOUT'], encodedFiles, state, context, progressCallback);
+      console.log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded + Spatial layout mapped ═══');
     } catch (wave0Err) {
-      console.warn('[SmartBrains] ⚠️ Wave 0 (Legend) failed — continuing without legend context:', wave0Err.message);
+      console.warn('[SmartBrains] ⚠️ Wave 0 failed — continuing without legend/spatial context:', wave0Err.message);
       this._brainStatus['LEGEND_DECODER'] = { status: 'failed', progress: 0, result: null, error: wave0Err.message };
-      wave0Results = { LEGEND_DECODER: { _failed: true, _error: wave0Err.message } };
+      this._brainStatus['SPATIAL_LAYOUT'] = { status: 'failed', progress: 0, result: null, error: wave0Err.message };
+      wave0Results = { LEGEND_DECODER: { _failed: true, _error: wave0Err.message }, SPATIAL_LAYOUT: { _failed: true, _error: wave0Err.message } };
     }
     context.wave0 = wave0Results;
 

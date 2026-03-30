@@ -66,6 +66,10 @@ const SmartPlansExport = {
                 fileFormat: state.fileFormat || "",
                 prevailingWage: state.prevailingWage || "",
                 workShift: state.workShift || "",
+                floorPlateWidth: state.floorPlateWidth || 0,
+                floorPlateDepth: state.floorPlateDepth || 0,
+                ceilingHeight: state.ceilingHeight || 10,
+                floorToFloorHeight: state.floorToFloorHeight || 14,
             },
 
             documents: {
@@ -1189,6 +1193,11 @@ const SmartPlansExport = {
         // Inject travel & incidentals from Stage 7 (if available)
         if (typeof injectTravelIntoBOM === 'function') {
             result = injectTravelIntoBOM(result);
+        }
+
+        // Replace AI cable estimates with spatially-calculated run lengths (if zone data exists)
+        if (typeof injectCalculatedCableQuantities === 'function') {
+            result = injectCalculatedCableQuantities(result);
         }
 
         return result;

@@ -610,6 +610,13 @@ const state = {
   _changeOrdersOpen: false,
   _excludedCOs: new Set(),
 
+  // Cable Pathway Analysis (for spatial run-length calculation)
+  floorPlateWidth: 0,       // ft — 0 means "let AI estimate from plans"
+  floorPlateDepth: 0,       // ft
+  ceilingHeight: 10,        // ft, typical finished ceiling height
+  floorToFloorHeight: 14,   // ft, slab-to-slab height
+  _cablePathwayOpen: false,
+
   // Pricing Configuration (loaded from PRICING_DB defaults)
   pricingTier: "mid",  // "budget", "mid", "premium"
   regionalMultiplier: "national_average",
@@ -1080,6 +1087,38 @@ function renderStep0(container) {
     </div>
 
     <div class="form-group">
+      <label class="form-label">Building Dimensions <span style="color:var(--text-muted);font-weight:400">optional — improves cable run accuracy</span></label>
+      <p class="form-hint">Enter floor plate size and ceiling heights so SmartPlans can calculate exact cable run lengths per zone instead of using a flat 150 ft average. Leaving blank lets the AI estimate from the plans.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+        <div>
+          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Floor Width (ft)</label>
+          <input class="form-input" type="number" id="floor-plate-width" min="0" step="1"
+            value="${state.floorPlateWidth || ''}" placeholder="e.g. 200">
+        </div>
+        <div>
+          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Floor Depth (ft)</label>
+          <input class="form-input" type="number" id="floor-plate-depth" min="0" step="1"
+            value="${state.floorPlateDepth || ''}" placeholder="e.g. 150">
+        </div>
+        <div>
+          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Ceiling Height (ft)</label>
+          <input class="form-input" type="number" id="ceiling-height" min="6" max="40" step="0.5"
+            value="${state.ceilingHeight || 10}" placeholder="10">
+        </div>
+        <div>
+          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Floor-to-Floor Height (ft)</label>
+          <input class="form-input" type="number" id="floor-to-floor-height" min="8" max="60" step="0.5"
+            value="${state.floorToFloorHeight || 14}" placeholder="14">
+        </div>
+      </div>
+      ${(state.floorPlateWidth > 0 && state.floorPlateDepth > 0) ? `
+      <div style="margin-top:8px;padding:8px 12px;background:rgba(13,148,136,0.06);border-left:3px solid var(--accent-teal);font-size:11px;color:var(--accent-teal);">
+        📐 Cable runs will be calculated from zone positions — max diagonal = ${Math.round(Math.sqrt(state.floorPlateWidth**2 + state.floorPlateDepth**2))} ft &nbsp;|&nbsp; TIA-568 limit: 295 ft horizontal
+      </div>` : `
+      <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">💡 Without dimensions, the AI will visually estimate zone-to-IDF distances from your floor plans.</div>`}
+    </div>
+
+    <div class="form-group">
       <label class="form-label" for="prevailing-wage">Prevailing Wage / Davis-Bacon</label>
       <p class="form-hint">For government, public, or federally funded projects. Determines labor rate classifications and certified payroll requirements.</p>
       <select class="form-select" id="prevailing-wage">
@@ -1416,6 +1455,16 @@ function renderStep0(container) {
   shiftSelect.addEventListener("change", () => { state.workShift = shiftSelect.value; renderStep0(container); renderFooter(); });
 
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
+
+  // Building dimension fields (cable pathway accuracy)
+  const fpw = document.getElementById("floor-plate-width");
+  if (fpw) fpw.addEventListener("input", e => { state.floorPlateWidth = parseFloat(e.target.value) || 0; renderStep0(container); });
+  const fpd = document.getElementById("floor-plate-depth");
+  if (fpd) fpd.addEventListener("input", e => { state.floorPlateDepth = parseFloat(e.target.value) || 0; renderStep0(container); });
+  const ch = document.getElementById("ceiling-height");
+  if (ch) ch.addEventListener("input", e => { state.ceilingHeight = parseFloat(e.target.value) || 10; });
+  const ftf = document.getElementById("floor-to-floor-height");
+  if (ftf) ftf.addEventListener("input", e => { state.floorToFloorHeight = parseFloat(e.target.value) || 14; });
 
   // Pricing panel toggle
   document.getElementById("pricing-toggle").addEventListener("click", () => {
@@ -2111,6 +2160,173 @@ function injectTravelIntoBOM(bom) {
   const newTotal = filtered.reduce((sum, c) => sum + (c.subtotal || 0), 0);
 
   return { ...bom, categories: filtered, grandTotal: Math.round(newTotal * 100) / 100 };
+}
+
+// ─── Cable Pathway Distance Calculator ───────────────────────────────────────
+// Uses SPATIAL_LAYOUT (wave0) + CABLE_PATHWAY (wave1) zone data for precise
+// per-zone cable run lengths. Falls back to AI avg_length_ft if no spatial data.
+function computePathwayDistances() {
+  const cable  = state.brainResults?.wave1?.CABLE_PATHWAY || {};
+  const spatial = state.brainResults?.wave0?.SPATIAL_LAYOUT || {};
+  const ceilingH = state.ceilingHeight || 10;
+  const floorH   = state.floorToFloorHeight || 14;
+  const SLACK_FT = 15;   // termination + dressing + slack loops
+  const WASTE    = 1.12; // 12% cable waste factor
+
+  // Build IDF position lookup: { "IDF-1A": { x_pct, y_pct, floor } }
+  const idfMap = {};
+  (spatial.floors || []).forEach(fl => {
+    (fl.idf_locations || []).forEach(idf => {
+      idfMap[idf.label] = { x: idf.approx_x_pct || 50, y: idf.approx_y_pct || 50, floor: fl.floor || 1 };
+    });
+  });
+
+  // Building dimensions — prefer user entry, fall back to AI spatial estimate
+  const bldgW = state.floorPlateWidth  || spatial.building_dimensions?.overall_width_ft  || 0;
+  const bldgD = state.floorPlateDepth  || spatial.building_dimensions?.overall_depth_ft  || 0;
+  const hasDimensions = bldgW > 0 && bldgD > 0;
+
+  const results = [];
+  let grandTotalFt = 0;
+  let grandTotalCost = 0;
+  let hasSpatialZones = false;
+
+  // Walk each cable type from CABLE_PATHWAY brain output
+  const horizontals = cable.horizontal_cables || [];
+  horizontals.forEach(hc => {
+    const cableType = hc.type || 'unknown';
+    const zones = hc.zones || [];
+    const ratePerFt = _getCableRatePerFt(cableType, hc.rating);
+
+    if (zones.length > 0 && hasDimensions) {
+      // ── SPATIAL MODE: calculate from zone positions ──
+      hasSpatialZones = true;
+      const zoneRows = zones.map(z => {
+        let runFt;
+        const idf = idfMap[z.idf_serving];
+        if (idf && hasDimensions) {
+          const dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * bldgW;
+          const dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * bldgD;
+          const floorsApart = Math.abs((z.floor || 1) - (idf.floor || 1));
+          const vertFt = floorsApart > 0 ? floorsApart * floorH : ceilingH;
+          runFt = Math.round(dx + dy + vertFt + SLACK_FT);
+        } else {
+          // IDF not in map — use zone's own estimate or fall back
+          runFt = z.est_run_ft || hc.avg_length_ft || 150;
+        }
+        // TIA-568 horizontal cable limit
+        const tiaFlag = runFt > 295;
+        const qty = z.device_count || 0;
+        const totalFt = Math.round(qty * runFt * WASTE);
+        const cost = totalFt * ratePerFt;
+        grandTotalFt += totalFt;
+        grandTotalCost += cost;
+        return { zone: z.zone_name || z.zone, idf: z.idf_serving, deviceCount: qty, runFt, totalFt, cost, tiaFlag, basis: z.basis || 'spatial calculation' };
+      });
+      results.push({ cableType, rating: hc.rating || '', zones: zoneRows, mode: 'spatial', ratePerFt });
+
+    } else if (zones.length > 0) {
+      // ── ZONE MODE: use AI's per-zone est_run_ft, just no coordinate math ──
+      hasSpatialZones = true;
+      const zoneRows = zones.map(z => {
+        const runFt = z.est_run_ft || hc.avg_length_ft || 150;
+        const tiaFlag = runFt > 295;
+        const qty = z.device_count || 0;
+        const totalFt = Math.round(qty * runFt * WASTE);
+        const cost = totalFt * ratePerFt;
+        grandTotalFt += totalFt;
+        grandTotalCost += cost;
+        return { zone: z.zone_name || z.zone, idf: z.idf_serving, deviceCount: qty, runFt, totalFt, cost, tiaFlag, basis: z.basis || 'AI zone estimate' };
+      });
+      results.push({ cableType, rating: hc.rating || '', zones: zoneRows, mode: 'zone-estimate', ratePerFt });
+
+    } else {
+      // ── FALLBACK: single average (old brain output format) ──
+      const runFt = hc.avg_length_ft || 150;
+      const qty   = hc.count || 0;
+      const totalFt = hc.total_ft || Math.round(qty * runFt * WASTE);
+      const cost = totalFt * ratePerFt;
+      grandTotalFt += totalFt;
+      grandTotalCost += cost;
+      results.push({ cableType, rating: hc.rating || '', zones: [{ zone: 'All areas (estimated avg)', idf: 'Various', deviceCount: qty, runFt, totalFt, cost, tiaFlag: runFt > 295, basis: `${qty} drops × ${runFt} ft avg (no spatial data)` }], mode: 'avg-fallback', ratePerFt });
+    }
+  });
+
+  // TIA-568 violations across all zones
+  const tiaViolations = results.flatMap(r => r.zones.filter(z => z.tiaFlag));
+
+  return { results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD };
+}
+
+// Helper: look up cable cost rate from pricing database
+function _getCableRatePerFt(type, rating) {
+  if (typeof PRICING_DB === 'undefined') return 0.32; // safe default
+  const tier = state.pricingTier || 'mid';
+  const rm = state.regionalMultiplier || 1.0;
+  const db = PRICING_DB.structured_cabling?.cable || {};
+  const t = (type || '').toLowerCase();
+  const r = (rating || '').toLowerCase();
+  let key;
+  if (t.includes('6a') || t.includes('cat6a')) key = r.includes('riser') ? 'cat6a_riser' : 'cat6a_plenum';
+  else if (t.includes('cat6') || t === 'cat6') key = r.includes('riser') ? 'cat6_riser' : 'cat6_plenum';
+  else if (t.includes('5e') || t.includes('cat5')) key = r.includes('riser') ? 'cat5e_riser' : 'cat5e_plenum';
+  else if (t.includes('fiber') && t.includes('sm')) key = 'fiber_sm_os2';
+  else if (t.includes('fiber') && t.includes('mm')) key = 'fiber_mm_om4';
+  else if (t.includes('coax') || t.includes('rg6')) key = 'coax_rg6';
+  else key = 'cat6a_plenum';
+  const entry = db[key];
+  return entry ? (entry[tier] || entry.mid || 0.32) * rm : 0.32;
+}
+
+// ─── Inject Calculated Cable Quantities into BOM ─────────────────────────────
+// Called from export-engine._filterBOMByDisciplines after injectTravelIntoBOM.
+// Replaces AI-estimated cable line items with spatially-calculated quantities
+// ONLY when zone data is available and quantities have improved confidence.
+function injectCalculatedCableQuantities(bom) {
+  // Only run when CABLE_PATHWAY brain has zone-level data
+  const cable = state.brainResults?.wave1?.CABLE_PATHWAY || {};
+  const horizontals = cable.horizontal_cables || [];
+  const hasZones = horizontals.some(hc => (hc.zones || []).length > 0);
+  if (!hasZones) return bom; // No zone data — leave BOM untouched
+
+  const pathway = computePathwayDistances();
+  if (!pathway.hasSpatialZones || pathway.grandTotalFt <= 0) return bom;
+
+  // Build a lookup of calculated totals by cable type
+  const calcByType = {};
+  pathway.results.forEach(r => {
+    const key = r.cableType.toLowerCase();
+    if (!calcByType[key]) calcByType[key] = { totalFt: 0, ratePerFt: r.ratePerFt, mode: r.mode };
+    r.zones.forEach(z => { calcByType[key].totalFt += z.totalFt; });
+  });
+
+  // Walk BOM categories and update cable line items
+  const updatedCategories = (bom.categories || []).map(cat => {
+    if (!/(cabling|structured|cable|network|telecom)/i.test(cat.name)) return cat;
+    const updatedItems = (cat.items || []).map(item => {
+      const name = (item.name || '').toLowerCase();
+      let matchKey = null;
+      if (/cat\s*6a|cat6a/.test(name)) matchKey = 'cat6a';
+      else if (/cat\s*6(?!a)|cat6(?!a)/.test(name)) matchKey = 'cat6';
+      else if (/cat\s*5e?|cat5/.test(name)) matchKey = 'cat5e';
+      else if (/fiber.*sm|sm.*fiber|os2/.test(name)) matchKey = 'fiber_sm_os2';
+      else if (/fiber.*mm|mm.*fiber|om[34]/.test(name)) matchKey = 'fiber_mm_om4';
+      else if (/coax|rg.?6/.test(name)) matchKey = 'coax_rg6';
+
+      if (matchKey && calcByType[matchKey] && item.unit === 'ft') {
+        const calc = calcByType[matchKey];
+        const newQty  = Math.round(calc.totalFt);
+        const newCost = Math.round(newQty * (item.unitCost || calc.ratePerFt) * 100) / 100;
+        return { ...item, qty: newQty, extCost: newCost, _calculatedRun: true };
+      }
+      return item;
+    });
+    const newSubtotal = updatedItems.reduce((s, i) => s + (i.extCost || 0), 0);
+    return { ...cat, items: updatedItems, subtotal: Math.round(newSubtotal * 100) / 100 };
+  });
+
+  const newGrandTotal = updatedCategories.reduce((s, c) => s + (c.subtotal || 0), 0);
+  return { ...bom, categories: updatedCategories, grandTotal: Math.round(newGrandTotal * 100) / 100 };
 }
 
 // ─── Step 6: Travel, Per Diem & Incidentals ───
@@ -2909,6 +3125,8 @@ function renderStep7(container) {
 
     ${buildBidStrategyCard(state)}
 
+    ${buildCablePathwayCard(state)}
+
     ${buildBidPhasesCard(state)}
 
     ${buildChangeOrderCard(state)}
@@ -3219,6 +3437,7 @@ function renderStep7(container) {
   // ── Exclusions & Assumptions ──
   initExclusionsPanel(container);
   bindBidStrategyEvents(container);
+  bindCablePathwayEvents(container);
   bindBidPhasesEvents(container);
   bindChangeOrderEvents(container);
 
@@ -6123,6 +6342,10 @@ function _restoreStateFromPayload(id, pkg, est) {
   state.codeJurisdiction = pkg?.project?.codeJurisdiction || pkg?.project?.jurisdiction || '';
   state.prevailingWage = pkg?.project?.prevailingWage || '';
   state.workShift = pkg?.project?.workShift || '';
+  state.floorPlateWidth = pkg?.project?.floorPlateWidth || 0;
+  state.floorPlateDepth = pkg?.project?.floorPlateDepth || 0;
+  state.ceilingHeight = pkg?.project?.ceilingHeight || 10;
+  state.floorToFloorHeight = pkg?.project?.floorToFloorHeight || 14;
 
   // ── Restore file format (critical for confidence score) ──
   state.fileFormat = pkg?.project?.fileFormat || '';
@@ -6889,6 +7112,193 @@ function _applyBenchmarksToBOM() {
 
 // BID STRATEGY CARD STUB
 if (typeof buildBidStrategyCard === 'undefined') { var buildBidStrategyCard = function() { return ''; }; }
+
+// ═══════════════════════════════════════════════════════════════
+// CABLE PATHWAY SUMMARY CARD — Results page
+// ═══════════════════════════════════════════════════════════════
+
+function buildCablePathwayCard(st) {
+  if (!st.aiAnalysis) return '';
+  const cable = st.brainResults?.wave1?.CABLE_PATHWAY;
+  if (!cable) return '';
+
+  const pathway = computePathwayDistances();
+  const { results, grandTotalFt, grandTotalCost, tiaViolations, hasSpatialZones, hasDimensions, bldgW, bldgD } = pathway;
+  if (results.length === 0) return '';
+
+  const fmt  = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmtFt = n => (n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }) + ' ft';
+  const open = st._cablePathwayOpen;
+
+  // Mode badge
+  const modeBadge = hasDimensions
+    ? `<span style="background:rgba(13,148,136,0.12);color:var(--accent-teal);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;">📐 Spatially Calculated</span>`
+    : hasSpatialZones
+      ? `<span style="background:rgba(99,102,241,0.12);color:var(--accent-indigo);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;">🏢 Zone Estimated</span>`
+      : `<span style="background:rgba(107,114,128,0.12);color:var(--text-muted);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;">~ Average Estimate</span>`;
+
+  // TIA warning banner
+  const tiaWarning = tiaViolations.length > 0 ? `
+    <div style="margin-bottom:14px;padding:10px 14px;background:rgba(220,38,38,0.06);border:1px solid rgba(220,38,38,0.2);border-radius:8px;display:flex;align-items:flex-start;gap:10px;">
+      <span style="font-size:18px;flex-shrink:0;">🚨</span>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:#DC2626;margin-bottom:4px;">TIA-568 Horizontal Cable Limit Exceeded (295 ft max)</div>
+        <div style="font-size:11px;color:var(--text-muted);">${tiaViolations.length} zone${tiaViolations.length > 1 ? 's exceed' : ' exceeds'} the 295 ft limit: ${tiaViolations.map(z => `${z.zone} (${z.runFt} ft)`).join(', ')}. Consider adding an IDF or relocating the telecom room — this is a potential change order.</div>
+      </div>
+    </div>` : '';
+
+  // Summary stats bar
+  const statsBar = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:16px;">
+      <div style="background:rgba(13,148,136,0.06);border:1px solid rgba(13,148,136,0.12);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:var(--accent-teal);">${fmtFt(grandTotalFt)}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Total Cable (w/ 12% waste)</div>
+      </div>
+      <div style="background:rgba(13,148,136,0.06);border:1px solid rgba(13,148,136,0.12);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:var(--accent-teal);">${fmt(grandTotalCost)}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Cable Material Cost</div>
+      </div>
+      ${hasDimensions ? `
+      <div style="background:rgba(13,148,136,0.06);border:1px solid rgba(13,148,136,0.12);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:var(--accent-teal);">${bldgW}×${bldgD}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Floor Plate (ft)</div>
+      </div>` : ''}
+      ${tiaViolations.length > 0 ? `
+      <div style="background:rgba(220,38,38,0.06);border:1px solid rgba(220,38,38,0.15);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:#DC2626;">${tiaViolations.length}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">TIA-568 Violations</div>
+      </div>` : `
+      <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.12);border-radius:8px;padding:10px 12px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:#10B981;">✓</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">TIA-568 Compliant</div>
+      </div>`}
+    </div>`;
+
+  // Zone breakdown tables by cable type
+  const tables = results.map(r => {
+    const rows = r.zones.map(z => `
+      <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+        <td style="padding:7px 10px;font-size:12px;color:var(--text-primary);">${z.zone || '—'}</td>
+        <td style="padding:7px 10px;font-size:12px;color:var(--text-muted);">${z.idf || '—'}</td>
+        <td style="padding:7px 10px;font-size:12px;text-align:center;">${z.deviceCount}</td>
+        <td style="padding:7px 10px;font-size:12px;text-align:center;">
+          <span style="font-weight:600;color:${z.tiaFlag ? '#DC2626' : z.runFt < 100 ? '#10B981' : 'var(--text-primary)'};">${z.runFt} ft</span>
+          ${z.tiaFlag ? ' 🚨' : z.runFt < 100 ? ' ✓' : ''}
+        </td>
+        <td style="padding:7px 10px;font-size:12px;text-align:right;font-weight:600;">${fmtFt(z.totalFt)}</td>
+        <td style="padding:7px 10px;font-size:12px;text-align:right;color:var(--accent-teal);">${fmt(z.cost)}</td>
+        <td style="padding:7px 10px;font-size:10px;color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${z.basis}">${z.basis}</td>
+      </tr>`).join('');
+
+    const typeTotalFt = r.zones.reduce((s, z) => s + z.totalFt, 0);
+    const typeTotalCost = r.zones.reduce((s, z) => s + z.cost, 0);
+    const modeLabel = r.mode === 'spatial' ? '📐 Coordinate math' : r.mode === 'zone-estimate' ? '🏢 AI zone estimate' : '~ Flat average';
+
+    return `
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="font-size:13px;font-weight:700;color:var(--text-primary);">
+            ${r.cableType.toUpperCase().replace(/_/g,' ')} ${r.rating ? '(' + r.rating + ')' : ''}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);">${modeLabel} &nbsp;|&nbsp; $${r.ratePerFt.toFixed(2)}/ft</div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr style="background:rgba(13,148,136,0.06);">
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.12);white-space:nowrap;">Zone / Area</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.12);">IDF Served By</th>
+                <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.12);">Devices</th>
+                <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.12);">Run Length</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.12);">Total Cable</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.12);">Est. Cost</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.12);">Basis</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            <tfoot>
+              <tr style="background:rgba(13,148,136,0.04);">
+                <td colspan="4" style="padding:8px 10px;font-size:12px;font-weight:700;color:var(--text-primary);">Subtotal</td>
+                <td style="padding:8px 10px;font-size:12px;font-weight:700;text-align:right;">${fmtFt(typeTotalFt)}</td>
+                <td style="padding:8px 10px;font-size:12px;font-weight:700;color:var(--accent-teal);text-align:right;">${fmt(typeTotalCost)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Backbone cables summary (from CABLE_PATHWAY, not zone-calculated)
+  const backbones = (cable.backbone_cables || []);
+  const backboneHtml = backbones.length > 0 ? `
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(0,0,0,0.06);">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">Backbone / Riser Cables</div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:rgba(99,102,241,0.06);">
+              <th style="padding:7px 10px;text-align:left;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Type</th>
+              <th style="padding:7px 10px;text-align:center;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Strands/Pairs</th>
+              <th style="padding:7px 10px;text-align:center;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Runs</th>
+              <th style="padding:7px 10px;text-align:right;font-size:10px;color:var(--accent-indigo);font-weight:700;border-bottom:2px solid rgba(99,102,241,0.12);">Avg Length</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${backbones.map(b => `
+              <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                <td style="padding:7px 10px;font-size:12px;">${(b.type||'').toUpperCase().replace(/_/g,' ')}</td>
+                <td style="padding:7px 10px;font-size:12px;text-align:center;">${b.strand_count || b.pairs || '—'}</td>
+                <td style="padding:7px 10px;font-size:12px;text-align:center;">${b.runs || '—'}</td>
+                <td style="padding:7px 10px;font-size:12px;text-align:right;">${b.avg_length_ft ? b.avg_length_ft + ' ft' : '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  return `
+    <div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div>
+    <div class="info-card" style="margin-bottom:22px;border:1px solid rgba(13,148,136,0.15);background:#FFFFFF;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="cable-pathway-toggle">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="info-card-title" style="margin-bottom:0;">
+            <i data-lucide="cable" style="width:16px;height:16px;"></i> Cable Pathway Analysis
+          </div>
+          ${modeBadge}
+        </div>
+        <span id="cable-pathway-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">${open ? '▼' : '▶'}</span>
+      </div>
+      <div id="cable-pathway-collapsible" style="display:${open ? 'block' : 'none'};margin-top:12px;">
+        <div class="info-card-body" style="margin-bottom:12px;">
+          Per-zone cable run lengths calculated from floor plan geometry and IDF locations.
+          ${hasDimensions ? `Building: <strong>${bldgW} ft × ${bldgD} ft</strong>. ` : ''}
+          Includes 12% waste factor. Run lengths color-coded: <span style="color:#10B981;font-weight:600;">green &lt; 100 ft</span> · <span style="color:var(--text-primary);font-weight:600;">neutral 100–295 ft</span> · <span style="color:#DC2626;font-weight:600;">red &gt; 295 ft (TIA-568 violation)</span>.
+        </div>
+        ${tiaWarning}
+        ${statsBar}
+        ${tables}
+        ${backboneHtml}
+        ${!hasDimensions ? `
+        <div style="margin-top:12px;padding:10px 14px;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.12);border-radius:8px;font-size:11px;color:var(--text-muted);">
+          💡 <strong>Improve accuracy:</strong> Enter your building's floor plate dimensions in Stage 1 (Setup) to switch from AI zone estimates to precise coordinate-based calculations.
+        </div>` : ''}
+      </div>
+    </div>`;
+}
+
+function bindCablePathwayEvents(container) {
+  const toggle = document.getElementById('cable-pathway-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      state._cablePathwayOpen = !state._cablePathwayOpen;
+      const body = document.getElementById('cable-pathway-collapsible');
+      const icon = document.getElementById('cable-pathway-toggle-icon');
+      if (body) body.style.display = state._cablePathwayOpen ? 'block' : 'none';
+      if (icon) icon.textContent = state._cablePathwayOpen ? '▼' : '▶';
+    });
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // POTENTIAL CHANGE ORDERS — Extract from existing brain data
