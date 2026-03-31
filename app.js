@@ -762,6 +762,11 @@ function generateMasterReport() {
   const reportWriter = state.brainResults?.wave4?.REPORT_WRITER;
   const estimateCorrector = state.brainResults?.wave3_5?.ESTIMATE_CORRECTOR;
   const crossValidator = state.brainResults?.wave3?.CROSS_VALIDATOR;
+  const annotationReader = state.brainResults?.wave1?.ANNOTATION_READER;
+  const codeCompliance = state.brainResults?.wave1?.CODE_COMPLIANCE;
+  const mdfIdf = state.brainResults?.wave1?.MDF_IDF_ANALYZER;
+  const specCrossRef = state.brainResults?.wave1?.SPEC_CROSS_REF;
+  const riserDiagram = state.brainResults?.wave1?.RISER_DIAGRAM_ANALYZER;
 
   const confidence = financialEngine?.confidence_score || financialEngine?.confidence || 85;
   const grandTotal = bomWithTravel.grandTotal || 0;
@@ -847,13 +852,16 @@ function generateMasterReport() {
         ${travelCosts ? '<li>Travel & Incidentals</li>' : ''}
         ${financialEngine?.sov ? '<li>Schedule of Values</li>' : ''}
         <li>Exclusions, Assumptions & Clarifications</li>
-        <li>RFI Log</li>
+        <li>Requests for Information (RFIs)</li>
         ${cos.length > 0 ? '<li>Potential Change Orders</li>' : ''}
         <li>Bid Phases & Alternates</li>
         ${bidStrategy ? '<li>Bid Strategy</li>' : ''}
         <li>Infrastructure & Cable Pathways</li>
         ${symbolScanner?.totals ? '<li>Symbol Inventory</li>' : ''}
+        ${annotationReader ? '<li>Critical Drawing Notes & Annotations</li>' : ''}
+        ${codeCompliance ? '<li>Code Compliance & Required Permits</li>' : ''}
         ${devilsAdvocate ? "<li>Devil's Advocate Review</li>" : ''}
+        ${estimateCorrector?.correction_log ? '<li>Estimate Corrections & Quality Audit</li>' : ''}
         ${specialConditions ? '<li>Special Conditions</li>' : ''}
       </ol>
     </div>
@@ -1004,19 +1012,43 @@ function generateMasterReport() {
   if ((state.exclusions || []).length === 0) html += `<p style="color:#6b7280;font-style:italic;">No exclusions, assumptions, or clarifications entered.</p>`;
   html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
-  // ═══ SECTION: RFI LOG ═══
+  // ═══ SECTION: RFIs ═══
+  html += `<div class="page-break"></div>`;
   const secRfi = nextSec();
   const allRFIs = typeof getRelevantRFIs === 'function' ? getRelevantRFIs() : [];
   const rfis = allRFIs.filter(r => state.selectedRFIs && state.selectedRFIs.has(r.id));
-  html += `<h2>${secRfi}. RFI Log</h2>`;
+  html += `<h2>${secRfi}. Requests for Information (RFIs)</h2>`;
   if (rfis.length > 0) {
-    html += `<table><tr><th style="width:12%;">#</th><th>Question</th><th style="width:15%;">Discipline</th><th style="width:10%;">Priority</th></tr>`;
+    html += `<div class="callout"><strong>${rfis.length}</strong> RFI${rfis.length > 1 ? 's' : ''} identified — these represent gaps in the construction documents that cannot be resolved from the drawings and specifications alone. Clarification from the Architect/Engineer is required before finalizing the bid.</div>`;
+    // Summary table first
+    html += `<h3>RFI Summary Log</h3>`;
+    html += `<table><tr><th style="width:10%;">RFI #</th><th style="width:52%;">Subject</th><th style="width:18%;">Discipline</th><th style="width:20%;">Status</th></tr>`;
     rfis.forEach((r, i) => {
-      html += `<tr><td>RFI-${String(i + 1).padStart(3, '0')}</td><td>${esc(r.question || r.text || '')}</td><td>${esc(r.discipline || r.category || 'General')}</td><td>${esc(r.priority || 'Medium')}</td></tr>`;
+      const shortQ = (r.q || r.question || r.text || '').split('.')[0];
+      html += `<tr><td style="font-weight:700;">RFI-${String(i + 1).padStart(3, '0')}</td><td>${esc(shortQ)}</td><td>${esc(r.discipline || 'General')}</td><td style="color:#D97706;font-weight:600;">Open — Pending Response</td></tr>`;
     });
     html += `</table>`;
+    // Detailed RFI pages
+    html += `<h3>RFI Detail Sheets</h3>`;
+    rfis.forEach((r, i) => {
+      const rfiNum = `RFI-${String(i + 1).padStart(3, '0')}`;
+      html += `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin:12px 0;page-break-inside:avoid;">`;
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">`;
+      html += `<span style="font-size:12pt;font-weight:800;color:#0D9488;">${rfiNum}</span>`;
+      html += `<span style="font-size:8.5pt;background:#0D9488;color:white;padding:3px 10px;border-radius:10px;">${esc(r.discipline || 'General')}</span>`;
+      html += `</div>`;
+      html += `<div style="margin-bottom:8px;"><strong style="font-size:8.5pt;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Question / Request:</strong></div>`;
+      html += `<div style="font-size:10pt;line-height:1.5;margin-bottom:10px;">${esc(r.q || r.question || r.text || '')}</div>`;
+      if (r.reason) {
+        html += `<div style="margin-bottom:8px;"><strong style="font-size:8.5pt;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Why This Matters (Cost & Schedule Impact):</strong></div>`;
+        html += `<div style="font-size:9.5pt;line-height:1.5;color:#374151;background:#f0fdfa;padding:8px 12px;border-radius:6px;border-left:3px solid #0D9488;">${esc(r.reason)}</div>`;
+      }
+      html += `<div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:8px;">`;
+      html += `<div style="font-size:8.5pt;color:#6b7280;"><strong>Response:</strong> <em>Pending — to be completed by Architect/Engineer</em></div>`;
+      html += `</div></div>`;
+    });
   } else {
-    html += `<p style="color:#6b7280;font-style:italic;">No RFIs selected.</p>`;
+    html += `<p style="color:#6b7280;font-style:italic;">No RFIs selected. Review the RFI panel in SmartPlans to identify gaps in the construction documents.</p>`;
   }
   html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
@@ -1027,19 +1059,95 @@ function generateMasterReport() {
     const includedCOs = cos.filter(c => !state._excludedCOs.has(c.id));
     const totalCOValue = includedCOs.reduce((s, c) => s + c.estimatedCost, 0);
     html += `<h2>${secCO}. Potential Change Orders</h2>`;
-    html += `<div class="callout"><strong>${includedCOs.length}</strong> potential change orders identified — estimated total impact: <strong>${fmtInt(totalCOValue)}</strong></div>`;
-    html += `<table><tr><th style="width:8%;">CO#</th><th style="width:45%;">Description</th><th style="text-align:center;width:10%;">Severity</th><th style="text-align:right;width:12%;">Est. Impact</th><th style="width:10%;">Source</th></tr>`;
+    html += `<div class="callout"><strong>${includedCOs.length}</strong> potential change orders identified — estimated total impact: <strong>${fmtInt(totalCOValue)}</strong>. Each CO below includes full wording ready to copy/paste into a change order form.</div>`;
+
+    // ── Summary Table ──
+    html += `<h3>Change Order Summary</h3>`;
+    html += `<table><tr><th style="width:8%;">CO#</th><th style="width:42%;">Description</th><th style="text-align:center;width:10%;">Severity</th><th style="text-align:right;width:14%;">Est. Impact</th><th style="width:12%;">Category</th><th style="width:14%;">Source</th></tr>`;
     cos.forEach(c => {
       const excl = state._excludedCOs.has(c.id);
+      const catLabel = (c.category || '').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
       html += `<tr${excl ? ' style="opacity:0.4;"' : ''}>
-        <td style="white-space:nowrap;font-weight:600;">${esc(c.id)}</td>
-        <td>${esc(c.description)}${c.recommendation ? `<br><em style="font-size:8.5pt;color:#6b7280;">Recommendation: ${esc(c.recommendation)}</em>` : ''}</td>
+        <td style="white-space:nowrap;font-weight:700;">${esc(c.id)}</td>
+        <td>${esc(c.description)}</td>
         <td style="text-align:center;"><span class="sev-${c.severity}">${c.severity}</span></td>
         <td style="text-align:right;font-weight:600;">${c.estimatedCost > 0 ? fmtInt(c.estimatedCost) : 'TBD'}</td>
+        <td style="font-size:8.5pt;">${esc(catLabel)}</td>
         <td style="font-size:8.5pt;color:#6b7280;">${esc(c.source)}</td>
       </tr>`;
     });
+    html += `<tr style="background:#0D9488;color:white;font-weight:700;"><td colspan="3" style="text-align:right;">Total Estimated CO Exposure</td><td style="text-align:right;">${fmtInt(totalCOValue)}</td><td colspan="2"></td></tr>`;
     html += `</table>`;
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
+
+    // ── Detailed CO Forms (copy-paste ready) ──
+    html += `<div class="page-break"></div>`;
+    html += `<h2>${secCO}. Potential Change Orders — Detail Sheets</h2>`;
+    html += `<div class="callout-teal">Each change order below is written in formal language ready to copy/paste into a CO request form. The <strong>"Description of Change"</strong> and <strong>"Justification"</strong> fields are formatted for direct submission to the Architect/Engineer or Owner.</div>`;
+
+    cos.forEach((c, idx) => {
+      const excl = state._excludedCOs.has(c.id);
+      if (excl) return; // Skip excluded COs from detail sheets
+      if (idx > 0 && idx % 3 === 0) html += `<div class="page-break"></div>`;
+
+      // Build justification based on category and source
+      let justification = '';
+      if (c.category === 'missing_item') {
+        justification = `This item was not included in the original contract documents or was omitted from the drawings and specifications. The AI analysis identified this as a required component based on code requirements, industry standards, and the scope described in the project documents. Without this item, the installation will be incomplete or non-compliant.`;
+      } else if (c.category === 'scope_gap') {
+        justification = `The contract documents contain ambiguous or incomplete information regarding this scope item. The original bid was based on the information available at the time. This change order addresses the gap between what was shown on the documents and what is required for a complete and functional installation.`;
+      } else if (c.category === 'pricing_flag') {
+        justification = `A pricing discrepancy was identified during the estimate review process. The original unit cost or quantity requires adjustment based on current market conditions, manufacturer pricing, or a more accurate interpretation of the construction documents.`;
+      } else if (c.category === 'hidden_cost') {
+        justification = `This cost was not apparent from the face of the construction documents but is required for a complete installation. Site conditions, code requirements, or coordination needs that were not visible during the bidding phase have created this additional cost.`;
+      } else if (c.category === 'double_counting') {
+        justification = `A duplicate scope item was identified in the original estimate. This change order corrects the count to reflect the actual required quantities per the construction documents.`;
+      } else if (c.category === 'permits' || c.category === 'site_conditions') {
+        justification = `Site-specific conditions or permit requirements identified during plan review require additional scope beyond the base bid. These conditions were identified from the construction documents and project location analysis.`;
+      } else if (c.category === 'labor_issue') {
+        justification = `The labor allocation for this scope item requires adjustment. Working conditions, site access restrictions, or complexity factors identified during the detailed plan analysis indicate the original labor estimate is insufficient for the described work.`;
+      } else {
+        justification = `This potential change was identified during the AI-assisted plan review process. The original bid does not account for this item, and it represents additional scope or cost that should be addressed before contract execution.`;
+      }
+
+      html += `<div style="border:2px solid #e5e7eb;border-radius:10px;padding:16px 18px;margin:14px 0;page-break-inside:avoid;">`;
+      // Header
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #0D9488;">`;
+      html += `<div><span style="font-size:14pt;font-weight:800;color:#0D9488;">${esc(c.id)}</span> <span class="sev-${c.severity}" style="margin-left:8px;">${c.severity.toUpperCase()}</span></div>`;
+      html += `<div style="font-size:12pt;font-weight:800;color:#1a1a2e;">${c.estimatedCost > 0 ? fmtInt(c.estimatedCost) : 'TBD'}</div>`;
+      html += `</div>`;
+      // Project reference
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9pt;color:#6b7280;margin-bottom:10px;">`;
+      html += `<div><strong>Project:</strong> ${esc(state.projectName || 'N/A')}</div>`;
+      html += `<div><strong>Bid #:</strong> ${esc(bidNumber)}</div>`;
+      html += `<div><strong>Date Identified:</strong> ${dateStr}</div>`;
+      html += `<div><strong>Identified By:</strong> SmartPlans AI Analysis (${esc(c.source)})</div>`;
+      html += `</div>`;
+      // Description of Change
+      html += `<div style="margin-bottom:10px;">`;
+      html += `<div style="font-size:8.5pt;font-weight:700;color:#0D9488;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Description of Change:</div>`;
+      html += `<div style="font-size:10pt;line-height:1.55;padding:8px 12px;background:#f8fffe;border:1px solid #e5e7eb;border-radius:6px;">${esc(c.description)}</div>`;
+      html += `</div>`;
+      // Justification
+      html += `<div style="margin-bottom:10px;">`;
+      html += `<div style="font-size:8.5pt;font-weight:700;color:#0D9488;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Justification / Reason for Change:</div>`;
+      html += `<div style="font-size:9.5pt;line-height:1.55;padding:8px 12px;background:#f8fffe;border:1px solid #e5e7eb;border-radius:6px;">${esc(justification)}</div>`;
+      html += `</div>`;
+      // Recommendation
+      if (c.recommendation) {
+        html += `<div style="margin-bottom:10px;">`;
+        html += `<div style="font-size:8.5pt;font-weight:700;color:#0D9488;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Recommended Resolution:</div>`;
+        html += `<div style="font-size:9.5pt;line-height:1.55;padding:8px 12px;background:#fffbeb;border:1px solid #fef3c7;border-radius:6px;">${esc(c.recommendation)}</div>`;
+        html += `</div>`;
+      }
+      // Cost impact
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed #e5e7eb;font-size:9pt;">`;
+      html += `<div><strong>Estimated Cost Impact:</strong> ${c.estimatedCost > 0 ? fmtInt(c.estimatedCost) : 'To Be Determined'}</div>`;
+      html += `<div><strong>Schedule Impact:</strong> TBD</div>`;
+      html += `<div><strong>Status:</strong> <em style="color:#D97706;">Pending Review</em></div>`;
+      html += `</div>`;
+      html += `</div>`;
+    });
     html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
@@ -1166,6 +1274,159 @@ function generateMasterReport() {
     html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
+  // ═══ SECTION: CRITICAL DRAWING NOTES & ANNOTATIONS ═══
+  if (annotationReader) {
+    html += `<div class="page-break"></div>`;
+    const secAnnot = nextSec();
+    html += `<h2>${secAnnot}. Critical Drawing Notes & Annotations</h2>`;
+    html += `<div class="callout">The AI analyzed every text annotation, callout, keynote, and equipment schedule on the drawings. Items below are flagged because they directly affect scope, pricing, or coordination and should not be overlooked.</div>`;
+
+    // ── Scope Exclusions (BY OTHERS / NIC / OFCI) ──
+    const exclusions = annotationReader.exclusions || [];
+    if (exclusions.length > 0) {
+      html += `<h3 style="color:#DC2626;">⚠ Scope Exclusions Found on Drawings (BY OTHERS / NIC / OFCI)</h3>`;
+      html += `<div class="callout" style="border-left-color:#DC2626;background:#fef2f2;">These items are explicitly marked on the drawings as <strong>outside your scope</strong>. Verify each one — if incorrectly excluded, they become change orders.</div>`;
+      html += `<table><tr><th style="width:55%;">Item / Note</th><th style="width:20%;">Drawing Reference</th><th style="width:25%;">Marking</th></tr>`;
+      exclusions.forEach(ex => {
+        if (typeof ex === 'string') { html += `<tr><td colspan="3">${esc(ex)}</td></tr>`; }
+        else { html += `<tr><td style="font-weight:600;">${esc(ex.item || ex.description || ex.text || '')}</td><td>${esc(ex.sheet_id || ex.sheet || '')}</td><td><span class="sev-warning">${esc(ex.note || ex.marking || 'BY OTHERS')}</span></td></tr>`; }
+      });
+      html += `</table>`;
+    }
+
+    // ── Equipment Schedules Extracted ──
+    const schedules = annotationReader.schedule_data || [];
+    if (schedules.length > 0) {
+      html += `<h3>Equipment Schedules (Architect's Definitive Quantities)</h3>`;
+      html += `<div class="callout-teal">Equipment schedules on the drawings are the <strong>most authoritative source</strong> of device counts. These override symbol counts when conflicts exist.</div>`;
+      schedules.forEach(sched => {
+        html += `<h3 style="font-size:10pt;">${esc(sched.schedule_name || 'Equipment Schedule')} — Sheet ${esc(sched.sheet_id || '?')} (${sched.total_items || 0} items)</h3>`;
+        if (sched.summary_by_type && typeof sched.summary_by_type === 'object') {
+          html += `<table><tr><th>Device Type</th><th style="text-align:center;">Count</th></tr>`;
+          Object.entries(sched.summary_by_type).forEach(([type, count]) => {
+            html += `<tr><td>${esc(type)}</td><td style="text-align:center;font-weight:700;">${count}</td></tr>`;
+          });
+          html += `</table>`;
+        }
+        // Show manufacturer/model data if present in line items
+        const withMfr = (sched.line_items || []).filter(li => li.manufacturer || li.model);
+        if (withMfr.length > 0) {
+          html += `<table><tr><th>Tag</th><th>Type</th><th>Manufacturer</th><th>Model / Part #</th><th>Location</th></tr>`;
+          withMfr.forEach(li => {
+            html += `<tr><td>${esc(li.tag || '')}</td><td>${esc(li.type || '')}</td><td style="font-weight:600;">${esc(li.manufacturer || '—')}</td><td style="font-weight:600;">${esc(li.model || li.part_number || '—')}</td><td style="font-size:8.5pt;">${esc(li.location || '')}</td></tr>`;
+          });
+          html += `</table>`;
+        }
+      });
+    }
+
+    // ── Typical Note Multiplications ──
+    const typicals = annotationReader.typical_multiplications || [];
+    if (typicals.length > 0) {
+      html += `<h3>Typical Note Calculations (TYP / TYPICAL)</h3>`;
+      html += `<div class="callout-teal">"TYP" notes on drawings mean a device repeats at every matching location. The AI counted all qualifying locations across every sheet to derive totals.</div>`;
+      html += `<table><tr><th style="width:35%;">Note Text</th><th style="width:15%;">Device</th><th style="text-align:center;width:10%;">Per Location</th><th style="text-align:center;width:10%;">Locations</th><th style="text-align:center;width:10%;">Total</th><th style="width:20%;">Sheets Checked</th></tr>`;
+      typicals.forEach(t => {
+        html += `<tr><td style="font-size:9pt;">${esc(t.note_text || t.text || '')}</td><td>${esc((t.device_type || '').replace(/_/g, ' '))}</td><td style="text-align:center;">${t.per_location_qty || 1}</td><td style="text-align:center;">${t.total_locations || '—'}</td><td style="text-align:center;font-weight:800;color:#0D9488;">${t.calculated_total || '—'}</td><td style="font-size:8pt;color:#6b7280;">${Array.isArray(t.sheets_checked) ? t.sheets_checked.join(', ') : (t.sheets_checked || '')}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+
+    // ── Key Annotations by Sheet ──
+    const annotations = annotationReader.annotations || [];
+    const critAnnotations = annotations.filter(a => {
+      const txt = (a.text || '').toLowerCase();
+      return txt.includes('nic') || txt.includes('by others') || txt.includes('ofci') || txt.includes('owner') ||
+             txt.includes('demolition') || txt.includes('remove') || txt.includes('existing') || txt.includes('addend') ||
+             txt.includes('typ') || txt.includes('future') || txt.includes('not in contract') || txt.includes('deferred') ||
+             a.type === 'typical_note' || a.type === 'demolition' || a.type === 'scope_exclusion';
+    });
+    if (critAnnotations.length > 0) {
+      html += `<h3>Critical Annotations by Sheet</h3>`;
+      // Group by sheet
+      const bySheet = {};
+      critAnnotations.forEach(a => {
+        const sheet = a.sheet_id || 'Unknown';
+        if (!bySheet[sheet]) bySheet[sheet] = [];
+        bySheet[sheet].push(a);
+      });
+      Object.entries(bySheet).forEach(([sheet, items]) => {
+        html += `<div style="margin-bottom:10px;"><strong style="color:#0D9488;">Sheet ${esc(sheet)}</strong>`;
+        html += `<table style="margin-top:4px;"><tr><th style="width:15%;">Type</th><th style="width:55%;">Annotation Text</th><th style="width:30%;">Impact</th></tr>`;
+        items.forEach(a => {
+          const typeLabel = (a.type || 'note').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          html += `<tr><td><span class="sev-${a.type === 'scope_exclusion' || a.type === 'demolition' ? 'high' : 'info'}">${esc(typeLabel)}</span></td><td style="font-size:9pt;">${esc(a.text || '')}</td><td style="font-size:9pt;color:#6b7280;">${esc(a.impacts || a.impact || '')}</td></tr>`;
+        });
+        html += `</table></div>`;
+      });
+    }
+
+    // ── Detail References ──
+    const details = annotationReader.referenced_details || [];
+    if (details.length > 0) {
+      html += `<h3>Referenced Details</h3>`;
+      html += `<table><tr><th>Reference</th><th>Description</th><th>Devices in Detail</th><th>From Sheet</th></tr>`;
+      details.forEach(d => {
+        html += `<tr><td style="font-weight:600;">${esc(d.reference || '')}</td><td>${esc(d.description || '')}</td><td style="font-size:9pt;">${Array.isArray(d.devices_in_detail) ? d.devices_in_detail.map(x => esc(x.replace(/_/g, ' '))).join(', ') : ''}</td><td>${esc(d.sheet_id || '')}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
+  }
+
+  // ═══ SECTION: CODE COMPLIANCE & REQUIRED PERMITS ═══
+  if (codeCompliance) {
+    html += `<div class="page-break"></div>`;
+    const secCode = nextSec();
+    html += `<h2>${secCode}. Code Compliance & Required Permits</h2>`;
+
+    // Summary stats
+    const summary = codeCompliance.summary || {};
+    const critCount = summary.critical || 0;
+    const warnCount = summary.warning || 0;
+    const infoCount = summary.info || 0;
+    html += `<div class="stat-grid">
+      <div class="stat-box" style="${critCount > 0 ? 'border-color:#DC2626;background:linear-gradient(135deg,#fef2f2,#fee2e2);' : ''}"><div class="stat-value" style="${critCount > 0 ? 'color:#DC2626;' : ''}">${critCount}</div><div class="stat-label">Critical Issues</div></div>
+      <div class="stat-box" style="${warnCount > 0 ? 'border-color:#D97706;background:linear-gradient(135deg,#fffbeb,#fef3c7);' : ''}"><div class="stat-value" style="${warnCount > 0 ? 'color:#D97706;' : ''}">${warnCount}</div><div class="stat-label">Warnings</div></div>
+      <div class="stat-box"><div class="stat-value">${infoCount}</div><div class="stat-label">Informational</div></div>
+    </div>`;
+
+    // Issues table
+    const issues = codeCompliance.issues || [];
+    if (issues.length > 0) {
+      html += `<h3>Compliance Findings</h3>`;
+      if (critCount > 0) html += `<div class="callout" style="border-left-color:#DC2626;background:#fef2f2;"><strong>Critical findings require resolution before bid submission.</strong> These may affect scope, cost, or code compliance.</div>`;
+      html += `<table><tr><th style="width:10%;">Severity</th><th style="width:12%;">Code Ref</th><th style="width:45%;">Description</th><th style="width:33%;">Required Action</th></tr>`;
+      // Sort: critical first, then warning, then info
+      const sevOrder = { critical: 0, warning: 1, info: 2 };
+      [...issues].sort((a, b) => (sevOrder[a.severity] || 2) - (sevOrder[b.severity] || 2)).forEach(iss => {
+        html += `<tr><td><span class="sev-${(iss.severity || 'info').toLowerCase()}">${esc(iss.severity || 'info')}</span></td><td style="font-weight:600;font-size:9pt;">${esc(iss.code || iss.article || '')}</td><td>${esc(iss.description || '')}${iss.location ? `<br><em style="font-size:8.5pt;color:#6b7280;">Location: ${esc(iss.location)}</em>` : ''}</td><td style="font-size:9pt;">${esc(iss.action || iss.recommendation || '')}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+
+    // Required Permits
+    const permits = codeCompliance.permits_required || [];
+    if (permits.length > 0) {
+      html += `<h3>Required Permits</h3>`;
+      html += `<ul>`;
+      permits.forEach(p => { html += `<li style="font-weight:600;">${esc(typeof p === 'string' ? p : p.name || p.type || '')}</li>`; });
+      html += `</ul>`;
+    }
+
+    // Required Inspections
+    const inspections = codeCompliance.inspections_required || [];
+    if (inspections.length > 0) {
+      html += `<h3>Required Inspections</h3>`;
+      html += `<ul>`;
+      inspections.forEach(insp => { html += `<li>${esc(typeof insp === 'string' ? insp : insp.name || insp.type || '')}</li>`; });
+      html += `</ul>`;
+    }
+
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
+  }
+
   // ═══ SECTION: DEVIL'S ADVOCATE ═══
   if (devilsAdvocate) {
     html += `<div class="page-break"></div>`;
@@ -1188,6 +1449,65 @@ function generateMasterReport() {
       devilsAdvocate.recommendations.forEach(r => { html += `<li>${esc(typeof r === 'string' ? r : r.description || r.recommendation || '')}</li>`; });
       html += `</ul>`;
     }
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
+  }
+
+  // ═══ SECTION: ESTIMATE CORRECTIONS & QUALITY AUDIT ═══
+  if (estimateCorrector?.correction_log || crossValidator?.issues) {
+    html += `<div class="page-break"></div>`;
+    const secCorr = nextSec();
+    html += `<h2>${secCorr}. Estimate Corrections & Quality Audit</h2>`;
+    html += `<div class="callout-teal">The AI performed automated quality checks on the estimate — verifying math, cross-checking quantities across multiple analysis passes, and correcting anomalies. Every correction is logged below for full transparency.</div>`;
+
+    // Estimate Corrector results
+    if (estimateCorrector) {
+      if (estimateCorrector.original_grand_total && estimateCorrector.corrected_grand_total) {
+        const adj = (estimateCorrector.total_adjustment || estimateCorrector.corrected_grand_total - estimateCorrector.original_grand_total);
+        html += `<div class="stat-grid">
+          <div class="stat-box"><div class="stat-value">${fmt(estimateCorrector.original_grand_total)}</div><div class="stat-label">Original Total</div></div>
+          <div class="stat-box"><div class="stat-value">${fmt(estimateCorrector.corrected_grand_total)}</div><div class="stat-label">Corrected Total</div></div>
+          <div class="stat-box" style="${adj < 0 ? 'border-color:#65A30D;' : 'border-color:#DC2626;'}"><div class="stat-value" style="${adj < 0 ? 'color:#65A30D;' : 'color:#DC2626;'}">${adj >= 0 ? '+' : ''}${fmt(adj)}</div><div class="stat-label">Net Adjustment</div></div>
+        </div>`;
+      }
+      if (estimateCorrector.adjustment_summary) {
+        html += `<div class="callout-teal"><strong>Summary:</strong> ${esc(estimateCorrector.adjustment_summary)}</div>`;
+      }
+      // Correction log
+      const log = estimateCorrector.correction_log || [];
+      if (log.length > 0) {
+        html += `<h3>Correction Log</h3>`;
+        html += `<table><tr><th style="width:12%;">Action</th><th style="width:30%;">Item</th><th style="text-align:center;width:10%;">From</th><th style="text-align:center;width:10%;">To</th><th style="text-align:right;width:15%;">Cost Impact</th><th style="width:23%;">Reason</th></tr>`;
+        log.forEach(entry => {
+          const actionLabel = (entry.action || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          html += `<tr><td><span class="sev-${entry.action === 'item_added' ? 'medium' : entry.action === 'qty_reduced' ? 'low' : 'warning'}">${esc(actionLabel)}</span></td><td style="font-weight:600;">${esc(entry.item || '')}</td><td style="text-align:center;">${entry.from != null ? entry.from : '—'}</td><td style="text-align:center;">${entry.to != null ? entry.to : '—'}</td><td style="text-align:right;font-weight:700;color:${(entry.cost_impact || 0) < 0 ? '#65A30D' : '#DC2626'};">${entry.cost_impact ? fmt(entry.cost_impact) : '—'}</td><td style="font-size:9pt;">${esc(entry.reason || '')}</td></tr>`;
+        });
+        html += `</table>`;
+      }
+    }
+
+    // Cross-Validator results
+    if (crossValidator?.issues && crossValidator.issues.length > 0) {
+      html += `<h3>Cross-Validation Checks</h3>`;
+      html += `<table><tr><th style="width:10%;">Severity</th><th style="width:12%;">Category</th><th style="width:45%;">Finding</th><th style="width:33%;">Correction</th></tr>`;
+      crossValidator.issues.forEach(iss => {
+        html += `<tr><td><span class="sev-${(iss.severity || 'info').toLowerCase()}">${esc(iss.severity || 'info')}</span></td><td style="font-size:9pt;">${esc((iss.category || '').replace(/_/g, ' '))}</td><td>${esc(iss.description || '')}</td><td style="font-size:9pt;">${esc(iss.correction || '')}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+
+    // Quantity crosscheck
+    if (crossValidator?.quantity_crosscheck && crossValidator.quantity_crosscheck.length > 0) {
+      const mismatches = crossValidator.quantity_crosscheck.filter(q => !q.match);
+      if (mismatches.length > 0) {
+        html += `<h3>Quantity Discrepancies</h3>`;
+        html += `<table><tr><th>Item</th><th style="text-align:center;">Scanner Count</th><th style="text-align:center;">Pricer Count</th><th style="text-align:center;">Match</th></tr>`;
+        mismatches.forEach(q => {
+          html += `<tr><td>${esc(q.item || '')}</td><td style="text-align:center;">${q.scanner_count || 0}</td><td style="text-align:center;">${q.pricer_count || 0}</td><td style="text-align:center;color:#DC2626;font-weight:700;">✗ Mismatch</td></tr>`;
+        });
+        html += `</table>`;
+      }
+    }
+
     html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
@@ -1239,6 +1559,68 @@ function generateMasterReport() {
         else { html += `<li><strong>${esc(e.name || e.type || '')}</strong>${e.description ? ': ' + esc(e.description) : ''}${e.est_cost ? ' — ' + fmtInt(e.est_cost) : ''}</li>`; }
       });
       html += `</ul>`;
+    }
+    // Equipment Rentals
+    if (specialConditions.equipment_rentals && Array.isArray(specialConditions.equipment_rentals) && specialConditions.equipment_rentals.length > 0) {
+      html += `<h3>Equipment Rentals</h3><table><tr><th>Equipment</th><th style="text-align:center;">Duration</th><th style="text-align:right;">Daily Rate</th><th style="text-align:right;">Est. Total</th><th>Reason</th></tr>`;
+      specialConditions.equipment_rentals.forEach(er => {
+        if (typeof er === 'string') { html += `<tr><td colspan="5">${esc(er)}</td></tr>`; }
+        else {
+          const total = (er.duration_days || 0) * (er.daily_rate || 0);
+          html += `<tr><td style="font-weight:600;">${esc(er.item || er.name || '')}</td><td style="text-align:center;">${er.duration_days || '—'} days</td><td style="text-align:right;">${er.daily_rate ? fmt(er.daily_rate) : '—'}</td><td style="text-align:right;font-weight:600;">${total > 0 ? fmt(total) : '—'}</td><td style="font-size:9pt;">${esc(er.reason || '')}</td></tr>`;
+        }
+      });
+      html += `</table>`;
+    }
+    // Civil Work / Underground
+    if (specialConditions.civil_work && Array.isArray(specialConditions.civil_work) && specialConditions.civil_work.length > 0) {
+      html += `<h3>Civil Work & Underground</h3>`;
+      html += `<div class="callout" style="border-left-color:#DC2626;background:#fef2f2;">Civil work often requires subcontractors, permits, and utility locates. Verify scope with site survey before bidding.</div>`;
+      html += `<table><tr><th>Scope</th><th style="text-align:center;">Distance</th><th style="text-align:center;">Depth</th><th>Surface</th><th style="text-align:right;">Est. Cost</th></tr>`;
+      specialConditions.civil_work.forEach(cw => {
+        if (typeof cw === 'string') { html += `<tr><td colspan="5">${esc(cw)}</td></tr>`; }
+        else { html += `<tr><td style="font-weight:600;">${esc(cw.scope || '')}</td><td style="text-align:center;">${cw.distance_ft ? cw.distance_ft + ' ft' : '—'}</td><td style="text-align:center;">${cw.depth_in ? cw.depth_in + ' in' : '—'}</td><td>${esc(cw.surface || '')}</td><td style="text-align:right;font-weight:600;">${esc(cw.est_cost_range || '—')}</td></tr>`; }
+      });
+      html += `</table>`;
+    }
+    // Traffic Control
+    if (specialConditions.traffic_control && Array.isArray(specialConditions.traffic_control) && specialConditions.traffic_control.length > 0) {
+      html += `<h3>Traffic Control</h3><table><tr><th>Item</th><th style="text-align:center;">Duration</th><th style="text-align:right;">Daily Rate</th><th>Reason</th></tr>`;
+      specialConditions.traffic_control.forEach(tc => {
+        if (typeof tc === 'string') { html += `<tr><td colspan="4">${esc(tc)}</td></tr>`; }
+        else { html += `<tr><td style="font-weight:600;">${esc(tc.item || '')}</td><td style="text-align:center;">${tc.duration_days ? tc.duration_days + ' days' : '—'}</td><td style="text-align:right;">${tc.daily_rate ? fmt(tc.daily_rate) : '—'}</td><td style="font-size:9pt;">${esc(tc.reason || '')}</td></tr>`; }
+      });
+      html += `</table>`;
+    }
+    // Conduit Infrastructure
+    if (specialConditions.conduit_infrastructure && Array.isArray(specialConditions.conduit_infrastructure) && specialConditions.conduit_infrastructure.length > 0) {
+      html += `<h3>Conduit Infrastructure</h3><table><tr><th>Type / Size</th><th style="text-align:center;">Quantity</th><th>Location</th><th>Install Method</th></tr>`;
+      specialConditions.conduit_infrastructure.forEach(ci => {
+        if (typeof ci === 'string') { html += `<tr><td colspan="4">${esc(ci)}</td></tr>`; }
+        else { html += `<tr><td style="font-weight:600;">${esc(ci.type || '')}</td><td style="text-align:center;">${ci.quantity_ft ? ci.quantity_ft + ' ft' : '—'}</td><td>${esc(ci.location || '')}</td><td style="font-size:9pt;">${esc(ci.install_method || '')}</td></tr>`; }
+      });
+      html += `</table>`;
+    }
+    // Risks
+    if (specialConditions.risks && Array.isArray(specialConditions.risks) && specialConditions.risks.length > 0) {
+      html += `<h3>Identified Risks</h3>`;
+      html += `<table><tr><th style="width:10%;">Severity</th><th style="width:40%;">Risk</th><th style="width:50%;">Mitigation</th></tr>`;
+      specialConditions.risks.forEach(r => {
+        if (typeof r === 'string') { html += `<tr><td colspan="3">${esc(r)}</td></tr>`; }
+        else { html += `<tr><td><span class="sev-${(r.severity || 'medium').toLowerCase()}">${esc(r.severity || 'medium')}</span></td><td style="font-weight:600;">${esc(r.risk || r.description || '')}</td><td style="font-size:9pt;">${esc(r.mitigation || '')}</td></tr>`; }
+      });
+      html += `</table>`;
+    }
+    // Transit / Railroad
+    if (specialConditions.transit_railroad && specialConditions.transit_railroad.applicable) {
+      const tr = specialConditions.transit_railroad;
+      html += `<h3>Transit / Railroad Requirements</h3>`;
+      html += `<div class="callout" style="border-left-color:#DC2626;background:#fef2f2;"><strong>Railroad/Transit work adds significant cost.</strong> RWIC flagmen, RPL insurance, safety training, and restricted work windows typically add 20-30% to productivity.</div>`;
+      html += `<table><tr><th style="width:65%;">Item</th><th style="text-align:right;">Cost</th></tr>`;
+      if (tr.rwic_flagman_days) html += `<tr><td>RWIC Flagman (${tr.rwic_flagman_days} days × ${fmt(tr.rwic_daily_rate || 1200)}/day)</td><td style="text-align:right;font-weight:600;">${fmt(tr.rwic_flagman_days * (tr.rwic_daily_rate || 1200))}</td></tr>`;
+      if (tr.safety_training_cost) html += `<tr><td>Safety Training & Certification</td><td style="text-align:right;font-weight:600;">${fmt(tr.safety_training_cost)}</td></tr>`;
+      if (tr.rpl_insurance) html += `<tr><td>Railroad Protective Liability (RPL) Insurance</td><td style="text-align:right;font-weight:600;">${fmt(tr.rpl_insurance)}</td></tr>`;
+      html += `</table>`;
     }
     // Safety requirements
     if (specialConditions.safety_requirements && Array.isArray(specialConditions.safety_requirements)) {
