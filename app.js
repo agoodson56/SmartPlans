@@ -733,6 +733,19 @@ function generateMasterReport() {
   const fmtInt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  // Helper: safely render any brain value (object → table, array → list, string → text)
+  const renderVal = v => {
+    if (v == null) return '';
+    if (typeof v === 'string') return esc(v);
+    if (Array.isArray(v)) return '<ul>' + v.map(i => '<li>' + renderVal(i) + '</li>').join('') + '</ul>';
+    if (typeof v === 'object') {
+      return '<table style="font-size:9pt;">' + Object.entries(v).map(([k, val]) => {
+        const label = esc(String(k).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+        return `<tr><td style="font-weight:600;width:35%;vertical-align:top;padding:4px 8px;">${label}</td><td style="padding:4px 8px;">${renderVal(val)}</td></tr>`;
+      }).join('') + '</table>';
+    }
+    return esc(String(v));
+  };
 
   // ── Gather all data ──
   const bom = getFilteredBOM(state.aiAnalysis, state.disciplines);
@@ -747,111 +760,146 @@ function generateMasterReport() {
   const cablePath = state.brainResults?.wave1?.CABLE_PATHWAY;
   const symbolScanner = state.brainResults?.wave1?.SYMBOL_SCANNER;
   const reportWriter = state.brainResults?.wave4?.REPORT_WRITER;
+  const estimateCorrector = state.brainResults?.wave3_5?.ESTIMATE_CORRECTOR;
+  const crossValidator = state.brainResults?.wave3?.CROSS_VALIDATOR;
 
   const confidence = financialEngine?.confidence_score || financialEngine?.confidence || 85;
   const grandTotal = bomWithTravel.grandTotal || 0;
+  const bidNumber = state.estimateId || ('SP-' + now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0'));
 
-  // ── Common styles ──
+  // Build section numbering dynamically
+  let secNum = 0;
+  const nextSec = () => ++secNum;
+
+  // Compute cable pathway if available
+  let pathwayData = null;
+  try { pathwayData = typeof computePathwayDistances === 'function' ? computePathwayDistances() : null; } catch(e) { /* ignore */ }
+
+  // ── Styles ──
   const styles = `
     <style>
-      @page { size: letter; margin: 0.75in 0.75in 1in 0.75in; }
+      @page { size: letter; margin: 0.7in 0.7in 0.9in 0.7in; }
       @media print {
         .page-break { page-break-before: always; }
         .no-print { display: none !important; }
+        thead { display: table-header-group; }
+        tr { page-break-inside: avoid; }
       }
-      body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; color: #1a1a2e; font-size: 11pt; line-height: 1.5; margin: 0; padding: 0; }
+      * { box-sizing: border-box; }
+      body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; color: #1a1a2e; font-size: 10pt; line-height: 1.45; margin: 0; padding: 20px; }
       h1 { font-size: 22pt; color: #0D9488; margin: 0 0 6px 0; font-weight: 800; }
-      h2 { font-size: 15pt; color: #0D9488; border-bottom: 2px solid #0D9488; padding-bottom: 6px; margin: 28px 0 14px 0; }
-      h3 { font-size: 12pt; color: #1a1a2e; margin: 18px 0 8px 0; }
-      table { width: 100%; border-collapse: collapse; margin: 10px 0 16px 0; font-size: 10pt; }
-      th { background: #0D9488; color: white; padding: 8px 10px; text-align: left; font-size: 9pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-      td { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; }
+      h2 { font-size: 14pt; color: #0D9488; border-bottom: 2px solid #0D9488; padding-bottom: 5px; margin: 24px 0 12px 0; font-weight: 800; letter-spacing: 0.5px; }
+      h3 { font-size: 11pt; color: #1a1a2e; margin: 14px 0 6px 0; font-weight: 700; }
+      table { width: 100%; border-collapse: collapse; margin: 8px 0 14px 0; font-size: 9.5pt; }
+      th { background: #0D9488; color: white; padding: 7px 8px; text-align: left; font-size: 8.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+      td { padding: 5px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
       tr:nth-child(even) { background: #f8fffe; }
-      .section { margin-bottom: 24px; }
-      .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 14px 0; }
-      .stat-box { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 6px; padding: 12px; text-align: center; }
-      .stat-value { font-size: 18pt; font-weight: 800; color: #0D9488; }
-      .stat-label { font-size: 8pt; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+      .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 12px 0; }
+      .stat-box { background: linear-gradient(135deg, #f0fdfa, #e6fffa); border: 1px solid #99f6e4; border-radius: 8px; padding: 12px 10px; text-align: center; }
+      .stat-value { font-size: 16pt; font-weight: 800; color: #0D9488; }
+      .stat-label { font-size: 7.5pt; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
       .sev-critical { background: #DC2626; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
       .sev-high { background: #EA580C; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
       .sev-medium { background: #D97706; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
       .sev-low { background: #65A30D; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
-      .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9pt; font-weight: 700; color: #94a3b8; padding: 8px 0; border-top: 1px solid #e2e8f0; }
-      .cover-hero { background: linear-gradient(135deg, #0D9488, #065f5b); color: white; padding: 40px; border-radius: 8px; margin: 60px 0 30px 0; }
-      .toc a { color: #0D9488; text-decoration: none; }
-      .toc li { margin: 6px 0; font-size: 11pt; }
+      .sev-warning { background: #F59E0B; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
+      .sev-info { background: #6366F1; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
+      .cover-hero { background: linear-gradient(135deg, #0D9488, #065f5b); color: white; padding: 40px 36px; border-radius: 10px; margin: 50px 0 24px 0; }
+      .cover-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 16px; font-size: 10pt; }
+      .cover-meta div { opacity: 0.9; }
+      .toc { padding-left: 20px; }
+      .toc li { margin: 5px 0; font-size: 10.5pt; }
+      .footer-bar { text-align: center; font-size: 8.5pt; font-weight: 700; color: #94a3b8; padding: 6px 0; border-top: 1px solid #e2e8f0; margin-top: 30px; }
+      .callout { background: #fffbeb; border-left: 4px solid #F59E0B; padding: 10px 14px; margin: 10px 0; font-size: 9.5pt; border-radius: 0 6px 6px 0; }
+      .callout-teal { background: #f0fdfa; border-left: 4px solid #0D9488; padding: 10px 14px; margin: 10px 0; font-size: 9.5pt; border-radius: 0 6px 6px 0; }
+      ul { margin: 6px 0; padding-left: 18px; }
+      li { margin: 3px 0; }
+      p { margin: 6px 0; }
     </style>`;
 
   // ═══ COVER PAGE ═══
   let html = `<html><head><meta charset="utf-8"><title>${state.projectName || 'SmartPlans'} — Master Report</title>${styles}</head><body>`;
 
   html += `
-    <div class="cover-hero">
-      <div style="font-size: 10pt; letter-spacing: 3px; text-transform: uppercase; opacity: 0.8; margin-bottom: 8px;">SMARTPLANS COMPREHENSIVE ANALYSIS</div>
-      <h1 style="color: white; border: none; font-size: 28pt; margin-bottom: 4px;">${esc(state.projectName || 'Untitled Project')}</h1>
-      ${state.projectLocation ? `<div style="font-size: 12pt; opacity: 0.9; margin-bottom: 20px;">${esc(state.projectLocation)}</div>` : ''}
-      <div style="display: flex; gap: 30px; margin-top: 20px; font-size: 10pt;">
-        <div><strong>Prepared:</strong> ${dateStr}</div>
-        <div><strong>Disciplines:</strong> ${state.disciplines.join(', ')}</div>
-        <div><strong>Documents Analyzed:</strong> ${state.planFiles.length + (state.specFiles?.length || 0)}</div>
-      </div>
-      <div style="margin-top: 20px; font-size: 20pt; font-weight: 800;">Total Bid: ${fmt(grandTotal)}</div>
+    <div style="text-align:center;margin-top:10px;">
+      <div style="font-size:9pt;color:#94a3b8;letter-spacing:3px;text-transform:uppercase;">3D TECHNOLOGY SERVICES, INC.</div>
     </div>
-    <div style="margin-top: 30px;">
-      <h3>Table of Contents</h3>
-      <ol class="toc" style="padding-left: 20px;">
-        <li>Executive Summary</li>
+    <div class="cover-hero">
+      <div style="font-size: 9pt; letter-spacing: 3px; text-transform: uppercase; opacity: 0.7; margin-bottom: 6px;">SMARTPLANS MASTER REPORT</div>
+      <h1 style="color: white; border: none; font-size: 26pt; margin-bottom: 4px;">${esc(state.projectName || 'Untitled Project')}</h1>
+      ${state.projectLocation ? `<div style="font-size: 12pt; opacity: 0.9;">${esc(state.projectLocation)}</div>` : ''}
+      <div style="margin-top: 20px; font-size: 22pt; font-weight: 800;">Total Bid: ${fmt(grandTotal)}</div>
+      <div class="cover-meta">
+        <div><strong>Bid #:</strong> ${esc(bidNumber)}</div>
+        <div><strong>Date:</strong> ${dateStr}</div>
+        <div><strong>Disciplines:</strong> ${state.disciplines.join(', ')}</div>
+        <div><strong>Documents:</strong> ${state.planFiles.length + (state.specFiles?.length || 0)} analyzed</div>
+        ${state.preparedFor ? `<div><strong>Prepared For:</strong> ${esc(state.preparedFor)}</div>` : ''}
+        <div><strong>Confidence:</strong> ${confidence}%</div>
+      </div>
+    </div>
+    <div style="margin-top: 24px;">
+      <h3 style="color:#0D9488;">Table of Contents</h3>
+      <ol class="toc">
+        <li>Executive Summary & Financial Overview</li>
         <li>Bill of Materials</li>
-        <li>Labor Breakdown</li>
+        ${laborCalc?.phases ? '<li>Labor Breakdown</li>' : ''}
         ${travelCosts ? '<li>Travel & Incidentals</li>' : ''}
+        ${financialEngine?.sov ? '<li>Schedule of Values</li>' : ''}
         <li>Exclusions, Assumptions & Clarifications</li>
         <li>RFI Log</li>
         ${cos.length > 0 ? '<li>Potential Change Orders</li>' : ''}
         <li>Bid Phases & Alternates</li>
-        <li>Bid Strategy</li>
+        ${bidStrategy ? '<li>Bid Strategy</li>' : ''}
         <li>Infrastructure & Cable Pathways</li>
-        <li>Symbol Inventory</li>
-        <li>Devil\'s Advocate Review</li>
-        <li>Special Conditions</li>
+        ${symbolScanner?.totals ? '<li>Symbol Inventory</li>' : ''}
+        ${devilsAdvocate ? "<li>Devil's Advocate Review</li>" : ''}
+        ${specialConditions ? '<li>Special Conditions</li>' : ''}
       </ol>
-    </div>`;
+    </div>
+    <div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — SmartPlans v5.0 — ${dateStr}</div>`;
 
-  // ═══ SECTION 1: EXECUTIVE SUMMARY ═══
+  // ═══ SECTION: EXECUTIVE SUMMARY ═══
   html += `<div class="page-break"></div>`;
-  html += `<h2>1. Executive Summary</h2>`;
+  const secExec = nextSec();
+  html += `<h2>${secExec}. Executive Summary & Financial Overview</h2>`;
   html += `<div class="stat-grid">
     <div class="stat-box"><div class="stat-value">${fmt(grandTotal)}</div><div class="stat-label">Total Bid Price</div></div>
     <div class="stat-box"><div class="stat-value">${confidence}%</div><div class="stat-label">Confidence Score</div></div>
     <div class="stat-box"><div class="stat-value">${bomWithTravel.categories.length}</div><div class="stat-label">BOM Categories</div></div>
+    ${laborCalc ? `<div class="stat-box"><div class="stat-value">${(laborCalc.total_hours || 0).toLocaleString()}</div><div class="stat-label">Total Labor Hours</div></div>` : ''}
   </div>`;
 
+  // Executive narrative
   if (reportWriter?.executive_summary) {
-    html += `<p>${esc(reportWriter.executive_summary)}</p>`;
+    html += `<div class="callout-teal">${esc(reportWriter.executive_summary)}</div>`;
   } else if (financialEngine?.project_summary?.scope_description) {
-    html += `<p>${esc(financialEngine.project_summary.scope_description)}</p>`;
+    html += `<div class="callout-teal">${esc(financialEngine.project_summary.scope_description)}</div>`;
   }
 
-  // Financial breakdown
+  // Financial breakdown table
   if (financialEngine?.project_summary) {
     const ps = financialEngine.project_summary;
     html += `<h3>Financial Summary</h3><table>
-      <tr><th style="width:60%;">Category</th><th style="text-align:right;">Amount</th></tr>
-      ${ps.total_materials ? `<tr><td>Materials</td><td style="text-align:right;">${fmt(ps.total_materials)}</td></tr>` : ''}
-      ${ps.total_labor ? `<tr><td>Labor</td><td style="text-align:right;">${fmt(ps.total_labor)}</td></tr>` : ''}
-      ${ps.total_equipment ? `<tr><td>Equipment</td><td style="text-align:right;">${fmt(ps.total_equipment)}</td></tr>` : ''}
-      ${ps.total_subcontractor ? `<tr><td>Subcontractors</td><td style="text-align:right;">${fmt(ps.total_subcontractor)}</td></tr>` : ''}
-      ${travelCosts ? `<tr><td>Travel & Incidentals</td><td style="text-align:right;">${fmt(travelCosts.grandTotal)}</td></tr>` : ''}
-      <tr style="background:#0D9488;color:white;font-weight:700;"><td>TOTAL BID</td><td style="text-align:right;">${fmt(grandTotal)}</td></tr>
+      <tr><th style="width:55%;">Category</th><th style="text-align:right;">Amount</th><th style="text-align:right;">% of Total</th></tr>
+      ${ps.total_materials ? `<tr><td>Materials</td><td style="text-align:right;">${fmt(ps.total_materials)}</td><td style="text-align:right;">${grandTotal > 0 ? ((ps.total_materials / grandTotal) * 100).toFixed(1) + '%' : ''}</td></tr>` : ''}
+      ${ps.total_labor ? `<tr><td>Labor</td><td style="text-align:right;">${fmt(ps.total_labor)}</td><td style="text-align:right;">${grandTotal > 0 ? ((ps.total_labor / grandTotal) * 100).toFixed(1) + '%' : ''}</td></tr>` : ''}
+      ${ps.total_equipment ? `<tr><td>Equipment</td><td style="text-align:right;">${fmt(ps.total_equipment)}</td><td style="text-align:right;">${grandTotal > 0 ? ((ps.total_equipment / grandTotal) * 100).toFixed(1) + '%' : ''}</td></tr>` : ''}
+      ${ps.total_subcontractor ? `<tr><td>Subcontractors</td><td style="text-align:right;">${fmt(ps.total_subcontractor)}</td><td style="text-align:right;">${grandTotal > 0 ? ((ps.total_subcontractor / grandTotal) * 100).toFixed(1) + '%' : ''}</td></tr>` : ''}
+      ${travelCosts ? `<tr><td>Travel & Incidentals</td><td style="text-align:right;">${fmt(travelCosts.grandTotal)}</td><td style="text-align:right;">${grandTotal > 0 ? ((travelCosts.grandTotal / grandTotal) * 100).toFixed(1) + '%' : ''}</td></tr>` : ''}
+      <tr style="background:#0D9488;color:white;font-weight:700;"><td>TOTAL BID</td><td style="text-align:right;">${fmt(grandTotal)}</td><td style="text-align:right;">100%</td></tr>
     </table>`;
   }
+  html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
-  // ═══ SECTION 2: BILL OF MATERIALS ═══
+  // ═══ SECTION: BILL OF MATERIALS ═══
   html += `<div class="page-break"></div>`;
-  html += `<h2>2. Bill of Materials</h2>`;
+  const secBom = nextSec();
+  html += `<h2>${secBom}. Bill of Materials</h2>`;
   bomWithTravel.categories.forEach(cat => {
     html += `<h3>${esc(cat.name)} — ${fmtInt(cat.subtotal)}</h3>`;
     html += `<table>
-      <tr><th>Item</th><th style="text-align:center;">Qty</th><th style="text-align:center;">Unit</th><th style="text-align:right;">Unit Cost</th><th style="text-align:right;">Ext. Cost</th></tr>`;
+      <tr><th style="width:45%;">Item</th><th style="text-align:center;">Qty</th><th style="text-align:center;">Unit</th><th style="text-align:right;">Unit Cost</th><th style="text-align:right;">Ext. Cost</th></tr>`;
     (cat.items || []).forEach(item => {
       html += `<tr>
         <td>${esc(item.name || item.item || '')}</td>
@@ -861,49 +909,57 @@ function generateMasterReport() {
         <td style="text-align:right;">${fmt(item.extCost)}</td>
       </tr>`;
     });
-    html += `<tr style="background:#f0fdfa;font-weight:700;"><td colspan="4" style="text-align:right;">Category Subtotal</td><td style="text-align:right;">${fmt(cat.subtotal)}</td></tr>`;
+    html += `<tr style="background:#f0fdfa;font-weight:700;"><td colspan="4" style="text-align:right;">Subtotal</td><td style="text-align:right;">${fmt(cat.subtotal)}</td></tr>`;
     html += `</table>`;
   });
-  html += `<div style="text-align:right;font-size:14pt;font-weight:800;color:#0D9488;margin-top:8px;">BOM Grand Total: ${fmt(bomWithTravel.grandTotal)}</div>`;
+  html += `<div style="text-align:right;font-size:13pt;font-weight:800;color:#0D9488;margin-top:8px;padding:8px 10px;background:#f0fdfa;border-radius:6px;">BOM Grand Total: ${fmt(bomWithTravel.grandTotal)}</div>`;
+  html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
-  // ═══ SECTION 3: LABOR BREAKDOWN ═══
+  // ═══ SECTION: LABOR BREAKDOWN ═══
   if (laborCalc?.phases) {
     html += `<div class="page-break"></div>`;
-    html += `<h2>3. Labor Breakdown</h2>`;
+    const secLabor = nextSec();
+    html += `<h2>${secLabor}. Labor Breakdown</h2>`;
     html += `<div class="stat-grid">
       <div class="stat-box"><div class="stat-value">${(laborCalc.total_hours || 0).toLocaleString()}</div><div class="stat-label">Total Hours</div></div>
-      <div class="stat-box"><div class="stat-value">${fmt(laborCalc.total_base_cost)}</div><div class="stat-label">Base Labor Cost</div></div>
-      <div class="stat-box"><div class="stat-value">${fmt(laborCalc.total_with_markup)}</div><div class="stat-label">Labor w/ Markup</div></div>
+      <div class="stat-box"><div class="stat-value">${fmt(laborCalc.total_base_cost)}</div><div class="stat-label">Base Cost</div></div>
+      <div class="stat-box"><div class="stat-value">${fmt(laborCalc.total_with_markup)}</div><div class="stat-label">With ${state.markup?.labor || 50}% Markup</div></div>
     </div>`;
     html += `<table><tr><th>Phase</th><th style="text-align:center;">Hours</th><th style="text-align:center;">% of Total</th><th style="text-align:right;">Cost</th></tr>`;
     laborCalc.phases.forEach(p => {
       html += `<tr><td>${esc(p.name)}</td><td style="text-align:center;">${(p.phase_hours || 0).toLocaleString()}</td><td style="text-align:center;">${p.pct_of_total || 0}%</td><td style="text-align:right;">${fmt(p.phase_cost)}</td></tr>`;
     });
+    html += `<tr style="background:#0D9488;color:white;font-weight:700;"><td>Total</td><td style="text-align:center;">${(laborCalc.total_hours || 0).toLocaleString()}</td><td style="text-align:center;">100%</td><td style="text-align:right;">${fmt(laborCalc.total_base_cost)}</td></tr>`;
     html += `</table>`;
     if (laborCalc.crew_recommendation) {
       const cr = laborCalc.crew_recommendation;
-      html += `<h3>Crew Recommendation</h3><p>`;
-      if (cr.journeyman) html += `Journeyman: ${cr.journeyman} · `;
-      if (cr.apprentice) html += `Apprentice: ${cr.apprentice} · `;
-      if (cr.foreman) html += `Foreman: ${cr.foreman} · `;
-      if (cr.pm) html += `PM: ${cr.pm} · `;
-      if (cr.duration_weeks) html += `Duration: ${cr.duration_weeks} weeks`;
-      html += `</p>`;
+      html += `<h3>Crew Recommendation</h3><div class="callout-teal">`;
+      const crew = [];
+      if (cr.foreman) crew.push(`<strong>${cr.foreman}</strong> Foreman`);
+      if (cr.journeyman) crew.push(`<strong>${cr.journeyman}</strong> Journeyman`);
+      if (cr.apprentice) crew.push(`<strong>${cr.apprentice}</strong> Apprentice`);
+      if (cr.pm) crew.push(`<strong>${cr.pm}</strong> PM`);
+      html += crew.join(' &middot; ');
+      if (cr.duration_weeks) html += ` &middot; <strong>${cr.duration_weeks}</strong> weeks estimated duration`;
+      html += `</div>`;
     }
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
-  // ═══ SECTION 4: TRAVEL & INCIDENTALS ═══
+  // ═══ SECTION: TRAVEL & INCIDENTALS ═══
   if (travelCosts) {
     html += `<div class="page-break"></div>`;
-    html += `<h2>${laborCalc?.phases ? '4' : '3'}. Travel & Incidentals</h2>`;
+    const secTravel = nextSec();
+    html += `<h2>${secTravel}. Travel & Incidentals</h2>`;
     html += `<div class="stat-grid">
       <div class="stat-box"><div class="stat-value">${travelCosts.techs}</div><div class="stat-label">Technicians</div></div>
       <div class="stat-box"><div class="stat-value">${travelCosts.workDays}</div><div class="stat-label">Work Days</div></div>
       <div class="stat-box"><div class="stat-value">${travelCosts.totalPersonDays}</div><div class="stat-label">Person-Days</div></div>
+      <div class="stat-box"><div class="stat-value">${fmt(travelCosts.grandTotal)}</div><div class="stat-label">Total Travel Cost</div></div>
     </div>`;
-    html += `<table><tr><th>Item</th><th style="text-align:right;">Amount</th></tr>`;
-    if (travelCosts.hotel > 0) html += `<tr><td>Hotel (${travelCosts.totalPersonDays} person-nights × ${fmt(state.travel.hotelPerNight)})</td><td style="text-align:right;">${fmt(travelCosts.hotel)}</td></tr>`;
-    if (travelCosts.perdiem > 0) html += `<tr><td>Per Diem (${travelCosts.totalPersonDays} person-days × ${fmt(state.travel.perDiemPerDay)})</td><td style="text-align:right;">${fmt(travelCosts.perdiem)}</td></tr>`;
+    html += `<table><tr><th style="width:65%;">Item</th><th style="text-align:right;">Amount</th></tr>`;
+    if (travelCosts.hotel > 0) html += `<tr><td>Hotel (${travelCosts.totalPersonDays} nights @ ${fmt(state.travel.hotelPerNight)}/night)</td><td style="text-align:right;">${fmt(travelCosts.hotel)}</td></tr>`;
+    if (travelCosts.perdiem > 0) html += `<tr><td>Per Diem / Meals (${travelCosts.totalPersonDays} days @ ${fmt(state.travel.perDiemPerDay)}/day)</td><td style="text-align:right;">${fmt(travelCosts.perdiem)}</td></tr>`;
     if (travelCosts.mileage > 0) html += `<tr><td>Mileage</td><td style="text-align:right;">${fmt(travelCosts.mileage)}</td></tr>`;
     if (travelCosts.airfare > 0) html += `<tr><td>Airfare</td><td style="text-align:right;">${fmt(travelCosts.airfare)}</td></tr>`;
     if (travelCosts.rental > 0) html += `<tr><td>Rental Vehicle</td><td style="text-align:right;">${fmt(travelCosts.rental)}</td></tr>`;
@@ -914,14 +970,29 @@ function generateMasterReport() {
     if (travelCosts.insurance > 0) html += `<tr><td>Insurance</td><td style="text-align:right;">${fmt(travelCosts.insurance)}</td></tr>`;
     if (travelCosts.bonding > 0) html += `<tr><td>Bonding</td><td style="text-align:right;">${fmt(travelCosts.bonding)}</td></tr>`;
     if (travelCosts.equipmentRental > 0) html += `<tr><td>Equipment Rental</td><td style="text-align:right;">${fmt(travelCosts.equipmentRental)}</td></tr>`;
-    if (travelCosts.unexpectedBuffer > 0) html += `<tr><td>Contingency Buffer</td><td style="text-align:right;">${fmt(travelCosts.unexpectedBuffer)}</td></tr>`;
+    if (travelCosts.unexpectedBuffer > 0) html += `<tr><td>Contingency Buffer (${state.incidentals.unexpectedBufferPct || 0}%)</td><td style="text-align:right;">${fmt(travelCosts.unexpectedBuffer)}</td></tr>`;
     html += `<tr style="background:#0D9488;color:white;font-weight:700;"><td>Travel & Incidentals Total</td><td style="text-align:right;">${fmt(travelCosts.grandTotal)}</td></tr>`;
     html += `</table>`;
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
-  // ═══ SECTION 5: EXCLUSIONS, ASSUMPTIONS & CLARIFICATIONS ═══
+  // ═══ SECTION: SCHEDULE OF VALUES ═══
+  if (financialEngine?.sov && Array.isArray(financialEngine.sov)) {
+    html += `<div class="page-break"></div>`;
+    const secSov = nextSec();
+    html += `<h2>${secSov}. Schedule of Values</h2>`;
+    html += `<table><tr><th>Line</th><th>Description</th><th style="text-align:right;">Material</th><th style="text-align:right;">Labor</th><th style="text-align:right;">Equipment</th><th style="text-align:right;">Total</th></tr>`;
+    financialEngine.sov.forEach((line, i) => {
+      html += `<tr><td>${i + 1}</td><td>${esc(line.description || line.name || '')}</td><td style="text-align:right;">${fmt(line.material || 0)}</td><td style="text-align:right;">${fmt(line.labor || 0)}</td><td style="text-align:right;">${fmt(line.equipment || 0)}</td><td style="text-align:right;font-weight:600;">${fmt(line.total || (line.material || 0) + (line.labor || 0) + (line.equipment || 0))}</td></tr>`;
+    });
+    html += `</table>`;
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
+  }
+
+  // ═══ SECTION: EXCLUSIONS, ASSUMPTIONS & CLARIFICATIONS ═══
   html += `<div class="page-break"></div>`;
-  html += `<h2>5. Exclusions, Assumptions & Clarifications</h2>`;
+  const secExcl = nextSec();
+  html += `<h2>${secExcl}. Exclusions, Assumptions & Clarifications</h2>`;
   ['exclusion', 'assumption', 'clarification'].forEach(type => {
     const items = (state.exclusions || []).filter(e => e.type === type);
     if (items.length > 0) {
@@ -931,13 +1002,15 @@ function generateMasterReport() {
     }
   });
   if ((state.exclusions || []).length === 0) html += `<p style="color:#6b7280;font-style:italic;">No exclusions, assumptions, or clarifications entered.</p>`;
+  html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
-  // ═══ SECTION 6: RFI LOG ═══
+  // ═══ SECTION: RFI LOG ═══
+  const secRfi = nextSec();
   const allRFIs = typeof getRelevantRFIs === 'function' ? getRelevantRFIs() : [];
   const rfis = allRFIs.filter(r => state.selectedRFIs && state.selectedRFIs.has(r.id));
-  html += `<h2>6. RFI Log</h2>`;
+  html += `<h2>${secRfi}. RFI Log</h2>`;
   if (rfis.length > 0) {
-    html += `<table><tr><th>#</th><th>Question</th><th>Discipline</th><th>Priority</th></tr>`;
+    html += `<table><tr><th style="width:12%;">#</th><th>Question</th><th style="width:15%;">Discipline</th><th style="width:10%;">Priority</th></tr>`;
     rfis.forEach((r, i) => {
       html += `<tr><td>RFI-${String(i + 1).padStart(3, '0')}</td><td>${esc(r.question || r.text || '')}</td><td>${esc(r.discipline || r.category || 'General')}</td><td>${esc(r.priority || 'Medium')}</td></tr>`;
     });
@@ -945,32 +1018,36 @@ function generateMasterReport() {
   } else {
     html += `<p style="color:#6b7280;font-style:italic;">No RFIs selected.</p>`;
   }
+  html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
-  // ═══ SECTION 7: POTENTIAL CHANGE ORDERS ═══
+  // ═══ SECTION: POTENTIAL CHANGE ORDERS ═══
   if (cos.length > 0) {
     html += `<div class="page-break"></div>`;
-    html += `<h2>7. Potential Change Orders</h2>`;
+    const secCO = nextSec();
     const includedCOs = cos.filter(c => !state._excludedCOs.has(c.id));
     const totalCOValue = includedCOs.reduce((s, c) => s + c.estimatedCost, 0);
-    html += `<p><strong>${includedCOs.length}</strong> potential change orders identified — estimated total impact: <strong>${fmtInt(totalCOValue)}</strong></p>`;
-    html += `<table><tr><th>CO#</th><th>Description</th><th style="text-align:center;">Severity</th><th style="text-align:right;">Est. Impact</th><th>Source</th></tr>`;
+    html += `<h2>${secCO}. Potential Change Orders</h2>`;
+    html += `<div class="callout"><strong>${includedCOs.length}</strong> potential change orders identified — estimated total impact: <strong>${fmtInt(totalCOValue)}</strong></div>`;
+    html += `<table><tr><th style="width:8%;">CO#</th><th style="width:45%;">Description</th><th style="text-align:center;width:10%;">Severity</th><th style="text-align:right;width:12%;">Est. Impact</th><th style="width:10%;">Source</th></tr>`;
     cos.forEach(c => {
       const excl = state._excludedCOs.has(c.id);
       html += `<tr${excl ? ' style="opacity:0.4;"' : ''}>
-        <td style="white-space:nowrap;">${esc(c.id)}</td>
-        <td>${esc(c.description)}${c.recommendation ? `<br><em style="font-size:9pt;color:#6b7280;">${esc(c.recommendation)}</em>` : ''}</td>
+        <td style="white-space:nowrap;font-weight:600;">${esc(c.id)}</td>
+        <td>${esc(c.description)}${c.recommendation ? `<br><em style="font-size:8.5pt;color:#6b7280;">Recommendation: ${esc(c.recommendation)}</em>` : ''}</td>
         <td style="text-align:center;"><span class="sev-${c.severity}">${c.severity}</span></td>
         <td style="text-align:right;font-weight:600;">${c.estimatedCost > 0 ? fmtInt(c.estimatedCost) : 'TBD'}</td>
-        <td style="font-size:9pt;color:#6b7280;">${esc(c.source)}</td>
+        <td style="font-size:8.5pt;color:#6b7280;">${esc(c.source)}</td>
       </tr>`;
     });
     html += `</table>`;
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
-  // ═══ SECTION 8: BID PHASES & ALTERNATES ═══
+  // ═══ SECTION: BID PHASES & ALTERNATES ═══
+  html += `<div class="page-break"></div>`;
+  const secPhases = nextSec();
+  html += `<h2>${secPhases}. Bid Phases & Alternates</h2>`;
   if (state.bidPhases && state.bidPhases.length > 0) {
-    html += `<div class="page-break"></div>`;
-    html += `<h2>8. Bid Phases & Alternates</h2>`;
     const phaseBom = getBidPhaseBOM();
     html += `<table><tr><th>Phase</th><th>Type</th><th style="text-align:right;">Amount</th><th style="text-align:center;">In Proposal</th></tr>`;
     let runningTotal = 0;
@@ -983,58 +1060,96 @@ function generateMasterReport() {
     });
     html += `<tr style="background:#0D9488;color:white;font-weight:700;"><td colspan="2" style="text-align:right;">Total (if all accepted)</td><td style="text-align:right;">${fmtInt(runningTotal)}</td><td></td></tr>`;
     html += `</table>`;
+  } else {
+    html += `<p style="color:#6b7280;">Single base bid — no alternates configured.</p>`;
   }
+  html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
-  // ═══ SECTION 9: BID STRATEGY ═══
+  // ═══ SECTION: BID STRATEGY ═══
   if (bidStrategy) {
     html += `<div class="page-break"></div>`;
-    html += `<h2>9. Bid Strategy</h2>`;
-    if (bidStrategy.win_probability) html += `<p><strong>Win Probability:</strong> ${bidStrategy.win_probability}%</p>`;
-    if (bidStrategy.recommended_strategy) html += `<p><strong>Recommended Strategy:</strong> ${esc(typeof bidStrategy.recommended_strategy === 'string' ? bidStrategy.recommended_strategy : JSON.stringify(bidStrategy.recommended_strategy))}</p>`;
-    if (bidStrategy.pricing_recommendations && Array.isArray(bidStrategy.pricing_recommendations)) {
-      html += `<h3>Pricing Recommendations</h3><ul>`;
-      bidStrategy.pricing_recommendations.forEach(r => { html += `<li>${esc(typeof r === 'string' ? r : r.recommendation || JSON.stringify(r))}</li>`; });
-      html += `</ul>`;
+    const secStrat = nextSec();
+    html += `<h2>${secStrat}. Bid Strategy</h2>`;
+    // Handle various bid strategy formats from the AI
+    if (bidStrategy.win_probability != null) html += `<div class="stat-grid"><div class="stat-box"><div class="stat-value">${bidStrategy.win_probability}%</div><div class="stat-label">Win Probability</div></div></div>`;
+    if (bidStrategy.recommended_strategy) {
+      html += `<h3>Recommended Strategy</h3><div class="callout-teal">${renderVal(bidStrategy.recommended_strategy)}</div>`;
     }
-    if (bidStrategy.risk_factors && Array.isArray(bidStrategy.risk_factors)) {
-      html += `<h3>Risk Factors</h3><ul>`;
-      bidStrategy.risk_factors.forEach(r => { html += `<li>${esc(typeof r === 'string' ? r : r.factor || r.description || JSON.stringify(r))}</li>`; });
-      html += `</ul>`;
+    if (bidStrategy.pricing_recommendations) {
+      html += `<h3>Pricing Recommendations</h3>`;
+      if (Array.isArray(bidStrategy.pricing_recommendations)) {
+        html += '<ul>';
+        bidStrategy.pricing_recommendations.forEach(r => { html += `<li>${renderVal(r)}</li>`; });
+        html += '</ul>';
+      } else { html += renderVal(bidStrategy.pricing_recommendations); }
     }
+    if (bidStrategy.risk_factors) {
+      html += `<h3>Risk Factors</h3>`;
+      if (Array.isArray(bidStrategy.risk_factors)) {
+        html += '<ul>';
+        bidStrategy.risk_factors.forEach(r => { html += `<li>${renderVal(r)}</li>`; });
+        html += '</ul>';
+      } else { html += renderVal(bidStrategy.risk_factors); }
+    }
+    if (bidStrategy.competitive_analysis) {
+      html += `<h3>Competitive Analysis</h3>${renderVal(bidStrategy.competitive_analysis)}`;
+    }
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
-  // ═══ SECTION 10: INFRASTRUCTURE & CABLE PATHWAYS ═══
+  // ═══ SECTION: INFRASTRUCTURE & CABLE PATHWAYS ═══
+  html += `<div class="page-break"></div>`;
+  const secInfra = nextSec();
+  html += `<h2>${secInfra}. Infrastructure & Cable Pathways</h2>`;
+  // Use computed pathway data if available, otherwise fall back to raw brain data
+  if (pathwayData && pathwayData.results && pathwayData.results.length > 0) {
+    html += `<div class="stat-grid">
+      <div class="stat-box"><div class="stat-value">${(pathwayData.grandTotalFt || 0).toLocaleString()}</div><div class="stat-label">Total Cable (ft)</div></div>
+      <div class="stat-box"><div class="stat-value">${fmt(pathwayData.grandTotalCost || 0)}</div><div class="stat-label">Cable Material Cost</div></div>
+    </div>`;
+    html += `<table><tr><th>Cable Type</th><th style="text-align:center;">Runs</th><th style="text-align:right;">Avg Length</th><th style="text-align:right;">Total Feet</th><th style="text-align:right;">Material Cost</th></tr>`;
+    pathwayData.results.forEach(r => {
+      html += `<tr><td>${esc(r.label || r.cableType || '')}</td><td style="text-align:center;">${r.totalDrops || r.count || '—'}</td><td style="text-align:right;">${r.avgRunFt ? r.avgRunFt + ' ft' : '—'}</td><td style="text-align:right;">${(r.totalFt || 0).toLocaleString()} ft</td><td style="text-align:right;">${fmt(r.materialCost || 0)}</td></tr>`;
+    });
+    html += `</table>`;
+  }
+  // Raw brain data sections
   if (cablePath) {
-    html += `<div class="page-break"></div>`;
-    html += `<h2>10. Infrastructure & Cable Pathways</h2>`;
-    if (cablePath.backbone_runs && Array.isArray(cablePath.backbone_runs)) {
-      html += `<h3>Backbone Runs</h3><table><tr><th>From</th><th>To</th><th>Media</th><th>Distance</th></tr>`;
+    if (cablePath.backbone_runs && Array.isArray(cablePath.backbone_runs) && cablePath.backbone_runs.length > 0) {
+      html += `<h3>Backbone Runs</h3><table><tr><th>From</th><th>To</th><th>Media</th><th style="text-align:right;">Distance</th></tr>`;
       cablePath.backbone_runs.forEach(r => {
-        html += `<tr><td>${esc(r.from || '')}</td><td>${esc(r.to || '')}</td><td>${esc(r.media || r.cable_type || '')}</td><td>${r.distance_ft ? r.distance_ft + ' ft' : '—'}</td></tr>`;
+        html += `<tr><td>${esc(r.from || '')}</td><td>${esc(r.to || '')}</td><td>${esc(r.media || r.cable_type || '')}</td><td style="text-align:right;">${r.distance_ft ? r.distance_ft + ' ft' : '—'}</td></tr>`;
       });
       html += `</table>`;
     }
-    if (cablePath.horizontal_runs && Array.isArray(cablePath.horizontal_runs)) {
-      html += `<h3>Horizontal Distribution</h3><table><tr><th>Zone/Area</th><th>Drops</th><th>Avg Run</th><th>Total Cable</th></tr>`;
-      cablePath.horizontal_runs.forEach(r => {
-        html += `<tr><td>${esc(r.zone || r.area || '')}</td><td>${r.drops || r.drop_count || '—'}</td><td>${r.avg_run_ft ? r.avg_run_ft + ' ft' : '—'}</td><td>${r.total_cable_ft ? r.total_cable_ft + ' ft' : '—'}</td></tr>`;
+    if (cablePath.horizontal_cables && Array.isArray(cablePath.horizontal_cables) && cablePath.horizontal_cables.length > 0) {
+      html += `<h3>Horizontal Distribution</h3><table><tr><th>Cable Type</th><th style="text-align:center;">Count</th><th style="text-align:right;">Avg Length</th><th style="text-align:right;">Total</th></tr>`;
+      cablePath.horizontal_cables.forEach(r => {
+        html += `<tr><td>${esc(r.type || r.cable_type || '')}</td><td style="text-align:center;">${r.count || r.qty || '—'}</td><td style="text-align:right;">${r.avg_length_ft ? r.avg_length_ft + ' ft' : '—'}</td><td style="text-align:right;">${r.total_ft ? r.total_ft + ' ft' : '—'}</td></tr>`;
       });
       html += `</table>`;
     }
-    if (cablePath.conduit_schedule && Array.isArray(cablePath.conduit_schedule)) {
-      html += `<h3>Conduit Schedule</h3><table><tr><th>Size</th><th>Type</th><th>Length</th><th>Location</th></tr>`;
+    if (cablePath.conduit_schedule && Array.isArray(cablePath.conduit_schedule) && cablePath.conduit_schedule.length > 0) {
+      html += `<h3>Conduit Schedule</h3><table><tr><th>Size</th><th>Type</th><th style="text-align:right;">Length</th><th>Route</th></tr>`;
       cablePath.conduit_schedule.forEach(r => {
-        html += `<tr><td>${esc(r.size || '')}</td><td>${esc(r.type || '')}</td><td>${r.length_ft ? r.length_ft + ' ft' : '—'}</td><td>${esc(r.location || r.route || '')}</td></tr>`;
+        html += `<tr><td>${esc(r.size || '')}</td><td>${esc(r.type || '')}</td><td style="text-align:right;">${r.length_ft ? r.length_ft + ' ft' : '—'}</td><td>${esc(r.location || r.route || '')}</td></tr>`;
       });
       html += `</table>`;
     }
   }
+  if (!pathwayData?.results?.length && !cablePath) {
+    html += `<p style="color:#6b7280;font-style:italic;">Cable pathway data not available for this analysis.</p>`;
+  }
+  html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
-  // ═══ SECTION 11: SYMBOL INVENTORY ═══
+  // ═══ SECTION: SYMBOL INVENTORY ═══
   if (symbolScanner?.totals) {
     html += `<div class="page-break"></div>`;
-    html += `<h2>11. Symbol Inventory</h2>`;
+    const secSym = nextSec();
+    html += `<h2>${secSym}. Symbol Inventory</h2>`;
     const totals = symbolScanner.totals;
+    const totalDevices = Object.values(totals).reduce((s, v) => s + (v > 0 ? v : 0), 0);
+    html += `<div class="stat-grid"><div class="stat-box"><div class="stat-value">${totalDevices}</div><div class="stat-label">Total Devices</div></div></div>`;
     html += `<table><tr><th>Device Type</th><th style="text-align:center;">Count</th></tr>`;
     Object.entries(totals).forEach(([key, val]) => {
       if (val > 0) html += `<tr><td>${esc(key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))}</td><td style="text-align:center;font-weight:600;">${val}</td></tr>`;
@@ -1048,52 +1163,93 @@ function generateMasterReport() {
       });
       html += `</table>`;
     }
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
-  // ═══ SECTION 12: DEVIL'S ADVOCATE ═══
+  // ═══ SECTION: DEVIL'S ADVOCATE ═══
   if (devilsAdvocate) {
     html += `<div class="page-break"></div>`;
-    html += `<h2>12. Devil's Advocate Review</h2>`;
+    const secDevil = nextSec();
+    html += `<h2>${secDevil}. Devil's Advocate Review</h2>`;
     if (devilsAdvocate.challenges && Array.isArray(devilsAdvocate.challenges)) {
-      html += `<h3>Challenges & Risks</h3><table><tr><th>Issue</th><th style="text-align:center;">Severity</th><th style="text-align:right;">Est. Impact</th></tr>`;
+      html += `<h3>Challenges & Risks</h3><table><tr><th style="width:55%;">Issue</th><th style="text-align:center;width:12%;">Severity</th><th style="text-align:right;width:15%;">Est. Impact</th></tr>`;
       devilsAdvocate.challenges.forEach(c => {
-        html += `<tr><td>${esc(c.description || c.issue || JSON.stringify(c))}</td><td style="text-align:center;"><span class="sev-${(c.severity || 'medium').toLowerCase()}">${c.severity || 'medium'}</span></td><td style="text-align:right;">${esc(c.estimated_impact || '—')}</td></tr>`;
+        html += `<tr><td>${esc(c.description || c.issue || (typeof c === 'string' ? c : ''))}</td><td style="text-align:center;"><span class="sev-${(c.severity || 'medium').toLowerCase()}">${c.severity || 'medium'}</span></td><td style="text-align:right;">${esc(typeof c.estimated_impact === 'number' ? fmtInt(c.estimated_impact) : (c.estimated_impact || '—'))}</td></tr>`;
       });
       html += `</table>`;
     }
     if (devilsAdvocate.missed_items && Array.isArray(devilsAdvocate.missed_items)) {
       html += `<h3>Potentially Missed Items</h3><ul>`;
-      devilsAdvocate.missed_items.forEach(m => { html += `<li>${esc(typeof m === 'string' ? m : m.description || m.item || JSON.stringify(m))}</li>`; });
+      devilsAdvocate.missed_items.forEach(m => { html += `<li>${esc(typeof m === 'string' ? m : m.description || m.item || '')}</li>`; });
       html += `</ul>`;
     }
+    if (devilsAdvocate.recommendations && Array.isArray(devilsAdvocate.recommendations)) {
+      html += `<h3>Recommendations</h3><ul>`;
+      devilsAdvocate.recommendations.forEach(r => { html += `<li>${esc(typeof r === 'string' ? r : r.description || r.recommendation || '')}</li>`; });
+      html += `</ul>`;
+    }
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
-  // ═══ SECTION 13: SPECIAL CONDITIONS ═══
+  // ═══ SECTION: SPECIAL CONDITIONS ═══
   if (specialConditions) {
     html += `<div class="page-break"></div>`;
-    html += `<h2>13. Special Conditions</h2>`;
-    if (specialConditions.permits && Array.isArray(specialConditions.permits)) {
-      html += `<h3>Required Permits</h3><ul>`;
-      specialConditions.permits.forEach(p => { html += `<li>${esc(typeof p === 'string' ? p : p.description || p.name || JSON.stringify(p))}</li>`; });
-      html += `</ul>`;
+    const secSpec = nextSec();
+    html += `<h2>${secSpec}. Special Conditions</h2>`;
+    // Permits — handle object format
+    if (specialConditions.permits && Array.isArray(specialConditions.permits) && specialConditions.permits.length > 0) {
+      html += `<h3>Required Permits</h3><table><tr><th>Permit</th><th>Jurisdiction</th><th style="text-align:right;">Est. Cost</th><th>Lead Time</th><th>Notes</th></tr>`;
+      specialConditions.permits.forEach(p => {
+        if (typeof p === 'string') { html += `<tr><td colspan="5">${esc(p)}</td></tr>`; }
+        else { html += `<tr><td>${esc(p.type || p.name || p.description || '')}</td><td>${esc(p.jurisdiction || '')}</td><td style="text-align:right;">${p.est_cost ? fmtInt(p.est_cost) : '—'}</td><td>${p.lead_time_days ? p.lead_time_days + ' days' : '—'}</td><td style="font-size:8.5pt;">${esc(p.note || '')}</td></tr>`; }
+      });
+      html += `</table>`;
     }
-    if (specialConditions.subcontractors && Array.isArray(specialConditions.subcontractors)) {
+    // Subcontractors — handle string or object
+    if (specialConditions.subcontractors && Array.isArray(specialConditions.subcontractors) && specialConditions.subcontractors.length > 0) {
       html += `<h3>Subcontractor Requirements</h3><ul>`;
-      specialConditions.subcontractors.forEach(s => { html += `<li>${esc(typeof s === 'string' ? s : s.trade || s.description || JSON.stringify(s))}</li>`; });
+      specialConditions.subcontractors.forEach(s => {
+        if (typeof s === 'string') { html += `<li>${esc(s)}</li>`; }
+        else { html += `<li><strong>${esc(s.trade || s.name || '')}</strong>${s.scope ? ': ' + esc(s.scope) : ''}${s.est_cost ? ' — ' + fmtInt(s.est_cost) : ''}</li>`; }
+      });
       html += `</ul>`;
     }
+    // Site conditions — handle array of objects
     if (specialConditions.site_conditions) {
-      html += `<h3>Site Conditions</h3><p>${esc(typeof specialConditions.site_conditions === 'string' ? specialConditions.site_conditions : JSON.stringify(specialConditions.site_conditions))}</p>`;
+      html += `<h3>Site Conditions</h3>`;
+      const sc = specialConditions.site_conditions;
+      if (Array.isArray(sc)) {
+        html += `<table><tr><th>Condition</th><th>Impact</th><th style="text-align:center;">Cost Impact</th></tr>`;
+        sc.forEach(c => {
+          if (typeof c === 'string') { html += `<tr><td colspan="3">${esc(c)}</td></tr>`; }
+          else { html += `<tr><td style="font-weight:600;">${esc(c.condition || '')}</td><td style="font-size:9pt;">${esc(c.impact || '')}</td><td style="text-align:center;font-weight:700;color:#D97706;">${esc(c.cost_impact || '')}</td></tr>`; }
+        });
+        html += `</table>`;
+      } else if (typeof sc === 'string') {
+        html += `<p>${esc(sc)}</p>`;
+      } else {
+        html += renderVal(sc);
+      }
     }
-    if (specialConditions.equipment && Array.isArray(specialConditions.equipment)) {
-      html += `<h3>Special Equipment</h3><ul>`;
-      specialConditions.equipment.forEach(e => { html += `<li>${esc(typeof e === 'string' ? e : e.description || e.name || JSON.stringify(e))}</li>`; });
+    // Equipment
+    if (specialConditions.equipment && Array.isArray(specialConditions.equipment) && specialConditions.equipment.length > 0) {
+      html += `<h3>Special Equipment Required</h3><ul>`;
+      specialConditions.equipment.forEach(e => {
+        if (typeof e === 'string') { html += `<li>${esc(e)}</li>`; }
+        else { html += `<li><strong>${esc(e.name || e.type || '')}</strong>${e.description ? ': ' + esc(e.description) : ''}${e.est_cost ? ' — ' + fmtInt(e.est_cost) : ''}</li>`; }
+      });
       html += `</ul>`;
     }
+    // Safety requirements
+    if (specialConditions.safety_requirements && Array.isArray(specialConditions.safety_requirements)) {
+      html += `<h3>Safety Requirements</h3><ul>`;
+      specialConditions.safety_requirements.forEach(s => { html += `<li>${renderVal(s)}</li>`; });
+      html += `</ul>`;
+    }
+    html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
   }
 
-  // ═══ FOOTER ═══
-  html += `<div class="footer">3D CONFIDENTIAL — Generated by SmartPlans v5.0 — ${dateStr}</div>`;
+  // ═══ END ═══
   html += `</body></html>`;
 
   openPrintAsPDF(html);
