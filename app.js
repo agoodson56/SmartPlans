@@ -1140,8 +1140,8 @@ function renderStep0(container) {
     </div>
 
     <div class="form-group">
-      <label class="form-label">Building Dimensions <span style="color:var(--text-muted);font-weight:400">optional — improves cable run accuracy</span></label>
-      <p class="form-hint">Enter floor plate size and ceiling heights so SmartPlans can calculate exact cable run lengths per zone instead of using a flat 150 ft average. Leaving blank lets the AI estimate from the plans.</p>
+      <label class="form-label">Building Dimensions <span style="color:var(--text-muted);font-weight:400">optional override</span></label>
+      <p class="form-hint">The AI automatically reads scale bars and dimension lines from your plans to calculate cable runs. These fields let you override the AI's readings if needed. Leave blank to use AI-detected dimensions.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
         <div>
           <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Floor Width (ft)</label>
@@ -1164,11 +1164,13 @@ function renderStep0(container) {
             value="${state.floorToFloorHeight || 14}" placeholder="14">
         </div>
       </div>
+      <div id="bldg-dim-hint" style="margin-top:8px;font-size:11px;">
       ${(state.floorPlateWidth > 0 && state.floorPlateDepth > 0) ? `
-      <div style="margin-top:8px;padding:8px 12px;background:rgba(13,148,136,0.06);border-left:3px solid var(--accent-teal);font-size:11px;color:var(--accent-teal);">
-        📐 Cable runs will be calculated from zone positions — max diagonal = ${Math.round(Math.sqrt(state.floorPlateWidth**2 + state.floorPlateDepth**2))} ft &nbsp;|&nbsp; TIA-568 limit: 295 ft horizontal
-      </div>` : `
-      <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">💡 Without dimensions, the AI will visually estimate zone-to-IDF distances from your floor plans.</div>`}
+        <div style="padding:8px 12px;background:rgba(13,148,136,0.06);border-left:3px solid var(--accent-teal);color:var(--accent-teal);">
+          📐 Cable runs will be calculated from zone positions — max diagonal = ${Math.round(Math.sqrt(state.floorPlateWidth**2 + state.floorPlateDepth**2))} ft &nbsp;|&nbsp; TIA-568 limit: 295 ft horizontal
+        </div>` : `
+        <div style="color:var(--text-muted);">💡 Without dimensions, the AI will visually estimate zone-to-IDF distances from your floor plans.</div>`}
+      </div>
     </div>
 
     <div class="form-group">
@@ -1510,10 +1512,22 @@ function renderStep0(container) {
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
 
   // Building dimension fields (cable pathway accuracy)
+  // FIX: Don't re-render the whole page on keystroke — that kills the input focus.
+  // Instead, update the hint message inline.
+  function _updateBldgDimHint() {
+    const hint = document.getElementById('bldg-dim-hint');
+    if (!hint) return;
+    if (state.floorPlateWidth > 0 && state.floorPlateDepth > 0) {
+      const diag = Math.round(Math.sqrt(state.floorPlateWidth ** 2 + state.floorPlateDepth ** 2));
+      hint.innerHTML = `<div style="padding:8px 12px;background:rgba(13,148,136,0.06);border-left:3px solid var(--accent-teal);color:var(--accent-teal);">📐 Cable runs will be calculated from zone positions — max diagonal = ${diag} ft &nbsp;|&nbsp; TIA-568 limit: 295 ft horizontal</div>`;
+    } else {
+      hint.innerHTML = `<div style="color:var(--text-muted);">💡 Without dimensions, the AI will visually estimate zone-to-IDF distances from your floor plans.</div>`;
+    }
+  }
   const fpw = document.getElementById("floor-plate-width");
-  if (fpw) fpw.addEventListener("input", e => { state.floorPlateWidth = parseFloat(e.target.value) || 0; renderStep0(container); });
+  if (fpw) fpw.addEventListener("input", e => { state.floorPlateWidth = parseFloat(e.target.value) || 0; _updateBldgDimHint(); });
   const fpd = document.getElementById("floor-plate-depth");
-  if (fpd) fpd.addEventListener("input", e => { state.floorPlateDepth = parseFloat(e.target.value) || 0; renderStep0(container); });
+  if (fpd) fpd.addEventListener("input", e => { state.floorPlateDepth = parseFloat(e.target.value) || 0; _updateBldgDimHint(); });
   const ch = document.getElementById("ceiling-height");
   if (ch) ch.addEventListener("input", e => { state.ceilingHeight = parseFloat(e.target.value) || 10; });
   const ftf = document.getElementById("floor-to-floor-height");
@@ -7346,12 +7360,30 @@ function buildCablePathwayCard(st) {
   const fmtFt = n => (n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }) + ' ft';
   const open = st._cablePathwayOpen;
 
+  // Scale / dimension source info
+  const spatial = st.brainResults?.wave0?.SPATIAL_LAYOUT || {};
+  const scaleBar = spatial.scale_bar;
+  const aiDims = spatial.building_dimensions;
+  const dimSource = (st.floorPlateWidth > 0 && st.floorPlateDepth > 0)
+    ? 'User-entered override'
+    : aiDims?.source || (aiDims ? 'AI-detected from plans' : 'AI estimate (no scale bar found)');
+  const scaleInfo = scaleBar?.found
+    ? `Scale: ${scaleBar.labeled_scale || 'detected'} (${scaleBar.confidence || 'medium'} confidence) — ${dimSource}`
+    : `No scale bar detected — ${dimSource}`;
+
   // Mode badge
   const modeBadge = hasDimensions
     ? `<span style="background:rgba(13,148,136,0.12);color:var(--accent-teal);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;">📐 Spatially Calculated</span>`
     : hasSpatialZones
       ? `<span style="background:rgba(99,102,241,0.12);color:var(--accent-indigo);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;">🏢 Zone Estimated</span>`
       : `<span style="background:rgba(107,114,128,0.12);color:var(--text-muted);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;">~ Average Estimate</span>`;
+
+  // Scale detection info
+  const scaleInfoBanner = `
+    <div style="margin-bottom:12px;padding:8px 12px;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.12);border-radius:8px;font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:8px;">
+      <span style="font-size:14px;">📐</span>
+      <span>${scaleInfo}${hasDimensions ? ` — Floor plate: ${bldgW} × ${bldgD} ft` : ''}</span>
+    </div>`;
 
   // TIA warning banner
   const tiaWarning = tiaViolations.length > 0 ? `
@@ -7491,6 +7523,7 @@ function buildCablePathwayCard(st) {
           ${hasDimensions ? `Building: <strong>${bldgW} ft × ${bldgD} ft</strong>. ` : ''}
           Includes 12% waste factor. Run lengths color-coded: <span style="color:#10B981;font-weight:600;">green &lt; 100 ft</span> · <span style="color:var(--text-primary);font-weight:600;">neutral 100–295 ft</span> · <span style="color:#DC2626;font-weight:600;">red &gt; 295 ft (TIA-568 violation)</span>.
         </div>
+        ${scaleInfoBanner}
         ${tiaWarning}
         ${statsBar}
         ${tables}
