@@ -7289,7 +7289,22 @@ if (typeof buildBidStrategyCard === 'undefined') { var buildBidStrategyCard = fu
 function buildCablePathwayCard(st) {
   if (!st.aiAnalysis) return '';
   const cable = st.brainResults?.wave1?.CABLE_PATHWAY;
-  if (!cable) return '';
+  if (!cable) {
+    const cableFailed = st.brainResults?.wave1 && !st.brainResults.wave1.CABLE_PATHWAY;
+    if (cableFailed) {
+      return `
+      <div class="info-card" style="border:1px solid rgba(245,158,11,0.25);background:rgba(245,158,11,0.04);margin-top:18px;">
+        <div class="info-card-title" style="color:var(--accent-amber);">
+          <i data-lucide="cable" style="width:18px;height:18px;"></i> Cable Pathway Analysis
+        </div>
+        <div class="info-card-body" style="font-size:13px;line-height:1.7;color:var(--text-muted);">
+          ⚠️ The Cable Pathway brain did not complete successfully during this analysis run.
+          <strong>Re-run the analysis</strong> to attempt cable pathway scanning again. When successful, you'll see cable run distances, conduit requirements, and TIA violation flags.
+        </div>
+      </div>`;
+    }
+    return '';
+  }
 
   const pathway = computePathwayDistances();
   const { results, grandTotalFt, grandTotalCost, tiaViolations, hasSpatialZones, hasDimensions, bldgW, bldgD } = pathway;
@@ -7602,7 +7617,23 @@ function getSymbolInventoryData(st) {
 function buildSymbolInventoryCard(st) {
   if (!st.aiAnalysis) return '';
   const data = getSymbolInventoryData(st);
-  if (!data) return '';
+  if (!data) {
+    // Show placeholder so users know the feature exists but needs successful brain data
+    const scannerFailed = st.brainResults?.wave1 && !st.brainResults.wave1.SYMBOL_SCANNER;
+    if (scannerFailed) {
+      return `
+      <div class="info-card" style="border:1px solid rgba(245,158,11,0.25);background:rgba(245,158,11,0.04);margin-top:18px;">
+        <div class="info-card-title" style="color:var(--accent-amber);">
+          <i data-lucide="scan-line" style="width:18px;height:18px;"></i> Symbol Inventory Audit
+        </div>
+        <div class="info-card-body" style="font-size:13px;line-height:1.7;color:var(--text-muted);">
+          ⚠️ The Symbol Scanner brain did not complete successfully during this analysis run. This can happen when the AI service is overloaded (524/503 errors).
+          <strong>Re-run the analysis</strong> to attempt symbol scanning again. When successful, you'll see a full inventory of every device symbol found on your drawings, organized by sheet, room, and type.
+        </div>
+      </div>`;
+    }
+    return '';
+  }
 
   const open = st._symbolInventoryOpen;
   const { items, duplicates, deviceTypes, sheetIds, stats } = data;
