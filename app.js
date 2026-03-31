@@ -1140,19 +1140,9 @@ function renderStep0(container) {
     </div>
 
     <div class="form-group">
-      <label class="form-label">Building Dimensions <span style="color:var(--text-muted);font-weight:400">optional override</span></label>
-      <p class="form-hint">The AI automatically reads scale bars and dimension lines from your plans to calculate cable runs. These fields let you override the AI's readings if needed. Leave blank to use AI-detected dimensions.</p>
+      <label class="form-label">Building Heights <span style="color:var(--text-muted);font-weight:400">optional — defaults shown</span></label>
+      <p class="form-hint">The AI reads the scale on every page of your plans automatically — including using door openings (36" standard) when no scale bar is found. Floor plate dimensions are detected per-sheet. Override ceiling/floor heights only if the plans don't show them.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
-        <div>
-          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Floor Width (ft)</label>
-          <input class="form-input" type="number" id="floor-plate-width" min="0" step="1"
-            value="${state.floorPlateWidth || ''}" placeholder="e.g. 200">
-        </div>
-        <div>
-          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Floor Depth (ft)</label>
-          <input class="form-input" type="number" id="floor-plate-depth" min="0" step="1"
-            value="${state.floorPlateDepth || ''}" placeholder="e.g. 150">
-        </div>
         <div>
           <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Ceiling Height (ft)</label>
           <input class="form-input" type="number" id="ceiling-height" min="6" max="40" step="0.5"
@@ -1164,13 +1154,7 @@ function renderStep0(container) {
             value="${state.floorToFloorHeight || 14}" placeholder="14">
         </div>
       </div>
-      <div id="bldg-dim-hint" style="margin-top:8px;font-size:11px;">
-      ${(state.floorPlateWidth > 0 && state.floorPlateDepth > 0) ? `
-        <div style="padding:8px 12px;background:rgba(13,148,136,0.06);border-left:3px solid var(--accent-teal);color:var(--accent-teal);">
-          📐 Cable runs will be calculated from zone positions — max diagonal = ${Math.round(Math.sqrt(state.floorPlateWidth**2 + state.floorPlateDepth**2))} ft &nbsp;|&nbsp; TIA-568 limit: 295 ft horizontal
-        </div>` : `
-        <div style="color:var(--text-muted);">💡 Without dimensions, the AI will visually estimate zone-to-IDF distances from your floor plans.</div>`}
-      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">💡 Scale is detected per-sheet from: title block notations → scale bars → dimension lines → door openings (36" fallback). See the Cable Pathway card on results for what was detected.</div>
     </div>
 
     <div class="form-group">
@@ -1511,23 +1495,7 @@ function renderStep0(container) {
 
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
 
-  // Building dimension fields (cable pathway accuracy)
-  // FIX: Don't re-render the whole page on keystroke — that kills the input focus.
-  // Instead, update the hint message inline.
-  function _updateBldgDimHint() {
-    const hint = document.getElementById('bldg-dim-hint');
-    if (!hint) return;
-    if (state.floorPlateWidth > 0 && state.floorPlateDepth > 0) {
-      const diag = Math.round(Math.sqrt(state.floorPlateWidth ** 2 + state.floorPlateDepth ** 2));
-      hint.innerHTML = `<div style="padding:8px 12px;background:rgba(13,148,136,0.06);border-left:3px solid var(--accent-teal);color:var(--accent-teal);">📐 Cable runs will be calculated from zone positions — max diagonal = ${diag} ft &nbsp;|&nbsp; TIA-568 limit: 295 ft horizontal</div>`;
-    } else {
-      hint.innerHTML = `<div style="color:var(--text-muted);">💡 Without dimensions, the AI will visually estimate zone-to-IDF distances from your floor plans.</div>`;
-    }
-  }
-  const fpw = document.getElementById("floor-plate-width");
-  if (fpw) fpw.addEventListener("input", e => { state.floorPlateWidth = parseFloat(e.target.value) || 0; _updateBldgDimHint(); });
-  const fpd = document.getElementById("floor-plate-depth");
-  if (fpd) fpd.addEventListener("input", e => { state.floorPlateDepth = parseFloat(e.target.value) || 0; _updateBldgDimHint(); });
+  // Building height fields (ceiling + floor-to-floor only — scale/dimensions are AI-detected per-sheet)
   const ch = document.getElementById("ceiling-height");
   if (ch) ch.addEventListener("input", e => { state.ceilingHeight = parseFloat(e.target.value) || 10; });
   const ftf = document.getElementById("floor-to-floor-height");
@@ -2248,10 +2216,19 @@ function computePathwayDistances() {
     });
   });
 
-  // Building dimensions — prefer user entry, fall back to AI spatial estimate
-  const bldgW = state.floorPlateWidth  || spatial.building_dimensions?.overall_width_ft  || 0;
-  const bldgD = state.floorPlateDepth  || spatial.building_dimensions?.overall_depth_ft  || 0;
-  const hasDimensions = bldgW > 0 && bldgD > 0;
+  // Per-sheet scale lookup — maps sheet_id → { width_ft, depth_ft }
+  const sheetDims = {};
+  (spatial.sheets || []).forEach(sh => {
+    if (sh.sheet_id && sh.sheet_area_width_ft > 0 && sh.sheet_area_depth_ft > 0) {
+      sheetDims[sh.sheet_id] = { w: sh.sheet_area_width_ft, d: sh.sheet_area_depth_ft };
+    }
+  });
+  const hasPerSheetDims = Object.keys(sheetDims).length > 0;
+
+  // Overall building envelope — fallback when no per-sheet data
+  const bldgW = spatial.building_dimensions?.overall_width_ft || state.floorPlateWidth || 0;
+  const bldgD = spatial.building_dimensions?.overall_depth_ft || state.floorPlateDepth || 0;
+  const hasDimensions = hasPerSheetDims || (bldgW > 0 && bldgD > 0);
 
   const results = [];
   let grandTotalFt = 0;
@@ -2266,14 +2243,18 @@ function computePathwayDistances() {
     const ratePerFt = _getCableRatePerFt(cableType, hc.rating);
 
     if (zones.length > 0 && hasDimensions) {
-      // ── SPATIAL MODE: calculate from zone positions ──
+      // ── SPATIAL MODE: calculate from zone positions using per-sheet scale ──
       hasSpatialZones = true;
       const zoneRows = zones.map(z => {
         let runFt;
         const idf = idfMap[z.idf_serving];
         if (idf && hasDimensions) {
-          const dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * bldgW;
-          const dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * bldgD;
+          // Use per-sheet dimensions if available, otherwise fall back to overall building
+          const zoneSheet = z.sheet_id && sheetDims[z.sheet_id];
+          const zW = zoneSheet ? zoneSheet.w : bldgW;
+          const zD = zoneSheet ? zoneSheet.d : bldgD;
+          const dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * zW;
+          const dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * zD;
           const floorsApart = Math.abs((z.floor || 1) - (idf.floor || 1));
           const vertFt = floorsApart > 0 ? floorsApart * floorH : ceilingH;
           runFt = Math.round(dx + dy + vertFt + SLACK_FT);
@@ -7360,16 +7341,22 @@ function buildCablePathwayCard(st) {
   const fmtFt = n => (n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }) + ' ft';
   const open = st._cablePathwayOpen;
 
-  // Scale / dimension source info
+  // Per-sheet scale info
   const spatial = st.brainResults?.wave0?.SPATIAL_LAYOUT || {};
-  const scaleBar = spatial.scale_bar;
-  const aiDims = spatial.building_dimensions;
-  const dimSource = (st.floorPlateWidth > 0 && st.floorPlateDepth > 0)
-    ? 'User-entered override'
-    : aiDims?.source || (aiDims ? 'AI-detected from plans' : 'AI estimate (no scale bar found)');
-  const scaleInfo = scaleBar?.found
-    ? `Scale: ${scaleBar.labeled_scale || 'detected'} (${scaleBar.confidence || 'medium'} confidence) — ${dimSource}`
-    : `No scale bar detected — ${dimSource}`;
+  const sheetScales = (spatial.sheets || []).filter(s => s.scale);
+  const scaleInfoParts = sheetScales.length > 0
+    ? sheetScales.map(s => {
+        const method = s.scale.scale_method === 'door_reference' ? '🚪 door ref'
+          : s.scale.scale_method === 'title_block' ? '📋 title block'
+          : s.scale.scale_method === 'scale_bar' ? '📏 scale bar'
+          : s.scale.scale_method === 'dimension_line' ? '📐 dim line'
+          : '⚠️ estimated';
+        return `<strong>${s.sheet_id || '?'}</strong>: ${s.scale.labeled || s.scale.ft_per_inch + ' ft/in'} (${method})`;
+      }).join(' · ')
+    : 'No per-sheet scale data — using AI zone estimates';
+  const scaleInfo = sheetScales.length > 0
+    ? `Detected ${sheetScales.length} sheet scale${sheetScales.length > 1 ? 's' : ''}: ${scaleInfoParts}`
+    : scaleInfoParts;
 
   // Mode badge
   const modeBadge = hasDimensions

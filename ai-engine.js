@@ -1282,16 +1282,16 @@ DISCIPLINES: ${(context.disciplines || []).join(', ')}
 SPATIAL LAYOUT DATA (from floor plan analysis — use this to calculate zone-based run lengths):
 ${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 3000)}
 
-USER-PROVIDED BUILDING DIMENSIONS: Width=${context.floorPlateWidth || 0}ft, Depth=${context.floorPlateDepth || 0}ft, Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
+BUILDING HEIGHTS: Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
 
 YOUR MISSION: Analyze ALL cable pathways, conduit (every type and size), cable tray, underground routes, and estimate cable/conduit quantities WITH PER-ZONE RUN LENGTHS.
 
 ═══ CABLE RUN LENGTH CALCULATION — CRITICAL ═══
 For each cable type, break the run estimate down by ZONE (floor area served by one IDF):
-- Use the Spatial Layout data above to know where each IDF is and which zones it serves
+- Use the Spatial Layout data above — it includes PER-SHEET scale and dimensions
+- Each zone has a "sheet_id" linking it to the correct sheet's scale and dimensions
 - For each zone, calculate: horizontal distance from zone centroid to IDF + ceiling height + 15ft slack
-- Manhattan distance formula: |zone_x - IDF_x| + |zone_y - IDF_y| (in feet)
-- If user provided floor plate dimensions, use those. Otherwise estimate from plan scale.
+- Manhattan distance formula: |zone_x - IDF_x| + |zone_y - IDF_y| (in feet, using that sheet's dimensions)
 - Add ceiling height for the vertical stub-up (default 10ft)
 - Add 15ft for termination, dressing, and slack loops
 - DO NOT use a flat 150ft average — calculate each zone separately
@@ -2530,32 +2530,80 @@ Return ONLY valid JSON:
       SPATIAL_LAYOUT: () => `You are a BUILDING SPATIAL ANALYST. Your job is to extract floor plan geometry, IDF/MDF room positions, and device zone positions so cable run lengths can be precisely calculated.
 
 PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
-USER-PROVIDED DIMENSIONS: Width=${context.floorPlateWidth || 0}ft, Depth=${context.floorPlateDepth || 0}ft, Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
 
-YOUR MISSION — Extract from the floor plans:
-1. SCALE BAR: Find the scale bar or title block scale notation (e.g., "1/8 inch = 1 ft" or "1:96"). Record the labeled scale.
-2. BUILDING DIMENSIONS: Measure or read the overall floor plate width and depth in feet. If dimension lines are shown on the plans, use those. Otherwise estimate from the scale bar.
-3. CEILING HEIGHT: Look for ceiling height notes, section cuts, or room finish schedules. Record typical finished ceiling height.
-4. FLOOR-TO-FLOOR HEIGHT: Look for section drawings or structural notes. Record slab-to-slab height.
-5. FOR EACH FLOOR — map out the following:
-   a. IDF/MDF/TR room locations: Record each telecom room name and its approximate position as a percentage of the floor plan (0% = left/top edge, 100% = right/bottom edge).
-   b. Device zones: Group areas of the floor plan into logical zones (e.g., "East Wing", "North Corridor", "Server Area") and record each zone's approximate centroid as a percentage.
-   c. Note which IDF serves each zone (by proximity).
+═══ CRITICAL: PER-SHEET SCALE DETECTION ═══
+Different sheets in a plan set often use DIFFERENT SCALES. A warehouse floor plan might be 1/16"=1'-0" while an office detail is 1/4"=1'-0". You MUST determine the scale for EACH SHEET independently.
+
+YOUR MISSION — For each floor plan sheet:
+1. FIND THE SCALE — check these sources IN ORDER:
+   a. Title block scale notation (e.g., "SCALE: 1/8" = 1'-0"" or "1:96")
+   b. Scale bar graphic (measure labeled increments)
+   c. Dimension lines on the drawing (if a dimension reads "30'-0"" between two walls, use that to calibrate)
+   d. DOOR FALLBACK: If no scale bar, no title block scale, and no dimension lines — find a standard door on the plan. A standard single door opening is 3 ft (36 inches) wide by 6'-8" to 7'-0" tall. Measure the door width in the drawing and calculate: scale = 3 ft ÷ measured_door_width_on_page. This gives you feet-per-inch for that sheet.
+   e. If NOTHING works, note "scale_method": "unable" and estimate conservatively.
+
+2. SHEET DIMENSIONS: Using the detected scale, calculate the real-world width and depth (in feet) of the area shown on that sheet. NOT the paper size — the actual building area the sheet covers.
+
+3. CEILING HEIGHT: Look for ceiling height notes, section cuts, or room finish schedules. Default 10 ft if not found.
+4. FLOOR-TO-FLOOR HEIGHT: Look for section drawings or structural notes. Default 14 ft if not found.
+
+5. FOR EACH FLOOR — map IDF/MDF/TR positions and device zones as percentage positions (0%=left/top, 100%=right/bottom).
 
 POSITION ESTIMATION RULES:
-- Use the floor plan as a coordinate grid: 0% left edge → 100% right edge (x), 0% top edge → 100% bottom edge (y)
-- Be as accurate as you can from visual inspection — ±10% is acceptable
-- If a building has an irregular shape, estimate based on the main occupied area
-- If multiple buildings, treat each as a separate floor with its own grid
+- Use each floor plan as its own coordinate grid
+- ±10% accuracy is acceptable for zone centroid positions
+- If a building has irregular shape, estimate from the main occupied area
+- If multiple buildings, treat each as a separate floor entry
 
 Return ONLY valid JSON:
 {
-  "scale_bar": { "found": true, "labeled_scale": "1/8 inch = 1 ft", "confidence": "high" },
+  "sheets": [
+    {
+      "sheet_id": "E1.01",
+      "sheet_name": "First Floor Electrical Plan",
+      "scale": {
+        "labeled": "1/8 inch = 1 ft",
+        "scale_method": "title_block",
+        "confidence": "high",
+        "ft_per_inch": 8
+      },
+      "sheet_area_width_ft": 220,
+      "sheet_area_depth_ft": 180,
+      "notes": ""
+    },
+    {
+      "sheet_id": "E2.01",
+      "sheet_name": "Warehouse Plan",
+      "scale": {
+        "labeled": "1/16 inch = 1 ft",
+        "scale_method": "scale_bar",
+        "confidence": "high",
+        "ft_per_inch": 16
+      },
+      "sheet_area_width_ft": 450,
+      "sheet_area_depth_ft": 300,
+      "notes": "Warehouse uses smaller scale than office sheets"
+    },
+    {
+      "sheet_id": "E3.01",
+      "sheet_name": "Office Detail",
+      "scale": {
+        "labeled": null,
+        "scale_method": "door_reference",
+        "confidence": "medium",
+        "ft_per_inch": 4,
+        "reference_object": "Single door opening measured at 0.75 inches on plan = 3 ft real"
+      },
+      "sheet_area_width_ft": 80,
+      "sheet_area_depth_ft": 60,
+      "notes": "No scale bar — derived from 36-inch door opening"
+    }
+  ],
   "building_dimensions": {
-    "overall_width_ft": 220,
-    "overall_depth_ft": 180,
+    "overall_width_ft": 450,
+    "overall_depth_ft": 300,
     "confidence": "high",
-    "source": "Dimension lines on Sheet A1.01"
+    "source": "Largest sheet extent (Warehouse Plan E2.01)"
   },
   "ceiling_height_ft": 10,
   "floor_to_floor_ft": 14,
@@ -2564,19 +2612,27 @@ Return ONLY valid JSON:
       "floor": 1,
       "floor_label": "Level 1",
       "floor_area_sf": 18500,
+      "sheet_id": "E1.01",
       "idf_locations": [
         { "label": "IDF-1A", "room_name": "Telecom Room 105", "approx_x_pct": 85, "approx_y_pct": 15, "description": "Northeast corner of floor" }
       ],
       "device_zones": [
-        { "zone": "Lobby / Entry", "approx_x_pct": 50, "approx_y_pct": 80, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 120, "floor": 1 },
-        { "zone": "West Office Wing", "approx_x_pct": 10, "approx_y_pct": 40, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 200, "floor": 1 },
-        { "zone": "East Corridor", "approx_x_pct": 80, "approx_y_pct": 50, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 60, "floor": 1 }
+        { "zone": "Lobby / Entry", "approx_x_pct": 50, "approx_y_pct": 80, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 120, "floor": 1, "sheet_id": "E1.01" },
+        { "zone": "Warehouse", "approx_x_pct": 30, "approx_y_pct": 50, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 250, "floor": 1, "sheet_id": "E2.01" },
+        { "zone": "East Corridor", "approx_x_pct": 80, "approx_y_pct": 50, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 60, "floor": 1, "sheet_id": "E1.01" }
       ]
     }
   ],
   "multi_building": false,
   "notes": []
-}`,
+}
+
+RULES:
+- "scale_method" MUST be one of: "title_block", "scale_bar", "dimension_line", "door_reference", "unable"
+- "ft_per_inch" is how many real-world feet each inch on the plan represents
+- Each device_zone SHOULD include "sheet_id" to link it to the correct sheet scale
+- The "building_dimensions" is the OVERALL envelope (largest extents across all sheets)
+- If a zone spans multiple sheets at different scales, use the sheet where its centroid falls`,
 
       // ── BRAIN 6: Shadow Scanner (Wave 1.5 — Second Read) ──────
       SHADOW_SCANNER: () => `You are an INDEPENDENT VERIFICATION SCANNER performing a SECOND COUNT of all ELV device symbols. You must use a COMPLETELY DIFFERENT methodology than a standard left-to-right scan.
