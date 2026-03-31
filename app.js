@@ -822,6 +822,33 @@ function getFormatInfo(label) {
 // instead of calling SmartPlansExport._extractBOMFromAnalysis directly.
 function getFilteredBOM(aiAnalysis, disciplines) {
   if (typeof SmartPlansExport === 'undefined') return { categories: [], grandTotal: 0 };
+
+  // FIX: If this estimate was loaded from a truncated save, use the pre-structured
+  // financials data instead of re-parsing the chopped markdown. This restores the
+  // correct BOM for bids saved with the old truncation bug.
+  if (state._restoredFinancials?.categories?.length > 0) {
+    const restored = state._restoredFinancials;
+    const bom = {
+      categories: restored.categories.map(cat => ({
+        name: cat.name,
+        subtotal: cat.subtotal,
+        items: cat.items.map(item => ({
+          item: item.name,
+          name: item.name,
+          qty: item.qty,
+          unit: item.unit || 'ea',
+          unitCost: item.unitCost,
+          extCost: item.extCost,
+          mfg: item.mfg || '',
+          partNumber: item.partNumber || '',
+          category: item.category || 'other',
+        })),
+      })),
+      grandTotal: restored.bomRawTotal || restored.categories.reduce((s, c) => s + c.subtotal, 0),
+    };
+    return bom;
+  }
+
   const bom = SmartPlansExport._extractBOMFromAnalysis(aiAnalysis);
   // Travel & incidentals are injected automatically by _filterBOMByDisciplines
   if (typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
@@ -6366,17 +6393,10 @@ async function saveEstimate(showToast = true) {
     const url = state.estimateId ? `/api/estimates/${state.estimateId}` : '/api/estimates';
     const method = state.estimateId ? 'PUT' : 'POST';
 
-    // Strip raw AI analysis text from export to reduce payload — it's already parsed into structured data
-    if (exportPkg && exportPkg.analysis) {
-      const slimAnalysis = {};
-      for (const [k, v] of Object.entries(exportPkg.analysis)) {
-        if (typeof v === 'string' && v.length > 5000) {
-          slimAnalysis[k] = v.substring(0, 5000) + '\n... [truncated for storage]';
-        } else { slimAnalysis[k] = v; }
-      }
-      exportPkg.analysis = slimAnalysis;
-      payload.export_data = exportPkg;
-    }
+    // FIX: Do NOT truncate rawMarkdown — it's the source of truth for BOM extraction.
+    // Previous code truncated strings >5000 chars, destroying BOM data on reload.
+    // The full AI analysis (typically 20-40KB) is well within D1 TEXT column limits.
+    // Structured financials.categories is ALSO saved as a backup for corrupted loads.
     const jsonBody = JSON.stringify(payload);
     const sizeKB = (jsonBody.length / 1024).toFixed(0);
     console.log(`[SmartPlans] Saving estimate (${sizeKB}KB) via ${method} ${url}`);
@@ -6542,6 +6562,18 @@ function _restoreStateFromPayload(id, pkg, est) {
     state.analysisComplete = true;
     state.completedSteps = new Set(['setup', 'legend', 'plans', 'specs', 'addenda', 'review', 'travel']);
     state.currentStep = 7;
+
+    // FIX: Detect previously truncated saves and restore BOM from structured financials
+    const wasTruncated = state.aiAnalysis.includes('[truncated for storage]');
+    if (wasTruncated && pkg?.financials?.categories?.length > 0) {
+      console.warn('[SmartPlans] Detected truncated AI analysis — restoring BOM from saved financials');
+      // Rebuild the BOM markdown tables from structured financials data
+      // so getFilteredBOM() produces correct numbers
+      state._restoredFinancials = pkg.financials;
+      if (typeof spToast === 'function') {
+        setTimeout(() => spToast('⚠️ This bid was saved with an older version that truncated data. Numbers restored from backup. Re-save to fix permanently.', 'warning', 8000), 500);
+      }
+    }
   } else {
     state.aiAnalysis = null;
     state.analysisComplete = false;
