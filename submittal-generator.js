@@ -19,6 +19,8 @@ const SubmittalGenerator = {
     const specs = await this._aiSpecs(products, state);
     cb(75, 'Building Word document…');
     const html = this._buildDoc(state, bom, products, specs);
+    // Cache for PDF re-download without re-generating
+    this._lastSubmittalHTML = html;
     cb(95, 'Downloading…');
     const nm = (state.projectName||'Project').replace(/[^a-zA-Z0-9 ]/g,'').replace(/\s+/g,'_');
     const blob = new Blob(['\ufeff'+html], { type:'application/msword' });

@@ -678,6 +678,9 @@ ACCEPTANCE & SIGNATURE BLOCK
 </body>
 </html>`;
 
+    // Cache for PDF re-download without re-generating
+    this._lastFullProposalHTML = wordHtml;
+
     const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1391,6 +1394,9 @@ PAGE 3 — TOTAL INVESTMENT & SIGNATURE
 </div></body></html>`;
 
       progressCallback(90, 'Creating downloadable document…');
+
+      // Cache for PDF re-download without re-generating
+      this._lastExecProposalHTML = wordHtml;
 
       // Download
       const blob = new Blob([wordHtml], { type: 'application/msword' });

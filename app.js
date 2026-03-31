@@ -702,6 +702,29 @@ function esc(str) {
   d.textContent = str;
   return d.innerHTML;
 }
+// ── Save to PDF utility — opens HTML in print window for browser "Save as PDF" ──
+function openPrintAsPDF(html) {
+  const printWin = window.open('', '_blank', 'width=900,height=700');
+  if (!printWin) {
+    if (typeof spToast === 'function') spToast('Pop-up blocked — please allow pop-ups for this site', 'error');
+    return;
+  }
+  // Strip Word-specific XML that causes browser rendering issues
+  const cleanHtml = html
+    .replace(/xmlns:o="[^"]*"/g, '')
+    .replace(/xmlns:w="[^"]*"/g, '')
+    .replace(/xmlns:v="[^"]*"/g, '')
+    .replace(/<!\[if[^]*?\]>/gi, '')
+    .replace(/<!\[endif\]-->/gi, '')
+    .replace(/<!--\[if[^]*?endif\]-->/gi, '')
+    .replace(/mso-[^;":]+(:[^;"]+)?/g, '')
+    .replace(/<xml>[\s\S]*?<\/xml>/gi, '')
+    .replace(/style="mso-element:footer"[^>]*>[\s\S]*?<\/div>/gi, '');
+  printWin.document.write(cleanHtml);
+  printWin.document.close();
+  printWin.onload = () => { setTimeout(() => printWin.print(), 500); };
+}
+
 function _safeParseDisciplines(val) {
   if (!val) return [];
   if (Array.isArray(val)) return val;
@@ -2798,8 +2821,8 @@ function renderStep7(container) {
           </div>
         </button>
       </div>
-      <div style="margin-top:14px;">
-        <button class="export-pkg-btn" id="export-bom" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(20,184,166,0.35);background:linear-gradient(135deg,rgba(20,184,166,0.10),rgba(6,182,212,0.06));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;width:100%;">
+      <div style="margin-top:14px;display:flex;gap:8px;">
+        <button class="export-pkg-btn" id="export-bom" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(20,184,166,0.35);background:linear-gradient(135deg,rgba(20,184,166,0.10),rgba(6,182,212,0.06));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;flex:1;">
           <span style="font-size:24px;">📋</span>
           <div style="flex:1;">
             <div style="font-weight:700;font-size:14px;">Download Detailed Bill of Materials</div>
@@ -2807,6 +2830,7 @@ function renderStep7(container) {
           </div>
           <span style="font-size:18px;color:rgba(20,184,166,0.7);">⬇</span>
         </button>
+        <button class="export-pkg-btn" id="export-bom-pdf" style="display:flex;align-items:center;justify-content:center;padding:14px 16px;border-radius:10px;border:1px solid rgba(16,185,129,0.4);background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.04));color:#10b981;cursor:pointer;font-weight:700;font-size:13px;flex:0 0 auto;">📄 PDF</button>
       </div>
 
       <!-- Supplier Pricing Section -->
@@ -3011,6 +3035,7 @@ function renderStep7(container) {
           <span class="proposal-gen-btn__arrow">→</span>
         </div>
       </button>
+      <button id="btn-pdf-proposal" style="display:none;margin-top:6px;padding:10px 16px;border-radius:8px;border:1px solid rgba(16,185,129,0.4);background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.04));color:#10b981;cursor:pointer;font-size:13px;font-weight:700;width:100%;text-align:center;">📄 Save Full Proposal as PDF</button>
 
       <button class="proposal-gen-btn" id="btn-generate-exec-proposal" style="margin-top:10px;background:linear-gradient(135deg,rgba(191,144,0,0.12),rgba(235,179,40,0.04));border:2px solid rgba(191,144,0,0.4);">
         <div class="proposal-gen-btn__shine" style="background:linear-gradient(90deg,transparent,rgba(235,179,40,0.15),transparent);"></div>
@@ -3023,6 +3048,7 @@ function renderStep7(container) {
           <span class="proposal-gen-btn__arrow" style="color:#BF9000;">→</span>
         </div>
       </button>
+      <button id="btn-pdf-exec-proposal" style="display:none;margin-top:6px;padding:10px 16px;border-radius:8px;border:1px solid rgba(191,144,0,0.4);background:linear-gradient(135deg,rgba(191,144,0,0.12),rgba(191,144,0,0.04));color:#BF9000;cursor:pointer;font-size:13px;font-weight:700;width:100%;text-align:center;">📄 Save Executive Proposal as PDF</button>
 
       ${regenButton}
 
@@ -3037,6 +3063,7 @@ function renderStep7(container) {
           <span class="proposal-gen-btn__arrow" style="color:#0D9488;">→</span>
         </div>
       </button>
+      <button id="btn-pdf-submittal" style="display:none;margin-top:6px;padding:10px 16px;border-radius:8px;border:1px solid rgba(13,148,136,0.4);background:linear-gradient(135deg,rgba(13,148,136,0.12),rgba(13,148,136,0.04));color:#0D9488;cursor:pointer;font-size:13px;font-weight:700;width:100%;text-align:center;">📄 Save Submittal Package as PDF</button>
 
       <a href="https://smartpm.pages.dev/" target="_blank" rel="noopener" id="btn-open-smartpm" style="display:flex;align-items:center;gap:14px;padding:16px 20px;margin-top:14px;border-radius:12px;border:2px solid rgba(13,148,136,0.4);background:linear-gradient(135deg,rgba(13,148,136,0.08),rgba(13,148,136,0.02));color:var(--text-primary);text-decoration:none;cursor:pointer;transition:all 0.2s;">
         <span style="font-size:28px;"><i data-lucide="building-2" style="width:26px;height:26px;color:#0D9488;"></i></span>
@@ -3201,9 +3228,14 @@ function renderStep7(container) {
     <div id="rfi-list">${rfiListHtml}</div>
 
     ${state.selectedRFIs.size > 0 ? `
-      <button class="export-btn" id="export-rfis">
-        📥 Export ${state.selectedRFIs.size} Selected RFI${state.selectedRFIs.size !== 1 ? "s" : ""} to Text File
-      </button>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="export-btn" id="export-rfis" style="flex:1;">
+          📥 Export ${state.selectedRFIs.size} Selected RFI${state.selectedRFIs.size !== 1 ? "s" : ""} to Word
+        </button>
+        <button class="export-btn" id="export-rfis-pdf" style="flex:0 0 auto;padding:10px 18px;background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.04));border:1px solid rgba(16,185,129,0.4);color:#10b981;">
+          📄 PDF
+        </button>
+      </div>
     ` : ""}
   `;
 
@@ -3822,13 +3854,11 @@ function renderStep7(container) {
         proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
       }).catch(e => {
         console.error('[ProposalGen] Failed:', e);
-        // Show the error clearly on the button
         proposalBtn.querySelector('.proposal-gen-btn__title').textContent = '❌ Proposal Generation Failed';
         proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = e.message || 'Unknown error — check console for details';
         proposalBtn.classList.remove('generating');
         proposalBtn.classList.add('error');
         if (typeof spToast === 'function') spToast('Proposal failed: ' + (e.message || 'Unknown error'), 'error');
-        // Reset after 5 seconds so user can retry
         setTimeout(() => {
           proposalBtn.disabled = false;
           proposalBtn.classList.remove('error');
@@ -3836,12 +3866,14 @@ function renderStep7(container) {
           proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications';
         }, 5000);
       }).then(result => {
-        // Only reset the button if the promise succeeded (result is undefined for catch path)
         if (result !== undefined || !proposalBtn.classList.contains('error')) {
           proposalBtn.disabled = false;
           proposalBtn.classList.remove('generating');
           proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Full Proposal (10+ pages)';
           proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications';
+          // Show the PDF button after successful generation
+          const pdfProposalBtn = document.getElementById('btn-pdf-proposal');
+          if (pdfProposalBtn && ProposalGenerator._lastFullProposalHTML) pdfProposalBtn.style.display = 'block';
         }
       });
     });
@@ -3874,6 +3906,9 @@ function renderStep7(container) {
         execBtn.classList.remove('generating');
         execBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Executive Proposal (3 pages)';
         execBtn.querySelector('.proposal-gen-btn__sub').textContent = 'High-impact executive summary — visually stunning, concise, designed to impress decision-makers';
+        // Show the PDF button after successful generation
+        const pdfExecBtn = document.getElementById('btn-pdf-exec-proposal');
+        if (pdfExecBtn && ProposalGenerator._lastExecProposalHTML) pdfExecBtn.style.display = 'block';
       });
     });
   }
@@ -3899,9 +3934,89 @@ function renderStep7(container) {
         subBtn.disabled = false; subBtn.classList.remove('generating');
         subBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Submittal Package';
         subBtn.querySelector('.proposal-gen-btn__sub').textContent = 'CSI-formatted product submittal with specs, certifications, warranty info, and approval block for GC review';
+        // Show the PDF button after successful generation
+        const pdfSubBtn = document.getElementById('btn-pdf-submittal');
+        if (pdfSubBtn && SubmittalGenerator._lastSubmittalHTML) pdfSubBtn.style.display = 'block';
       });
     });
   }
+
+  // ── PDF Save Buttons — open cached HTML in print window ──
+  const pdfProposalBtn = document.getElementById('btn-pdf-proposal');
+  if (pdfProposalBtn) {
+    // Show immediately if HTML was previously cached (e.g., re-render of step 7)
+    if (typeof ProposalGenerator !== 'undefined' && ProposalGenerator._lastFullProposalHTML) pdfProposalBtn.style.display = 'block';
+    pdfProposalBtn.addEventListener('click', () => {
+      if (ProposalGenerator._lastFullProposalHTML) openPrintAsPDF(ProposalGenerator._lastFullProposalHTML);
+      else spToast('Generate the proposal first, then click Save as PDF', 'error');
+    });
+  }
+  const pdfExecBtn = document.getElementById('btn-pdf-exec-proposal');
+  if (pdfExecBtn) {
+    if (typeof ProposalGenerator !== 'undefined' && ProposalGenerator._lastExecProposalHTML) pdfExecBtn.style.display = 'block';
+    pdfExecBtn.addEventListener('click', () => {
+      if (ProposalGenerator._lastExecProposalHTML) openPrintAsPDF(ProposalGenerator._lastExecProposalHTML);
+      else spToast('Generate the executive proposal first, then click Save as PDF', 'error');
+    });
+  }
+  const pdfSubBtn2 = document.getElementById('btn-pdf-submittal');
+  if (pdfSubBtn2) {
+    if (typeof SubmittalGenerator !== 'undefined' && SubmittalGenerator._lastSubmittalHTML) pdfSubBtn2.style.display = 'block';
+    pdfSubBtn2.addEventListener('click', () => {
+      if (SubmittalGenerator._lastSubmittalHTML) openPrintAsPDF(SubmittalGenerator._lastSubmittalHTML);
+      else spToast('Generate the submittal package first, then click Save as PDF', 'error');
+    });
+  }
+
+  // ── BOM PDF — render formatted print table ──
+  const bomPdfBtn = document.getElementById('export-bom-pdf');
+  if (bomPdfBtn) bomPdfBtn.addEventListener('click', () => {
+    if (!state.aiAnalysis) { spToast('Run the analysis first to generate BOM data', 'error'); return; }
+    const bomData = getFilteredBOM(state.aiAnalysis, state.disciplines);
+    if (!bomData || !bomData.categories.length) { spToast('No BOM data available', 'error'); return; }
+    const fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const projName = esc(state.projectName || 'Untitled Project');
+    const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    let tableRows = '';
+    let rowNum = 0;
+    for (const cat of bomData.categories) {
+      tableRows += `<tr style="background:#f0fdfa;"><td colspan="6" style="padding:10px 12px;font-weight:700;font-size:13px;color:#0d9488;border:1px solid #d1d5db;">${esc(cat.name)}</td></tr>`;
+      for (const item of cat.items) {
+        rowNum++;
+        const bg = rowNum % 2 === 0 ? '#f9fafb' : '#fff';
+        tableRows += `<tr style="background:${bg};">
+          <td style="border:1px solid #d1d5db;padding:6px 8px;text-align:center;font-size:10px;">${rowNum}</td>
+          <td style="border:1px solid #d1d5db;padding:6px 8px;font-size:10px;">${esc(item.item || item.name || '')}</td>
+          <td style="border:1px solid #d1d5db;padding:6px 8px;text-align:center;font-size:10px;">${item.qty}</td>
+          <td style="border:1px solid #d1d5db;padding:6px 8px;text-align:center;font-size:10px;">${esc(item.unit || 'ea')}</td>
+          <td style="border:1px solid #d1d5db;padding:6px 8px;text-align:right;font-size:10px;">${fmtD(item.unitCost)}</td>
+          <td style="border:1px solid #d1d5db;padding:6px 8px;text-align:right;font-size:10px;font-weight:600;">${fmtD(item.extCost)}</td>
+        </tr>`;
+      }
+      tableRows += `<tr style="background:#f0fdfa;"><td colspan="5" style="border:1px solid #d1d5db;padding:6px 12px;text-align:right;font-weight:600;font-size:11px;">Subtotal — ${esc(cat.name)}</td><td style="border:1px solid #d1d5db;padding:6px 8px;text-align:right;font-weight:700;font-size:11px;">${fmtD(cat.subtotal)}</td></tr>`;
+    }
+    tableRows += `<tr style="background:#0d9488;"><td colspan="5" style="border:1px solid #0d9488;padding:10px 12px;text-align:right;font-weight:800;font-size:13px;color:#fff;">GRAND TOTAL</td><td style="border:1px solid #0d9488;padding:10px 12px;text-align:right;font-weight:800;font-size:14px;color:#fff;">${fmtD(bomData.grandTotal)}</td></tr>`;
+    const bomPdfHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${projName} — Bill of Materials</title>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+      *{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Inter',-apple-system,sans-serif;color:#1a1a2e;background:#fff;padding:40px 50px;font-size:11px;}
+      .hdr{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #0d9488;padding-bottom:16px;margin-bottom:24px;}
+      .hdr h1{font-size:20px;color:#0d9488;font-weight:700;}.hdr .meta{text-align:right;font-size:10px;color:#666;line-height:1.6;}.hdr .meta strong{color:#333;}
+      table{width:100%;border-collapse:collapse;margin:10px 0;}th{background:#0d9488;color:#fff;font-weight:600;font-size:10px;padding:8px;border:1px solid #0d9488;text-align:left;}
+      @media print{body{padding:20px 30px;}@page{margin:0.5in;size:letter;}}</style></head>
+      <body><div class="hdr"><h1>Bill of Materials</h1><div class="meta"><div><strong>${projName}</strong></div><div>${dateStr}</div><div>Generated by SmartPlans</div></div></div>
+      <table><thead><tr><th style="width:40px;text-align:center;">#</th><th>Item Description</th><th style="width:50px;text-align:center;">Qty</th><th style="width:50px;text-align:center;">Unit</th><th style="width:90px;text-align:right;">Unit Cost</th><th style="width:100px;text-align:right;">Extended Cost</th></tr></thead>
+      <tbody>${tableRows}</tbody></table>
+      <div style="text-align:center;margin-top:30px;font-size:14px;font-weight:800;color:#BF9000;letter-spacing:3px;">3D CONFIDENTIAL</div>
+      <div style="text-align:center;margin-top:8px;font-size:9px;color:#94a3b8;">Generated by SmartPlans AI — 3D Technology Services Inc. — ${dateStr}</div>
+      </body></html>`;
+    openPrintAsPDF(bomPdfHtml);
+  });
+
+  // ── RFI PDF — build same Word HTML but open in print window ──
+  const rfiPdfBtn = document.getElementById('export-rfis-pdf');
+  if (rfiPdfBtn) rfiPdfBtn.addEventListener('click', () => {
+    exportRFIs('pdf');
+  });
 
   // Version History — load revisions inline in Step 6
   const revBtn = document.getElementById("btn-load-revisions");
@@ -5795,7 +5910,7 @@ function runSimulatedAnalysis(updateProgress) {
 // RFI EXPORT
 // ═══════════════════════════════════════════════════════════════
 
-function exportRFIs() {
+function exportRFIs(format) {
   const rfis = getRelevantRFIs().filter(r => state.selectedRFIs.has(r.id));
   const projName = state.projectName || 'Untitled Project';
   const projType = state.projectType || 'Low Voltage Installation';
@@ -6075,17 +6190,23 @@ ${rfiDetailPages}
 </body>
 </html>`;
 
-  const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const safeName = projName.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
-  a.download = `3DTSI_RFI_Log_${safeName}_${today.toISOString().split('T')[0]}.doc`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  if (typeof spToast === 'function') spToast('✓ Professional RFI report downloaded — open in Microsoft Word');
+  if (format === 'pdf') {
+    // Open in print window for Save as PDF
+    openPrintAsPDF(wordHtml);
+    if (typeof spToast === 'function') spToast('RFI report opened — use Save as PDF in the print dialog');
+  } else {
+    const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeName = projName.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
+    a.download = `3DTSI_RFI_Log_${safeName}_${today.toISOString().split('T')[0]}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    if (typeof spToast === 'function') spToast('✓ Professional RFI report downloaded — open in Microsoft Word');
+  }
 }
 
 function exportAnalysis() {
