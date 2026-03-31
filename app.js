@@ -725,6 +725,380 @@ function openPrintAsPDF(html) {
   printWin.onload = () => { setTimeout(() => printWin.print(), 500); };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// MASTER REPORT — One-click comprehensive PDF with everything
+// ═══════════════════════════════════════════════════════════════
+function generateMasterReport() {
+  const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtInt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  // ── Gather all data ──
+  const bom = getFilteredBOM(state.aiAnalysis, state.disciplines);
+  const bomWithTravel = state.travel.enabled ? injectTravelIntoBOM(bom) : bom;
+  const travelCosts = state.travel.enabled ? computeTravelIncidentals() : null;
+  const cos = extractPotentialChangeOrders(state);
+  const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
+  const financialEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+  const devilsAdvocate = state.brainResults?.wave3?.DEVILS_ADVOCATE;
+  const specialConditions = state.brainResults?.wave1?.SPECIAL_CONDITIONS;
+  const bidStrategy = state.brainResults?.wave3?.BID_STRATEGIST;
+  const cablePath = state.brainResults?.wave1?.CABLE_PATHWAY;
+  const symbolScanner = state.brainResults?.wave1?.SYMBOL_SCANNER;
+  const reportWriter = state.brainResults?.wave4?.REPORT_WRITER;
+
+  const confidence = financialEngine?.confidence_score || financialEngine?.confidence || 85;
+  const grandTotal = bomWithTravel.grandTotal || 0;
+
+  // ── Common styles ──
+  const styles = `
+    <style>
+      @page { size: letter; margin: 0.75in 0.75in 1in 0.75in; }
+      @media print {
+        .page-break { page-break-before: always; }
+        .no-print { display: none !important; }
+      }
+      body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; color: #1a1a2e; font-size: 11pt; line-height: 1.5; margin: 0; padding: 0; }
+      h1 { font-size: 22pt; color: #0D9488; margin: 0 0 6px 0; font-weight: 800; }
+      h2 { font-size: 15pt; color: #0D9488; border-bottom: 2px solid #0D9488; padding-bottom: 6px; margin: 28px 0 14px 0; }
+      h3 { font-size: 12pt; color: #1a1a2e; margin: 18px 0 8px 0; }
+      table { width: 100%; border-collapse: collapse; margin: 10px 0 16px 0; font-size: 10pt; }
+      th { background: #0D9488; color: white; padding: 8px 10px; text-align: left; font-size: 9pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+      td { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; }
+      tr:nth-child(even) { background: #f8fffe; }
+      .section { margin-bottom: 24px; }
+      .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 14px 0; }
+      .stat-box { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 6px; padding: 12px; text-align: center; }
+      .stat-value { font-size: 18pt; font-weight: 800; color: #0D9488; }
+      .stat-label { font-size: 8pt; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+      .sev-critical { background: #DC2626; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
+      .sev-high { background: #EA580C; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
+      .sev-medium { background: #D97706; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
+      .sev-low { background: #65A30D; color: white; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
+      .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9pt; font-weight: 700; color: #94a3b8; padding: 8px 0; border-top: 1px solid #e2e8f0; }
+      .cover-hero { background: linear-gradient(135deg, #0D9488, #065f5b); color: white; padding: 40px; border-radius: 8px; margin: 60px 0 30px 0; }
+      .toc a { color: #0D9488; text-decoration: none; }
+      .toc li { margin: 6px 0; font-size: 11pt; }
+    </style>`;
+
+  // ═══ COVER PAGE ═══
+  let html = `<html><head><meta charset="utf-8"><title>${state.projectName || 'SmartPlans'} — Master Report</title>${styles}</head><body>`;
+
+  html += `
+    <div class="cover-hero">
+      <div style="font-size: 10pt; letter-spacing: 3px; text-transform: uppercase; opacity: 0.8; margin-bottom: 8px;">SMARTPLANS COMPREHENSIVE ANALYSIS</div>
+      <h1 style="color: white; border: none; font-size: 28pt; margin-bottom: 4px;">${esc(state.projectName || 'Untitled Project')}</h1>
+      ${state.projectLocation ? `<div style="font-size: 12pt; opacity: 0.9; margin-bottom: 20px;">${esc(state.projectLocation)}</div>` : ''}
+      <div style="display: flex; gap: 30px; margin-top: 20px; font-size: 10pt;">
+        <div><strong>Prepared:</strong> ${dateStr}</div>
+        <div><strong>Disciplines:</strong> ${state.disciplines.join(', ')}</div>
+        <div><strong>Documents Analyzed:</strong> ${state.planFiles.length + (state.specFiles?.length || 0)}</div>
+      </div>
+      <div style="margin-top: 20px; font-size: 20pt; font-weight: 800;">Total Bid: ${fmt(grandTotal)}</div>
+    </div>
+    <div style="margin-top: 30px;">
+      <h3>Table of Contents</h3>
+      <ol class="toc" style="padding-left: 20px;">
+        <li>Executive Summary</li>
+        <li>Bill of Materials</li>
+        <li>Labor Breakdown</li>
+        ${travelCosts ? '<li>Travel & Incidentals</li>' : ''}
+        <li>Exclusions, Assumptions & Clarifications</li>
+        <li>RFI Log</li>
+        ${cos.length > 0 ? '<li>Potential Change Orders</li>' : ''}
+        <li>Bid Phases & Alternates</li>
+        <li>Bid Strategy</li>
+        <li>Infrastructure & Cable Pathways</li>
+        <li>Symbol Inventory</li>
+        <li>Devil\'s Advocate Review</li>
+        <li>Special Conditions</li>
+      </ol>
+    </div>`;
+
+  // ═══ SECTION 1: EXECUTIVE SUMMARY ═══
+  html += `<div class="page-break"></div>`;
+  html += `<h2>1. Executive Summary</h2>`;
+  html += `<div class="stat-grid">
+    <div class="stat-box"><div class="stat-value">${fmt(grandTotal)}</div><div class="stat-label">Total Bid Price</div></div>
+    <div class="stat-box"><div class="stat-value">${confidence}%</div><div class="stat-label">Confidence Score</div></div>
+    <div class="stat-box"><div class="stat-value">${bomWithTravel.categories.length}</div><div class="stat-label">BOM Categories</div></div>
+  </div>`;
+
+  if (reportWriter?.executive_summary) {
+    html += `<p>${esc(reportWriter.executive_summary)}</p>`;
+  } else if (financialEngine?.project_summary?.scope_description) {
+    html += `<p>${esc(financialEngine.project_summary.scope_description)}</p>`;
+  }
+
+  // Financial breakdown
+  if (financialEngine?.project_summary) {
+    const ps = financialEngine.project_summary;
+    html += `<h3>Financial Summary</h3><table>
+      <tr><th style="width:60%;">Category</th><th style="text-align:right;">Amount</th></tr>
+      ${ps.total_materials ? `<tr><td>Materials</td><td style="text-align:right;">${fmt(ps.total_materials)}</td></tr>` : ''}
+      ${ps.total_labor ? `<tr><td>Labor</td><td style="text-align:right;">${fmt(ps.total_labor)}</td></tr>` : ''}
+      ${ps.total_equipment ? `<tr><td>Equipment</td><td style="text-align:right;">${fmt(ps.total_equipment)}</td></tr>` : ''}
+      ${ps.total_subcontractor ? `<tr><td>Subcontractors</td><td style="text-align:right;">${fmt(ps.total_subcontractor)}</td></tr>` : ''}
+      ${travelCosts ? `<tr><td>Travel & Incidentals</td><td style="text-align:right;">${fmt(travelCosts.grandTotal)}</td></tr>` : ''}
+      <tr style="background:#0D9488;color:white;font-weight:700;"><td>TOTAL BID</td><td style="text-align:right;">${fmt(grandTotal)}</td></tr>
+    </table>`;
+  }
+
+  // ═══ SECTION 2: BILL OF MATERIALS ═══
+  html += `<div class="page-break"></div>`;
+  html += `<h2>2. Bill of Materials</h2>`;
+  bomWithTravel.categories.forEach(cat => {
+    html += `<h3>${esc(cat.name)} — ${fmtInt(cat.subtotal)}</h3>`;
+    html += `<table>
+      <tr><th>Item</th><th style="text-align:center;">Qty</th><th style="text-align:center;">Unit</th><th style="text-align:right;">Unit Cost</th><th style="text-align:right;">Ext. Cost</th></tr>`;
+    (cat.items || []).forEach(item => {
+      html += `<tr>
+        <td>${esc(item.name || item.item || '')}</td>
+        <td style="text-align:center;">${item.qty || 0}</td>
+        <td style="text-align:center;">${esc(item.unit || 'EA')}</td>
+        <td style="text-align:right;">${fmt(item.unitCost)}</td>
+        <td style="text-align:right;">${fmt(item.extCost)}</td>
+      </tr>`;
+    });
+    html += `<tr style="background:#f0fdfa;font-weight:700;"><td colspan="4" style="text-align:right;">Category Subtotal</td><td style="text-align:right;">${fmt(cat.subtotal)}</td></tr>`;
+    html += `</table>`;
+  });
+  html += `<div style="text-align:right;font-size:14pt;font-weight:800;color:#0D9488;margin-top:8px;">BOM Grand Total: ${fmt(bomWithTravel.grandTotal)}</div>`;
+
+  // ═══ SECTION 3: LABOR BREAKDOWN ═══
+  if (laborCalc?.phases) {
+    html += `<div class="page-break"></div>`;
+    html += `<h2>3. Labor Breakdown</h2>`;
+    html += `<div class="stat-grid">
+      <div class="stat-box"><div class="stat-value">${(laborCalc.total_hours || 0).toLocaleString()}</div><div class="stat-label">Total Hours</div></div>
+      <div class="stat-box"><div class="stat-value">${fmt(laborCalc.total_base_cost)}</div><div class="stat-label">Base Labor Cost</div></div>
+      <div class="stat-box"><div class="stat-value">${fmt(laborCalc.total_with_markup)}</div><div class="stat-label">Labor w/ Markup</div></div>
+    </div>`;
+    html += `<table><tr><th>Phase</th><th style="text-align:center;">Hours</th><th style="text-align:center;">% of Total</th><th style="text-align:right;">Cost</th></tr>`;
+    laborCalc.phases.forEach(p => {
+      html += `<tr><td>${esc(p.name)}</td><td style="text-align:center;">${(p.phase_hours || 0).toLocaleString()}</td><td style="text-align:center;">${p.pct_of_total || 0}%</td><td style="text-align:right;">${fmt(p.phase_cost)}</td></tr>`;
+    });
+    html += `</table>`;
+    if (laborCalc.crew_recommendation) {
+      const cr = laborCalc.crew_recommendation;
+      html += `<h3>Crew Recommendation</h3><p>`;
+      if (cr.journeyman) html += `Journeyman: ${cr.journeyman} · `;
+      if (cr.apprentice) html += `Apprentice: ${cr.apprentice} · `;
+      if (cr.foreman) html += `Foreman: ${cr.foreman} · `;
+      if (cr.pm) html += `PM: ${cr.pm} · `;
+      if (cr.duration_weeks) html += `Duration: ${cr.duration_weeks} weeks`;
+      html += `</p>`;
+    }
+  }
+
+  // ═══ SECTION 4: TRAVEL & INCIDENTALS ═══
+  if (travelCosts) {
+    html += `<div class="page-break"></div>`;
+    html += `<h2>${laborCalc?.phases ? '4' : '3'}. Travel & Incidentals</h2>`;
+    html += `<div class="stat-grid">
+      <div class="stat-box"><div class="stat-value">${travelCosts.techs}</div><div class="stat-label">Technicians</div></div>
+      <div class="stat-box"><div class="stat-value">${travelCosts.workDays}</div><div class="stat-label">Work Days</div></div>
+      <div class="stat-box"><div class="stat-value">${travelCosts.totalPersonDays}</div><div class="stat-label">Person-Days</div></div>
+    </div>`;
+    html += `<table><tr><th>Item</th><th style="text-align:right;">Amount</th></tr>`;
+    if (travelCosts.hotel > 0) html += `<tr><td>Hotel (${travelCosts.totalPersonDays} person-nights × ${fmt(state.travel.hotelPerNight)})</td><td style="text-align:right;">${fmt(travelCosts.hotel)}</td></tr>`;
+    if (travelCosts.perdiem > 0) html += `<tr><td>Per Diem (${travelCosts.totalPersonDays} person-days × ${fmt(state.travel.perDiemPerDay)})</td><td style="text-align:right;">${fmt(travelCosts.perdiem)}</td></tr>`;
+    if (travelCosts.mileage > 0) html += `<tr><td>Mileage</td><td style="text-align:right;">${fmt(travelCosts.mileage)}</td></tr>`;
+    if (travelCosts.airfare > 0) html += `<tr><td>Airfare</td><td style="text-align:right;">${fmt(travelCosts.airfare)}</td></tr>`;
+    if (travelCosts.rental > 0) html += `<tr><td>Rental Vehicle</td><td style="text-align:right;">${fmt(travelCosts.rental)}</td></tr>`;
+    if (travelCosts.parking > 0) html += `<tr><td>Parking</td><td style="text-align:right;">${fmt(travelCosts.parking)}</td></tr>`;
+    if (travelCosts.tolls > 0) html += `<tr><td>Tolls</td><td style="text-align:right;">${fmt(travelCosts.tolls)}</td></tr>`;
+    html += `<tr style="font-weight:700;background:#f0fdfa;"><td>Travel Subtotal</td><td style="text-align:right;">${fmt(travelCosts.travelSubtotal)}</td></tr>`;
+    if (travelCosts.permits > 0) html += `<tr><td>Permits & Fees</td><td style="text-align:right;">${fmt(travelCosts.permits)}</td></tr>`;
+    if (travelCosts.insurance > 0) html += `<tr><td>Insurance</td><td style="text-align:right;">${fmt(travelCosts.insurance)}</td></tr>`;
+    if (travelCosts.bonding > 0) html += `<tr><td>Bonding</td><td style="text-align:right;">${fmt(travelCosts.bonding)}</td></tr>`;
+    if (travelCosts.equipmentRental > 0) html += `<tr><td>Equipment Rental</td><td style="text-align:right;">${fmt(travelCosts.equipmentRental)}</td></tr>`;
+    if (travelCosts.unexpectedBuffer > 0) html += `<tr><td>Contingency Buffer</td><td style="text-align:right;">${fmt(travelCosts.unexpectedBuffer)}</td></tr>`;
+    html += `<tr style="background:#0D9488;color:white;font-weight:700;"><td>Travel & Incidentals Total</td><td style="text-align:right;">${fmt(travelCosts.grandTotal)}</td></tr>`;
+    html += `</table>`;
+  }
+
+  // ═══ SECTION 5: EXCLUSIONS, ASSUMPTIONS & CLARIFICATIONS ═══
+  html += `<div class="page-break"></div>`;
+  html += `<h2>5. Exclusions, Assumptions & Clarifications</h2>`;
+  ['exclusion', 'assumption', 'clarification'].forEach(type => {
+    const items = (state.exclusions || []).filter(e => e.type === type);
+    if (items.length > 0) {
+      html += `<h3>${type.charAt(0).toUpperCase() + type.slice(1)}s (${items.length})</h3><ul>`;
+      items.forEach(e => { html += `<li>${esc(e.text)}${e.category && e.category !== 'General' ? ` <em style="color:#6b7280;">[${esc(e.category)}]</em>` : ''}</li>`; });
+      html += `</ul>`;
+    }
+  });
+  if ((state.exclusions || []).length === 0) html += `<p style="color:#6b7280;font-style:italic;">No exclusions, assumptions, or clarifications entered.</p>`;
+
+  // ═══ SECTION 6: RFI LOG ═══
+  const allRFIs = typeof getRelevantRFIs === 'function' ? getRelevantRFIs() : [];
+  const rfis = allRFIs.filter(r => state.selectedRFIs && state.selectedRFIs.has(r.id));
+  html += `<h2>6. RFI Log</h2>`;
+  if (rfis.length > 0) {
+    html += `<table><tr><th>#</th><th>Question</th><th>Discipline</th><th>Priority</th></tr>`;
+    rfis.forEach((r, i) => {
+      html += `<tr><td>RFI-${String(i + 1).padStart(3, '0')}</td><td>${esc(r.question || r.text || '')}</td><td>${esc(r.discipline || r.category || 'General')}</td><td>${esc(r.priority || 'Medium')}</td></tr>`;
+    });
+    html += `</table>`;
+  } else {
+    html += `<p style="color:#6b7280;font-style:italic;">No RFIs selected.</p>`;
+  }
+
+  // ═══ SECTION 7: POTENTIAL CHANGE ORDERS ═══
+  if (cos.length > 0) {
+    html += `<div class="page-break"></div>`;
+    html += `<h2>7. Potential Change Orders</h2>`;
+    const includedCOs = cos.filter(c => !state._excludedCOs.has(c.id));
+    const totalCOValue = includedCOs.reduce((s, c) => s + c.estimatedCost, 0);
+    html += `<p><strong>${includedCOs.length}</strong> potential change orders identified — estimated total impact: <strong>${fmtInt(totalCOValue)}</strong></p>`;
+    html += `<table><tr><th>CO#</th><th>Description</th><th style="text-align:center;">Severity</th><th style="text-align:right;">Est. Impact</th><th>Source</th></tr>`;
+    cos.forEach(c => {
+      const excl = state._excludedCOs.has(c.id);
+      html += `<tr${excl ? ' style="opacity:0.4;"' : ''}>
+        <td style="white-space:nowrap;">${esc(c.id)}</td>
+        <td>${esc(c.description)}${c.recommendation ? `<br><em style="font-size:9pt;color:#6b7280;">${esc(c.recommendation)}</em>` : ''}</td>
+        <td style="text-align:center;"><span class="sev-${c.severity}">${c.severity}</span></td>
+        <td style="text-align:right;font-weight:600;">${c.estimatedCost > 0 ? fmtInt(c.estimatedCost) : 'TBD'}</td>
+        <td style="font-size:9pt;color:#6b7280;">${esc(c.source)}</td>
+      </tr>`;
+    });
+    html += `</table>`;
+  }
+
+  // ═══ SECTION 8: BID PHASES & ALTERNATES ═══
+  if (state.bidPhases && state.bidPhases.length > 0) {
+    html += `<div class="page-break"></div>`;
+    html += `<h2>8. Bid Phases & Alternates</h2>`;
+    const phaseBom = getBidPhaseBOM();
+    html += `<table><tr><th>Phase</th><th>Type</th><th style="text-align:right;">Amount</th><th style="text-align:center;">In Proposal</th></tr>`;
+    let runningTotal = 0;
+    state.bidPhases.forEach(phase => {
+      const tot = typeof getPhaseTotal === 'function' ? getPhaseTotal(phase, phaseBom) : 0;
+      const display = phase.type === 'deduct' ? -Math.abs(tot) : tot;
+      if (phase.includeInProposal) runningTotal += display;
+      const typeLabels = { base: 'Base Bid', add: 'Add Alternate', deduct: 'Deduct Alt', optional: 'Optional' };
+      html += `<tr><td>${esc(phase.name)}</td><td>${typeLabels[phase.type] || phase.type}</td><td style="text-align:right;font-weight:600;">${fmtInt(display)}</td><td style="text-align:center;">${phase.includeInProposal ? '✓' : '—'}</td></tr>`;
+    });
+    html += `<tr style="background:#0D9488;color:white;font-weight:700;"><td colspan="2" style="text-align:right;">Total (if all accepted)</td><td style="text-align:right;">${fmtInt(runningTotal)}</td><td></td></tr>`;
+    html += `</table>`;
+  }
+
+  // ═══ SECTION 9: BID STRATEGY ═══
+  if (bidStrategy) {
+    html += `<div class="page-break"></div>`;
+    html += `<h2>9. Bid Strategy</h2>`;
+    if (bidStrategy.win_probability) html += `<p><strong>Win Probability:</strong> ${bidStrategy.win_probability}%</p>`;
+    if (bidStrategy.recommended_strategy) html += `<p><strong>Recommended Strategy:</strong> ${esc(typeof bidStrategy.recommended_strategy === 'string' ? bidStrategy.recommended_strategy : JSON.stringify(bidStrategy.recommended_strategy))}</p>`;
+    if (bidStrategy.pricing_recommendations && Array.isArray(bidStrategy.pricing_recommendations)) {
+      html += `<h3>Pricing Recommendations</h3><ul>`;
+      bidStrategy.pricing_recommendations.forEach(r => { html += `<li>${esc(typeof r === 'string' ? r : r.recommendation || JSON.stringify(r))}</li>`; });
+      html += `</ul>`;
+    }
+    if (bidStrategy.risk_factors && Array.isArray(bidStrategy.risk_factors)) {
+      html += `<h3>Risk Factors</h3><ul>`;
+      bidStrategy.risk_factors.forEach(r => { html += `<li>${esc(typeof r === 'string' ? r : r.factor || r.description || JSON.stringify(r))}</li>`; });
+      html += `</ul>`;
+    }
+  }
+
+  // ═══ SECTION 10: INFRASTRUCTURE & CABLE PATHWAYS ═══
+  if (cablePath) {
+    html += `<div class="page-break"></div>`;
+    html += `<h2>10. Infrastructure & Cable Pathways</h2>`;
+    if (cablePath.backbone_runs && Array.isArray(cablePath.backbone_runs)) {
+      html += `<h3>Backbone Runs</h3><table><tr><th>From</th><th>To</th><th>Media</th><th>Distance</th></tr>`;
+      cablePath.backbone_runs.forEach(r => {
+        html += `<tr><td>${esc(r.from || '')}</td><td>${esc(r.to || '')}</td><td>${esc(r.media || r.cable_type || '')}</td><td>${r.distance_ft ? r.distance_ft + ' ft' : '—'}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+    if (cablePath.horizontal_runs && Array.isArray(cablePath.horizontal_runs)) {
+      html += `<h3>Horizontal Distribution</h3><table><tr><th>Zone/Area</th><th>Drops</th><th>Avg Run</th><th>Total Cable</th></tr>`;
+      cablePath.horizontal_runs.forEach(r => {
+        html += `<tr><td>${esc(r.zone || r.area || '')}</td><td>${r.drops || r.drop_count || '—'}</td><td>${r.avg_run_ft ? r.avg_run_ft + ' ft' : '—'}</td><td>${r.total_cable_ft ? r.total_cable_ft + ' ft' : '—'}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+    if (cablePath.conduit_schedule && Array.isArray(cablePath.conduit_schedule)) {
+      html += `<h3>Conduit Schedule</h3><table><tr><th>Size</th><th>Type</th><th>Length</th><th>Location</th></tr>`;
+      cablePath.conduit_schedule.forEach(r => {
+        html += `<tr><td>${esc(r.size || '')}</td><td>${esc(r.type || '')}</td><td>${r.length_ft ? r.length_ft + ' ft' : '—'}</td><td>${esc(r.location || r.route || '')}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+  }
+
+  // ═══ SECTION 11: SYMBOL INVENTORY ═══
+  if (symbolScanner?.totals) {
+    html += `<div class="page-break"></div>`;
+    html += `<h2>11. Symbol Inventory</h2>`;
+    const totals = symbolScanner.totals;
+    html += `<table><tr><th>Device Type</th><th style="text-align:center;">Count</th></tr>`;
+    Object.entries(totals).forEach(([key, val]) => {
+      if (val > 0) html += `<tr><td>${esc(key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))}</td><td style="text-align:center;font-weight:600;">${val}</td></tr>`;
+    });
+    html += `</table>`;
+    if (symbolScanner.by_sheet && Array.isArray(symbolScanner.by_sheet)) {
+      html += `<h3>Per-Sheet Breakdown</h3><table><tr><th>Sheet</th><th>Devices Found</th></tr>`;
+      symbolScanner.by_sheet.forEach(sh => {
+        const devList = Object.entries(sh.counts || sh.devices || {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}`).join(', ');
+        if (devList) html += `<tr><td>${esc(sh.sheet_id || sh.sheet || '')}</td><td style="font-size:9pt;">${esc(devList)}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+  }
+
+  // ═══ SECTION 12: DEVIL'S ADVOCATE ═══
+  if (devilsAdvocate) {
+    html += `<div class="page-break"></div>`;
+    html += `<h2>12. Devil's Advocate Review</h2>`;
+    if (devilsAdvocate.challenges && Array.isArray(devilsAdvocate.challenges)) {
+      html += `<h3>Challenges & Risks</h3><table><tr><th>Issue</th><th style="text-align:center;">Severity</th><th style="text-align:right;">Est. Impact</th></tr>`;
+      devilsAdvocate.challenges.forEach(c => {
+        html += `<tr><td>${esc(c.description || c.issue || JSON.stringify(c))}</td><td style="text-align:center;"><span class="sev-${(c.severity || 'medium').toLowerCase()}">${c.severity || 'medium'}</span></td><td style="text-align:right;">${esc(c.estimated_impact || '—')}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+    if (devilsAdvocate.missed_items && Array.isArray(devilsAdvocate.missed_items)) {
+      html += `<h3>Potentially Missed Items</h3><ul>`;
+      devilsAdvocate.missed_items.forEach(m => { html += `<li>${esc(typeof m === 'string' ? m : m.description || m.item || JSON.stringify(m))}</li>`; });
+      html += `</ul>`;
+    }
+  }
+
+  // ═══ SECTION 13: SPECIAL CONDITIONS ═══
+  if (specialConditions) {
+    html += `<div class="page-break"></div>`;
+    html += `<h2>13. Special Conditions</h2>`;
+    if (specialConditions.permits && Array.isArray(specialConditions.permits)) {
+      html += `<h3>Required Permits</h3><ul>`;
+      specialConditions.permits.forEach(p => { html += `<li>${esc(typeof p === 'string' ? p : p.description || p.name || JSON.stringify(p))}</li>`; });
+      html += `</ul>`;
+    }
+    if (specialConditions.subcontractors && Array.isArray(specialConditions.subcontractors)) {
+      html += `<h3>Subcontractor Requirements</h3><ul>`;
+      specialConditions.subcontractors.forEach(s => { html += `<li>${esc(typeof s === 'string' ? s : s.trade || s.description || JSON.stringify(s))}</li>`; });
+      html += `</ul>`;
+    }
+    if (specialConditions.site_conditions) {
+      html += `<h3>Site Conditions</h3><p>${esc(typeof specialConditions.site_conditions === 'string' ? specialConditions.site_conditions : JSON.stringify(specialConditions.site_conditions))}</p>`;
+    }
+    if (specialConditions.equipment && Array.isArray(specialConditions.equipment)) {
+      html += `<h3>Special Equipment</h3><ul>`;
+      specialConditions.equipment.forEach(e => { html += `<li>${esc(typeof e === 'string' ? e : e.description || e.name || JSON.stringify(e))}</li>`; });
+      html += `</ul>`;
+    }
+  }
+
+  // ═══ FOOTER ═══
+  html += `<div class="footer">3D CONFIDENTIAL — Generated by SmartPlans v5.0 — ${dateStr}</div>`;
+  html += `</body></html>`;
+
+  openPrintAsPDF(html);
+}
+
 function _safeParseDisciplines(val) {
   if (!val) return [];
   if (Array.isArray(val)) return val;
@@ -2109,26 +2483,46 @@ function computeTravelIncidentals() {
 
   // Get total labor hours from AI
   const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
-  const totalLaborHours = laborCalc?.total_hours || 0;
+  let totalLaborHours = laborCalc?.total_hours || 0;
+
+  // ═══ SANITY BOUNDS ═══
+  // AI can hallucinate extreme labor hours (e.g. 800K hours = 68 years of work).
+  // Cap at 50,000 hours — the largest realistic low-voltage project
+  // (25 techs × 250 workdays × 8 hrs/day = 50,000 hours).
+  const MAX_LABOR_HOURS = 50000;
+  const MAX_WORK_DAYS = 500;   // ~2 years absolute max
+  const MAX_TECHS = 50;
+  let laborHoursCapped = false;
+  if (totalLaborHours > MAX_LABOR_HOURS) {
+    console.warn(`[Travel] AI labor hours (${totalLaborHours.toLocaleString()}) exceeded cap of ${MAX_LABOR_HOURS.toLocaleString()} — capping.`);
+    totalLaborHours = MAX_LABOR_HOURS;
+    laborHoursCapped = true;
+  }
 
   // Calculate scheduling
   let techs, workDays;
   if (t.calcMode === 'byTechs') {
-    techs = t.techCount || 4;
+    techs = Math.min(t.techCount || 4, MAX_TECHS);
     workDays = totalLaborHours > 0 ? Math.ceil(totalLaborHours / (techs * t.hoursPerDay)) : (t.projectDays || 30);
   } else {
-    workDays = t.projectDays || 30;
-    techs = totalLaborHours > 0 ? Math.ceil(totalLaborHours / (workDays * t.hoursPerDay)) : (t.techCount || 4);
+    workDays = Math.min(t.projectDays || 30, MAX_WORK_DAYS);
+    techs = totalLaborHours > 0 ? Math.min(Math.ceil(totalLaborHours / (workDays * t.hoursPerDay)), MAX_TECHS) : (t.techCount || 4);
   }
+  // Final clamp
+  workDays = Math.min(workDays, MAX_WORK_DAYS);
+  techs = Math.min(techs, MAX_TECHS);
 
-  const totalPersonDays = techs * t.numTrips * workDays;
-  const totalTripDays = t.numTrips * workDays;
+  // ON-SITE days — same total regardless of how many trips (work doesn't change)
+  const totalPersonDays = techs * workDays;        // total person-days on site
+  const totalTripDays = workDays;                   // total days on site
 
   // Travel costs
+  // Hotel & per diem: based on total on-site days (doesn't multiply by trips)
   const hotelRate = t.hotelPerNight || 175;
   const perDiemRate = t.perDiemPerDay || 79;
   const hotel = totalPersonDays * hotelRate;
   const perdiem = totalPersonDays * perDiemRate;
+  // Getting TO the site: these DO multiply by trips
   const mileage = t.numTrips * (t.mileageRoundTrip || 0) * (t.mileageRate || 0.70);
   const airfare = techs * t.numTrips * (t.airfarePerPerson || 0);
   const rental = totalTripDays * (t.rentalCarPerDay || 0);
@@ -2152,6 +2546,7 @@ function computeTravelIncidentals() {
 
   return {
     totalLaborHours, techs, workDays, totalPersonDays, totalTripDays,
+    laborHoursCapped,
     hotel, perdiem, mileage, airfare, rental, parking, tolls,
     travelSubtotal,
     permits, insurance, bonding, equipmentRental, fuelTransit,
@@ -2170,7 +2565,7 @@ function injectTravelIntoBOM(bom) {
     if (unitCost > 0 && qty > 0) travelItems.push({ name, qty, unit, unitCost: Math.round(unitCost * 100) / 100, extCost: Math.round(qty * unitCost * 100) / 100 });
   };
 
-  addItem(`Hotel (${costs.techs} techs × ${costs.workDays} days × ${state.travel.numTrips} trip${state.travel.numTrips > 1 ? 's' : ''})`, costs.totalPersonDays, 'NIGHT', state.travel.hotelPerNight);
+  addItem(`Hotel (${costs.techs} techs × ${costs.workDays} days)`, costs.totalPersonDays, 'NIGHT', state.travel.hotelPerNight);
   addItem(`Per Diem / Meals (${costs.totalPersonDays} person-days)`, costs.totalPersonDays, 'DAY', state.travel.perDiemPerDay);
   if (state.travel.mileageRoundTrip > 0) addItem(`Mileage (${state.travel.mileageRoundTrip} mi RT × ${state.travel.numTrips} trips)`, state.travel.numTrips * state.travel.mileageRoundTrip, 'MI', state.travel.mileageRate);
   if (state.travel.airfarePerPerson > 0) addItem(`Airfare (${costs.techs} techs × ${state.travel.numTrips} trips)`, costs.techs * state.travel.numTrips, 'EA', state.travel.airfarePerPerson);
@@ -2467,12 +2862,13 @@ function renderStep6Travel(container) {
         </div>
         `}
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="sched-trips">Number of Trips</label>
-          <input class="form-input sched-input" type="number" min="1" max="50" id="sched-trips" value="${t.numTrips}" style="font-size:14px;padding:8px 10px;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="sched-trips">Mobilizations (Trips)</label>
+          <input class="form-input sched-input" type="number" min="1" max="10" id="sched-trips" value="${t.numTrips}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Separate crew deployments — usually 1</div>
         </div>
       </div>
       <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">
-        ${totalHours > 0 ? `${totalHours.toLocaleString()} hrs ÷ (${costs.techs} techs × ${t.hoursPerDay} hrs/day) = ${costs.workDays} work days | ${costs.totalPersonDays} total person-days` : 'Enter scheduling details manually — labor hours not available from analysis.'}
+        ${totalHours > 0 ? `${totalHours.toLocaleString()} hrs ÷ (${costs.techs} techs × ${t.hoursPerDay} hrs/day) = ${costs.workDays} work days | ${costs.totalPersonDays} total person-days${costs.laborHoursCapped ? ' <span style="color:#f59e0b;font-weight:700;">⚠️ AI labor hours were unrealistically high and were capped at 50,000 — review scheduling manually</span>' : ''}` : 'Enter scheduling details manually — labor hours not available from analysis.'}
       </div>
     </div>
 
@@ -2813,6 +3209,14 @@ function renderStep7(container) {
         Export your ${state.aiAnalysis ? 'complete analysis' : 'project data'} for use in project management, client proposals, or record keeping.
       </div>
       ${noAnalysisWarning}
+      <button class="export-pkg-btn" id="btn-master-report" style="display:flex;align-items:center;gap:14px;padding:18px 22px;border-radius:12px;border:2px solid rgba(13,148,136,0.5);background:linear-gradient(135deg,rgba(13,148,136,0.15),rgba(13,148,136,0.04));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.2s;width:100%;margin-top:14px;margin-bottom:14px;">
+        <span style="font-size:32px;">📑</span>
+        <div style="flex:1;">
+          <div style="font-weight:800;font-size:15px;color:#0D9488;">Generate Master Report (PDF)</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">One comprehensive document with BOM, labor, travel, RFIs, exclusions, change orders, bid strategy, infrastructure, symbol inventory, and more — ready to print or save as PDF</div>
+        </div>
+        <span style="font-size:22px;color:#0D9488;">📄</span>
+      </button>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;">
         <button class="export-pkg-btn" id="export-json" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(56,189,248,0.25);background:rgba(56,189,248,0.06);color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;">
           <span style="font-size:24px;">🔗</span>
@@ -3295,6 +3699,12 @@ function renderStep7(container) {
   if (exportBtn) {
     exportBtn.addEventListener("click", exportRFIs);
   }
+
+  // Master Report button
+  const masterBtn = document.getElementById("btn-master-report");
+  if (masterBtn) masterBtn.addEventListener("click", () => {
+    try { generateMasterReport(); } catch (err) { console.error('[MasterReport]', err); if (typeof spToast === 'function') spToast('Error generating report: ' + err.message, 'error'); }
+  });
 
   // Export package buttons
   const jsonBtn = document.getElementById("export-json");
