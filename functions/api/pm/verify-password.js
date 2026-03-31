@@ -7,7 +7,7 @@
 // CORS/origin check handled by /api/pm/_middleware.js
 // ═══════════════════════════════════════════════════════════════
 
-import { timingSafeCompare } from '../../../_shared/cors.js';
+import { timingSafeCompare } from '../../_shared/cors.js';
 
 const RATE_LIMIT_MAX = 5;          // max failed attempts
 const RATE_LIMIT_WINDOW_SEC = 300; // 5 minutes

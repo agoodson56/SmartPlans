@@ -3,7 +3,7 @@
 // POST   /api/pm/logs/:id — Bulk delete all logs for a project
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin, timingSafeCompare } from '../../../../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare } from '../../../_shared/cors.js';
 
 export async function onRequestDelete(context) {
     const { env, params, request } = context;

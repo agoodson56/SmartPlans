@@ -3,7 +3,7 @@
 // Allows SmartPM (smartpm.pages.dev) to call /api/pm/* endpoints.
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin } from '../../../_shared/cors.js';
+import { isAllowedOrigin } from '../../_shared/cors.js';
 
 export async function onRequest(context) {
     const { request } = context;

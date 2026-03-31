@@ -7,7 +7,7 @@ function isValidId(id) {
     return id && String(id).length <= 64 && /^[a-zA-Z0-9_-]+$/.test(String(id));
 }
 
-import { isAllowedOrigin, timingSafeCompare } from '../../../../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare } from '../../../_shared/cors.js';
 
 function corsHeaders(origin) {
     const headers = {};

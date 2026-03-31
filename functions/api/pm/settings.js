@@ -4,7 +4,7 @@
 // POST /api/pm/settings             — Set/update a setting
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin } from '../../../_shared/cors.js';
+import { isAllowedOrigin } from '../../_shared/cors.js';
 
 /**
  * Hash a password using PBKDF2 with 100,000 iterations and a random 16-byte salt.

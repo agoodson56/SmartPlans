@@ -4,7 +4,7 @@
 // CORS/origin check handled by /api/ai/_middleware.js
 // ═══════════════════════════════════════════════════════════════
 
-import { timingSafeCompare } from '../../../_shared/cors.js';
+import { timingSafeCompare } from '../../_shared/cors.js';
 
 export async function onRequestGet(context) {
     const { env, request } = context;

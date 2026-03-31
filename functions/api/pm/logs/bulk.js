@@ -3,7 +3,7 @@
 // Dedicated endpoint (not the [id] catch-all) for clarity and safety
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin, timingSafeCompare } from '../../../../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare } from '../../../_shared/cors.js';
 
 export async function onRequestPost(context) {
     const { env, request } = context;

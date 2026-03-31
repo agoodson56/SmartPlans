@@ -3,7 +3,7 @@
 // Requires valid X-App-Token (ESTIMATES_TOKEN) — Estimator role only
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin, timingSafeCompare } from '../../../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare } from '../../_shared/cors.js';
 
 export async function onRequestPost(context) {
     const { request, env } = context;
