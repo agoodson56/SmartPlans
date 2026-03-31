@@ -50,7 +50,7 @@ const SmartPlansExport = {
         return {
             _meta: {
                 format: "smartplans-export",
-                version: "3.0",
+                version: "5.0",
                 generatedAt: now.toISOString(),
                 generatedBy: "SmartPlans — AI-Powered ELV Estimation",
                 appVersion: PRICING_DB.version,

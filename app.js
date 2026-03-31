@@ -5691,7 +5691,7 @@ function renderAnalysis(container) {
           <span class="analysis-pct" id="analysis-pct">0%</span>
         </div>
       </div>
-      <div class="analysis-title">🧠 20× Drawing Scan Engine v4.0</div>
+      <div class="analysis-title">🧠 27-Brain Drawing Scan Engine v5.0</div>
       <div class="analysis-stage" id="analysis-stage">Initializing 27 specialized AI brains…</div>
       <div class="analysis-bar-track"><div class="analysis-bar-fill" id="analysis-bar"></div></div>
       <div id="upload-progress-container" style="display:none;margin-top:8px;width:100%;max-width:400px;">

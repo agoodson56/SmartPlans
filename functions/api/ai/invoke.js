@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// SMARTPLANS — Server-Side Gemini API Proxy v4.0 (ZERO-TIMEOUT)
+// SMARTPLANS — Server-Side Gemini API Proxy v5.0 (ZERO-TIMEOUT)
 // Returns SSE stream IMMEDIATELY with keepalive, then pipes Gemini
 // Eliminates Cloudflare 524 timeouts completely
 // ═══════════════════════════════════════════════════════════════

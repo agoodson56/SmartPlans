@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   SMARTPLANS — TRIPLE-READ CONSENSUS ENGINE v4.0
+   SMARTPLANS — TRIPLE-READ CONSENSUS ENGINE v5.0
    ═══════════════════════════════════════════════════════════════
    Powered by Gemini 3.1 Pro — 2× reasoning improvement
    27 Specialized AI Brains × 12 Processing Waves
