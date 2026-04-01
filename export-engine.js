@@ -184,10 +184,12 @@ const SmartPlansExport = {
 
     // ─── Classify BOM categories into material/equipment/subs ──
     _classifyBOM(bom) {
-        let materials = 0, equipment = 0, subs = 0;
+        let materials = 0, equipment = 0, subs = 0, travel = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
-            if (/subcontract|civil|traffic|safety|insurance|parking/.test(n)) {
+            if (/travel|per\s*diem|lodging|hotel|mileage|incidental/.test(n)) {
+                travel += (cat.subtotal || 0);
+            } else if (/subcontract|civil|traffic|safety|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
             } else if (/equipment|condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
@@ -195,13 +197,13 @@ const SmartPlansExport = {
                 materials += (cat.subtotal || 0);
             }
         }
-        return { materials, equipment, subs };
+        return { materials, equipment, subs, travel };
     },
 
     // ─── Compute full bid price breakdown with all markups ──
     // SINGLE SOURCE OF TRUTH: Every output reads from this.
     _computeFullBreakdown(state, bom) {
-        const { materials, equipment, subs } = this._classifyBOM(bom);
+        const { materials, equipment, subs, travel: bomTravel } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
         const matPct = (cfg.material ?? 50) / 100;
         const labPct = (cfg.labor ?? 50) / 100;
@@ -211,17 +213,26 @@ const SmartPlansExport = {
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         const contingencyPct = 0.10;
 
-        // Labor estimate: based on loaded crew rates and material cost
-        // ELV labor typically runs 80-120% of material cost
-        const laborBase = this._round(materials * 1.0);
+        // Labor: use actual Labor Calculator output when available, else estimate from materials
+        const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
+        const laborBase = this._round(
+            laborCalc?.total_base_cost > 0 ? laborCalc.total_base_cost :
+            materials * 1.0  // fallback: ELV labor ~ 80-120% of material cost
+        );
 
         const matSell = this._round(materials * (1 + matPct));
         const labSell = this._round(laborBase * (1 + labPct));
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
         const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
-        const travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
-            ? this._round(computeTravelIncidentals().grandTotal || 0) : 0;
+
+        // Travel: use BOM travel if present, else Stage 6 user config. NEVER double-count.
+        let travel = 0;
+        if (bomTravel > 0) {
+            travel = this._round(bomTravel);  // already in BOM — no markup on travel
+        } else if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
+            travel = this._round(computeTravelIncidentals().grandTotal || 0);
+        }
 
         const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
         const contingency = this._round(subtotal * contingencyPct);
