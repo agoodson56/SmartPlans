@@ -1013,7 +1013,8 @@ const SmartBrains = {
     LEGEND_DECODER: ['symbols', 'legend_quality'],
     SPATIAL_LAYOUT: ['building_dimensions', 'floors'],
     SYMBOL_SCANNER: ['sheets', 'totals'],
-    CODE_COMPLIANCE: ['issues', 'summary'],
+    // CODE_COMPLIANCE: schema validation disabled — informational brain, not pricing-critical
+    // AI frequently wraps output differently; retries waste time without improving results
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
     SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits'],
