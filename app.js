@@ -720,6 +720,33 @@ function sanitizeHtml(html) {
   html = html.replace(/(href|src)\s*=\s*javascript:[^\s>]*/gi, '$1=""');
   return html;
 }
+
+// ── Shared BOM Override Application — single source of truth for supplier price overrides ──
+function applyBOMOverrides(bom, overrides) {
+  if (!bom || !overrides || Object.keys(overrides).length === 0) return bom;
+  for (const [key, override] of Object.entries(overrides)) {
+    const [catIdx, itemIdx] = key.split('-').map(Number);
+    if (isNaN(catIdx) || isNaN(itemIdx) || catIdx < 0 || itemIdx < 0) continue;
+    if (!bom.categories?.[catIdx]?.items?.[itemIdx]) continue;
+    const item = bom.categories[catIdx].items[itemIdx];
+    if (override.qty != null) item.qty = override.qty;
+    if (typeof override.unitCost === 'number' && override.unitCost > 0 && isFinite(override.unitCost)) {
+      item.unitCost = override.unitCost;
+    }
+    item.extCost = Math.round((item.qty * item.unitCost) * 100) / 100;
+    if (override.mfg) item.mfg = override.mfg;
+    if (override.partNumber) item.partNumber = override.partNumber;
+  }
+  bom.grandTotal = 0;
+  for (const cat of (bom.categories || [])) {
+    cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
+    cat.subtotal = Math.round(cat.subtotal * 100) / 100;
+    bom.grandTotal += cat.subtotal;
+  }
+  bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
+  return bom;
+}
+
 // ── Save to PDF utility — opens HTML in print window for browser "Save as PDF" ──
 function openPrintAsPDF(html) {
   const printWin = window.open('', '_blank', 'width=900,height=700');
@@ -769,27 +796,7 @@ function generateMasterReport() {
   const bom = getFilteredBOM(state.aiAnalysis, state.disciplines);
 
   // Apply supplier price overrides so Master Report matches Step 7 table and exports
-  const overrides = state.supplierPriceOverrides || {};
-  if (Object.keys(overrides).length > 0) {
-    for (const [key, override] of Object.entries(overrides)) {
-      const [catIdx, itemIdx] = key.split('-').map(Number);
-      if (bom.categories?.[catIdx]?.items?.[itemIdx]) {
-        const item = bom.categories[catIdx].items[itemIdx];
-        if (override.qty != null) item.qty = override.qty;
-        item.unitCost = override.unitCost;
-        item.extCost = Math.round((item.qty * override.unitCost) * 100) / 100;
-        if (override.mfg) item.mfg = override.mfg;
-        if (override.partNumber) item.partNumber = override.partNumber;
-      }
-    }
-    bom.grandTotal = 0;
-    for (const cat of (bom.categories || [])) {
-      cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
-      cat.subtotal = Math.round(cat.subtotal * 100) / 100;
-      bom.grandTotal += cat.subtotal;
-    }
-    bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
-  }
+  applyBOMOverrides(bom, state.supplierPriceOverrides);
 
   const bomWithTravel = state.travel.enabled ? injectTravelIntoBOM(bom) : bom;
   const travelCosts = state.travel.enabled ? computeTravelIncidentals() : null;
@@ -2124,6 +2131,10 @@ function renderFooter() {
     state.completedSteps.add(stepId);
 
     if (state.currentStep === 5) {
+      if (state.analyzing) {
+        spToast('Analysis already in progress — please wait', 'warning');
+        return;
+      }
       state.analyzing = true;
       render();
     } else {
@@ -4146,24 +4157,7 @@ function renderStep7(container) {
     const _overrideCount = Object.keys(_bomOverrides).length;
     // Apply overrides to a working copy
     let _bomOriginalGrand = _bomData.grandTotal;
-    for (const [key, ov] of Object.entries(_bomOverrides)) {
-      const [ci, ii] = key.split('-').map(Number);
-      if (_bomData.categories[ci] && _bomData.categories[ci].items[ii]) {
-        const it = _bomData.categories[ci].items[ii];
-        if (ov.qty != null) it.qty = ov.qty;
-        it.unitCost = ov.unitCost;
-        it.extCost = Math.round(it.qty * ov.unitCost * 100) / 100;
-      }
-    }
-    if (_overrideCount > 0) {
-      _bomData.grandTotal = 0;
-      for (const cat of _bomData.categories) {
-        cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
-        cat.subtotal = Math.round(cat.subtotal * 100) / 100;
-        _bomData.grandTotal += cat.subtotal;
-      }
-      _bomData.grandTotal = Math.round(_bomData.grandTotal * 100) / 100;
-    }
+    applyBOMOverrides(_bomData, _bomOverrides);
     const _fmtDollar = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const _delta = _bomData.grandTotal - _bomOriginalGrand;
     const _deltaStr = _delta >= 0 ? '+' + _fmtDollar(_delta) : '-' + _fmtDollar(Math.abs(_delta));

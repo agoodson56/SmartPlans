@@ -198,7 +198,7 @@ const SmartPlansExport = {
     },
 
     // ─── Classify BOM categories into material/equipment/subs ──
-    _classifyBOM(bom) {
+    _classifyBOM(bom, _debugMode) {
         let materials = 0, equipment = 0, subs = 0, travel = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
@@ -215,7 +215,7 @@ const SmartPlansExport = {
             } else {
                 materials += (cat.subtotal || 0);
             }
-            console.log(`[BOM Classify] "${cat.name}" ($${(cat.subtotal||0).toLocaleString()}) → ${bucket}`);
+            if (_debugMode) console.log(`[BOM Classify] "${cat.name}" ($${(cat.subtotal||0).toLocaleString()}) → ${bucket}`);
         }
         return { materials, equipment, subs, travel };
     },
@@ -223,7 +223,7 @@ const SmartPlansExport = {
     // ─── Compute full bid price breakdown with all markups ──
     // SINGLE SOURCE OF TRUTH: Every output reads from this.
     _computeFullBreakdown(state, bom) {
-        const { materials, equipment, subs, travel: bomTravel } = this._classifyBOM(bom);
+        const { materials, equipment, subs, travel: bomTravel } = this._classifyBOM(bom, state?._debugMode);
         const cfg = state.pricingConfig?.markup || state.markup || {};
         const matPct = (cfg.material ?? 50) / 100;
         const labPct = (cfg.labor ?? 50) / 100;
@@ -251,9 +251,9 @@ const SmartPlansExport = {
         }
 
         // ── Diagnostic logging — trace every value in the calculation ──
-        console.log(`[BOM Classify] materials=$${materials.toLocaleString()} equipment=$${equipment.toLocaleString()} subs=$${subs.toLocaleString()} bomTravel=$${bomTravel.toLocaleString()}`);
-        console.log(`[BOM Labor] source="${laborSource}" laborBase=$${laborBase.toLocaleString()} | LC=${laborCalc?.total_base_cost || 'N/A'} | FE=${finEngine?.project_summary?.total_labor || 'N/A'}`);
-        console.log(`[BOM Markup] mat=${matPct*100}% lab=${labPct*100}% eq=${eqPct*100}% sub=${subPct*100}% burden=${includeBurden ? burdenRate*100+'%' : 'off'} contingency=${contingencyPct*100}%`);
+        if (state?._debugMode) console.log(`[BOM Classify] materials=$${materials.toLocaleString()} equipment=$${equipment.toLocaleString()} subs=$${subs.toLocaleString()} bomTravel=$${bomTravel.toLocaleString()}`);
+        if (state?._debugMode) console.log(`[BOM Labor] source="${laborSource}" laborBase=$${laborBase.toLocaleString()} | LC=${laborCalc?.total_base_cost || 'N/A'} | FE=${finEngine?.project_summary?.total_labor || 'N/A'}`);
+        if (state?._debugMode) console.log(`[BOM Markup] mat=${matPct*100}% lab=${labPct*100}% eq=${eqPct*100}% sub=${subPct*100}% burden=${includeBurden ? burdenRate*100+'%' : 'off'} contingency=${contingencyPct*100}%`);
 
         const matSell = this._round(materials * (1 + matPct));
         const labSell = this._round(laborBase * (1 + labPct));
@@ -273,8 +273,8 @@ const SmartPlansExport = {
         const contingency = this._round(subtotal * contingencyPct);
         const grandTotal = this._round(subtotal + contingency);
 
-        console.log(`[BOM Sell] matSell=$${matSell.toLocaleString()} labSell=$${labSell.toLocaleString()} eqSell=$${eqSell.toLocaleString()} subSell=$${subSell.toLocaleString()} burden=$${burden.toLocaleString()} travel=$${travel.toLocaleString()}`);
-        console.log(`[BOM Total] subtotal=$${subtotal.toLocaleString()} + contingency=$${contingency.toLocaleString()} = grandTotal=$${grandTotal.toLocaleString()}`);
+        if (state?._debugMode) console.log(`[BOM Sell] matSell=$${matSell.toLocaleString()} labSell=$${labSell.toLocaleString()} eqSell=$${eqSell.toLocaleString()} subSell=$${subSell.toLocaleString()} burden=$${burden.toLocaleString()} travel=$${travel.toLocaleString()}`);
+        if (state?._debugMode) console.log(`[BOM Total] subtotal=$${subtotal.toLocaleString()} + contingency=$${contingency.toLocaleString()} = grandTotal=$${grandTotal.toLocaleString()}`);
 
         return {
             materials, equipment, subs, laborBase, laborSource,
@@ -288,8 +288,8 @@ const SmartPlansExport = {
     // ─── Get fully loaded bid total ──
     _getFullyLoadedTotal(state, bom) {
         // DEBUG: Log what brain results we have
-        console.log(`[Export] brainResults available: ${!!state.brainResults}`);
-        if (state.brainResults) {
+        if (state?._debugMode) console.log(`[Export] brainResults available: ${!!state.brainResults}`);
+        if (state?._debugMode && state.brainResults) {
             console.log(`[Export] wave3_85_corrected: ${!!state.brainResults.wave3_85_corrected}, corrected_grand_total: ${state.brainResults.wave3_85_corrected?.corrected_grand_total}`);
             console.log(`[Export] wave2_5_fin: ${!!state.brainResults.wave2_5_fin}, FINANCIAL_ENGINE: ${!!state.brainResults.wave2_5_fin?.FINANCIAL_ENGINE}`);
             if (state.brainResults.wave2_5_fin?.FINANCIAL_ENGINE) {
@@ -303,7 +303,7 @@ const SmartPlansExport = {
         if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
             const tCosts = computeTravelIncidentals();
             stage6Travel = this._round(tCosts.grandTotal || 0);
-            console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
+            if (state?._debugMode) console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
         }
 
         // Priority 1: Deterministic BOM computation (materials + markups + labor + burden + travel + contingency)
@@ -313,7 +313,7 @@ const SmartPlansExport = {
         if (bom?.categories?.length > 0) {
             const breakdown = this._computeFullBreakdown(state, bom);
             if (breakdown.grandTotal > 1000) {
-                console.log(`[Export] ✅ Grand total from deterministic BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
+                if (state?._debugMode) console.log(`[Export] ✅ Grand total from deterministic BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
                 state._bomGrandTotal = breakdown.grandTotal;
                 state._bomBreakdown = breakdown;
                 return breakdown.grandTotal;
@@ -324,7 +324,7 @@ const SmartPlansExport = {
         if (state.bidStrategy?.applied) {
             const result = this.applyBidStrategy?.(state);
             if (result?.grandTotalWithStrategy > 1000) {
-                console.log(`[Export] Grand total from Bid Strategy: $${result.grandTotalWithStrategy.toLocaleString()}`);
+                if (state?._debugMode) console.log(`[Export] Grand total from Bid Strategy: $${result.grandTotalWithStrategy.toLocaleString()}`);
                 return this._round(result.grandTotalWithStrategy);
             }
         }
@@ -337,9 +337,9 @@ const SmartPlansExport = {
             if (stage6Travel > 0) {
                 const aiTravel = this._round(finEngine.project_summary.total_travel || 0);
                 val = this._round(val - aiTravel + stage6Travel);
-                console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()})`);
+                if (state?._debugMode) console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()})`);
             }
-            console.log(`[Export] ⚠️ Grand total from Financial Engine AI (fallback): $${val.toLocaleString()}`);
+            if (state?._debugMode) console.log(`[Export] ⚠️ Grand total from Financial Engine AI (fallback): $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
         }
@@ -348,7 +348,7 @@ const SmartPlansExport = {
         const corrector = state.brainResults?.wave3_85_corrected;
         if (corrector?.corrected_grand_total > 1000) {
             const val = this._round(corrector.corrected_grand_total);
-            console.log(`[Export] ⚠️ Using Estimate Corrector total (raw BOM, no markups): $${val.toLocaleString()}`);
+            if (state?._debugMode) console.log(`[Export] ⚠️ Using Estimate Corrector total (raw BOM, no markups): $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
         }
@@ -1142,7 +1142,7 @@ const SmartPlansExport = {
             // Also remove "Not in Scope" placeholder categories with $0 totals
             const activeCategories = realCategories.filter(cat => {
                 const hasRealItems = cat.items.some(i => (i.extCost || 0) > 0 || (i.qty || 0) > 0);
-                if (!hasRealItems) {
+                if (!hasRealItems && this._debugMode) {
                     console.log(`[SmartPlans Export] Skipped empty/not-in-scope category: "${cat.name}"`);
                 }
                 return hasRealItems;
@@ -1163,7 +1163,7 @@ const SmartPlansExport = {
                 return emptyResult;
             }
 
-            console.log(`[SmartPlans Export] BOM: ${activeCategories.length} categories, ${totalItems} items, $${this._round(grandTotal)} raw total`);
+            if (this._debugMode) console.log(`[SmartPlans Export] BOM: ${activeCategories.length} categories, ${totalItems} items, $${this._round(grandTotal)} raw total`);
             return { categories: activeCategories, grandTotal: this._round(grandTotal) };
 
         } catch (err) {
@@ -1235,7 +1235,7 @@ const SmartPlansExport = {
             if (!matchesAnyDiscipline) return true;
 
             // Category matches an unselected discipline — filter it out
-            console.log(`[SmartPlans Export] Skipped unselected discipline category: "${name}" (discipline not in selection: ${disciplines.join(', ')})`);
+            if (this._debugMode) console.log(`[SmartPlans Export] Skipped unselected discipline category: "${name}" (discipline not in selection: ${disciplines.join(', ')})`);
             return false;
         });
 

@@ -54,6 +54,10 @@ const SmartBrains = {
 
   VERSION: '5.0.0',
 
+  // Debug logging — set to true to see key names, model details, retry info
+  _debug: false,
+  _log(...args) { if (this._debug) console.log(...args); },
+
   // Expose sanitizer as a static method for external callers
   _sanitizeForPrompt,
 
@@ -198,11 +202,11 @@ const SmartBrains = {
               // Try chunking large PDFs using PDF.js
               if (finalMime === 'application/pdf' && entry.rawFile.size > CHUNK_THRESHOLD && typeof pdfjsLib !== 'undefined') {
                 progressCallback(pct, `Splitting large PDF: ${entry.name} (${fileSizeMB} MB)…`, null);
-                console.log(`[SmartBrains] Splitting ${entry.name} (${fileSizeMB} MB) into ${PAGES_PER_CHUNK}-page chunks…`);
+                this._log(`[SmartBrains] Splitting ${entry.name} (${fileSizeMB} MB) into ${PAGES_PER_CHUNK}-page chunks…`);
 
                 try {
                   const chunks = await this._splitPDFIntoChunks(entry.rawFile, PAGES_PER_CHUNK);
-                  console.log(`[SmartBrains] Split ${entry.name} into ${chunks.length} chunks`);
+                  this._log(`[SmartBrains] Split ${entry.name} into ${chunks.length} chunks`);
 
                   let chunkIdx = 0;
                   for (const chunk of chunks) {
@@ -231,7 +235,7 @@ const SmartBrains = {
                         chunkData.fileUri = cleanUri;
                         chunkData.uploadedName = uploadResult.name;
                         chunkData._usedKeyName = uploadResult._usedKeyName;
-                        console.log(`[SmartBrains] ✓ Uploaded chunk ${chunkIdx}/${chunks.length}: ${chunkName} → ${cleanUri}`);
+                        this._log(`[SmartBrains] ✓ Uploaded chunk ${chunkIdx}/${chunks.length}: ${chunkName} → ${cleanUri}`);
                       } else {
                         // Fallback: send chunk as inline base64
                         const chunkB64 = await this._fileToBase64(chunk);
@@ -247,7 +251,7 @@ const SmartBrains = {
                   }
                   // DON'T include the full PDF as inline — it's too large (57MB = 77MB base64)
                   // The chunks cover all pages. Skip adding the parent fileData entry.
-                  console.log(`[SmartBrains] ✓ All ${chunks.length} chunks uploaded. Skipping full-file inline (${fileSizeMB} MB too large).`);
+                  this._log(`[SmartBrains] ✓ All ${chunks.length} chunks uploaded. Skipping full-file inline (${fileSizeMB} MB too large).`);
                   continue; // Skip the normal upload path — chunks are sufficient
                 } catch (splitErr) {
                   console.warn(`[SmartBrains] PDF splitting failed for ${entry.name}, using single upload:`, splitErr.message);
@@ -259,7 +263,7 @@ const SmartBrains = {
               progressCallback(pct, `Uploading large file: ${entry.name} (${fileSizeMB} MB)…`, null);
               const uploadContainer = document.getElementById('upload-progress-container');
               if (uploadContainer) uploadContainer.style.display = 'block';
-              console.log(`[SmartBrains] Uploading ${entry.name} (${fileSizeMB} MB) via File API…`);
+              this._log(`[SmartBrains] Uploading ${entry.name} (${fileSizeMB} MB) via File API…`);
 
               try {
                 const uploadResult = await this._uploadToFileAPI(entry.rawFile, finalMime, entry.name);
@@ -273,7 +277,7 @@ const SmartBrains = {
                   fileData.fileUri = cleanUri;
                   fileData.uploadedName = uploadResult.name;
                   fileData._usedKeyName = uploadResult._usedKeyName;
-                  console.log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${cleanUri} (key: ${uploadResult._usedKeyName})`);
+                  this._log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${cleanUri} (key: ${uploadResult._usedKeyName})`);
                 } else {
                   console.warn(`[SmartBrains] File API upload returned no URI, falling back to inline for ${entry.name}`);
                   fileData.base64 = base64;
@@ -358,7 +362,7 @@ const SmartBrains = {
     // Gemini returns 400 INVALID_ARGUMENT if you use a file that's still PROCESSING
     // IMPORTANT: Check for ANY state that isn't 'ACTIVE' — including undefined/null
     if (result.state !== 'ACTIVE' && result.name) {
-      console.log(`[SmartBrains] File ${fileName} state is "${result.state || 'unknown'}" — polling until ACTIVE…`);
+      this._log(`[SmartBrains] File ${fileName} state is "${result.state || 'unknown'}" — polling until ACTIVE…`);
       const maxWaitMs = 120000; // 2 minutes max
       const pollIntervalMs = 3000; // Check every 3 seconds
       const startTime = Date.now();
@@ -370,11 +374,11 @@ const SmartBrains = {
           if (checkResponse.ok) {
             const status = await checkResponse.json();
             if (status.state === 'ACTIVE') {
-              console.log(`[SmartBrains] ✓ File ${fileName} is now ACTIVE (waited ${Math.round((Date.now() - startTime) / 1000)}s)`);
+              this._log(`[SmartBrains] ✓ File ${fileName} is now ACTIVE (waited ${Math.round((Date.now() - startTime) / 1000)}s)`);
               result.state = 'ACTIVE';
               break;
             }
-            console.log(`[SmartBrains] File ${fileName} still ${status.state || 'unknown'}… (${Math.round((Date.now() - startTime) / 1000)}s)`);
+            this._log(`[SmartBrains] File ${fileName} still ${status.state || 'unknown'}… (${Math.round((Date.now() - startTime) / 1000)}s)`);
           }
         } catch (e) {
           console.warn(`[SmartBrains] File status check failed:`, e.message);
@@ -385,7 +389,7 @@ const SmartBrains = {
         console.warn(`[SmartBrains] File ${fileName} did not become ACTIVE within ${maxWaitMs / 1000}s — proceeding anyway`);
       }
     } else if (result.state === 'ACTIVE') {
-      console.log(`[SmartBrains] File ${fileName} is immediately ACTIVE — no wait needed`);
+      this._log(`[SmartBrains] File ${fileName} is immediately ACTIVE — no wait needed`);
     }
 
     return result;
@@ -415,7 +419,7 @@ const SmartBrains = {
     // Since PDF.js can't create PDFs, we split the raw bytes by uploading page ranges
     // Alternative: create image-based chunks from rendered pages
     const chunkCount = Math.ceil(totalPages / pagesPerChunk);
-    console.log(`[SmartBrains] PDF has ${totalPages} pages → ${chunkCount} chunks of ~${pagesPerChunk} pages`);
+    this._log(`[SmartBrains] PDF has ${totalPages} pages → ${chunkCount} chunks of ~${pagesPerChunk} pages`);
 
     // Strategy: slice the original file into byte-range chunks
     // This won't create valid standalone PDFs, so instead we render pages to canvas → PNG → blob
@@ -463,7 +467,7 @@ const SmartBrains = {
         // Create a File object so it works with _uploadToFileAPI
         const chunkFile = new File([blob], `chunk_${c + 1}.jpg`, { type: 'image/jpeg' });
         chunks.push(chunkFile);
-        console.log(`[SmartBrains] Chunk ${c + 1}: pages ${startPage}-${endPage} → ${Math.round(blob.size / 1024)} KB JPEG`);
+        this._log(`[SmartBrains] Chunk ${c + 1}: pages ${startPage}-${endPage} → ${Math.round(blob.size / 1024)} KB JPEG`);
       }
     }
 
@@ -521,6 +525,110 @@ const SmartBrains = {
   },
 
   // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
+  // SSE STREAM READER — Shared implementation for all SSE reading
+  // ═══════════════════════════════════════════════════════════
+
+  async _readSSEStream(response, brainName, { timeoutMs = 60000, onProxyError = null, trackUsage = false } = {}) {
+    const contentType = response.headers.get('content-type') || '';
+    let text = '';
+    let thoughtText = '';
+
+    if (contentType.includes('text/event-stream')) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await Promise.race([
+          reader.read(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('SSE_IDLE_TIMEOUT')), timeoutMs)
+          ),
+        ]).catch(err => {
+          if (err.message === 'SSE_IDLE_TIMEOUT') {
+            reader.cancel();
+            throw { _retryable: true, status: 504, message: `SSE stream idle timeout — no data received for ${timeoutMs / 1000}s` };
+          }
+          throw err;
+        });
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          // SSE comments (keepalive) start with ':' — skip silently
+          if (line.startsWith(':')) continue;
+
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr || jsonStr === '[DONE]') continue;
+            try {
+              const chunk = JSON.parse(jsonStr);
+
+              // Check for proxy error events
+              if (chunk._proxyError) {
+                if (onProxyError) {
+                  onProxyError(chunk); // Let caller handle specific proxy error logic
+                } else {
+                  // Default: break on 500+, skip others
+                  if ((chunk.status || 500) >= 500) break;
+                  continue;
+                }
+              }
+
+              // Track token usage if requested
+              if (trackUsage && chunk.usageMetadata) {
+                const um = chunk.usageMetadata;
+                const cached = um.cachedContentTokenCount || 0;
+                const prompt = um.promptTokenCount || 0;
+                const output = um.candidatesTokenCount || 0;
+                const fresh = prompt - cached;
+                const cost = (cached * 0.00025 + fresh * 0.0025 + output * 0.01) / 1000;
+                const savings = cached > 0 ? ((cached * (0.0025 - 0.00025)) / 1000) : 0;
+                if (!this._sessionCost) this._sessionCost = { totalCost: 0, totalSavings: 0, totalCached: 0, totalFresh: 0, totalOutput: 0, brainCalls: 0 };
+                this._sessionCost.totalCost += cost;
+                this._sessionCost.totalSavings += savings;
+                this._sessionCost.totalCached += cached;
+                this._sessionCost.totalFresh += fresh;
+                this._sessionCost.totalOutput += output;
+                this._sessionCost.brainCalls++;
+                if (cached > 0) {
+                  this._log(`[Brain:${brainName}] Tokens: ${prompt} prompt (${cached} CACHED/${fresh} fresh) + ${output} output = $${cost.toFixed(4)} (saved $${savings.toFixed(4)})`);
+                }
+              }
+
+              const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
+              for (const p of chunkParts) {
+                if (p.text && p.thought) {
+                  thoughtText += p.text;
+                } else if (p.text) {
+                  text += p.text;
+                }
+              }
+            } catch (e) {
+              if (e._retryable) throw e;
+              if (e instanceof Error && e.message?.startsWith('Proxy error')) throw e;
+              // Otherwise skip malformed SSE chunks
+            }
+          }
+        }
+      }
+    } else {
+      // Non-streaming fallback (plain JSON response)
+      const data = await response.json();
+      const allParts = data?.candidates?.[0]?.content?.parts || [];
+      text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+      if (!text) {
+        thoughtText = allParts.filter(p => p.text && p.thought).map(p => p.text).join('\n') || '';
+      }
+    }
+
+    return { text, thoughtText };
+  },
+
   // BRAIN INVOCATION — Call Gemini with retry & key rotation
   // ═══════════════════════════════════════════════════════════
 
@@ -538,7 +646,7 @@ const SmartBrains = {
     // ── Model compatibility: gemini-3.1-pro-preview does NOT support fileData (File API) ──
     // Auto-downgrade to gemini-2.5-pro for brains that reference uploaded files
     if (hasUploadedFiles && modelName.includes('3.1-pro-preview')) {
-      console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (3.1 preview doesn't support File API references)`);
+      this._log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (3.1 preview doesn't support File API references)`);
       modelName = 'gemini-2.5-pro';
     }
 
@@ -624,8 +732,8 @@ const SmartBrains = {
           if (p.inlineData) return `  [${i}] inlineData (mime: ${p.inlineData.mimeType}, ${Math.round((p.inlineData.data?.length || 0) / 1024)}KB b64)`;
           return `  [${i}] UNKNOWN: ${JSON.stringify(Object.keys(p))}`;
         });
-        console.log(`[Brain:${brainDef.name}] Request parts (${parts.length}):\n${partSummary.join('\n')}`);
-        console.log(`[Brain:${brainDef.name}] JSON mode: ${useJsonMode}, model: ${modelName}, uploadKey: ${uploadKeyName || 'none'}`);
+        this._log(`[Brain:${brainDef.name}] Request parts (${parts.length}):\n${partSummary.join('\n')}`);
+        this._log(`[Brain:${brainDef.name}] JSON mode: ${useJsonMode}, model: ${modelName}, uploadKey: ${uploadKeyName || 'none'}`);
       }
 
       try {
@@ -659,110 +767,21 @@ const SmartBrains = {
         }
 
         // ── Read SSE stream and assemble response ──
-        const contentType = response.headers.get('content-type') || '';
-        let text = '';
-        let thoughtText = ''; // Track thinking-only responses from Gemini 3.1 Pro
-
-        if (contentType.includes('text/event-stream')) {
-          // Streaming response — read SSE chunks
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          const SSE_IDLE_TIMEOUT = 60000; // 60 seconds per-read idle timeout
-          while (true) {
-            const { done, value } = await Promise.race([
-              reader.read(),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('SSE_IDLE_TIMEOUT')), SSE_IDLE_TIMEOUT)
-              ),
-            ]).catch(err => {
-              if (err.message === 'SSE_IDLE_TIMEOUT') {
-                reader.cancel();
-                throw { _retryable: true, status: 504, message: 'SSE stream idle timeout — no data received for 60s' };
-              }
-              throw err;
-            });
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-
-            // Process complete SSE lines
-            const lines = buffer.split('\n');
-            buffer = lines.pop(); // Keep incomplete line in buffer
-
-            for (const line of lines) {
-              // SSE comments (keepalive) start with ':' — skip silently
-              if (line.startsWith(':')) continue;
-
-              if (line.startsWith('data: ')) {
-                const jsonStr = line.slice(6).trim();
-                if (!jsonStr || jsonStr === '[DONE]') continue;
-                try {
-                  const chunk = JSON.parse(jsonStr);
-
-                  // Check for proxy error events from the zero-timeout proxy
-                  if (chunk._proxyError) {
-                    const errStatus = chunk.status || 500;
-                    // Throw retryable errors so the retry loop handles them
-                    if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
-                      throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
-                    }
-                    if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google 400 detail: ${chunk._debug}`);
-                    // 400 with fileData = file reference rejected. Mark for inline-only retry
-                    if (errStatus === 400 && hasFileData) {
-                      throw { _retryable: true, _stripFileData: true, status: 400, message: 'fileData rejected — will retry with inline_data only' };
-                    }
-                    throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
-                  }
-
-                  // Capture token usage from final chunk
-                  if (chunk.usageMetadata) {
-                    const um = chunk.usageMetadata;
-                    const cached = um.cachedContentTokenCount || 0;
-                    const prompt = um.promptTokenCount || 0;
-                    const output = um.candidatesTokenCount || 0;
-                    const fresh = prompt - cached;
-                    // Gemini pricing: $0.00025/1K cached, $0.0025/1K fresh input, $0.01/1K output
-                    const cost = (cached * 0.00025 + fresh * 0.0025 + output * 0.01) / 1000;
-                    const savings = cached > 0 ? ((cached * (0.0025 - 0.00025)) / 1000) : 0;
-                    if (!this._sessionCost) this._sessionCost = { totalCost: 0, totalSavings: 0, totalCached: 0, totalFresh: 0, totalOutput: 0, brainCalls: 0 };
-                    this._sessionCost.totalCost += cost;
-                    this._sessionCost.totalSavings += savings;
-                    this._sessionCost.totalCached += cached;
-                    this._sessionCost.totalFresh += fresh;
-                    this._sessionCost.totalOutput += output;
-                    this._sessionCost.brainCalls++;
-                    if (cached > 0) {
-                      console.log(`[Brain:${brainDef.name}] Tokens: ${prompt} prompt (${cached} CACHED/${fresh} fresh) + ${output} output = $${cost.toFixed(4)} (saved $${savings.toFixed(4)})`);
-                    }
-                  }
-                  const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
-                  for (const p of chunkParts) {
-                    if (p.text && p.thought) {
-                      thoughtText += p.text; // Gemini 3.1 Pro thinking content
-                    } else if (p.text) {
-                      text += p.text;
-                    }
-                  }
-                } catch (e) {
-                  // If it's a retryable error from proxy, rethrow it
-                  if (e._retryable) throw e;
-                  // If it's a real Error (e.g. proxy 400), rethrow — don't silently swallow
-                  if (e instanceof Error && e.message?.startsWith('Proxy error')) throw e;
-                  // Otherwise skip malformed SSE chunks
-                }
-              }
+        const { text, thoughtText } = await this._readSSEStream(response, brainDef.name, {
+          timeoutMs: 60000,
+          trackUsage: true,
+          onProxyError: (chunk) => {
+            const errStatus = chunk.status || 500;
+            if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
+              throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
             }
-          }
-        } else {
-          // Non-streaming fallback (plain JSON response)
-          const data = await response.json();
-          const allParts = data?.candidates?.[0]?.content?.parts || [];
-          text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
-          if (!text) {
-            thoughtText = allParts.filter(p => p.text && p.thought).map(p => p.text).join('\n') || '';
-          }
-        }
+            if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google 400 detail: ${chunk._debug}`);
+            if (errStatus === 400 && hasFileData) {
+              throw { _retryable: true, _stripFileData: true, status: 400, message: 'fileData rejected — will retry with inline_data only' };
+            }
+            throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
+          },
+        });
 
         // If regular text is empty but we got thinking content, use that
         if ((!text || text.length < 20) && thoughtText.length >= 20) {
@@ -775,7 +794,7 @@ const SmartBrains = {
           throw new Error('Empty response from AI');
         }
 
-        console.log(`[Brain:${brainDef.name}] ✓ Complete (${text.length} chars, attempt ${attempt + 1})`);
+        this._log(`[Brain:${brainDef.name}] ✓ Complete (${text.length} chars, attempt ${attempt + 1})`);
         return text;
 
       } catch (err) {
@@ -813,26 +832,11 @@ const SmartBrains = {
         const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
         const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fbBody), signal: ctrl.signal });
         clearTimeout(tmr);
-        let fbText = '', fbThought = '';
-        const fbReader = fbResp.body.getReader();
-        const fbDec = new TextDecoder();
-        while (true) {
-          const { done, value } = await fbReader.read();
-          if (done) break;
-          for (const line of fbDec.decode(value, { stream: true }).split('\n')) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const ch = JSON.parse(line.substring(6));
-              if (ch._proxyError) { if (ch.status === 503 || ch.status >= 500) break; continue; }
-              for (const p of (ch?.candidates?.[0]?.content?.parts || [])) {
-                if (p.text && p.thought) fbThought += p.text;
-                else if (p.text) fbText += p.text;
-              }
-            } catch (e) { console.warn('[Brain] parse skip:', e.message); }
-          }
-        }
-        if (fbText && fbText.length >= 20) {
-          console.log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
+        const { text: fbText, thoughtText: fbThought } = await this._readSSEStream(fbResp, brainDef.name, {
+          timeoutMs: 60000,
+        });
+                if (fbText && fbText.length >= 20) {
+          this._log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
           return fbText;
         }
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty`);
@@ -876,66 +880,20 @@ const SmartBrains = {
 
         if (response.ok) {
           // Handle SSE streaming in fallback too
-          const ct = response.headers.get('content-type') || '';
-          let text = '';
-          let fbThoughtText = '';
-          if (ct.includes('text/event-stream')) {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buf = '';
-            const FB_SSE_IDLE_TIMEOUT = 60000; // 60 seconds per-read idle timeout
-            while (true) {
-              const { done, value } = await Promise.race([
-                reader.read(),
-                new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error('SSE_IDLE_TIMEOUT')), FB_SSE_IDLE_TIMEOUT)
-                ),
-              ]).catch(err => {
-                if (err.message === 'SSE_IDLE_TIMEOUT') {
-                  reader.cancel();
-                  throw { _retryable: true, status: 504, message: 'Fallback SSE stream idle timeout — no data received for 60s' };
-                }
-                throw err;
-              });
-              if (done) break;
-              buf += decoder.decode(value, { stream: true });
-              const lines = buf.split('\n');
-              buf = lines.pop();
-              for (const line of lines) {
-                if (line.startsWith(':')) continue; // Skip keepalive comments
-                if (line.startsWith('data: ')) {
-                  const js = line.slice(6).trim();
-                  if (!js || js === '[DONE]') continue;
-                  try {
-                    const chunk = JSON.parse(js);
-                    // Handle proxy errors in fallback too
-                    if (chunk._proxyError) {
-                      console.warn(`[Brain:${brainDef.name}] Fallback proxy error: ${chunk.status} ${chunk.message}`);
-                      if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google says: ${chunk._debug}`);
-                      break;
-                    }
-                    const cp = chunk?.candidates?.[0]?.content?.parts || [];
-                    for (const p of cp) {
-                      if (p.text && p.thought) { fbThoughtText += p.text; }
-                      else if (p.text) { text += p.text; }
-                    }
-                  } catch (e) { if (e._retryable) throw e; /* skip malformed SSE chunk */ }
-                }
-              }
-            }
-          } else {
-            const data = await response.json();
-            const allParts = data?.candidates?.[0]?.content?.parts || [];
-            text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
-            if (!text) fbThoughtText = allParts.filter(p => p.text && p.thought).map(p => p.text).join('\n') || '';
-          }
-          // Use thought content if regular text is empty
+          const { text, thoughtText: fbThoughtText } = await this._readSSEStream(response, brainDef.name, {
+            timeoutMs: 60000,
+            onProxyError: (chunk) => {
+              console.warn(`[Brain:${brainDef.name}] Fallback proxy error: ${chunk.status} ${chunk.message}`);
+              if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google says: ${chunk._debug}`);
+            },
+          });
+                    // Use thought content if regular text is empty
           if ((!text || text.length < 20) && fbThoughtText.length >= 20) {
             console.warn(`[Brain:${brainDef.name}] Fallback was thought-only (${fbThoughtText.length} chars) — using thinking content`);
             text = fbThoughtText;
           }
           if (text && text.length >= 20) {
-            console.log(`[Brain:${brainDef.name}] ✓ Fallback complete (${text.length} chars)`);
+            this._log(`[Brain:${brainDef.name}] ✓ Fallback complete (${text.length} chars)`);
             return text;
           }
           console.warn(`[Brain:${brainDef.name}] Fallback returned empty — text: ${text.length} chars, thought: ${fbThoughtText.length} chars`);
@@ -973,14 +931,14 @@ const SmartBrains = {
     try { return JSON.parse(cleaned); } catch { /* fall through */ }
     
     // Strategy 2: Trailing comma fix
-    try { return JSON.parse(fixTrailingCommas(cleaned)); } catch { /* fall through */ }
+    try { const r = JSON.parse(fixTrailingCommas(cleaned)); r._recoveryUsed = 2; return r; } catch { /* fall through */ }
     
     // Strategy 3: Markdown code block extraction
     const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (match) {
       const inner = match[1].trim();
-      try { return JSON.parse(inner); } catch { /* fall through */ }
-      try { return JSON.parse(fixTrailingCommas(inner)); } catch { /* fall through */ }
+      try { const r = JSON.parse(inner); r._recoveryUsed = 3; return r; } catch { /* fall through */ }
+      try { const r = JSON.parse(fixTrailingCommas(inner)); r._recoveryUsed = 3; return r; } catch { /* fall through */ }
     }
     
     // Strategy 4: First { to last } extraction
@@ -988,15 +946,15 @@ const SmartBrains = {
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) {
       const extracted = cleaned.substring(start, end + 1);
-      try { return JSON.parse(extracted); } catch { /* fall through */ }
-      try { return JSON.parse(fixTrailingCommas(extracted)); } catch { /* fall through */ }
+      try { const r = JSON.parse(extracted); r._recoveryUsed = 4; return r; } catch { /* fall through */ }
+      try { const r = JSON.parse(fixTrailingCommas(extracted)); r._recoveryUsed = 4; return r; } catch { /* fall through */ }
       
       // Strategy 5: Sanitize control characters + retry
-      try { return JSON.parse(sanitizeJSON(extracted)); } catch { /* fall through */ }
-      try { return JSON.parse(fixTrailingCommas(sanitizeJSON(extracted))); } catch { /* fall through */ }
+      try { const r = JSON.parse(sanitizeJSON(extracted)); r._recoveryUsed = 5; return r; } catch { /* fall through */ }
+      try { const r = JSON.parse(fixTrailingCommas(sanitizeJSON(extracted))); r._recoveryUsed = 5; return r; } catch { /* fall through */ }
       
       // Strategy 6: Fix unquoted keys + retry
-      try { return JSON.parse(fixUnquotedKeys(fixTrailingCommas(sanitizeJSON(extracted)))); } catch { /* fall through */ }
+      try { const r = JSON.parse(fixUnquotedKeys(fixTrailingCommas(sanitizeJSON(extracted)))); r._recoveryUsed = 6; return r; } catch { /* fall through */ }
     }
     
     // Strategy 7: Line-by-line brace matching (handles truncated responses)
@@ -1019,8 +977,8 @@ const SmartBrains = {
       }
       if (startIdx >= 0 && endIdx >= startIdx) {
         const block = lines.slice(startIdx, endIdx + 1).join('\n');
-        try { return JSON.parse(block); } catch { /* fall through */ }
-        try { return JSON.parse(fixTrailingCommas(block)); } catch { /* fall through */ }
+        try { const r = JSON.parse(block); r._recoveryUsed = 7; return r; } catch { /* fall through */ }
+        try { const r = JSON.parse(fixTrailingCommas(block)); r._recoveryUsed = 7; return r; } catch { /* fall through */ }
       }
     } catch { /* fall through */ }
     
@@ -1067,11 +1025,13 @@ const SmartBrains = {
           try {
             const result = JSON.parse(recovered);
             console.warn(`[SmartBrains] JSON recovered via truncation repair (closed ${openBraces} braces, ${openBrackets} brackets)`);
+            result._recoveryUsed = 8;
             return result;
           } catch { /* fall through */ }
           try {
             const result = JSON.parse(fixTrailingCommas(recovered));
             console.warn(`[SmartBrains] JSON recovered via truncation repair + comma fix`);
+            result._recoveryUsed = 8;
             return result;
           } catch { /* fall through */ }
         }
@@ -1123,6 +1083,12 @@ const SmartBrains = {
     if (brainKey === 'REPORT_WRITER') return { valid: true };
     if (!parsed || parsed._parseFailed || parsed._failed) {
       return { valid: false, reason: 'JSON parse failed or empty response' };
+    }
+
+    // Cost-critical brains must not rely on aggressive JSON recovery
+    const COST_CRITICAL = ['MATERIAL_PRICER', 'FINANCIAL_ENGINE', 'LABOR_CALCULATOR'];
+    if (COST_CRITICAL.includes(brainKey) && parsed._recoveryUsed && parsed._recoveryUsed > 2) {
+      return { valid: false, reason: `Cost-critical brain required JSON recovery strategy ${parsed._recoveryUsed} — forcing retry for cleaner output` };
     }
 
     const schema = this._SCHEMAS[brainKey];
@@ -3552,6 +3518,29 @@ Return ONLY valid JSON:
 
 
   // ═══════════════════════════════════════════════════════════
+  // BRAIN OUTPUT SANITIZATION — Defense-in-depth against prompt injection chains
+  // ═══════════════════════════════════════════════════════════
+
+  _sanitizeBrainOutput(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    for (const key of Object.keys(obj)) {
+      if (typeof obj[key] === 'string') {
+        // Truncate excessively long strings
+        if (obj[key].length > 5000) obj[key] = obj[key].substring(0, 5000);
+        // Strip instruction-like patterns (defense-in-depth)
+        obj[key] = obj[key].replace(/(?:ignore|disregard)\s+(?:all\s+)?(?:previous|above|prior)\s+(?:instructions?|prompts?|rules?)/gi, '[removed]');
+        obj[key] = obj[key].replace(/you\s+are\s+now\s+/gi, '[removed] ');
+        obj[key] = obj[key].replace(/^system:\s*/gmi, '');
+        obj[key] = obj[key].replace(/^IMPORTANT:\s*/gmi, '');
+      } else if (Array.isArray(obj[key])) {
+        obj[key].forEach(item => this._sanitizeBrainOutput(item));
+      } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+        this._sanitizeBrainOutput(obj[key]);
+      }
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════
   // SINGLE BRAIN EXECUTION — Extracted for batched orchestration
   // ═══════════════════════════════════════════════════════════
 
@@ -3568,7 +3557,7 @@ Return ONLY valid JSON:
       
       // Guard: if prompt is empty, skip brain cleanly (e.g., TARGETED_RESCANNER with no disputes)
       if (!prompt || prompt.trim().length === 0) {
-        console.log(`[Brain:${brain.name}] Prompt is empty — skipping (no work required)`);
+        this._log(`[Brain:${brain.name}] Prompt is empty — skipping (no work required)`);
         this._brainStatus[key] = { status: 'done', progress: 100, result: { _skipped: true, reason: 'No input data' }, error: null };
         results[key] = { _skipped: true, reason: 'No input data' };
         const completed = incrementCompleted();
@@ -3621,7 +3610,7 @@ Return ONLY valid JSON:
                 const retryValidation = this._validateBrainOutput(key, retryParsed);
                 if (retryValidation.valid) {
                   parsed = retryParsed;
-                  console.log(`[Brain:${brain.name}] ✓ Retry ${retryNum} succeeded — validation passed`);
+                  this._log(`[Brain:${brain.name}] ✓ Retry ${retryNum} succeeded — validation passed`);
                   retrySucceeded = true;
                   break;
                 } else {
@@ -3640,8 +3629,17 @@ Return ONLY valid JSON:
         }
       }
 
+      // Strip any instruction-like content from brain outputs before downstream use
+      if (parsed && typeof parsed === 'object' && !parsed._failed) {
+        const sanitized = JSON.parse(JSON.stringify(parsed));
+        // Remove any string values that look like prompt injections
+        // (This is defense-in-depth — the main protection is input sanitization)
+        this._sanitizeBrainOutput(sanitized);
+        results[key] = sanitized;
+      }
+
       this._brainStatus[key] = { status: 'done', progress: 100, result: parsed, error: null };
-      results[key] = parsed;
+      if (!results[key]) results[key] = parsed; // fallback if sanitization guard didn't apply
       const completed = incrementCompleted();
 
       const pct = baseProgress + (completed / totalBrains) * (endProgress - baseProgress);
@@ -3691,7 +3689,7 @@ Return ONLY valid JSON:
       // Large wave — stagger in batches of 2 to avoid rate limits
       for (let i = 0; i < brainKeys.length; i += BATCH_SIZE) {
         const batch = brainKeys.slice(i, i + BATCH_SIZE);
-        console.log(`[SmartBrains] Wave ${waveNum}: Starting batch ${Math.floor(i/BATCH_SIZE) + 1} — ${batch.map(k => this.BRAINS[k].name).join(', ')}`);
+        this._log(`[SmartBrains] Wave ${waveNum}: Starting batch ${Math.floor(i/BATCH_SIZE) + 1} — ${batch.map(k => this.BRAINS[k].name).join(', ')}`);
 
         const batchPromises = batch.map(async (key) => {
           await this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, brainKeys.length, results, () => ++completed, progressCallback);
@@ -3700,7 +3698,7 @@ Return ONLY valid JSON:
 
         // Stagger delay between batches (not after the last batch)
         if (i + BATCH_SIZE < brainKeys.length) {
-          console.log(`[SmartBrains] Wave ${waveNum}: Stagger delay ${STAGGER_DELAY_MS}ms before next batch…`);
+          this._log(`[SmartBrains] Wave ${waveNum}: Stagger delay ${STAGGER_DELAY_MS}ms before next batch…`);
           await new Promise(r => setTimeout(r, STAGGER_DELAY_MS));
         }
       }
@@ -3727,9 +3725,44 @@ Return ONLY valid JSON:
   // ═══════════════════════════════════════════════════════════
 
   async runFullAnalysis(state, progressCallback) {
-    console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
-    console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
-    console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
+    // Rate limiting: prevent concurrent analyses and enforce cooldown
+    if (this._analysisRunning) {
+      throw new Error('Analysis already in progress. Please wait for the current analysis to complete.');
+    }
+    if (this._lastAnalysisTime && (Date.now() - this._lastAnalysisTime) < 30000) {
+      throw new Error('Please wait at least 30 seconds between analyses.');
+    }
+    this._analysisRunning = true;
+
+    try {
+    // Validate required state fields
+    if (!state || typeof state !== 'object') throw new Error('Invalid state object');
+    if (typeof state.projectName !== 'string' || !state.projectName.trim()) throw new Error('Project name is required');
+    if (!state.markup || typeof state.markup !== 'object') {
+      state.markup = { material: 50, labor: 50, equipment: 15, subcontractor: 10 };
+    }
+    // Ensure markup values are numbers
+    for (const k of ['material', 'labor', 'equipment', 'subcontractor']) {
+      if (typeof state.markup[k] !== 'number' || isNaN(state.markup[k])) {
+        state.markup[k] = k === 'material' || k === 'labor' ? 50 : k === 'equipment' ? 15 : 10;
+      }
+    }
+    if (state.laborRates && typeof state.laborRates === 'object') {
+      for (const [k, v] of Object.entries(state.laborRates)) {
+        if (typeof v !== 'number' || isNaN(v) || v < 0) state.laborRates[k] = 0;
+      }
+    }
+
+    // Validate PRICING_DB structure if available
+    if (typeof PRICING_DB !== 'undefined') {
+      const required = ['structuredCabling', 'cctv', 'accessControl'];
+      const missing = required.filter(k => !PRICING_DB[k]);
+      if (missing.length > 0) console.warn('[SmartBrains] PRICING_DB missing categories:', missing.join(', '));
+    }
+
+    this._log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
+    this._log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
+    this._log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
 
     // Reset brain status
     this._brainStatus = {};
@@ -3741,7 +3774,7 @@ Return ONLY valid JSON:
     progressCallback(2, '📁 Encoding documents…', this._brainStatus);
     const encodedFiles = await this._encodeAllFiles(state, progressCallback);
     const totalFiles = Object.values(encodedFiles).reduce((s, arr) => s + arr.length, 0);
-    console.log(`[SmartBrains] Encoded ${totalFiles} files`);
+    this._log(`[SmartBrains] Encoded ${totalFiles} files`);
 
     // ═══ CONTEXT CACHING — Upload files once, all brains reference the cache ═══
     // Saves ~90% on API costs by avoiding re-processing files for each brain
@@ -3772,7 +3805,7 @@ Return ONLY valid JSON:
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
           _contextCache = { name: cacheData.cacheName, model: 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
-          console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
+          this._log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
           console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error || cacheData._debug);
         }
@@ -3818,7 +3851,7 @@ Return ONLY valid JSON:
     let wave0Results = {};
     try {
       wave0Results = await this._runWave(0, ['LEGEND_DECODER', 'SPATIAL_LAYOUT'], encodedFiles, state, context, progressCallback);
-      console.log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded + Spatial layout mapped ═══');
+      this._log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded + Spatial layout mapped ═══');
     } catch (wave0Err) {
       console.warn('[SmartBrains] ⚠️ Wave 0 failed — continuing without legend/spatial context:', wave0Err.message);
       this._brainStatus['LEGEND_DECODER'] = { status: 'failed', progress: 0, result: null, error: wave0Err.message };
@@ -3832,14 +3865,14 @@ Return ONLY valid JSON:
     const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER'];
     const wave1Results = await this._runWave(1, wave1Keys, encodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
-    console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
+    this._log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
 
     // ═══ WAVE 1.5: Second Read — Independent Verification (5 parallel brains, Pro model) ═══
     progressCallback(35, '👁️ Wave 1.5: Second Read — 5 independent verifiers…', this._brainStatus);
     const wave15Keys = ['SHADOW_SCANNER', 'DISCIPLINE_DEEP_DIVE', 'QUADRANT_SCANNER', 'ZOOM_SCANNER', 'PER_FLOOR_ANALYZER'];
     const wave15Results = await this._runWave(1.5, wave15Keys, encodedFiles, state, context, progressCallback);
     context.wave1_5 = wave15Results;
-    console.log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (5 brains) ═══');
+    this._log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (5 brains) ═══');
 
     // ═══ WAVE 1.75: Consensus Resolution ═══
     progressCallback(50, '⚖️ Wave 1.75: Building consensus from 3 reads…', this._brainStatus);
@@ -3889,10 +3922,10 @@ Return ONLY valid JSON:
       const skipReason = allDisputes.length === 0 ? 'No disputes' : `${allDisputes.length} minor dispute(s) below threshold — consensus values sufficient`;
       this._brainStatus['TARGETED_RESCANNER'] = { status: 'done', progress: 100, result: { _skipped: true, reason: skipReason }, error: null };
       if (allDisputes.length > 0) {
-        console.log(`[SmartBrains] ℹ️ ${allDisputes.length} dispute(s) found but all below re-scan threshold (variance ≤15% or qty <3). Using consensus values.`);
+        this._log(`[SmartBrains] ℹ️ ${allDisputes.length} dispute(s) found but all below re-scan threshold (variance ≤15% or qty <3). Using consensus values.`);
       }
     }
-    console.log(`[SmartBrains] ═══ Wave 1.75 Complete — ${allDisputes.length} dispute(s) total, ${disputes.length} required re-scan ═══`);
+    this._log(`[SmartBrains] ═══ Wave 1.75 Complete — ${allDisputes.length} dispute(s) total, ${disputes.length} required re-scan ═══`);
 
     // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
     progressCallback(56, '💰 Wave 2: Material Pricer — computing material costs…', this._brainStatus);
@@ -3922,31 +3955,31 @@ Return ONLY valid JSON:
       console.warn('[SmartBrains] Report Writer will be instructed to add missing scope');
       context._missingDisciplines = missingDisciplines;
     }
-    console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
+    this._log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
 
     // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
     progressCallback(62, '👷 Wave 2.25: Labor Calculator — computing labor hours…', this._brainStatus);
     const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], encodedFiles, state, context, progressCallback);
     context.wave2_25 = wave225Results;
-    console.log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
+    this._log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
 
     // ═══ WAVE 2.5: Financial Engine (runs AFTER both to sum their outputs) ═══
     progressCallback(68, '📊 Wave 2.5: Financial Engine — building SOV…', this._brainStatus);
     const wave25FinResults = await this._runWave(2.5, ['FINANCIAL_ENGINE'], encodedFiles, state, context, progressCallback);
     context.wave2_5_fin = wave25FinResults;
-    console.log('[SmartBrains] ═══ Wave 2.5 Complete — Financials computed ═══');
+    this._log('[SmartBrains] ═══ Wave 2.5 Complete — Financials computed ═══');
 
     // ═══ WAVE 2.75: Reverse Verification (1 brain, Pro model) ═══
     progressCallback(72, '🔄 Wave 2.75: Reverse-verifying BOQ against plans…', this._brainStatus);
     const wave275Results = await this._runWave(2.75, ['REVERSE_VERIFIER'], encodedFiles, state, context, progressCallback);
     context.wave2_75 = wave275Results;
-    console.log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
+    this._log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
 
     // ═══ WAVE 3: Adversarial Audit (2 parallel brains, Pro model) ═══
     progressCallback(78, '😈 Wave 3: Adversarial Audit — cross-validator + devil\'s advocate…', this._brainStatus);
     const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], encodedFiles, state, context, progressCallback);
     context.wave3 = wave3Results;
-    console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
+    this._log('[SmartBrains] ═══ Wave 3 Complete ═══');
 
     // ═══ WAVE 3.5: Deep Accuracy Pass (3 parallel brains, Pro) ═══
     try {
@@ -3954,7 +3987,7 @@ Return ONLY valid JSON:
       const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER', 'OVERLAP_DETECTOR'];
       const wave35Results = await this._runWave(3.5, wave35Keys, encodedFiles, state, context, progressCallback);
       context.wave3_5 = wave35Results;
-      console.log('[SmartBrains] ═══ Wave 3.5 Complete — Deep Accuracy done (3 brains) ═══');
+      this._log('[SmartBrains] ═══ Wave 3.5 Complete — Deep Accuracy done (3 brains) ═══');
     } catch (e) {
       console.warn('[SmartBrains] Wave 3.5 failed (non-fatal, continuing):', e.message);
       context.wave3_5 = {};
@@ -3965,7 +3998,7 @@ Return ONLY valid JSON:
       progressCallback(86, '🏁 Wave 3.75: 6th Read — Final Reconciliation sweep…', this._brainStatus);
       const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], encodedFiles, state, context, progressCallback);
       context.wave3_75 = wave375Results;
-      console.log('[SmartBrains] ═══ Wave 3.75 Complete — 6th Read done ═══');
+      this._log('[SmartBrains] ═══ Wave 3.75 Complete — 6th Read done ═══');
     } catch (e) {
       console.warn('[SmartBrains] Wave 3.75 failed (non-fatal, continuing):', e.message);
       context.wave3_75 = {};
@@ -3981,12 +4014,12 @@ Return ONLY valid JSON:
       const corrector = wave385Results.ESTIMATE_CORRECTOR;
       if (corrector && !corrector._failed && !corrector._parseFailed && corrector.corrected_categories) {
         const log = corrector.correction_log || [];
-        console.log(`[SmartBrains] ═══ Wave 3.85 Complete — ${log.length} correction(s) applied ═══`);
+        this._log(`[SmartBrains] ═══ Wave 3.85 Complete — ${log.length} correction(s) applied ═══`);
         for (const entry of log) {
-          console.log(`[SmartBrains]   🔧 ${entry.action}: ${entry.item} — ${entry.reason} (${entry.cost_impact >= 0 ? '+' : ''}$${entry.cost_impact?.toLocaleString()})`);
+          this._log(`[SmartBrains]   🔧 ${entry.action}: ${entry.item} — ${entry.reason} (${entry.cost_impact >= 0 ? '+' : ''}$${entry.cost_impact?.toLocaleString()})`);
         }
         if (corrector.total_adjustment) {
-          console.log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
+          this._log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
         }
         // Inject corrected data so Report Writer uses it
         context._correctedPricer = corrector;
@@ -4001,20 +4034,20 @@ Return ONLY valid JSON:
     // ═══ WAVE 4: Report Synthesis (1 brain) ═══
     progressCallback(92, '📝 Wave 4: Writing final report…', this._brainStatus);
     const wave4Results = await this._runWave(4, ['REPORT_WRITER'], encodedFiles, state, context, progressCallback);
-    console.log('[SmartBrains] ═══ Wave 4 Complete ═══');
+    this._log('[SmartBrains] ═══ Wave 4 Complete ═══');
 
     // Log session cost summary
     if (this._sessionCost) {
       const sc = this._sessionCost;
-      console.log(`[SmartBrains] ═══ API COST SUMMARY ═══`);
-      console.log(`[SmartBrains]   Brain calls: ${sc.brainCalls}`);
-      console.log(`[SmartBrains]   Tokens: ${sc.totalCached.toLocaleString()} cached + ${sc.totalFresh.toLocaleString()} fresh + ${sc.totalOutput.toLocaleString()} output`);
-      console.log(`[SmartBrains]   Total cost: $${sc.totalCost.toFixed(4)}`);
-      console.log(`[SmartBrains]   Cache savings: $${sc.totalSavings.toFixed(4)}`);
-      console.log(`[SmartBrains]   Effective rate: $${(sc.totalCost / Math.max(sc.brainCalls, 1)).toFixed(4)} per brain`);
+      this._log(`[SmartBrains] ═══ API COST SUMMARY ═══`);
+      this._log(`[SmartBrains]   Brain calls: ${sc.brainCalls}`);
+      this._log(`[SmartBrains]   Tokens: ${sc.totalCached.toLocaleString()} cached + ${sc.totalFresh.toLocaleString()} fresh + ${sc.totalOutput.toLocaleString()} output`);
+      this._log(`[SmartBrains]   Total cost: $${sc.totalCost.toFixed(4)}`);
+      this._log(`[SmartBrains]   Cache savings: $${sc.totalSavings.toFixed(4)}`);
+      this._log(`[SmartBrains]   Effective rate: $${(sc.totalCost / Math.max(sc.brainCalls, 1)).toFixed(4)} per brain`);
       if (sc.totalCached > 0) {
         const pctCached = ((sc.totalCached / (sc.totalCached + sc.totalFresh)) * 100).toFixed(1);
-        console.log(`[SmartBrains]   Cache hit rate: ${pctCached}%`);
+        this._log(`[SmartBrains]   Cache hit rate: ${pctCached}%`);
       }
     }
 
@@ -4107,11 +4140,17 @@ Return ONLY valid JSON:
         reverseVerificationScore: reverseV?.verification_score || null,
       },
     };
+    } finally {
+      this._analysisRunning = false;
+      this._lastAnalysisTime = Date.now();
+    }
   },
 };
 
 
 // Make available globally
+// Prevent external mutation of the engine API
+Object.freeze(SmartBrains.config);
 if (typeof window !== 'undefined') {
   window.SmartBrains = SmartBrains;
 }

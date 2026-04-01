@@ -1013,23 +1013,29 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
         let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
 
         // Apply supplier price overrides BEFORE computation (same as export-engine & Master Report)
+        // Uses same logic as applyBOMOverrides() in app.js
         const overrides = state.supplierPriceOverrides || {};
         if (bom && Object.keys(overrides).length > 0) {
           for (const [key, override] of Object.entries(overrides)) {
             const [catIdx, itemIdx] = key.split('-').map(Number);
-            if (bom.categories?.[catIdx]?.items?.[itemIdx]) {
-              const item = bom.categories[catIdx].items[itemIdx];
-              if (override.qty != null) item.qty = override.qty;
+            if (isNaN(catIdx) || isNaN(itemIdx) || catIdx < 0 || itemIdx < 0) continue;
+            if (!bom.categories?.[catIdx]?.items?.[itemIdx]) continue;
+            const item = bom.categories[catIdx].items[itemIdx];
+            if (override.qty != null) item.qty = override.qty;
+            if (typeof override.unitCost === 'number' && override.unitCost > 0 && isFinite(override.unitCost)) {
               item.unitCost = override.unitCost;
-              item.extCost = Math.round((item.qty * override.unitCost) * 100) / 100;
-              if (override.mfg) item.mfg = override.mfg;
-              if (override.partNumber) item.partNumber = override.partNumber;
             }
+            item.extCost = Math.round((item.qty * item.unitCost) * 100) / 100;
+            if (override.mfg) item.mfg = override.mfg;
+            if (override.partNumber) item.partNumber = override.partNumber;
           }
+          bom.grandTotal = 0;
           for (const cat of (bom.categories || [])) {
             cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
+            cat.subtotal = Math.round(cat.subtotal * 100) / 100;
+            bom.grandTotal += cat.subtotal;
           }
-          bom.grandTotal = bom.categories.reduce((s, c) => s + (c.subtotal || 0), 0);
+          bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
         }
 
         if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
