@@ -1118,6 +1118,20 @@ const SmartBrains = {
       return { valid: false, reason: `Missing required fields: ${missing.join(', ')}` };
     }
 
+    // ── Labor Calculator: ensure PM and non-installation phases have hours ──
+    if (brainKey === 'LABOR_CALCULATOR' && Array.isArray(parsed.phases)) {
+      const requiredPhases = ['project management', 'engineering', 'coordination', 'superintendent', 'safety'];
+      const phaseNames = parsed.phases.map(p => (p.name || '').toLowerCase());
+      const missingPhases = requiredPhases.filter(rp => !phaseNames.some(pn => pn.includes(rp)));
+      if (missingPhases.length >= 3) {
+        return { valid: false, reason: `Missing non-installation phases: ${missingPhases.join(', ')}. These are mandatory labor costs.` };
+      }
+      const pmPhase = parsed.phases.find(p => /project management/i.test(p.name));
+      if (pmPhase && (pmPhase.phase_hours || 0) === 0) {
+        return { valid: false, reason: 'Project Management phase has 0 hours — PM is mandatory on every project.' };
+      }
+    }
+
     // ── Confidence-based check for Symbol Scanner ──
     // If average confidence across all symbols is below 70%, flag for retry
     if (brainKey === 'SYMBOL_SCANNER' && Array.isArray(parsed.sheets)) {
@@ -1920,75 +1934,108 @@ Calculate labor by PROJECT PHASE:
 5. Commissioning & Owner Training (3-5%) — AHJ walkthroughs, camera aiming sessions with owner, access control enrollment, system integration testing with existing infrastructure, owner staff training (2-4 sessions)
 6. As-Built Drawings & Closeout (2-3%) — red-line markups, CAD/Revit as-builts, O&M manual compilation, warranty documentation, closeout binder assembly. Typically 40-80 hours for a large project.
 
-NON-INSTALLATION LABOR (you MUST include these as separate phases — they are NOT optional):
+NON-INSTALLATION LABOR — you MUST include ALL of these as separate phases with NON-ZERO hours.
+These are REAL costs on every project. Omitting them is the #1 reason bids lose money.
+
 7. Engineering & Submittals (3-5% of total labor cost):
-   - Submittal preparation: product data, shop drawings, cut sheets
-   - Engineer review coordination and resubmittals
-   - Riser diagram and pathway design
-   - Typically 60-200 hours on a large project ($50K-$200K+)
-   - Use PM rate ($65-$85/hr) for this work
+   - Submittal preparation: product data, shop drawings, cut sheets (40-80 hrs)
+   - Engineer review coordination and resubmittals (20-40 hrs)
+   - Riser diagram and pathway design (20-40 hrs)
+   - Use PM rate for this work
+   - MINIMUM 60 hours for any project over $500K
 
-8. Project Management (dedicated PM for duration):
-   - 1 PM at $65-$85/hr × 40 hrs/wk × project duration in weeks
-   - Includes: scheduling, procurement, RFIs, change orders, meetings, daily reports
-   - For an 8-12 week project: $20,800-$40,800
-   - This is NOT included in field labor — it is additional
+8. Project Management (MANDATORY — dedicated PM for full project duration):
+   - 1 PM at PM rate × 40 hrs/wk × project duration in weeks
+   - Scheduling, procurement, RFIs, change orders, weekly OAC meetings, daily reports
+   - For an 8-week project: 320 hrs. For 12 weeks: 480 hrs. For 16 weeks: 640 hrs.
+   - PM hours are NEVER zero — every project has a PM from mobilization to closeout
+   - This is NOT included in field labor — it is ADDITIONAL overhead
 
-9. Coordination & Idle Time (10-15% of total field labor hours):
-   - Waiting for other trades (electrician, drywall, ceiling grid)
-   - GC schedule delays and re-sequencing
-   - Elevator/lift access wait times
-   - Material delivery delays
-   - Safety stand-downs and orientation time
-   - This is REAL cost — crews get paid whether working or waiting
+9. Site Superintendent / Foreman (on-site supervision for duration):
+   - 1 Foreman at foreman rate × 40-50 hrs/wk × field duration
+   - Crew coordination, quality control, daily safety briefings, GC interface
+   - For an 8-week field project: 320-400 hrs at foreman rate
+   - Required on ALL projects with 3+ field techs
 
-Return ONLY valid JSON:
+10. Safety & Compliance (especially transit/railroad/prevailing wage):
+    - Safety orientation for each worker (4-8 hrs per person)
+    - Weekly toolbox talks (0.5 hr × crew size × weeks)
+    - Site-specific safety plans, JSA/JHA preparation
+    - Transit/railroad: RWIC coordination, safety briefings, track safety training
+    - Typical: 40-120 hours depending on project size and requirements
+
+11. Warehouse, Material Handling & Logistics:
+    - Receiving, inventory, staging, kitting for field crews
+    - Delivery coordination, material returns
+    - Tool management and calibration
+    - Typical: 40-80 hours for a $500K+ project
+    - Use apprentice rate
+
+12. CAD / As-Built Documentation:
+    - Shop drawing preparation (if not covered in Engineering phase)
+    - As-built red-line markup and CAD/Revit updates
+    - O&M manual compilation, warranty documentation
+    - Typical: 40-100 hours. Use PM or programmer rate
+
+13. Coordination & Idle Time (10-15% of total field labor hours):
+    - Waiting for other trades (electrician, drywall, ceiling grid)
+    - GC schedule delays and re-sequencing
+    - Elevator/lift access wait times, material delivery delays
+    - Safety stand-downs, orientation time
+    - This is REAL cost — crews get paid whether working or waiting
+    - MINIMUM 10% of total field hours
+
+Return ONLY valid JSON. EVERY phase MUST have non-zero hours and cost:
 {
   "phases": [
-    {
-      "name": "Rough-In",
-      "pct_of_total": 37,
-      "tasks": [
-        { "description": "Install cable tray — 500 LF", "classification": "journeyman", "hours": 100, "rate": 65.00, "cost": 6500.00 }
-      ],
-      "phase_hours": 500,
-      "phase_cost": 32500.00
-    },
-    {
-      "name": "Engineering & Submittals",
-      "pct_of_total": 4,
-      "tasks": [
-        { "description": "Submittal preparation and coordination", "classification": "pm", "hours": 80, "rate": 75.00, "cost": 6000.00 }
-      ],
-      "phase_hours": 80,
-      "phase_cost": 6000.00
-    },
-    {
-      "name": "Project Management",
-      "pct_of_total": 0,
-      "tasks": [
-        { "description": "Dedicated PM for project duration", "classification": "pm", "hours": 0, "rate": 75.00, "cost": 0 }
-      ],
-      "phase_hours": 0,
-      "phase_cost": 0
-    },
-    {
-      "name": "Coordination & Idle Time",
-      "pct_of_total": 12,
-      "tasks": [
-        { "description": "Trade coordination, GC delays, access waits", "classification": "journeyman", "hours": 0, "rate": 65.00, "cost": 0 }
-      ],
-      "phase_hours": 0,
-      "phase_cost": 0
-    }
+    {"name":"Rough-In","pct_of_total":35,"tasks":[
+      {"description":"Install EMT conduit — 2000 LF","classification":"journeyman","hours":240,"rate":65.00,"cost":15600},
+      {"description":"Pull cable — 45000 ft","classification":"journeyman","hours":180,"rate":65.00,"cost":11700},
+      {"description":"Install cable tray — 500 LF","classification":"journeyman","hours":100,"rate":65.00,"cost":6500}
+    ],"phase_hours":520,"phase_cost":33800},
+    {"name":"Trim & Termination","pct_of_total":22,"tasks":[
+      {"description":"Mount & wire 56 cameras","classification":"journeyman","hours":168,"rate":65.00,"cost":10920},
+      {"description":"Terminate 150 data drops","classification":"journeyman","hours":75,"rate":65.00,"cost":4875}
+    ],"phase_hours":243,"phase_cost":15795},
+    {"name":"Programming & Configuration","pct_of_total":10,"tasks":[
+      {"description":"VMS programming, camera config","classification":"programmer","hours":80,"rate":55.00,"cost":4400}
+    ],"phase_hours":80,"phase_cost":4400},
+    {"name":"Testing & Commissioning","pct_of_total":9,"tasks":[
+      {"description":"Cable certification, device verification","classification":"lead","hours":100,"rate":72.00,"cost":7200}
+    ],"phase_hours":100,"phase_cost":7200},
+    {"name":"Owner Training & Closeout","pct_of_total":3,"tasks":[
+      {"description":"Owner training sessions, closeout docs","classification":"pm","hours":40,"rate":75.00,"cost":3000}
+    ],"phase_hours":40,"phase_cost":3000},
+    {"name":"Engineering & Submittals","pct_of_total":4,"tasks":[
+      {"description":"Submittal prep, shop drawings, resubmittals","classification":"pm","hours":80,"rate":75.00,"cost":6000},
+      {"description":"Riser diagram and pathway design","classification":"pm","hours":24,"rate":75.00,"cost":1800}
+    ],"phase_hours":104,"phase_cost":7800},
+    {"name":"Project Management","pct_of_total":8,"tasks":[
+      {"description":"Dedicated PM — 10 weeks × 40 hrs","classification":"pm","hours":400,"rate":75.00,"cost":30000}
+    ],"phase_hours":400,"phase_cost":30000},
+    {"name":"Site Superintendent","pct_of_total":5,"tasks":[
+      {"description":"Foreman on-site supervision — 8 weeks × 45 hrs","classification":"foreman","hours":360,"rate":52.00,"cost":18720}
+    ],"phase_hours":360,"phase_cost":18720},
+    {"name":"Safety & Compliance","pct_of_total":2,"tasks":[
+      {"description":"Safety orientation, toolbox talks, JSAs","classification":"foreman","hours":60,"rate":52.00,"cost":3120}
+    ],"phase_hours":60,"phase_cost":3120},
+    {"name":"Warehouse & Material Handling","pct_of_total":2,"tasks":[
+      {"description":"Receiving, staging, kitting, tool mgmt","classification":"apprentice","hours":60,"rate":22.00,"cost":1320}
+    ],"phase_hours":60,"phase_cost":1320},
+    {"name":"CAD / As-Built Documentation","pct_of_total":2,"tasks":[
+      {"description":"As-built markups, CAD updates, O&M manuals","classification":"pm","hours":60,"rate":75.00,"cost":4500}
+    ],"phase_hours":60,"phase_cost":4500},
+    {"name":"Coordination & Idle Time","pct_of_total":10,"tasks":[
+      {"description":"Trade coordination, GC delays, access waits","classification":"journeyman","hours":150,"rate":65.00,"cost":9750}
+    ],"phase_hours":150,"phase_cost":9750}
   ],
-  "total_field_hours": 0,
-  "total_non_field_hours": 0,
-  "total_hours": 1200,
-  "total_base_cost": 78000.00,
+  "total_field_hours": 983,
+  "total_non_field_hours": 1094,
+  "total_hours": 2077,
+  "total_base_cost": 139405,
   "markup_pct": ${context.markup?.labor || 50},
-  "total_with_markup": 101400.00,
-  "crew_recommendation": { "journeyman": 3, "apprentice": 2, "foreman": 1, "pm": 1, "duration_weeks": 8 }
+  "total_with_markup": 209108,
+  "crew_recommendation": {"journeyman":3,"apprentice":2,"foreman":1,"pm":1,"superintendent":1,"duration_weeks":10}
 }`;
       },
 
