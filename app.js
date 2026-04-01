@@ -771,7 +771,11 @@ function generateMasterReport() {
   const riserDiagram = state.brainResults?.wave1?.RISER_DIAGRAM_ANALYZER;
 
   const confidence = financialEngine?.confidence_score || financialEngine?.confidence || 85;
-  const grandTotal = bomWithTravel.grandTotal || 0;
+  // Use Financial Engine grand total (includes G&A, profit, warranty, contingency) as the BID PRICE.
+  // Fall back to BOM material total only if Financial Engine didn't produce a project_summary.
+  const financialGrandTotal = financialEngine?.project_summary?.grand_total || 0;
+  const grandTotal = financialGrandTotal > 0 ? financialGrandTotal : (bomWithTravel.grandTotal || 0);
+  const materialTotal = bomWithTravel.grandTotal || 0;
   const bidNumber = state.estimateId || ('SP-' + now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0'));
 
   // Build section numbering dynamically
@@ -875,9 +879,11 @@ function generateMasterReport() {
   html += `<h2>${secExec}. Executive Summary & Financial Overview</h2>`;
   html += `<div class="stat-grid">
     <div class="stat-box"><div class="stat-value">${fmt(grandTotal)}</div><div class="stat-label">Total Bid Price</div></div>
+    <div class="stat-box"><div class="stat-value">${fmt(materialTotal)}</div><div class="stat-label">Material Cost</div></div>
+    ${laborCalc ? `<div class="stat-box"><div class="stat-value">${fmt(laborCalc.total_with_markup || laborCalc.total_base_cost || 0)}</div><div class="stat-label">Labor Cost</div></div>` : ''}
+    ${laborCalc ? `<div class="stat-box"><div class="stat-value">${(laborCalc.total_hours || 0).toLocaleString()}</div><div class="stat-label">Total Labor Hours</div></div>` : ''}
     <div class="stat-box"><div class="stat-value">${confidence}%</div><div class="stat-label">Confidence Score</div></div>
     <div class="stat-box"><div class="stat-value">${bomWithTravel.categories.length}</div><div class="stat-label">BOM Categories</div></div>
-    ${laborCalc ? `<div class="stat-box"><div class="stat-value">${(laborCalc.total_hours || 0).toLocaleString()}</div><div class="stat-label">Total Labor Hours</div></div>` : ''}
   </div>`;
 
   // Executive narrative
