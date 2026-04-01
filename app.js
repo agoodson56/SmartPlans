@@ -4161,11 +4161,17 @@ function renderStep7(container) {
     <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;"></div>
     <div class="info-card" style="margin-bottom:22px;border:1px solid rgba(20,184,166,0.15);background:rgba(20,184,166,0.02);">
       <div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="bom-table-toggle">
-        <div class="info-card-title" style="margin-bottom:0;">📋 Bill of Materials</div>
-        <span id="bom-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">▶</span>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="info-card-title" style="margin-bottom:0;">📋 Bill of Materials</div>
+          <span style="font-size:10px;font-weight:700;color:#0D9488;background:rgba(13,148,136,0.1);padding:3px 8px;border-radius:4px;letter-spacing:0.5px;">CLICK QTY OR PRICE TO EDIT</span>
+        </div>
+        <span id="bom-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">▼</span>
       </div>
-      <div id="bom-table-collapsible" style="display:none;margin-top:12px;">
+      <div id="bom-table-collapsible" style="display:block;margin-top:12px;">
         ${_summaryBar}
+        <div style="padding:8px 12px;margin-bottom:8px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:8px;font-size:11px;color:var(--text-muted);line-height:1.5;">
+          <strong style="color:var(--text-primary);">How to edit:</strong> Click any <span style="color:#0D9488;font-weight:600;">Qty</span> or <span style="color:#0D9488;font-weight:600;">Unit Cost</span> field to type a new value — the extended cost, subtotals, and grand total update instantly. Use <span style="color:#ef4444;font-weight:600;">✕</span> to remove items, or <span style="color:#0D9488;font-weight:600;">+ Add Item</span> below each category to add new ones. All changes carry through to the proposal and exports.
+        </div>
         <div style="overflow-x:auto;border-radius:8px;border:1px solid rgba(20,184,166,0.12);">
           <table style="width:100%;border-collapse:collapse;font-size:12px;" id="bom-editable-table">
             <thead>
@@ -4712,13 +4718,9 @@ function renderStep7(container) {
     bomToggle.addEventListener('click', () => {
       const body = document.getElementById('bom-table-collapsible');
       const icon = document.getElementById('bom-toggle-icon');
-      if (body.style.display === 'none') {
-        body.style.display = 'block';
-        icon.textContent = '▼';
-      } else {
-        body.style.display = 'none';
-        icon.textContent = '▶';
-      }
+      const isOpen = body.style.display !== 'none';
+      body.style.display = isOpen ? 'none' : 'block';
+      icon.textContent = isOpen ? '▶' : '▼';
     });
   }
 
