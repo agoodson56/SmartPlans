@@ -1001,25 +1001,93 @@ function generateMasterReport() {
   html += `<div class="page-break"></div>`;
   const secExcl = nextSec();
   html += `<h2>${secExcl}. Exclusions, Assumptions & Clarifications</h2>`;
+
+  // Merge user-entered items with AI-identified ones
+  const userExclusions = state.exclusions || [];
+  const aiExclusions = [];
+  const aiAssumptions = [];
+
+  // Pull exclusions from Financial Engine
+  if (financialEngine?.exclusions && Array.isArray(financialEngine.exclusions)) {
+    financialEngine.exclusions.forEach(ex => {
+      const txt = typeof ex === 'string' ? ex : (ex.description || ex.text || ex.item || '');
+      if (txt && !userExclusions.some(u => u.text === txt)) aiExclusions.push(txt);
+    });
+  }
+  // Pull exclusions from Annotation Reader (BY OTHERS / NIC / OFCI)
+  if (annotationReader?.exclusions && Array.isArray(annotationReader.exclusions)) {
+    annotationReader.exclusions.forEach(ex => {
+      const txt = typeof ex === 'string' ? ex : `${ex.item || ''} — ${ex.note || 'BY OTHERS'}${ex.sheet_id ? ' (Sheet ' + ex.sheet_id + ')' : ''}`;
+      if (txt && !userExclusions.some(u => u.text === txt) && !aiExclusions.includes(txt)) aiExclusions.push(txt);
+    });
+  }
+  // Pull assumptions from Financial Engine
+  if (financialEngine?.assumptions && Array.isArray(financialEngine.assumptions)) {
+    financialEngine.assumptions.forEach(a => {
+      const txt = typeof a === 'string' ? a : (a.description || a.text || '');
+      if (txt) aiAssumptions.push(txt);
+    });
+  }
+
+  // Render user-entered items
   ['exclusion', 'assumption', 'clarification'].forEach(type => {
-    const items = (state.exclusions || []).filter(e => e.type === type);
+    const items = userExclusions.filter(e => e.type === type);
     if (items.length > 0) {
       html += `<h3>${type.charAt(0).toUpperCase() + type.slice(1)}s (${items.length})</h3><ul>`;
       items.forEach(e => { html += `<li>${esc(e.text)}${e.category && e.category !== 'General' ? ` <em style="color:#6b7280;">[${esc(e.category)}]</em>` : ''}</li>`; });
       html += `</ul>`;
     }
   });
-  if ((state.exclusions || []).length === 0) html += `<p style="color:#6b7280;font-style:italic;">No exclusions, assumptions, or clarifications entered.</p>`;
+
+  // Auto-populate AI-identified exclusions if user didn't enter any
+  if (!userExclusions.some(e => e.type === 'exclusion') && aiExclusions.length > 0) {
+    html += `<h3>Exclusions — Identified from Plans & Specifications (${aiExclusions.length})</h3>`;
+    html += `<div class="callout-teal">The following exclusions were automatically identified from the construction documents by AI analysis. Items marked "BY OTHERS", "NIC", or "OFCI" on the drawings are listed here.</div>`;
+    html += `<ul>`;
+    aiExclusions.forEach(ex => { html += `<li>${esc(ex)}</li>`; });
+    html += `</ul>`;
+  }
+  // Auto-populate AI assumptions
+  if (!userExclusions.some(e => e.type === 'assumption') && aiAssumptions.length > 0) {
+    html += `<h3>Assumptions — From AI Analysis (${aiAssumptions.length})</h3>`;
+    html += `<ul>`;
+    aiAssumptions.forEach(a => { html += `<li>${esc(a)}</li>`; });
+    html += `</ul>`;
+  }
+  // Standard industry exclusions as fallback
+  if (userExclusions.length === 0 && aiExclusions.length === 0 && aiAssumptions.length === 0) {
+    html += `<h3>Standard Exclusions</h3>`;
+    html += `<ul>
+      <li>Electrical power and dedicated circuits to ELV equipment (by Electrical Contractor)</li>
+      <li>Core drilling, firestopping, and penetrations through rated assemblies (unless noted)</li>
+      <li>Painting, patching, and wall repair after device installation</li>
+      <li>Furniture, fixtures, and equipment (FF&E) unless specifically noted in BOM</li>
+      <li>Software licensing beyond first year (ongoing subscription costs by Owner)</li>
+      <li>Commissioning and acceptance testing by third-party agents</li>
+      <li>As-built drawings (unless specified in contract)</li>
+    </ul>`;
+    html += `<h3>Standard Assumptions</h3>`;
+    html += `<ul>
+      <li>Work performed during normal business hours (M-F, 7AM-3:30PM) unless noted</li>
+      <li>Building is weather-tight and suitable for low-voltage installation</li>
+      <li>Adequate laydown/staging area provided at no charge</li>
+      <li>General Contractor provides clean, safe access to all work areas</li>
+      <li>All required permits and inspections are included unless otherwise stated</li>
+      <li>Pricing valid for 30 days from date of estimate</li>
+    </ul>`;
+  }
   html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
   // ═══ SECTION: RFIs ═══
   html += `<div class="page-break"></div>`;
   const secRfi = nextSec();
   const allRFIs = typeof getRelevantRFIs === 'function' ? getRelevantRFIs() : [];
-  const rfis = allRFIs.filter(r => state.selectedRFIs && state.selectedRFIs.has(r.id));
+  // Auto-include ALL relevant RFIs — user-selected ones marked as priority, rest included automatically
+  const selectedRFIs = allRFIs.filter(r => state.selectedRFIs && state.selectedRFIs.has(r.id));
+  const rfis = selectedRFIs.length > 0 ? selectedRFIs : allRFIs; // If user selected specific ones use those, otherwise include all
   html += `<h2>${secRfi}. Requests for Information (RFIs)</h2>`;
   if (rfis.length > 0) {
-    html += `<div class="callout"><strong>${rfis.length}</strong> RFI${rfis.length > 1 ? 's' : ''} identified — these represent gaps in the construction documents that cannot be resolved from the drawings and specifications alone. Clarification from the Architect/Engineer is required before finalizing the bid.</div>`;
+    html += `<div class="callout"><strong>${rfis.length}</strong> RFI${rfis.length > 1 ? 's' : ''} identified for <strong>${state.disciplines.join(', ')}</strong> — these represent gaps in the construction documents that cannot be resolved from the drawings and specifications alone. Clarification from the Architect/Engineer is required before finalizing the bid.${selectedRFIs.length === 0 ? ' <em>All discipline-relevant RFIs have been auto-included for completeness.</em>' : ''}</div>`;
     // Summary table first
     html += `<h3>RFI Summary Log</h3>`;
     html += `<table><tr><th style="width:10%;">RFI #</th><th style="width:52%;">Subject</th><th style="width:18%;">Discipline</th><th style="width:20%;">Status</th></tr>`;
@@ -1048,7 +1116,7 @@ function generateMasterReport() {
       html += `</div></div>`;
     });
   } else {
-    html += `<p style="color:#6b7280;font-style:italic;">No RFIs selected. Review the RFI panel in SmartPlans to identify gaps in the construction documents.</p>`;
+    html += `<p style="color:#6b7280;font-style:italic;">No RFIs available. Ensure disciplines are selected before generating the Master Report.</p>`;
   }
   html += `<div class="footer-bar">3D CONFIDENTIAL — Bid #${esc(bidNumber)} — ${dateStr}</div>`;
 
