@@ -26,11 +26,13 @@ export async function onRequestPost(context) {
     ];
 
     // Find the specific key if requested, otherwise use first available
+    // SECURITY: Validate against whitelist — client-supplied name must be a known key
+    const validKeyNames = new Set(keyNames);
     const requestedKey = body._uploadKeyName;
     let apiKey = null;
     let usedKeyName = null;
 
-    if (requestedKey && env[requestedKey]) {
+    if (requestedKey && validKeyNames.has(requestedKey) && env[requestedKey]) {
       apiKey = env[requestedKey];
       usedKeyName = requestedKey;
     } else {

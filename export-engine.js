@@ -24,6 +24,21 @@ const SmartPlansExport = {
         if (Object.keys(overrides).length > 0) {
             for (const [key, override] of Object.entries(overrides)) {
                 const [catIdx, itemIdx] = key.split('-').map(Number);
+                // Validate parsed indices are non-negative integers
+                if (!Number.isInteger(catIdx) || catIdx < 0 || !Number.isInteger(itemIdx) || itemIdx < 0) {
+                    console.warn(`SmartPlans: skipping invalid override key "${key}" — indices must be non-negative integers`);
+                    continue;
+                }
+                // Validate indices are within bounds
+                if (catIdx >= bom.categories.length || !bom.categories[catIdx].items || itemIdx >= bom.categories[catIdx].items.length) {
+                    console.warn(`SmartPlans: skipping out-of-bounds override key "${key}" — catIdx=${catIdx}, itemIdx=${itemIdx}`);
+                    continue;
+                }
+                // Validate unitCost is a positive finite number
+                if (typeof override.unitCost !== 'number' || !Number.isFinite(override.unitCost) || override.unitCost <= 0) {
+                    console.warn(`SmartPlans: skipping override key "${key}" — unitCost must be a positive finite number, got ${override.unitCost}`);
+                    continue;
+                }
                 if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
                     const item = bom.categories[catIdx].items[itemIdx];
                     if (override.qty != null) item.qty = override.qty;
@@ -1948,6 +1963,9 @@ const SmartPlansExport = {
             dataRows.push([]);
         }
 
+        // Compute grandTotal from category subtotals
+        grandTotal = bom.categories.reduce((sum, cat) => sum + (cat.subtotal || 0), 0);
+
         // Grand total row (no pricing — supplier calculates their own)
         dataRows.push([]);
         dataRows.push(['', '', '', '', 'TOTAL', '', '', '', '']);
@@ -2591,12 +2609,16 @@ Return ONLY the JSON array. No other text.`;
                         if (isNaN(extCost) && !isNaN(qty) && !isNaN(unitCost)) {
                             extCost = this._round(qty * unitCost);
                         }
+                        // Fallback: if ext cost is still zero but we have a unit cost, use it
+                        if ((isNaN(extCost) || extCost === 0) && !isNaN(unitCost) && unitCost > 0) {
+                            extCost = unitCost;
+                        }
 
                         // Must have at least a name and some cost data
                         if (isNaN(extCost) && isNaN(unitCost)) continue;
 
                         items.push({
-                            name: name,
+                            item: name,
                             qty: isNaN(qty) ? 0 : qty,
                             unitCost: isNaN(unitCost) ? 0 : unitCost,
                             extCost: isNaN(extCost) ? 0 : extCost,
@@ -2608,10 +2630,16 @@ Return ONLY the JSON array. No other text.`;
 
                     grandTotal = this._round(grandTotal);
 
+                    if (items.length === 0) {
+                        reject(new Error('No priced line items found in the file.'));
+                        return;
+                    }
+
                     resolve({
                         competitorName: competitorName,
                         items: items,
                         grandTotal: grandTotal,
+                        total: grandTotal,
                         lineItemCount: items.length,
                     });
 
@@ -2623,154 +2651,6 @@ Return ONLY the JSON array. No other text.`;
 
             reader.readAsArrayBuffer(file);
         });
-    },
-
-    /**
-     * Compare our BOM against an imported competitor bid.
-     * Uses flexible name matching (exact, substring, word overlap).
-     * Returns { matched, onlyOurs, onlyTheirs, summary }.
-     */
-    compareWithCompetitorBid(state, competitorData) {
-        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
-
-        // Flatten our BOM into items
-        const ourItems = [];
-        for (let catIndex = 0; catIndex < bom.categories.length; catIndex++) {
-            const cat = bom.categories[catIndex];
-            for (let itemIndex = 0; itemIndex < cat.items.length; itemIndex++) {
-                const item = cat.items[itemIndex];
-                ourItems.push({
-                    catIndex: catIndex,
-                    itemIndex: itemIndex,
-                    name: (item.item || item.name || '').trim(),
-                    qty: item.qty || 0,
-                    unitCost: item.unitCost || 0,
-                    extCost: item.extCost || 0,
-                    category: cat.name || '',
-                });
-            }
-        }
-
-        // Word-overlap scoring helper
-        const getWords = (str) => str.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 1);
-
-        const wordOverlapScore = (a, b) => {
-            const wordsA = getWords(a);
-            const wordsB = getWords(b);
-            if (wordsA.length === 0 || wordsB.length === 0) return 0;
-            const setB = new Set(wordsB);
-            const shared = wordsA.filter(w => setB.has(w)).length;
-            const maxLen = Math.max(wordsA.length, wordsB.length);
-            return shared / maxLen;
-        };
-
-        // Track which of our items have been matched
-        const ourMatched = new Set();
-        const matched = [];
-
-        // For each competitor item, find the best match in our BOM
-        const theirUnmatched = [];
-
-        for (const theirItem of competitorData.items) {
-            const theirNameLower = (theirItem.name || '').toLowerCase().trim();
-            let bestIdx = -1;
-            let bestScore = 0; // 3 = exact, 2 = substring, 1+ = word overlap > 0.5
-
-            for (let oi = 0; oi < ourItems.length; oi++) {
-                if (ourMatched.has(oi)) continue;
-                const ourNameLower = ourItems[oi].name.toLowerCase().trim();
-
-                // Exact match
-                if (theirNameLower === ourNameLower) {
-                    bestIdx = oi;
-                    bestScore = 3;
-                    break; // Can't do better than exact
-                }
-
-                // Substring match
-                if (theirNameLower.includes(ourNameLower) || ourNameLower.includes(theirNameLower)) {
-                    if (2 > bestScore) {
-                        bestIdx = oi;
-                        bestScore = 2;
-                    }
-                    continue;
-                }
-
-                // Word overlap
-                const overlap = wordOverlapScore(theirItem.name, ourItems[oi].name);
-                if (overlap > 0.5 && (1 + overlap) > bestScore) {
-                    bestIdx = oi;
-                    bestScore = 1 + overlap;
-                }
-            }
-
-            if (bestIdx !== -1) {
-                ourMatched.add(bestIdx);
-                const ours = ourItems[bestIdx];
-                const qtyDelta = theirItem.qty - ours.qty;
-                const costDelta = theirItem.unitCost - ours.unitCost;
-                const extDelta = theirItem.extCost - ours.extCost;
-                const pctDelta = ours.extCost !== 0
-                    ? ((theirItem.extCost - ours.extCost) / ours.extCost * 100).toFixed(1)
-                    : '0.0';
-
-                matched.push({
-                    ourItem: ours,
-                    theirItem: theirItem,
-                    qtyDelta: qtyDelta,
-                    costDelta: costDelta,
-                    extDelta: extDelta,
-                    pctDelta: pctDelta,
-                });
-            } else {
-                theirUnmatched.push(theirItem);
-            }
-        }
-
-        // Collect our unmatched items
-        const onlyOurs = ourItems.filter((_, idx) => !ourMatched.has(idx));
-
-        // Calculate summary
-        const ourTotal = ourItems.reduce((sum, item) => sum + item.extCost, 0);
-        const theirTotal = competitorData.grandTotal || competitorData.items.reduce((sum, item) => sum + item.extCost, 0);
-        const delta = theirTotal - ourTotal;
-        const deltaPercent = ourTotal !== 0 ? (delta / ourTotal * 100).toFixed(1) : '0.0';
-
-        let weAreHigherCount = 0;
-        let weAreLowerCount = 0;
-        let weAreHigherTotal = 0;
-        let weAreLowerTotal = 0;
-
-        for (const m of matched) {
-            if (m.extDelta < 0) {
-                // Their ext is less than ours — we are higher
-                weAreHigherCount++;
-                weAreHigherTotal += m.extDelta; // negative value
-            } else if (m.extDelta > 0) {
-                // Their ext is more than ours — we are lower
-                weAreLowerCount++;
-                weAreLowerTotal += m.extDelta; // positive value
-            }
-        }
-
-        weAreHigherTotal = this._round(weAreHigherTotal);
-        weAreLowerTotal = this._round(weAreLowerTotal);
-
-        return {
-            matched: matched,
-            onlyOurs: onlyOurs,
-            onlyTheirs: theirUnmatched,
-            summary: {
-                ourTotal: this._round(ourTotal),
-                theirTotal: this._round(theirTotal),
-                delta: this._round(delta),
-                deltaPercent: deltaPercent,
-                weAreHigherCount: weAreHigherCount,
-                weAreLowerCount: weAreLowerCount,
-                weAreHigherTotal: weAreHigherTotal,
-                weAreLowerTotal: weAreLowerTotal,
-            },
-        };
     },
 
     // ─── Rate Library Integration ─────────────────────────────
@@ -2924,127 +2804,6 @@ Return ONLY the JSON array. No other text.`;
             totalMarkup: this._round(totalMarkup),
             totalContingency: this._round(totalContingency),
         };
-    },
-
-    // ─── Import a competitor bid file (xlsx/csv) ─────────────────
-    importCompetitorBid(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onerror = () => reject(new Error('Failed to read file: ' + (reader.error || 'Unknown error')));
-            reader.onload = () => {
-                try {
-                    const data = new Uint8Array(reader.result);
-                    let rows;
-                    const ext = (file.name || '').split('.').pop().toLowerCase();
-
-                    if (ext === 'csv') {
-                        if (typeof XLSX !== 'undefined') {
-                            const wb = XLSX.read(data, { type: 'array' });
-                            const ws = wb.Sheets[wb.SheetNames[0]];
-                            rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-                        } else {
-                            const text = new TextDecoder().decode(data);
-                            rows = text.split('\n').map(line => {
-                                const cells = [];
-                                let current = '';
-                                let inQuotes = false;
-                                for (let i = 0; i < line.length; i++) {
-                                    const ch = line[i];
-                                    if (ch === '"') { inQuotes = !inQuotes; continue; }
-                                    if (ch === ',' && !inQuotes) { cells.push(current.trim()); current = ''; continue; }
-                                    current += ch;
-                                }
-                                cells.push(current.trim());
-                                return cells;
-                            });
-                        }
-                    } else {
-                        if (typeof XLSX === 'undefined') {
-                            reject(new Error('SheetJS (XLSX) library is required to read Excel files.'));
-                            return;
-                        }
-                        const wb = XLSX.read(data, { type: 'array' });
-                        const ws = wb.Sheets[wb.SheetNames[0]];
-                        rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-                    }
-
-                    if (!rows || rows.length < 2) {
-                        reject(new Error('File appears to be empty or has no data rows.'));
-                        return;
-                    }
-
-                    // Find header row
-                    let headerIdx = -1;
-                    let colItem = -1, colQty = -1, colUnitCost = -1, colExtCost = -1, colCategory = -1;
-
-                    for (let i = 0; i < Math.min(rows.length, 15); i++) {
-                        const row = rows[i];
-                        if (!row || !Array.isArray(row)) continue;
-                        const cellTexts = row.map(c => String(c || '').toLowerCase());
-                        const hasItem = cellTexts.some(c => /item|description|material|component|product/i.test(c));
-                        const hasCost = cellTexts.some(c => /cost|price|amount|total|rate|\$/i.test(c));
-                        if (hasItem && hasCost) {
-                            headerIdx = i;
-                            cellTexts.forEach((c, idx) => {
-                                if (/item|description|material|component|product/i.test(c) && colItem === -1) colItem = idx;
-                                if (/^qty$|quantity|^qty/i.test(c)) colQty = idx;
-                                if (/unit\s*(cost|price|\$)|rate/i.test(c)) colUnitCost = idx;
-                                if (/ext|total|amount|^cost$/i.test(c) && colExtCost === -1) colExtCost = idx;
-                                if (/category|section|division|group/i.test(c)) colCategory = idx;
-                            });
-                            break;
-                        }
-                    }
-
-                    if (headerIdx === -1 || colItem === -1) {
-                        reject(new Error('Could not find header row with item description and cost columns.'));
-                        return;
-                    }
-
-                    // Try to derive competitor name from file name
-                    let competitorName = '';
-                    const fnameMatch = (file.name || '').replace(/\.(xlsx|csv)$/i, '').replace(/[-_]/g, ' ');
-                    if (fnameMatch) competitorName = fnameMatch;
-
-                    const parseCurrency = (v) => {
-                        if (v == null || v === '') return 0;
-                        const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
-                        return isNaN(n) ? 0 : n;
-                    };
-
-                    // Parse data rows
-                    const items = [];
-                    for (let i = headerIdx + 1; i < rows.length; i++) {
-                        const row = rows[i];
-                        if (!row || !Array.isArray(row)) continue;
-                        const itemName = String(row[colItem] || '').trim();
-                        if (!itemName) continue;
-
-                        const qty = colQty !== -1 ? (parseFloat(String(row[colQty] || '0').replace(/,/g, '')) || 0) : 0;
-                        const unitCost = colUnitCost !== -1 ? parseCurrency(row[colUnitCost]) : 0;
-                        let extCost = colExtCost !== -1 ? parseCurrency(row[colExtCost]) : 0;
-                        if (extCost === 0 && qty > 0 && unitCost > 0) extCost = this._round(qty * unitCost);
-                        if (extCost === 0 && unitCost > 0) extCost = unitCost;
-                        const category = colCategory !== -1 ? String(row[colCategory] || '').trim() : '';
-
-                        if (extCost > 0 || unitCost > 0) {
-                            items.push({ item: itemName, qty, unitCost, extCost, category });
-                        }
-                    }
-
-                    if (items.length === 0) {
-                        reject(new Error('No priced line items found in the file.'));
-                        return;
-                    }
-
-                    const total = this._round(items.reduce((s, it) => s + it.extCost, 0));
-                    resolve({ competitorName, items, total });
-                } catch (err) {
-                    reject(new Error('Failed to parse competitor bid: ' + err.message));
-                }
-            };
-            reader.readAsArrayBuffer(file);
-        });
     },
 
     // ─── Compare our BOM with competitor bid data ──────────────

@@ -484,34 +484,34 @@ const PRICING_DB = {
     civilWork: {
         directional_boring: {
             // Per linear foot by conduit diameter — includes mobilization amortized
-            "2_inch":  { unit: "per LF", low: 25, mid: 40, high: 60, description: "2\" bore under pavement/landscape" },
-            "3_inch":  { unit: "per LF", low: 35, mid: 55, high: 80, description: "3\" bore under pavement" },
-            "4_inch":  { unit: "per LF", low: 45, mid: 70, high: 100, description: "4\" bore under roadway/railroad" },
-            mobilization: { unit: "each", low: 2500, mid: 4000, high: 6000, description: "Drill rig mobilization/demobilization" },
+            "2_inch":  { unit: "per LF", budget: 25, mid: 40, premium: 60, description: "2\" bore under pavement/landscape" },
+            "3_inch":  { unit: "per LF", budget: 35, mid: 55, premium: 80, description: "3\" bore under pavement" },
+            "4_inch":  { unit: "per LF", budget: 45, mid: 70, premium: 100, description: "4\" bore under roadway/railroad" },
+            mobilization: { unit: "each", budget: 2500, mid: 4000, premium: 6000, description: "Drill rig mobilization/demobilization" },
         },
         trenching: {
-            "24in_landscape": { unit: "per LF", low: 8, mid: 14, high: 22, description: "24\" deep trench in landscape/dirt" },
-            "24in_asphalt":   { unit: "per LF", low: 18, mid: 28, high: 42, description: "24\" deep trench through asphalt" },
-            "36in_landscape": { unit: "per LF", low: 12, mid: 20, high: 30, description: "36\" deep trench in landscape" },
-            "36in_asphalt":   { unit: "per LF", low: 25, mid: 38, high: 55, description: "36\" deep trench through asphalt" },
-            backfill_compact: { unit: "per LF", low: 3, mid: 6, high: 10, description: "Sand bedding + compacted backfill" },
+            "24in_landscape": { unit: "per LF", budget: 8, mid: 14, premium: 22, description: "24\" deep trench in landscape/dirt" },
+            "24in_asphalt":   { unit: "per LF", budget: 18, mid: 28, premium: 42, description: "24\" deep trench through asphalt" },
+            "36in_landscape": { unit: "per LF", budget: 12, mid: 20, premium: 30, description: "36\" deep trench in landscape" },
+            "36in_asphalt":   { unit: "per LF", budget: 25, mid: 38, premium: 55, description: "36\" deep trench through asphalt" },
+            backfill_compact: { unit: "per LF", budget: 3, mid: 6, premium: 10, description: "Sand bedding + compacted backfill" },
         },
         surface_restoration: {
-            asphalt_patch:     { unit: "per SF", low: 8, mid: 14, high: 22, description: "Asphalt sawcut + remove + repave" },
-            concrete_patch:    { unit: "per SF", low: 12, mid: 20, high: 32, description: "Concrete sawcut + remove + repour" },
-            landscape_restore: { unit: "per LF", low: 4, mid: 8, high: 15, description: "Sod/irrigation repair" },
-            concrete_sawcut:   { unit: "per LF", low: 3, mid: 5, high: 8, description: "Concrete/asphalt sawcutting" },
+            asphalt_patch:     { unit: "per SF", budget: 8, mid: 14, premium: 22, description: "Asphalt sawcut + remove + repave" },
+            concrete_patch:    { unit: "per SF", budget: 12, mid: 20, premium: 32, description: "Concrete sawcut + remove + repour" },
+            landscape_restore: { unit: "per LF", budget: 4, mid: 8, premium: 15, description: "Sod/irrigation repair" },
+            concrete_sawcut:   { unit: "per LF", budget: 3, mid: 5, premium: 8, description: "Concrete/asphalt sawcutting" },
         },
         core_drilling: {
-            "2_inch":  { unit: "per hole", low: 75, mid: 125, high: 200, description: "2\" core through concrete" },
-            "4_inch":  { unit: "per hole", low: 150, mid: 250, high: 400, description: "4\" core through concrete/CMU" },
-            "6_inch":  { unit: "per hole", low: 250, mid: 400, high: 600, description: "6\" core through concrete" },
-            mobilization: { unit: "each", low: 500, mid: 800, high: 1200, description: "Core drill mobilization" },
+            "2_inch":  { unit: "per hole", budget: 75, mid: 125, premium: 200, description: "2\" core through concrete" },
+            "4_inch":  { unit: "per hole", budget: 150, mid: 250, premium: 400, description: "4\" core through concrete/CMU" },
+            "6_inch":  { unit: "per hole", budget: 250, mid: 400, premium: 600, description: "6\" core through concrete" },
+            mobilization: { unit: "each", budget: 500, mid: 800, premium: 1200, description: "Core drill mobilization" },
         },
         utility_locating: {
-            potholing:   { unit: "per hole", low: 300, mid: 500, high: 800, description: "Vacuum excavation pothole" },
-            usa_north:   { unit: "each", low: 0, mid: 0, high: 0, description: "811/USA North locate (free but required)" },
-            private_locate: { unit: "per day", low: 800, mid: 1200, high: 1800, description: "Private utility locator" },
+            potholing:   { unit: "per hole", budget: 300, mid: 500, premium: 800, description: "Vacuum excavation pothole" },
+            usa_north:   { unit: "each", budget: 0, mid: 0, premium: 0, description: "811/USA North locate (free but required)" },
+            private_locate: { unit: "per day", budget: 800, mid: 1200, premium: 1800, description: "Private utility locator" },
         },
     },
 
@@ -538,6 +538,16 @@ const PRICING_DB = {
         },
     },
 };
+
+// Prevent runtime tampering with pricing data
+(function deepFreeze(obj) {
+  Object.freeze(obj);
+  Object.keys(obj).forEach(key => {
+    if (typeof obj[key] === 'object' && obj[key] !== null && !Object.isFrozen(obj[key])) {
+      deepFreeze(obj[key]);
+    }
+  });
+})(PRICING_DB);
 
 // Make available for import in app.js (loaded via <script> tag)
 if (typeof window !== "undefined") {

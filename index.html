@@ -148,7 +148,7 @@
                     console.warn('[SmartPlans] Primary SheetJS CDN failed, trying fallback…');
                     loadScript(
                         'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
-                        null,
+                        'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw',
                         function () { console.log('[SmartPlans] SheetJS loaded (fallback CDN)'); },
                         function () { console.error('[SmartPlans] SheetJS failed to load from all CDNs — Excel export will use CSV fallback'); }
                     );
@@ -176,7 +176,7 @@
                 function () {
                     loadScript(
                         'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
-                        null,
+                        'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e',
                         function () {
                             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
                             console.log('[SmartPlans] PDF.js loaded (fallback CDN)');

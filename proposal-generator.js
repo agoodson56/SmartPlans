@@ -282,7 +282,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
       .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const refNum = `3DTSI-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 9000 + 1000)}`;
     const year = today.getFullYear();
-    const bodyHtml = this._markdownToHtml(proposalText);
+    const bodyHtml = this._sanitizeHtml(this._markdownToHtml(proposalText));
 
     // Build the DETERMINISTIC financial table from BOM data (code, not AI)
     const financialTableHtml = this._buildFinancialTableHtml(state);
@@ -804,6 +804,22 @@ ACCEPTANCE & SIGNATURE BLOCK
     return html;
   },
 
+  // ─── Sanitize HTML to prevent XSS from AI-generated content ───
+  _sanitizeHtml(html) {
+    if (!html) return '';
+    // Strip dangerous tags (script, iframe, object, embed, form, meta, base, link)
+    html = html.replace(/<\s*\/?\s*(script|iframe|object|embed|form|meta|base|link)\b[^>]*>/gi, '');
+    // Strip <style> tags that contain expressions (IE expression hack)
+    html = html.replace(/<style\b[^>]*>[\s\S]*?expression\s*\([\s\S]*?<\/style>/gi, '');
+    // Strip on* event handler attributes (onclick, onerror, onload, etc.)
+    html = html.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    // Strip javascript: URLs in href and src attributes
+    html = html.replace(/(href|src)\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '$1=""');
+    // Also catch unquoted javascript: URLs
+    html = html.replace(/(href|src)\s*=\s*javascript:[^\s>]*/gi, '$1=""');
+    return html;
+  },
+
   _escText(str) {
     return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   },
@@ -848,26 +864,24 @@ ACCEPTANCE & SIGNATURE BLOCK
 
     // Build line items for the table
     const lineItems = [
-      { label: 'Materials', base: bd.materials, markup: `${Math.round(bd.matPct * 100)}%`, sell: bd.matSell },
-      { label: 'Labor', base: bd.laborBase, markup: `${Math.round(bd.labPct * 100)}%`, sell: bd.labSell },
-      { label: 'Equipment', base: bd.equipment, markup: `${Math.round(bd.eqPct * 100)}%`, sell: bd.eqSell },
-      { label: 'Subcontractors', base: bd.subs, markup: `${Math.round(bd.subPct * 100)}%`, sell: bd.subSell },
-    ].filter(g => g.base > 0);
-    if (bd.burden > 0) lineItems.push({ label: 'Burden/Overhead', base: bd.laborBase, markup: `${Math.round(bd.burdenRate * 100)}%`, sell: bd.burden });
-    if (bd.travel > 0) lineItems.push({ label: 'Travel/Incidentals', base: bd.travel, markup: '—', sell: bd.travel });
+      { label: 'Materials', investment: bd.matSell },
+      { label: 'Labor', investment: bd.labSell },
+      { label: 'Equipment', investment: bd.eqSell },
+      { label: 'Subcontractors', investment: bd.subSell },
+    ].filter(g => g.investment > 0);
+    if (bd.burden > 0) lineItems.push({ label: 'Burden/Overhead', investment: bd.burden });
+    if (bd.travel > 0) lineItems.push({ label: 'Travel/Incidentals', investment: bd.travel });
 
     const subtotal = bd.subtotal;
     const contingency = bd.contingency;
     const grandTotal = bd.grandTotal;
 
-    // Build Word-compatible HTML table with Base Cost + Markup + Sell Price
+    // Build Word-compatible HTML table with Category + Investment only (no base cost or markup exposed to client)
     let rows = '';
     lineItems.forEach(g => {
       rows += `<tr>
         <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${g.label}</font></td>
-        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(g.base)}</font></td>
-        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:center;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${g.markup}</font></td>
-        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(g.sell)}</font></td>
+        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(g.investment)}</font></td>
       </tr>`;
     });
 
@@ -884,22 +898,20 @@ ACCEPTANCE & SIGNATURE BLOCK
 
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20pt;">
   <tr>
-    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};width:35%;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Category</b></font></td>
-    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:right;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Base Cost</b></font></td>
-    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:center;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Markup</b></font></td>
-    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:right;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Sell Price</b></font></td>
+    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};width:50%;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Category</b></font></td>
+    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:right;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Investment</b></font></td>
   </tr>
   ${rows}
   <tr>
-    <td colspan="3" bgcolor="#2B4A6A" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>SUBTOTAL</b></font></td>
+    <td bgcolor="#2B4A6A" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>SUBTOTAL</b></font></td>
     <td bgcolor="#2B4A6A" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(subtotal)}</b></font></td>
   </tr>
   <tr>
-    <td colspan="3" style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency 10%</font></td>
+    <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency 10%</font></td>
     <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(contingency)}</font></td>
   </tr>
   <tr>
-    <td colspan="3" bgcolor="${b.navy}" style="padding:12pt 14pt;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>GRAND TOTAL</b></font></td>
+    <td bgcolor="${b.navy}" style="padding:12pt 14pt;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>GRAND TOTAL</b></font></td>
     <td bgcolor="${b.navy}" style="padding:12pt 14pt;text-align:right;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(grandTotal)}</b></font></td>
   </tr>
 </table>
@@ -1199,7 +1211,7 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The 
 
       progressCallback(60, 'Building executive Word document…');
 
-      const bodyHtml = this._markdownToHtml(aiText);
+      const bodyHtml = this._sanitizeHtml(this._markdownToHtml(aiText));
 
       // ─── Build the 3-page Word document ───
       let wordHtml = `<!DOCTYPE html>

@@ -37,9 +37,25 @@
    └─────────────────────────────────────────────────────────┘
    ═══════════════════════════════════════════════════════════════ */
 
+/**
+ * Sanitize a user-supplied string before interpolating into an AI prompt.
+ * 1. Converts to string
+ * 2. Strips control characters (keeps \n and \t)
+ * 3. Truncates to maxLen (default 500)
+ */
+function _sanitizeForPrompt(str, maxLen = 500) {
+  const s = String(str ?? '');
+  // Strip control chars except newline (0x0A) and tab (0x09)
+  const cleaned = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  return cleaned.length > maxLen ? cleaned.slice(0, maxLen) : cleaned;
+}
+
 const SmartBrains = {
 
   VERSION: '5.0.0',
+
+  // Expose sanitizer as a static method for external callers
+  _sanitizeForPrompt,
 
   // ═══════════════════════════════════════════════════════════
   // CONFIGURATION
@@ -1159,7 +1175,7 @@ const SmartBrains = {
       // ── BRAIN 1: Symbol Scanner ──────────────────────────────
       SYMBOL_SCANNER: () => `You are a CONSTRUCTION DOCUMENT SYMBOL SCANNER — the #1 expert at finding and counting symbols on ELV floor plans.
 
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Scan EVERY sheet and count EVERY device symbol. Be exhaustive.
@@ -1214,8 +1230,8 @@ Return ONLY valid JSON:
       // ── BRAIN 2: Code Compliance ─────────────────────────────
       CODE_COMPLIANCE: () => `You are a CONSTRUCTION CODE COMPLIANCE EXPERT specializing in ELV/low voltage systems.
 
-PROJECT: ${context.projectName} | Type: ${context.projectType}
-JURISDICTION: ${context.codeJurisdiction || 'General — apply national codes'}
+PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
+JURISDICTION: ${_sanitizeForPrompt(context.codeJurisdiction || 'General — apply national codes', 200)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Review these construction documents for code violations, warnings, and compliance issues.
@@ -1254,7 +1270,7 @@ Return ONLY valid JSON:
       // ── BRAIN 3: MDF/IDF Analyzer ────────────────────────────
       MDF_IDF_ANALYZER: () => `You are a TELECOM INFRASTRUCTURE SPECIALIST analyzing MDF/IDF/TR rooms.
 
-PROJECT: ${context.projectName} | Type: ${context.projectType}
+PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Identify and detail EVERY telecom room (MDF, IDF, TR, Server Room, Head-End) on the drawings.
@@ -1293,7 +1309,7 @@ Return ONLY valid JSON:
       // ── BRAIN 4: Cable & Pathway ─────────────────────────────
       CABLE_PATHWAY: () => `You are a CABLE & PATHWAY ENGINEER analyzing cable runs, conduit systems, and pathway infrastructure for ELV construction.
 
-PROJECT: ${context.projectName} | Type: ${context.projectType}
+PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 SPATIAL LAYOUT DATA (from floor plan analysis — use this to calculate zone-based run lengths):
@@ -1407,10 +1423,10 @@ Return ONLY valid JSON:
       // ── BRAIN 5: Special Conditions ──────────────────────────
       SPECIAL_CONDITIONS: () => `You are a CONSTRUCTION SPECIAL CONDITIONS ANALYST for ELV (Extra Low Voltage) projects. You must identify EVERY item that requires subcontracting, renting, purchasing, or coordinating beyond standard ELV technician labor.
 
-PROJECT: ${context.projectName} | Type: ${context.projectType}
-LOCATION: ${context.projectLocation || 'Not specified'}
-PREVAILING WAGE: ${context.prevailingWage || 'Not specified'}
-WORK SHIFT: ${context.workShift || 'Standard'}
+PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
+LOCATION: ${_sanitizeForPrompt(context.projectLocation || 'Not specified', 200)}
+PREVAILING WAGE: ${_sanitizeForPrompt(context.prevailingWage || 'Not specified', 100)}
+WORK SHIFT: ${_sanitizeForPrompt(context.workShift || 'Standard', 100)}
 
 YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment rental, civil work, traffic control, site preparation, and specialty item needed to COMPLETE this installation from start to finish.
 
@@ -1759,7 +1775,7 @@ Return ONLY valid JSON:
 
         return `You are a CONSTRUCTION MATERIAL PRICING SPECIALIST. Calculate exact material costs.
 
-PROJECT: ${context.projectName}
+PROJECT: ${_sanitizeForPrompt(context.projectName, 200)}
 PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}× multiplier)
 MATERIAL MARKUP: ${context.markup?.material || 50}%
 
@@ -1857,11 +1873,11 @@ Return ONLY valid JSON:
 
         return `You are a CONSTRUCTION LABOR ESTIMATOR using NECA labor standards.
 
-PROJECT: ${context.projectName} | Type: ${context.projectType}
+PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
 LABOR MARKUP: ${context.markup?.labor || 50}%
 BURDEN RATE: ${context.includeBurden ? context.burdenRate + '%' : 'Not applied'}
-PREVAILING WAGE: ${context.prevailingWage || 'No'}
-WORK SHIFT: ${context.workShift || 'Standard'}
+PREVAILING WAGE: ${_sanitizeForPrompt(context.prevailingWage || 'No', 100)}
+WORK SHIFT: ${_sanitizeForPrompt(context.workShift || 'Standard', 100)}
 
 LABOR RATES:
 ${Object.entries(context.laborRates || {}).map(([k, v]) =>
@@ -2042,8 +2058,8 @@ Return ONLY valid JSON. EVERY phase MUST have non-zero hours and cost:
       // ── BRAIN 8: Financial Engine ────────────────────────────
       FINANCIAL_ENGINE: () => `You are a CONSTRUCTION FINANCIAL ANALYST producing SOV and final pricing.
 
-PROJECT: ${context.projectName} | Location: ${context.projectLocation || 'Not specified'}
-PREVAILING WAGE: ${context.prevailingWage || 'No'}
+PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Location: ${_sanitizeForPrompt(context.projectLocation || 'Not specified', 200)}
+PREVAILING WAGE: ${_sanitizeForPrompt(context.prevailingWage || 'No', 100)}
 MARKUP: Material ${context.markup?.material || 50}% | Labor ${context.markup?.labor || 50}% | Equipment ${context.markup?.equipment || 15}% | Subcontractor ${context.markup?.subcontractor || 10}%
 
 ═══ MATERIAL PRICER OUTPUT (USE THESE EXACT TOTALS) ═══
@@ -2335,9 +2351,9 @@ This is a REAL BID that will be submitted to win a construction project. It MUST
 - Markup columns so the estimator can adjust pricing
 - A complete Schedule of Values with real dollar amounts
 
-PROJECT: ${context.projectName || 'Project'}
-TYPE: ${context.projectType || 'Low Voltage'}
-LOCATION: ${context.projectLocation || 'TBD'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Project', 200)}
+TYPE: ${_sanitizeForPrompt(context.projectType || 'Low Voltage', 100)}
+LOCATION: ${_sanitizeForPrompt(context.projectLocation || 'TBD', 200)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 MARKUP CONFIG: Material ${matMarkup}% | Labor ${labMarkup}% | Equipment ${eqMarkup}% | Subcontractor ${subMarkup}%
 
@@ -2544,7 +2560,7 @@ Generate the COMPLETE BID REPORT now. Every section must have real data with rea
       // ── BRAIN 0: Legend Decoder (Wave 0 — Pre-Processing) ─────
       LEGEND_DECODER: () => `You are a CONSTRUCTION SYMBOL LEGEND EXPERT. Your ONLY job is to decode the symbol legend and build a structured dictionary BEFORE any counting begins.
 
-PROJECT: ${context.projectName || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 INSTRUCTIONS:
@@ -2570,7 +2586,7 @@ Return ONLY valid JSON:
       // ── BRAIN 0.5: Spatial Layout (Wave 0 — parallel with Legend Decoder) ──
       SPATIAL_LAYOUT: () => `You are a BUILDING SPATIAL ANALYST. Your job is to extract floor plan geometry, IDF/MDF room positions, and device zone positions so cable run lengths can be precisely calculated.
 
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
 
 ═══ CRITICAL: PER-SHEET SCALE DETECTION ═══
 Different sheets in a plan set often use DIFFERENT SCALES. A warehouse floor plan might be 1/16"=1'-0" while an office detail is 1/4"=1'-0". You MUST determine the scale for EACH SHEET independently.
@@ -2678,7 +2694,7 @@ RULES:
       // ── BRAIN 6: Shadow Scanner (Wave 1.5 — Second Read) ──────
       SHADOW_SCANNER: () => `You are an INDEPENDENT VERIFICATION SCANNER performing a SECOND COUNT of all ELV device symbols. You must use a COMPLETELY DIFFERENT methodology than a standard left-to-right scan.
 
-PROJECT: ${context.projectName || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 LEGEND DICTIONARY (from Legend Decoder):
@@ -2716,7 +2732,7 @@ Return ONLY valid JSON (same schema as Symbol Scanner):
         const primary = (context.disciplines || [])[0] || 'Structured Cabling';
         return `You are a SPECIALIST COUNTER focused EXCLUSIVELY on ${primary} symbols. Ignore all other disciplines entirely.
 
-PROJECT: ${context.projectName || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
 YOUR DISCIPLINE: ${primary} — count ONLY these symbols
 
 LEGEND DICTIONARY:
@@ -2748,7 +2764,7 @@ Return ONLY valid JSON:
       // ── BRAIN 8: Quadrant Scanner (Wave 1.5) ──────────────────
       QUADRANT_SCANNER: () => `You are a ZONE-BASED VERIFICATION SCANNER. Instead of scanning by room, you divide each sheet into QUADRANTS and count devices per zone.
 
-PROJECT: ${context.projectName || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR METHODOLOGY — QUADRANT DIVISION:
@@ -2955,7 +2971,7 @@ Return ONLY valid JSON:
         const devilItems = context.wave3?.DEVILS_ADVOCATE?.missed_items || [];
         return `You are a DETAIL VERIFICATION SPECIALIST performing a FOURTH READ of the construction plans. Your job is to ZOOM INTO specific areas and provide PRECISE COUNTS.
 
-PROJECT: ${context.projectName || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 PREVIOUS CONSENSUS COUNTS (from 3 prior reads):
@@ -3000,7 +3016,7 @@ Return ONLY valid JSON:
         const quadData = context.wave1_5?.QUADRANT_SCANNER?.quadrants || [];
         return `You are a CROSS-SHEET CONSISTENCY ANALYZER performing a FIFTH READ. Your job is to compare different sheets AGAINST EACH OTHER to find inconsistencies, overlaps, and missing coverage.
 
-PROJECT: ${context.projectName || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 SHEET DATA FROM FIRST READ:
@@ -3049,7 +3065,7 @@ Return ONLY valid JSON:
         const devil = context.wave3?.DEVILS_ADVOCATE || {};
         return `You are the FINAL RECONCILIATION ENGINE performing the SIXTH AND FINAL READ of the construction plans. You have access to ALL previous data from 5 prior reads. Your job is to produce the AUTHORITATIVE, DEFINITIVE device counts.
 
-PROJECT: ${context.projectName || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 ═══ DATA FROM ALL 5 PRIOR READS ═══
@@ -3101,7 +3117,7 @@ Return ONLY valid JSON:
       // ── BRAIN 21: Spec Cross-Reference (Wave 1) ─────────────────
       SPEC_CROSS_REF: () => `You are a SPECIFICATION CROSS-REFERENCE EXPERT for ELV/low voltage construction projects.
 
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Cross-reference the written specifications against the plan drawings to find discrepancies.
@@ -3164,7 +3180,7 @@ Return ONLY valid JSON:
       // ── BRAIN 22: Annotation Reader (Wave 1) ────────────────────
       ANNOTATION_READER: () => `You are a CONSTRUCTION ANNOTATION & CALLOUT EXPERT. Your job is to read EVERY text annotation, note, callout bubble, detail reference, and schedule on the ELV plan drawings.
 
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Capture every piece of text information on the drawings that describes equipment, quantities, or installation requirements.
@@ -3252,7 +3268,7 @@ Return ONLY valid JSON:
       // ── BRAIN 23: Riser Diagram Analyzer (Wave 1) ───────────────
       RISER_DIAGRAM_ANALYZER: () => `You are a RISER DIAGRAM & ONE-LINE DIAGRAM EXPERT for ELV/low voltage construction projects.
 
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Analyze all riser diagrams, one-line diagrams, block diagrams, and system architecture drawings to extract backbone infrastructure details.
@@ -3290,7 +3306,7 @@ Return ONLY valid JSON:
       // ── BRAIN 24: Zoom Scanner (Wave 1.5) ───────────────────────
       ZOOM_SCANNER: () => `You are a HIGH-MAGNIFICATION ZOOM SCANNER for ELV device symbols. Divide each sheet into 4 quadrants and count with extreme precision.
 
-PROJECT: ${context.projectName || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 LEGEND (key symbols only):
@@ -3324,7 +3340,7 @@ Return ONLY valid JSON:
       // ── BRAIN 25: Per-Floor Analyzer (Wave 1.5) ─────────────────
       PER_FLOOR_ANALYZER: () => `You are a PER-FLOOR INDEPENDENT ANALYZER for ELV construction documents. You analyze each floor as a SEPARATE ENTITY and compare results to find floor-specific anomalies.
 
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 LEGEND DICTIONARY:
@@ -3366,7 +3382,7 @@ Return ONLY valid JSON:
         const wave15Counts = context.wave1_5?.SHADOW_SCANNER?.totals || {};
         return `You are an OVERLAP & DUPLICATION DETECTION EXPERT for multi-sheet ELV construction drawings.
 
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 CURRENT CONSENSUS COUNTS:

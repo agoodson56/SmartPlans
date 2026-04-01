@@ -27,6 +27,11 @@ export async function onRequestGet(context) {
             return Response.json({ error: 'Missing "name" parameter' }, { status: 400 });
         }
 
+        // SECURITY: Validate fileName to prevent SSRF — must match Gemini file ID format
+        if (!/^files\/[a-zA-Z0-9_-]+$/.test(fileName)) {
+            return Response.json({ error: 'Invalid file name format' }, { status: 400 });
+        }
+
         // Select API key — prefer the key that uploaded the file
         const tier2Keys = [
             'GEMINI_KEY_10', 'GEMINI_KEY_11', 'GEMINI_KEY_12', 'GEMINI_KEY_13',
