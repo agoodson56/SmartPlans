@@ -187,15 +187,20 @@ const SmartPlansExport = {
         let materials = 0, equipment = 0, subs = 0, travel = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
+            let bucket = 'materials';
             if (/travel|per\s*diem|lodging|hotel|mileage|incidental/.test(n)) {
                 travel += (cat.subtotal || 0);
+                bucket = 'TRAVEL';
             } else if (/subcontract|civil|traffic|safety|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
+                bucket = 'SUBS';
             } else if (/equipment|condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
+                bucket = 'EQUIP';
             } else {
                 materials += (cat.subtotal || 0);
             }
+            console.log(`[BOM Classify] "${cat.name}" ($${(cat.subtotal||0).toLocaleString()}) → ${bucket}`);
         }
         return { materials, equipment, subs, travel };
     },
@@ -213,12 +218,27 @@ const SmartPlansExport = {
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         const contingencyPct = 0.10;
 
-        // Labor: use actual Labor Calculator output when available, else estimate from materials
+        // Labor: use actual Labor Calculator output when available
+        // Fallback chain: Labor Calculator brain → Financial Engine labor → materials × 0.40
         const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
-        const laborBase = this._round(
-            laborCalc?.total_base_cost > 0 ? laborCalc.total_base_cost :
-            materials * 1.0  // fallback: ELV labor ~ 80-120% of material cost
-        );
+        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+        let laborSource = 'fallback';
+        let laborBase = 0;
+        if (laborCalc?.total_base_cost > 0) {
+            laborBase = this._round(laborCalc.total_base_cost);
+            laborSource = 'Labor Calculator brain';
+        } else if (finEngine?.project_summary?.total_labor > 0) {
+            laborBase = this._round(finEngine.project_summary.total_labor);
+            laborSource = 'Financial Engine labor';
+        } else {
+            laborBase = this._round(materials * 0.40);  // ELV labor ~ 35-45% of material cost
+            laborSource = 'materials × 0.40 estimate';
+        }
+
+        // ── Diagnostic logging — trace every value in the calculation ──
+        console.log(`[BOM Classify] materials=$${materials.toLocaleString()} equipment=$${equipment.toLocaleString()} subs=$${subs.toLocaleString()} bomTravel=$${bomTravel.toLocaleString()}`);
+        console.log(`[BOM Labor] source="${laborSource}" laborBase=$${laborBase.toLocaleString()} | LC=${laborCalc?.total_base_cost || 'N/A'} | FE=${finEngine?.project_summary?.total_labor || 'N/A'}`);
+        console.log(`[BOM Markup] mat=${matPct*100}% lab=${labPct*100}% eq=${eqPct*100}% sub=${subPct*100}% burden=${includeBurden ? burdenRate*100+'%' : 'off'} contingency=${contingencyPct*100}%`);
 
         const matSell = this._round(materials * (1 + matPct));
         const labSell = this._round(laborBase * (1 + labPct));
@@ -238,8 +258,11 @@ const SmartPlansExport = {
         const contingency = this._round(subtotal * contingencyPct);
         const grandTotal = this._round(subtotal + contingency);
 
+        console.log(`[BOM Sell] matSell=$${matSell.toLocaleString()} labSell=$${labSell.toLocaleString()} eqSell=$${eqSell.toLocaleString()} subSell=$${subSell.toLocaleString()} burden=$${burden.toLocaleString()} travel=$${travel.toLocaleString()}`);
+        console.log(`[BOM Total] subtotal=$${subtotal.toLocaleString()} + contingency=$${contingency.toLocaleString()} = grandTotal=$${grandTotal.toLocaleString()}`);
+
         return {
-            materials, equipment, subs, laborBase,
+            materials, equipment, subs, laborBase, laborSource,
             matPct, labPct, eqPct, subPct,
             matSell, labSell, eqSell, subSell,
             burden, burdenRate: includeBurden ? burdenRate : 0,
