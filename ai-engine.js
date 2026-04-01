@@ -745,12 +745,12 @@ const SmartBrains = {
         this._log(`[Brain:${brainDef.name}] JSON mode: ${useJsonMode}, model: ${modelName}, uploadKey: ${uploadKeyName || 'none'}`);
       }
 
-      try {
-        const controller = new AbortController();
-        // Increase timeout for streaming — data arrives in chunks, so we need more wall-clock time
-        const timeoutMs = brainDef.useProModel ? (this.config.proTimeout || this.config.timeout) * 2 : this.config.timeout * 2;
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const controller = new AbortController();
+      // Increase timeout for streaming — data arrives in chunks, so we need more wall-clock time
+      const timeoutMs = brainDef.useProModel ? (this.config.proTimeout || this.config.timeout) * 2 : this.config.timeout * 2;
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+      try {
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -807,6 +807,7 @@ const SmartBrains = {
         return text;
 
       } catch (err) {
+        clearTimeout(timer);
         lastError = err;
         if (err._retryable) {
           if (err._stripFileData && !_fileDataStripped) {
@@ -831,14 +832,14 @@ const SmartBrains = {
     for (const fbModel of fallbackModels) {
       if (fbModel === triedModel) continue; // skip the one that already failed
       console.warn(`[Brain:${brainDef.name}] ${triedModel} failed — falling back to ${fbModel}`);
+      const ctrl = new AbortController();
+      const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
         const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
         if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
         const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % this.config.keySlots };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
-        const ctrl = new AbortController();
-        const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
         const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fbBody), signal: ctrl.signal });
         clearTimeout(tmr);
         const { text: fbText, thoughtText: fbThought } = await this._readSSEStream(fbResp, brainDef.name, {
@@ -850,6 +851,7 @@ const SmartBrains = {
         }
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty`);
       } catch (fbErr) {
+        clearTimeout(tmr);
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} failed: ${fbErr.message}`);
       }
     }

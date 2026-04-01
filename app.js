@@ -5512,6 +5512,8 @@ function initExclusionsPanel(container) {
   const autoGenBtn = document.getElementById('excl-auto-generate');
   if (autoGenBtn) {
     autoGenBtn.addEventListener('click', async () => {
+      if (state._exclusionsGenerating) return;
+      state._exclusionsGenerating = true;
       if (!state.aiAnalysis) { if (typeof spToast === 'function') spToast('Run the AI analysis first', 'warning'); return; }
       autoGenBtn.disabled = true;
       autoGenBtn.innerHTML = '<i data-lucide="loader" style="width:12px;height:12px;"></i> Generating...';
@@ -5520,7 +5522,13 @@ function initExclusionsPanel(container) {
         const snippet = (state.aiAnalysis || '').substring(0, 8000);
         const discs = state.disciplines.join(', ');
         const prompt = `Based on this low-voltage estimate analysis for disciplines: ${discs}\n\n${snippet}\n\nGenerate a JSON array of exclusions, assumptions, and clarifications for this project proposal. Each: {"type":"exclusion"|"assumption"|"clarification","text":"...","category":"..."}. Focus on project-specific items beyond standard defaults. Return ONLY the JSON array.`;
-        const resp = await fetch(GEMINI_CONFIG.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ _model: 'gemini-2.5-flash', _brainSlot: 0, contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 2000 } }) });
+        const _ac = new AbortController();
+        const _to = setTimeout(() => _ac.abort(), 30000);
+        let resp;
+        try {
+          resp = await fetch(GEMINI_CONFIG.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ _model: 'gemini-2.5-flash', _brainSlot: 0, contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 2000 } }), signal: _ac.signal });
+        } finally { clearTimeout(_to); }
+        if (!resp.ok) throw new Error('AI service error: ' + resp.status);
         const rawText = await resp.text();
         let aiText = '';
         try {
@@ -5536,7 +5544,8 @@ function initExclusionsPanel(container) {
         let jsonMatch = aiText.match(/\[[\s\S]*\]/);
         if (!jsonMatch) { const cb = aiText.match(/```(?:json)?\s*([\s\S]*?)```/); if (cb) jsonMatch = cb[1].match(/\[[\s\S]*\]/); }
         if (jsonMatch) {
-          const suggestions = JSON.parse(jsonMatch[0]);
+          let suggestions;
+          try { suggestions = JSON.parse(jsonMatch[0]); } catch (pe) { if (typeof spToast === 'function') spToast('Could not parse AI suggestions. Please try again.', 'warning'); return; }
           let added = 0; const newItems = [];
           for (const s of suggestions) {
             if (!s.text || !s.type || !['exclusion','assumption','clarification'].includes(s.type)) continue;
@@ -5553,6 +5562,7 @@ function initExclusionsPanel(container) {
         console.error('[SmartPlans] Auto-generate exclusions error:', err);
         console.error('[SmartPlans]', err); if (typeof spToast === 'function') spToast('Auto-generate failed. Please try again.', 'error');
       } finally {
+        state._exclusionsGenerating = false;
         autoGenBtn.disabled = false;
         autoGenBtn.innerHTML = '<i data-lucide="sparkles" style="width:12px;height:12px;"></i> Auto-Generate';
         if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) { console.warn('Silent error:', e); }
@@ -5563,7 +5573,7 @@ function initExclusionsPanel(container) {
   // Load from API on first render
   if (state.estimateId && !state._exclusionsLoaded) {
     state._exclusionsLoaded = true;
-    fetch(`/api/estimates/${state.estimateId}/exclusions`, { headers: { 'X-App-Token': _appToken } }).then(r => r.json()).then(data => {
+    fetch(`/api/estimates/${state.estimateId}/exclusions`, { headers: { 'X-App-Token': _appToken } }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(data => {
       if (data.exclusions && data.exclusions.length > 0) { state.exclusions = data.exclusions.map(e => ({ ...e, _saved: true })); renderExclList(); }
     }).catch(err => console.warn('[SmartPlans] Failed to load exclusions:', err));
   }

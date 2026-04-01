@@ -2628,7 +2628,7 @@ Return ONLY the JSON array. No other text.`;
                         }
                         // Fallback: if ext cost is still zero but we have a unit cost, use it
                         if ((isNaN(extCost) || extCost === 0) && !isNaN(unitCost) && unitCost > 0) {
-                            extCost = unitCost;
+                            extCost = this._round((!isNaN(qty) && qty > 0 ? qty : 1) * unitCost);
                         }
 
                         // Must have at least a name and some cost data
