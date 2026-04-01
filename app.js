@@ -4060,16 +4060,6 @@ function renderStep7(container) {
         </div>` : ''}
       </div>`;
 
-  // ── BOM Validation Warnings Banner ──
-  if (state._bomValidationWarnings && state._bomValidationWarnings.length > 0) {
-    html += `<div style="margin:12px 0;padding:14px 18px;border-radius:10px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);">
-      <div style="font-weight:700;font-size:13px;color:#F59E0B;margin-bottom:8px;">⚠️ BOM Validation: ${state._bomValidationWarnings.length} Issue(s) Auto-Repaired</div>
-      <div style="font-size:12px;color:var(--text-muted);line-height:1.6;">
-        ${state._bomValidationWarnings.map(w => `<div style="padding:2px 0;">${esc(w)}</div>`).join('')}
-      </div>
-    </div>`;
-  }
-
   // ── Editable BOM Table ──
   let bomTableHtml = '';
   if (state.aiAnalysis) {
@@ -7053,24 +7043,9 @@ async function runGeminiAnalysis(updateProgress) {
       state.analyzing = false;
       state.analysisComplete = true;
       state.completedSteps.add("review");
-      // ── Validate & repair BOM before estimator sees it ──
-      if (state.aiAnalysis) {
-        state.aiAnalysis = validateAndRepairBOM(state.aiAnalysis);
-      }
-      // ── Validate & clamp labor hours to prevent travel blowup ──
-      const _labCalc = result.brainResults?.wave2_25?.LABOR_CALCULATOR;
-      if (_labCalc) {
-        const MAX_HOURS = 50000;
-        const MAX_WEEKS = 52;
-        if (_labCalc.total_hours > MAX_HOURS) {
-          console.warn(`[Labor Validation] total_hours ${_labCalc.total_hours} exceeds ${MAX_HOURS} — clamping`);
-          _labCalc.total_hours = MAX_HOURS;
-        }
-        if (_labCalc.crew_recommendation?.duration_weeks > MAX_WEEKS) {
-          console.warn(`[Labor Validation] duration_weeks ${_labCalc.crew_recommendation.duration_weeks} exceeds ${MAX_WEEKS} — clamping`);
-          _labCalc.crew_recommendation.duration_weeks = MAX_WEEKS;
-        }
-      }
+      // ── BOM & labor validation disabled — letting AI output run unmodified ──
+      // validateAndRepairBOM() and labor hour clamping available but not called.
+      // The temperature=0 and tier anchoring in ai-engine.js handle consistency at the source.
       // Populate AI crew recommendation from Labor Calculator
       const laborCalc = result.brainResults?.wave2_25?.LABOR_CALCULATOR;
       if (laborCalc) {
