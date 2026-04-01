@@ -4147,19 +4147,6 @@ function renderStep7(container) {
 
       ${regenButton}
 
-      <button class="proposal-gen-btn" id="btn-generate-submittal" style="margin-top:10px;background:linear-gradient(135deg,rgba(13,148,136,0.12),rgba(13,148,136,0.04));border:2px solid rgba(13,148,136,0.4);">
-        <div class="proposal-gen-btn__shine" style="background:linear-gradient(90deg,transparent,rgba(13,148,136,0.15),transparent);"></div>
-        <div class="proposal-gen-btn__content">
-          <span class="proposal-gen-btn__icon"><i data-lucide="file-check" style="width:24px;height:24px;color:#0D9488;"></i></span>
-          <div>
-            <div class="proposal-gen-btn__title" style="color:#0D9488;">Generate Submittal Package</div>
-            <div class="proposal-gen-btn__sub">CSI-formatted product submittal with specs, certifications, warranty info, and approval block for GC review</div>
-          </div>
-          <span class="proposal-gen-btn__arrow" style="color:#0D9488;">→</span>
-        </div>
-      </button>
-      <button id="btn-pdf-submittal" style="display:none;margin-top:6px;padding:10px 16px;border-radius:8px;border:1px solid rgba(13,148,136,0.4);background:linear-gradient(135deg,rgba(13,148,136,0.12),rgba(13,148,136,0.04));color:#0D9488;cursor:pointer;font-size:13px;font-weight:700;width:100%;text-align:center;">📄 Save Submittal Package as PDF</button>
-
       <a href="https://smartpm.pages.dev/" target="_blank" rel="noopener" id="btn-open-smartpm" style="display:flex;align-items:center;gap:14px;padding:16px 20px;margin-top:14px;border-radius:12px;border:2px solid rgba(13,148,136,0.4);background:linear-gradient(135deg,rgba(13,148,136,0.08),rgba(13,148,136,0.02));color:var(--text-primary);text-decoration:none;cursor:pointer;transition:all 0.2s;">
         <span style="font-size:28px;"><i data-lucide="building-2" style="width:26px;height:26px;color:#0D9488;"></i></span>
         <div style="flex:1;">
@@ -5113,34 +5100,6 @@ function renderStep7(container) {
     });
   }
 
-  // Submittal Package Generator button
-  const subBtn = document.getElementById("btn-generate-submittal");
-  if (subBtn) {
-    subBtn.addEventListener("click", () => {
-      subBtn.disabled = true;
-      subBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generating Submittal Package…';
-      subBtn.querySelector('.proposal-gen-btn__sub').textContent = 'AI is generating product specs and certifications — please wait';
-      subBtn.classList.add('generating');
-      SubmittalGenerator.generateSubmittal(state, (pct, msg) => {
-        subBtn.querySelector('.proposal-gen-btn__sub').textContent = pct + '% — ' + msg;
-      }).catch(e => {
-        console.error('[Submittal] Failed:', e);
-        subBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generation Failed';
-        subBtn.querySelector('.proposal-gen-btn__sub').textContent = e.message || 'Unknown error';
-        subBtn.classList.remove('generating');
-        if (typeof spToast === 'function') spToast('Submittal failed: ' + (e.message || 'Unknown error'), 'error');
-        setTimeout(() => { subBtn.disabled = false; subBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Submittal Package'; subBtn.querySelector('.proposal-gen-btn__sub').textContent = 'CSI-formatted product submittal with specs, certifications, warranty info, and approval block for GC review'; }, 5000);
-      }).then(() => {
-        subBtn.disabled = false; subBtn.classList.remove('generating');
-        subBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Submittal Package';
-        subBtn.querySelector('.proposal-gen-btn__sub').textContent = 'CSI-formatted product submittal with specs, certifications, warranty info, and approval block for GC review';
-        // Show the PDF button after successful generation
-        const pdfSubBtn = document.getElementById('btn-pdf-submittal');
-        if (pdfSubBtn && SubmittalGenerator._lastSubmittalHTML) pdfSubBtn.style.display = 'block';
-      });
-    });
-  }
-
   // ── PDF Save Buttons — open cached HTML in print window ──
   const pdfProposalBtn = document.getElementById('btn-pdf-proposal');
   if (pdfProposalBtn) {
@@ -5159,15 +5118,6 @@ function renderStep7(container) {
       else spToast('Generate the executive proposal first, then click Save as PDF', 'error');
     });
   }
-  const pdfSubBtn2 = document.getElementById('btn-pdf-submittal');
-  if (pdfSubBtn2) {
-    if (typeof SubmittalGenerator !== 'undefined' && SubmittalGenerator._lastSubmittalHTML) pdfSubBtn2.style.display = 'block';
-    pdfSubBtn2.addEventListener('click', () => {
-      if (SubmittalGenerator._lastSubmittalHTML) openPrintAsPDF(SubmittalGenerator._lastSubmittalHTML);
-      else spToast('Generate the submittal package first, then click Save as PDF', 'error');
-    });
-  }
-
   // ── BOM PDF — render formatted print table ──
   const bomPdfBtn = document.getElementById('export-bom-pdf');
   if (bomPdfBtn) bomPdfBtn.addEventListener('click', () => {
