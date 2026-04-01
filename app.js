@@ -8151,8 +8151,9 @@ async function compareRevision(estimateId, revId) {
     const cur = curData.estimate;
 
     // Parse export data
-    const revExport = typeof rev.export_data === 'string' ? JSON.parse(rev.export_data) : (rev.export_data || {});
-    const curExport = typeof cur.export_data === 'string' ? JSON.parse(cur.export_data) : (cur.export_data || {});
+    let revExport, curExport;
+    try { revExport = typeof rev.export_data === 'string' ? JSON.parse(rev.export_data) : (rev.export_data || {}); } catch { revExport = {}; }
+    try { curExport = typeof cur.export_data === 'string' ? JSON.parse(cur.export_data) : (cur.export_data || {}); } catch { curExport = {}; }
 
     // Extract key metrics for comparison
     const revContract = rev.contract_value || revExport?.pricing?.totalContract || revExport?.pricing?.grandTotal || 0;
@@ -8252,7 +8253,8 @@ async function restoreRevision(estimateId, revId, revNum) {
     if (data.error) throw new Error(data.error);
 
     const rev = data.revision;
-    const exportData = typeof rev.export_data === 'string' ? JSON.parse(rev.export_data) : (rev.export_data || {});
+    let exportData;
+    try { exportData = typeof rev.export_data === 'string' ? JSON.parse(rev.export_data) : (rev.export_data || {}); } catch { exportData = {}; }
 
     // PUT the revision data back as the current estimate
     // (this will auto-trigger a revision save of the current data before overwriting)

@@ -237,10 +237,16 @@ const SmartBrains = {
                         let cleanUri = uploadResult.fileUri;
                         const proxyMatch = cleanUri.match(/___(\s*https?:\/\/[^_]+)___/);
                         if (proxyMatch) { cleanUri = proxyMatch[1].trim(); }
-                        chunkData.fileUri = cleanUri;
-                        chunkData.uploadedName = uploadResult.name;
-                        chunkData._usedKeyName = uploadResult._usedKeyName;
-                        this._log(`[SmartBrains] ✓ Uploaded chunk ${chunkIdx}/${chunks.length}: ${chunkName} → ${cleanUri}`);
+                        if (!/^https:\/\//.test(cleanUri)) {
+                          console.warn(`[SmartBrains] Rejecting non-https File URI for chunk: ${cleanUri}`);
+                          const chunkB64 = await this._fileToBase64(chunk);
+                          chunkData.base64 = chunkB64.base64;
+                        } else {
+                          chunkData.fileUri = cleanUri;
+                          chunkData.uploadedName = uploadResult.name;
+                          chunkData._usedKeyName = uploadResult._usedKeyName;
+                          this._log(`[SmartBrains] ✓ Uploaded chunk ${chunkIdx}/${chunks.length}: ${chunkName} → ${cleanUri}`);
+                        }
                       } else {
                         // Fallback: send chunk as inline base64
                         const chunkB64 = await this._fileToBase64(chunk);
@@ -279,9 +285,15 @@ const SmartBrains = {
                     cleanUri = proxyMatch[1].trim();
                     console.warn(`[SmartBrains] Fixed proxy-mangled File URI → ${cleanUri}`);
                   }
-                  fileData.fileUri = cleanUri;
-                  fileData.uploadedName = uploadResult.name;
-                  fileData._usedKeyName = uploadResult._usedKeyName;
+                  if (!/^https:\/\//.test(cleanUri)) {
+                    console.warn(`[SmartBrains] Rejecting non-https File URI: ${cleanUri}`);
+                    const fb64 = await this._fileToBase64(entry.rawFile);
+                    fileData.base64 = fb64.base64;
+                  } else {
+                    fileData.fileUri = cleanUri;
+                    fileData.uploadedName = uploadResult.name;
+                    fileData._usedKeyName = uploadResult._usedKeyName;
+                  }
                   this._log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${cleanUri} (key: ${uploadResult._usedKeyName})`);
                 } else {
                   console.warn(`[SmartBrains] File API upload returned no URI, falling back to inline for ${entry.name}`);
