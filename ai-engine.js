@@ -1753,61 +1753,33 @@ MATERIAL MARKUP: ${context.markup?.material || 50}%
 ${disciplineChecklist}
 
 ═══ VERIFIED DEVICE COUNTS (from Triple-Read Consensus — USE THESE EXACT QUANTITIES) ═══
-${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
+${JSON.stringify(consensusCounts, null, 2).substring(0, 3000)}
 
-═══ EQUIPMENT SCHEDULE DATA (AUTHORITATIVE — overrides symbol counts if present) ═══
+═══ EQUIPMENT SCHEDULE (AUTHORITATIVE — overrides symbol counts) ═══
 ${(() => {
   const schedData = context.wave1?.ANNOTATION_READER?.schedule_data;
   if (schedData && Object.keys(schedData).length > 0) {
-    return `The following equipment schedule was extracted from the drawings. These are the ARCHITECT'S DEFINITIVE quantities.
-If the schedule says 56 cameras, that is the correct count — even if symbol counting found a different number.
-SCHEDULE DATA:
-${JSON.stringify(schedData, null, 2).substring(0, 4000)}
-
-RULES FOR SCHEDULE vs. SYMBOL CONFLICTS:
-- Schedule counts ALWAYS win over symbol counts
-- Do NOT add symbol-counted devices ON TOP of schedule devices — they are the SAME devices
-- If the schedule specifies model numbers, use those to determine the correct pricing category`;
+    return `Architect's definitive quantities. Schedule counts ALWAYS win over symbol counts. Do NOT add symbol-counted devices on top — they are the SAME devices.
+${JSON.stringify(schedData, null, 2).substring(0, 2500)}`;
   }
-  return 'No equipment schedule found — use consensus counts above as primary source.';
+  return 'No equipment schedule — use consensus counts as primary source.';
 })()}
 
-DETAILED SYMBOL DATA (for reference — schedule and consensus quantities take priority):
-${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.sheets || context.wave1?.SYMBOL_SCANNER || {}, null, 2).substring(0, 5000)}
-
-ANNOTATION NOTES (check for OFCI items — Owner Furnished Contractor Installed):
 ${(() => {
   const annotations = context.wave1?.ANNOTATION_READER?.annotations || [];
-  const ofci = annotations.filter(a => 
-    (a.text || '').toLowerCase().includes('furnished') || 
-    (a.text || '').toLowerCase().includes('ofci') ||
-    (a.text || '').toLowerCase().includes('owner furnished') ||
-    (a.text || '').toLowerCase().includes('by others')
-  );
-  if (ofci.length > 0) {
-    return `⚠️ OFCI ITEMS FOUND — Do NOT price these as materials (labor only):
-${ofci.map(a => `- ${a.text}`).join('\n')}`;
-  }
-  return 'No OFCI annotations found.';
+  const ofci = annotations.filter(a => /furnished|ofci|owner furnished|by others/i.test(a.text || ''));
+  return ofci.length > 0 ? `⚠️ OFCI ITEMS (labor only, do NOT price materials):\n${ofci.map(a => `- ${a.text}`).join('\n')}` : '';
 })()}
 
-MDF/IDF ROOMS & EQUIPMENT:
-${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 4000)}
+MDF/IDF ROOMS: ${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 2000)}
 
-CABLE QUANTITIES & PATHWAYS:
-${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)}
+CABLE PATHWAYS: ${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 2000)}
 
-PRICING DATABASE (use these EXACT prices — do NOT deviate):
-${context.pricingContext || 'Use industry standard pricing'}
+PRICING DATABASE (use EXACT prices — do NOT deviate):
+${(context.pricingContext || 'Use industry standard pricing').substring(0, 8000)}
 
-═══ MANDATORY PRICING RULES ═══
-1. You MUST use the ${tier.toUpperCase()} tier price from the database above for EVERY item.
-   Do NOT randomly select between budget/mid/premium — use ONLY the ${tier.toUpperCase()} tier.
-2. Apply the ${regionMult}× regional multiplier to each ${tier.toUpperCase()} tier price.
-3. If the project type multiplier is shown above, apply it ON TOP of the regional multiplier.
-4. Your final unit cost = database ${tier.toUpperCase()} price × ${regionMult} (region) × project type multiplier (if any).
-5. Do NOT invent prices. If an item is not in the database, use the CLOSEST matching item's price.
-6. CONSISTENCY: If you price an indoor fixed dome camera, use the EXACT "fixed_indoor_dome" price from the database — not a made-up number between budget and premium.
+═══ PRICING RULES ═══
+Use ONLY ${tier.toUpperCase()} tier × ${regionMult} region × project type multiplier (if any). Do NOT invent prices — use closest DB match. Use exact DB key prices (e.g. fixed_indoor_dome), not interpolated values.
 ${(() => {
   const isTransit = (context.projectType || '').toLowerCase().includes('transit') ||
                     (context.projectType || '').toLowerCase().includes('railroad') ||
@@ -1829,133 +1801,35 @@ If your per-camera cost is below $${ptm?.min_camera_cost || 1500}, you are using
   return '';
 })()}
 
-═══ PRICING GUARDRAILS (HARD LIMITS — violations will be rejected) ═══
-These are maximum allowable unit costs. If your calculated cost exceeds these, use the maximum listed.
-Even for transit-rated, ruggedized, or specialty items, the multiplier must not exceed 2.5× the premium tier.
+═══ PRICING GUARDRAILS (max unit costs — clamp if exceeded) ═══
+Max = premium × 2.5. Fixed dome indoor $1300, outdoor $1800 | PTZ $8750 | Panoramic $7000 | Fisheye $8750 | LPR $8000 | NVR $16250 | PoE 8p $950, 24p $2375, 48p $3750 | AC panel $2125 | Reader $1200 | Strike $700 | Monitor 22" $1125, 32" $1875 | Pole $3000 | Patch panel $650
 
-| Equipment Type | Max Unit Cost |
-|---------------|---------------|
-| Fixed Dome Camera (indoor) | $1,300 |
-| Fixed Dome Camera (outdoor) | $1,800 |
-| PTZ Camera (outdoor) | $8,750 |
-| Multi-sensor Panoramic 180° | $7,000 |
-| Multi-sensor Fisheye 360° | $8,750 |
-| LPR/ANPR Camera | $8,000 |
-| NVR/VMS Server | $16,250 |
-| PoE Switch 8-port | $950 |
-| PoE Switch 24-port | $2,375 |
-| PoE Switch 48-port | $3,750 |
-| Access Control Panel 2-door | $2,125 |
-| Card Reader | $1,200 |
-| Electric Strike | $700 |
-| Surveillance Monitor 22" | $1,125 |
-| Surveillance Monitor 32" | $1,875 |
-| Camera Pole 20ft | $3,000 |
-| Patch Panel 48-port | $650 |
+═══ CRITICAL RULES ═══
+1. Create category for EVERY selected discipline — missing one is a FATAL ERROR
+2. Schedule quantities override symbol counts (same devices, not additive)
+3. Use EXACT prices from pricing database × ${regionMult} regional multiplier. Verify: Qty × Unit Cost × ${regionMult} = Extended
+4. Access Control: include panels, readers, contacts, REX, strikes/maglocks, DPS, cabling, power supplies
+5. Each camera/access point: include mount hardware, cable, connectors, head-end (NVR, switch, license)
+6. Include MDF/IDF: racks, patch panels, UPS, grounding (TMGB/TGB), cable management
+7. Include backbone/riser cables, ~150ft/drop for station cable
+8. Do NOT price OFCI items as materials — labor only
+9. Include UPS, inverters, ATS, battery backup, PDUs, surge protectors from all sources
+10. EVERY item MUST have non-empty "mfg" and "partNumber" fields
 
-Formula: Max = PRICING_DB premium price × 2.5 (accounts for transit-rated/ruggedized)
-If your unit cost exceeds the max, CLAMP it to the max value.
+═══ SPECIFIED PRODUCTS ═══
+${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.specified_products || [], null, 2).substring(0, 1500)}
+${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.power_equipment_found || [], null, 2).substring(0, 1000)}
 
-CRITICAL RULES:
-1. You MUST create a category for EVERY discipline listed above — do NOT skip any discipline that has devices in the consensus counts or symbol data
-2. If the EQUIPMENT SCHEDULE exists, use its quantities as the DEFINITIVE source. Do NOT add symbol-counted devices on top of schedule quantities — they are the SAME devices seen from different sources
-3. If NO schedule exists, use consensus counts: if consensus says 24 cameras, price EXACTLY 24 cameras
-4. For Access Control: include controllers, card readers, door contacts, REX devices, electric strikes/maglocks, door position switches, cabling, and power supplies
-5. For each camera or access point, include mounting hardware, cable, connectors, and associated head-end equipment (NVR, switches, license)
-6. Use the EXACT prices from the pricing database. Apply the ${regionMult}× regional multiplier to all unit costs
-7. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost (VERIFY YOUR MATH on every single row)
-8. Include ALL MDF/IDF equipment: racks, patch panels, UPS, grounding busbars (TMGB/TGB), cable management
-9. Include backbone/riser cables from CABLE QUANTITIES section — do NOT omit fiber or copper backbone
-10. Cable quantities: use ~150ft average per data drop, verify against CABLE_PATHWAY data
-11. Do NOT price OFCI (Owner Furnished) items as materials — include labor only for installation
-12. NEVER exceed the pricing guardrail maximums listed above — clamp to the max if your calculation is higher
+DEFAULT MANUFACTURERS (when not specified): Cabling: Panduit/CommScope/Corning | CCTV: Axis/Hanwha/Bosch/Genetec | Access: HID/Lenel/Mercury/Assa Abloy | Fire: Notifier/EST/Simplex | AV: Crestron/Extron/QSC | Network: Cisco/Aruba | Power: APC/Eaton/Altronix
 
-═══ UPS, INVERTERS & POWER EQUIPMENT (MANDATORY) ═══
-You MUST check ALL sources (schedules, plans, specs) for power equipment and price them:
-- UPS units — price based on kVA rating and form factor (rack-mount, tower)
-- Inverters — power inverters, solar inverters, frequency inverters
-- Transfer switches (ATS/STS) — automatic or manual
-- Battery backup systems (standalone or integrated)
-- Power supplies for access control, fire alarm, intrusion (Altronix, LifeSafety Power)
-- PDUs — basic, metered, switched, per-outlet monitoring
-- Surge protectors / SPDs (Surge Protective Devices)
-These are HIGH-VALUE items. Missing a $5,000 UPS or $3,000 transfer switch destroys your margin.
+═══ WASTE & SPARES (MANDATORY) ═══
+Cable waste +12%, conduit +8%, spare parts/attic stock 5% of each device qty (rounded up), consumables 2.5% of total material cost, connector overage 15%
 
-═══ DOCUMENT-SPECIFIED MANUFACTURERS & PART NUMBERS ═══
-Check the Spec Cross-Reference data below for SPECIFIED PRODUCTS:
-${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.specified_products || [], null, 2).substring(0, 3000)}
-
-SPECIFIED POWER EQUIPMENT:
-${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.power_equipment_found || [], null, 2).substring(0, 2000)}
-
-SCHEDULE DATA (may include manufacturer and model):
-${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || [], null, 2).substring(0, 3000)}
-
-RULES FOR PART NUMBERS (MANDATORY — items without these are REJECTED):
-- If the specs or plans SPECIFY a manufacturer and part number, USE THEM EXACTLY
-- If specs say "or approved equal", use the specified product as primary
-- If NO manufacturer is specified, use standard industry products:
-  * Structured Cabling: Panduit, CommScope/Systimax, Corning (fiber), Belden
-  * CCTV: Axis Communications, Hanwha/Samsung, Bosch, Genetec (VMS)
-  * Access Control: HID (readers), Lenel/LenelS2, Mercury (panels), Assa Abloy (locks)
-  * Fire Alarm: Notifier/Honeywell, EST/Edwards, Simplex, Bosch
-  * Audio Visual: Crestron, Extron, QSC, Samsung (displays), Biamp
-  * Network: Cisco, Aruba, Juniper
-  * Power: APC/Schneider (UPS), Eaton, Altronix (power supplies), LifeSafety Power
-- EVERY item in the "items" array MUST have non-empty "mfg" and "partNumber" fields
-- If you don't know the exact part number, use the manufacturer's common model series (e.g., "P3245-V" for Axis dome, "iCLASS SE R10" for HID reader)
-- BLANK mfg or partNumber is a FATAL ERROR — the system will REJECT your output
-
-═══ MANDATORY SELF-CHECK (do this before returning) ═══
-Before responding, verify:
-1. Your output includes a category for EACH selected discipline listed above
-2. EVERY item has a non-empty "mfg" field (manufacturer name)
-3. EVERY item has a non-empty "partNumber" field (model or part number)
-If ANY item is missing mfg or partNumber, FIX IT NOW before returning.
-If ANY selected discipline is missing from your categories array, ADD IT NOW with all required materials.
-Missing an entire discipline is a FATAL ERROR that will cause catastrophic underestimation.
-
-═══ WASTE FACTOR, SPARE PARTS & CONSUMABLES ═══
-You MUST add these to your output — they are REAL costs that every project incurs:
-1. CABLE WASTE FACTOR: Add 12% to all cable quantities. Cable gets cut, pulled wrong, rejected, damaged. Price the waste.
-2. CONDUIT WASTE: Add 8% to all conduit quantities. Mis-cuts, damaged sticks, offcuts.
-3. SPARE PARTS / ATTIC STOCK: Add a category called "Spare Parts & Attic Stock" with 5% of each device type quantity (cameras, readers, detectors, outlets, etc.) rounded up. Most specs REQUIRE attic stock delivery to owner.
-4. SMALL TOOLS & CONSUMABLES: Add a line item "Small Tools & Consumables" = 2.5% of total material cost. This covers drill bits, saw blades, anchors, screws, bolts, zip ties, tape, markers, velcro, cable lube, etc.
-5. CONNECTOR & TERMINATION SUPPLIES: Ensure you have enough RJ45 connectors, splice cassettes, heat shrink, crimp connectors, wire nuts, etc. (at least 15% overage on connectors).
+═══ SELF-CHECK ═══
+Verify before returning: every discipline has a category, every item has mfg + partNumber, math is correct.
 
 Return ONLY valid JSON:
-{
-  "categories": [
-    {
-      "name": "Structured Cabling",
-      "items": [
-        { "item": "Cat 6A Plenum Cable", "qty": 30000, "unit": "ft", "unit_cost": 0.32, "ext_cost": 9600.00, "mfg": "Panduit", "partNumber": "PUP6AV04BU-CEG" },
-        { "item": "Cat 6A Cable — Waste Factor (12%)", "qty": 3600, "unit": "ft", "unit_cost": 0.32, "ext_cost": 1152.00, "mfg": "Panduit", "partNumber": "PUP6AV04BU-CEG" }
-      ],
-      "subtotal": 45200.00
-    },
-    {
-      "name": "Spare Parts & Attic Stock",
-      "items": [
-        { "item": "Spare cameras (5%)", "qty": 2, "unit": "ea", "unit_cost": 380.00, "ext_cost": 760.00 }
-      ],
-      "subtotal": 0
-    },
-    {
-      "name": "Small Tools & Consumables",
-      "items": [
-        { "item": "Misc consumables (drill bits, anchors, screws, ties, tape, markers)", "qty": 1, "unit": "lot", "unit_cost": 0, "ext_cost": 0 }
-      ],
-      "subtotal": 0
-    }
-  ],
-  "grand_total": 125000.00,
-  "waste_factor_total": 0,
-  "spare_parts_total": 0,
-  "consumables_total": 0,
-  "markup_pct": ${context.markup?.material || 50},
-  "total_with_markup": 156250.00
-}`;
+{"categories":[{"name":"Structured Cabling","items":[{"item":"Cat 6A Plenum Cable","qty":30000,"unit":"ft","unit_cost":0.32,"ext_cost":9600.00,"mfg":"Panduit","partNumber":"PUP6AV04BU-CEG"}],"subtotal":45200.00},{"name":"Spare Parts & Attic Stock","items":[{"item":"Spare cameras (5%)","qty":2,"unit":"ea","unit_cost":380,"ext_cost":760}],"subtotal":760},{"name":"Small Tools & Consumables","items":[{"item":"Consumables","qty":1,"unit":"lot","unit_cost":0,"ext_cost":0}],"subtotal":0}],"grand_total":125000,"waste_factor_total":0,"spare_parts_total":0,"consumables_total":0,"markup_pct":${context.markup?.material || 50},"total_with_markup":156250}`;
       },
 
       // ── BRAIN 7: Labor Calculator ────────────────────────────
@@ -3526,7 +3400,9 @@ Return ONLY valid JSON:
       ctx += `  THIS IS MANDATORY — prices BELOW these minimums will result in a losing bid.\n\n`;
     }
 
-    const categories = {
+    // Only include pricing categories relevant to selected disciplines
+    const disciplines = (state.disciplines || []).map(d => d.toLowerCase());
+    const allCategories = {
       'Structured Cabling': PRICING_DB.structuredCabling,
       'CCTV': PRICING_DB.cctv,
       'Access Control': PRICING_DB.accessControl,
@@ -3534,24 +3410,33 @@ Return ONLY valid JSON:
       'Intrusion Detection': PRICING_DB.intrusionDetection,
       'Audio Visual': PRICING_DB.audioVisual,
     };
+    const disciplineMap = {
+      'Structured Cabling': ['cabling', 'structured', 'data', 'network'],
+      'CCTV': ['cctv', 'camera', 'surveillance', 'video'],
+      'Access Control': ['access', 'door', 'entry'],
+      'Fire Alarm': ['fire', 'alarm', 'life safety'],
+      'Intrusion Detection': ['intrusion', 'burglar', 'security'],
+      'Audio Visual': ['audio', 'av', 'visual', 'display'],
+    };
 
-    for (const [catName, catData] of Object.entries(categories)) {
+    for (const [catName, catData] of Object.entries(allCategories)) {
       if (!catData) continue;
+      // Filter: include if no disciplines selected or if discipline matches
+      const keywords = disciplineMap[catName] || [];
+      const relevant = disciplines.length === 0 || disciplines.some(d => keywords.some(k => d.includes(k)));
+      if (!relevant) continue;
+
       ctx += `\n${catName}:\n`;
       for (const [subCat, items] of Object.entries(catData)) {
         for (const [key, item] of Object.entries(items)) {
           if (typeof item === 'object' && item[tier] !== undefined) {
             let adjusted = +(item[tier] * regionMult).toFixed(2);
-            // Apply project type equipment multiplier to device prices
-            if (ptMult && ptMult.equipment_multiplier > 1.0 && 
-                (key.includes('camera') || key.includes('ptz') || key.includes('multisensor') || 
-                 key.includes('nvr') || key.includes('lpr') || key.includes('thermal') ||
-                 key.includes('reader') || key.includes('panel') || key.includes('poe_switch') ||
-                 key.includes('monitor') || key.includes('dome') || key.includes('bullet'))) {
+            if (ptMult && ptMult.equipment_multiplier > 1.0 &&
+                /camera|ptz|multisensor|nvr|lpr|thermal|reader|panel|poe_switch|monitor|dome|bullet/.test(key)) {
               adjusted = +(adjusted * ptMult.equipment_multiplier).toFixed(2);
-              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'} (${item.description || ''}) [${ptMult.equipment_multiplier}× transit-rated]\n`;
+              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'} [${ptMult.equipment_multiplier}× transit]\n`;
             } else {
-              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'} (${item.description || ''})\n`;
+              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'}\n`;
             }
           }
         }
@@ -3599,7 +3484,7 @@ Return ONLY valid JSON:
       }
     }
 
-    return ctx.substring(0, 15000);
+    return ctx.substring(0, 8000);
   },
 
 
