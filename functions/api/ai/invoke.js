@@ -8,6 +8,11 @@ export async function onRequestPost(context) {
     const { env, request } = context;
 
     try {
+        const contentLength = parseInt(request.headers.get('Content-Length') || '0', 10);
+        if (contentLength > 50 * 1024 * 1024) {
+            return new Response(JSON.stringify({ error: 'Payload too large' }), { status: 413, headers: { 'Content-Type': 'application/json' } });
+        }
+
         const body = await request.json();
 
         // Extract SmartBrains metadata
@@ -130,7 +135,7 @@ export async function onRequestPost(context) {
                     // Include sanitized Google error for debugging (strip API keys)
                     const safeErr = errText.replace(/key=[^&"\s]+/gi, 'key=REDACTED').substring(0, 300);
                     await writer.write(encoder.encode(
-                        `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, message: 'AI service temporarily unavailable', _debug: safeErr})}\n\n`
+                        `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, message: 'AI service temporarily unavailable'})}\n\n`
                     ));
                     await writer.close();
                     return;

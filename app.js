@@ -892,7 +892,7 @@ function generateMasterReport() {
     </style>`;
 
   // ═══ COVER PAGE ═══
-  let html = `<html><head><meta charset="utf-8"><title>${state.projectName || 'SmartPlans'} — Master Report</title>${styles}</head><body>`;
+  let html = `<html><head><meta charset="utf-8"><title>${esc(state.projectName || 'SmartPlans')} — Master Report</title>${styles}</head><body>`;
 
   html += `
     <div style="text-align:center;margin-top:10px;">
@@ -2655,14 +2655,14 @@ function renderStep0(container) {
   }
   const burdenInput = document.getElementById("burden-rate");
   if (burdenInput) {
-    burdenInput.addEventListener("change", e => { state.burdenRate = parseInt(e.target.value) || 0; renderStep0(container); });
+    burdenInput.addEventListener("change", e => { state.burdenRate = parseFloat(e.target.value) || 0; renderStep0(container); });
   }
 
   // Markup inputs
   document.querySelectorAll(".markup-input").forEach(input => {
     input.addEventListener("change", e => {
       const key = e.target.id.replace("markup-", "");
-      let val = parseInt(e.target.value) || 0;
+      let val = parseFloat(e.target.value) || 0;
       if (val < 0) { val = 0; e.target.value = val; showValidationToast(["Markup cannot be negative."]); }
       else if (val > 500) { val = 500; e.target.value = val; showValidationToast(["Markup cannot exceed 500%."]); }
       state.markup[key] = val;
@@ -5012,24 +5012,22 @@ function renderStep7(container) {
 
       ProposalGenerator.renderAndDownload(state, (pct, msg) => {
         regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
+      }).then(() => {
+        regenProposalBtn.disabled = false;
+        regenProposalBtn.classList.remove('generating');
+        regenProposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Regenerate Proposal with Updated Pricing';
+        regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Uses your manually edited quantities and supplier pricing';
       }).catch(e => {
         console.error('[RegenProposal] Failed:', e);
-        regenProposalBtn.querySelector('.proposal-gen-btn__title').textContent = '❌ Regeneration Failed';
-        regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = e.message || 'Unknown error';
         regenProposalBtn.classList.remove('generating');
-        if (typeof spToast === 'function') spToast('Proposal regeneration failed: ' + (e.message || 'Unknown error'), 'error');
+        regenProposalBtn.querySelector('.proposal-gen-btn__title').textContent = '❌ Regeneration Failed';
+        regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Please try again';
+        if (typeof spToast === 'function') spToast('Proposal regeneration failed. Please try again.', 'error');
         setTimeout(() => {
           regenProposalBtn.disabled = false;
           regenProposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Regenerate Proposal with Updated Pricing';
           regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Uses your manually edited quantities and supplier pricing';
         }, 5000);
-      }).then(result => {
-        if (result !== undefined || !regenProposalBtn.classList.contains('error')) {
-          regenProposalBtn.disabled = false;
-          regenProposalBtn.classList.remove('generating');
-          regenProposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Regenerate Proposal with Updated Pricing';
-          regenProposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Uses your manually edited quantities and supplier pricing';
-        }
       });
     });
   }
@@ -5197,29 +5195,27 @@ function renderStep7(container) {
 
       ProposalGenerator.renderAndDownload(state, (pct, msg) => {
         proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
+      }).then(() => {
+        proposalBtn.disabled = false;
+        proposalBtn.classList.remove('generating');
+        proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Full Proposal (10+ pages)';
+        proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications';
+        // Show the PDF button after successful generation
+        const pdfProposalBtn = document.getElementById('btn-pdf-proposal');
+        if (pdfProposalBtn && ProposalGenerator._lastFullProposalHTML) pdfProposalBtn.style.display = 'block';
       }).catch(e => {
         console.error('[ProposalGen] Failed:', e);
-        proposalBtn.querySelector('.proposal-gen-btn__title').textContent = '❌ Proposal Generation Failed';
-        proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = e.message || 'Unknown error — check console for details';
         proposalBtn.classList.remove('generating');
         proposalBtn.classList.add('error');
-        if (typeof spToast === 'function') spToast('Proposal failed: ' + (e.message || 'Unknown error'), 'error');
+        proposalBtn.querySelector('.proposal-gen-btn__title').textContent = '❌ Proposal Generation Failed';
+        proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Please try again';
+        if (typeof spToast === 'function') spToast('Proposal generation failed. Please try again.', 'error');
         setTimeout(() => {
           proposalBtn.disabled = false;
           proposalBtn.classList.remove('error');
           proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Full Proposal (10+ pages)';
           proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications';
         }, 5000);
-      }).then(result => {
-        if (result !== undefined || !proposalBtn.classList.contains('error')) {
-          proposalBtn.disabled = false;
-          proposalBtn.classList.remove('generating');
-          proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Full Proposal (10+ pages)';
-          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications';
-          // Show the PDF button after successful generation
-          const pdfProposalBtn = document.getElementById('btn-pdf-proposal');
-          if (pdfProposalBtn && ProposalGenerator._lastFullProposalHTML) pdfProposalBtn.style.display = 'block';
-        }
       });
     });
   }

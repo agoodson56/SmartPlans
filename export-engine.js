@@ -8,6 +8,17 @@ const SmartPlansExport = {
 
     _round(val) { return Math.round((val || 0) * 100) / 100; },
 
+    _recalculateBOMTotals(bom) {
+        bom.grandTotal = 0;
+        for (const cat of bom.categories) {
+            cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
+            cat.subtotal = this._round(cat.subtotal);
+            bom.grandTotal += cat.subtotal;
+        }
+        bom.grandTotal = this._round(bom.grandTotal);
+        return bom;
+    },
+
     // ─── Build structured data package ─────────────────────────
     buildExportPackage(state) {
         const now = new Date();
@@ -50,13 +61,7 @@ const SmartPlansExport = {
                 }
             }
             // Recalculate category subtotals and grand total
-            bom.grandTotal = 0;
-            for (const cat of bom.categories) {
-                cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
-                cat.subtotal = this._round(cat.subtotal);
-                bom.grandTotal += cat.subtotal;
-            }
-            bom.grandTotal = this._round(bom.grandTotal);
+            this._recalculateBOMTotals(bom);
         }
 
         // Filter BOM to only include categories for selected disciplines
@@ -1318,7 +1323,8 @@ const SmartPlansExport = {
         bom = this._filterBOMByDisciplines(bom, state.disciplines);
 
         if (bom.categories.length === 0) {
-            alert('No material data found in the AI analysis. Please run the analysis first.');
+            console.warn('[SmartPlans] No material data found in the AI analysis. Please run the analysis first.');
+            if (typeof spToast === 'function') spToast('No material data found in the AI analysis. Please run the analysis first.', 'error');
             return;
         }
 
@@ -1489,7 +1495,8 @@ const SmartPlansExport = {
             this._download(csv, `SmartPlans_BOM_${this._safeName(state)}.csv`, 'text/csv');
         } catch (err) {
             console.error('[SmartPlans] BOM CSV fallback failed:', err);
-            alert('BOM export failed. Please try the Excel or JSON export instead.');
+            console.warn('[SmartPlans] BOM export failed. Please try the Excel or JSON export instead.');
+            if (typeof spToast === 'function') spToast('BOM export failed. Please try the Excel or JSON export instead.', 'error');
         }
     },
 
@@ -1687,7 +1694,8 @@ const SmartPlansExport = {
             this._download(csv, `SmartPlans_${this._safeName(state)}.csv`, 'text/csv');
         } catch (csvErr) {
             console.error('[SmartPlans] CSV fallback also failed:', csvErr);
-            alert('Export failed. Please try the JSON or Markdown option instead.');
+            console.warn('[SmartPlans] Export failed. Please try the JSON or Markdown option instead.');
+            if (typeof spToast === 'function') spToast('Export failed. Please try the JSON or Markdown option instead.', 'error');
         }
     },
 
@@ -1919,7 +1927,8 @@ const SmartPlansExport = {
         const estimateId = state.estimateId || state.projectId || '';
 
         if (bom.categories.length === 0) {
-            alert('No material data found in the AI analysis. Please run the analysis first.');
+            console.warn('[SmartPlans] No material data found in the AI analysis. Please run the analysis first.');
+            if (typeof spToast === 'function') spToast('No material data found in the AI analysis. Please run the analysis first.', 'error');
             return;
         }
 
@@ -2373,6 +2382,14 @@ Return ONLY the JSON array. No other text.`;
             throw new Error('AI returned malformed pricing data. Try again or use an Excel file.');
         }
 
+        matches = matches.filter(m => {
+            if (typeof m !== 'object' || m === null) return false;
+            if (typeof m.bomIndex !== 'number' || !Number.isInteger(m.bomIndex) || m.bomIndex < 0) return false;
+            if (typeof m.supplierUnitCost !== 'number' || !isFinite(m.supplierUnitCost) || m.supplierUnitCost < 0) return false;
+            return true;
+        });
+        if (matches.length === 0) throw new Error('AI returned no valid pricing matches. Try a different file format.');
+
         // Step 7: Build overrides from AI matches
         const overrides = {};
         let itemsUpdated = 0;
@@ -2825,13 +2842,7 @@ Return ONLY the JSON array. No other text.`;
                     if (override.isSubstitute) item._isSubstitute = true;
                 }
             }
-            bom.grandTotal = 0;
-            for (const cat of bom.categories) {
-                cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
-                cat.subtotal = this._round(cat.subtotal);
-                bom.grandTotal += cat.subtotal;
-            }
-            bom.grandTotal = this._round(bom.grandTotal);
+            this._recalculateBOMTotals(bom);
         }
 
         // Flatten our items

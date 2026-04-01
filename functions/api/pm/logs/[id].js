@@ -26,7 +26,7 @@ export async function onRequestDelete(context) {
 
     try {
         const logId = params.id;
-        if (!logId || String(logId).length > 64) {
+        if (!logId || String(logId).length > 64 || !/^[a-zA-Z0-9_-]+$/.test(logId)) {
             return Response.json({ error: 'Invalid log ID' }, { status: 400 });
         }
 

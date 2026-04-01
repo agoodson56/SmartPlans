@@ -553,12 +553,16 @@ const SmartBrains = {
         ]).catch(err => {
           if (err.message === 'SSE_IDLE_TIMEOUT') {
             reader.cancel();
-            throw { _retryable: true, status: 504, message: `SSE stream idle timeout — no data received for ${timeoutMs / 1000}s` };
+            throw Object.assign(new Error(`SSE stream idle timeout — no data received for ${timeoutMs / 1000}s`), { _retryable: true, status: 504 });
           }
           throw err;
         });
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
+
+        if (buffer.length > 10_000_000) {
+            throw new Error('SSE response exceeded 10MB buffer limit');
+        }
 
         const lines = buffer.split('\n');
         buffer = lines.pop(); // Keep incomplete line in buffer
@@ -778,11 +782,11 @@ const SmartBrains = {
           onProxyError: (chunk) => {
             const errStatus = chunk.status || 500;
             if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
-              throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
+              throw Object.assign(new Error(chunk.message || `API ${errStatus}`), { _retryable: true, status: errStatus });
             }
             if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google 400 detail: ${chunk._debug}`);
             if (errStatus === 400 && hasFileData) {
-              throw { _retryable: true, _stripFileData: true, status: 400, message: 'fileData rejected — will retry with inline_data only' };
+              throw Object.assign(new Error('fileData rejected — will retry with inline_data only'), { _retryable: true, _stripFileData: true, status: 400 });
             }
             throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
           },

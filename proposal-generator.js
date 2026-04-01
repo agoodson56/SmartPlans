@@ -6,7 +6,6 @@
 
 const ProposalGenerator = {
 
-  _round(val) { return Math.round((val || 0) * 100) / 100; },
 
   COMPANY: {
     name: '3D Technology Services, Inc.',
@@ -302,7 +301,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
 <meta charset="UTF-8">
 <meta name="ProgId" content="Word.Document">
 <meta name="Generator" content="SmartPlans v3.0">
-<title>${this._esc(projName)} — Professional Proposal | ${co.name}</title>
+<title>${this._escText(projName)} — Professional Proposal | ${co.name}</title>
 <!--[if gte mso 9]>
 <xml>
   <w:WordDocument>
@@ -479,11 +478,11 @@ COVER PAGE — Word-native table layout (renders perfectly)
   <tr>
     <td bgcolor="${b.gold}" style="width:5pt;">&nbsp;</td>
     <td style="padding-left:16pt;">
-      <span style="font-size:26pt;font-weight:bold;color:${b.navy};font-family:Calibri,Arial,sans-serif;">${this._esc(projName)}</span>
+      <span style="font-size:26pt;font-weight:bold;color:${b.navy};font-family:Calibri,Arial,sans-serif;">${this._escText(projName)}</span>
     </td>
   </tr>
 </table>
-<p style="font-size:13pt;color:${b.gray};margin-left:21pt;margin-bottom:0;">${this._esc(projLoc)}</p>
+<p style="font-size:13pt;color:${b.gray};margin-left:21pt;margin-bottom:0;">${this._escText(projLoc)}</p>
 
 <br><br><br>
 
@@ -492,10 +491,10 @@ COVER PAGE — Word-native table layout (renders perfectly)
   <tr valign="top">
     <td width="48%" style="padding-right:24pt;">
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Prepared For</p>
-      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._esc(preparedFor)}</p>
+      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._escText(preparedFor)}</p>
 
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Project Name</p>
-      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._esc(projName)}</p>
+      <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${this._escText(projName)}</p>
 
       <p style="font-size:7.5pt;color:${b.teal};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Date Submitted</p>
       <p style="font-size:11pt;color:#222;font-weight:500;margin-bottom:14pt;">${dateStr}</p>
@@ -807,12 +806,14 @@ ACCEPTANCE & SIGNATURE BLOCK
   // ─── Sanitize HTML to prevent XSS from AI-generated content ───
   _sanitizeHtml(html) {
     if (!html) return '';
+    // Strip ALL <style> tags and their content
+    html = html.replace(/<style[\s\S]*?<\/style>/gi, '');
     // Strip dangerous tags (script, iframe, object, embed, form, meta, base, link)
     html = html.replace(/<\s*\/?\s*(script|iframe|object|embed|form|meta|base|link)\b[^>]*>/gi, '');
-    // Strip <style> tags that contain expressions (IE expression hack)
-    html = html.replace(/<style\b[^>]*>[\s\S]*?expression\s*\([\s\S]*?<\/style>/gi, '');
-    // Strip on* event handler attributes (onclick, onerror, onload, etc.)
-    html = html.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    // Strip on* event handler attributes (handles whitespace between "on" and event name)
+    html = html.replace(/\s+on\s*\w+\s*=/gi, ' data-removed=');
+    // Block data: URIs in src and href attributes
+    html = html.replace(/(src|href)\s*=\s*["']?\s*data:/gi, '$1=_blocked:');
     // Strip javascript: URLs in href and src attributes
     html = html.replace(/(href|src)\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '$1=""');
     // Also catch unquoted javascript: URLs
@@ -824,11 +825,6 @@ ACCEPTANCE & SIGNATURE BLOCK
     return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   },
 
-  _esc(str) {
-    const d = document.createElement('div');
-    d.textContent = str || '';
-    return d.innerHTML;
-  },
 
   // ═══════════════════════════════════════════════════════════════
   // DETERMINISTIC FINANCIAL TABLE — Built from BOM data, never AI
@@ -1229,7 +1225,7 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The 
 <meta charset="UTF-8">
 <meta name="ProgId" content="Word.Document">
 <meta name="Generator" content="SmartPlans v3.0 Executive">
-<title>${this._esc(projName)} — Executive Proposal | ${co.name}</title>
+<title>${this._escText(projName)} — Executive Proposal | ${co.name}</title>
 <!--[if gte mso 9]>
 <xml>
   <w:WordDocument>
@@ -1311,11 +1307,11 @@ PAGE 1 — STUNNING COVER PAGE
   <tr>
     <td bgcolor="${b.gold}" style="width:6pt;">&nbsp;</td>
     <td style="padding-left:18pt;">
-      <span style="font-size:28pt;font-weight:bold;color:${b.navy};font-family:Calibri,Arial,sans-serif;">${this._esc(projName)}</span>
+      <span style="font-size:28pt;font-weight:bold;color:${b.navy};font-family:Calibri,Arial,sans-serif;">${this._escText(projName)}</span>
     </td>
   </tr>
 </table>
-<p style="font-size:13pt;color:${b.gray};margin-left:24pt;margin-bottom:0;">${this._esc(projLoc)}</p>
+<p style="font-size:13pt;color:${b.gray};margin-left:24pt;margin-bottom:0;">${this._escText(projLoc)}</p>
 
 <br><br><br><br><br><br>
 
@@ -1324,7 +1320,7 @@ PAGE 1 — STUNNING COVER PAGE
   <tr>
     <td bgcolor="${b.navy}" width="50%" style="color:white;vertical-align:top;border-right:3pt solid ${b.gold};">
       <p style="font-size:7pt;color:${b.gold};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Prepared For</p>
-      <p style="font-size:13pt;color:white;font-weight:bold;margin-bottom:10pt;">${this._esc(preparedFor)}</p>
+      <p style="font-size:13pt;color:white;font-weight:bold;margin-bottom:10pt;">${this._escText(preparedFor)}</p>
       <p style="font-size:7pt;color:${b.gold};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Date</p>
       <p style="font-size:11pt;color:white;margin-bottom:10pt;">${dateStr}</p>
       <p style="font-size:7pt;color:${b.gold};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;margin-bottom:2pt;">Reference</p>
@@ -1358,7 +1354,7 @@ PAGE 2 — EXECUTIVE SUMMARY, SCOPE & PRICING TABLE
 <table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:16pt;">
   <tr>
     <td bgcolor="${b.navy}" style="border-bottom:3pt solid ${b.gold};">
-      <span style="font-size:10pt;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-weight:bold;">${this._esc(projName)}</span>
+      <span style="font-size:10pt;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-weight:bold;">${this._escText(projName)}</span>
       <span style="font-size:9pt;color:rgba(255,255,255,0.6);float:right;">${co.name}</span>
     </td>
   </tr>
