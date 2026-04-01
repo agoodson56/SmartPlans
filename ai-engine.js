@@ -1057,8 +1057,27 @@ const SmartBrains = {
     const schema = this._SCHEMAS[brainKey];
     if (!schema) return { valid: true };
 
-    // Check required fields exist
-    const missing = schema.filter(field => !(field in parsed));
+    // Check required fields exist — also try unwrapping if AI nested the response
+    let missing = schema.filter(field => !(field in parsed));
+    if (missing.length > 0) {
+      // AI sometimes wraps output in an extra object layer — try to unwrap
+      const innerKeys = Object.keys(parsed).filter(k => !k.startsWith('_'));
+      if (innerKeys.length === 1 && typeof parsed[innerKeys[0]] === 'object' && parsed[innerKeys[0]] !== null) {
+        const inner = parsed[innerKeys[0]];
+        const innerMissing = schema.filter(field => !(field in inner));
+        if (innerMissing.length < missing.length) {
+          // Inner object is a better match — promote its fields
+          for (const [k, v] of Object.entries(inner)) { parsed[k] = v; }
+          missing = schema.filter(field => !(field in parsed));
+        }
+      }
+      // AI sometimes returns array directly when object with array field expected
+      if (Array.isArray(parsed) && missing.length === 1 && Array.isArray(schema) && schema.length > 0) {
+        const promoted = { [schema[0]]: parsed };
+        for (const [k, v] of Object.entries(promoted)) { parsed[k] = v; }
+        missing = schema.filter(field => !(field in parsed));
+      }
+    }
     if (missing.length > 0) {
       return { valid: false, reason: `Missing required fields: ${missing.join(', ')}` };
     }
@@ -1179,7 +1198,7 @@ For EACH issue found, classify severity:
 🟡 WARNING — Potential non-compliance, needs verification
 🔵 INFO — Best practice recommendation
 
-Return ONLY valid JSON:
+Return ONLY a valid JSON object. The top-level keys MUST be "issues", "summary", "permits_required", and "inspections_required" — no wrapper object, no array, no markdown:
 {
   "issues": [
     {
@@ -1194,7 +1213,8 @@ Return ONLY valid JSON:
   "summary": { "critical": 0, "warning": 0, "info": 0 },
   "permits_required": ["Fire alarm permit","Low voltage permit"],
   "inspections_required": ["AHJ fire alarm inspection"]
-}`,
+}
+If no code issues are found, return: {"issues":[],"summary":{"critical":0,"warning":0,"info":0},"permits_required":[],"inspections_required":[]}`,
 
       // ── BRAIN 3: MDF/IDF Analyzer ────────────────────────────
       MDF_IDF_ANALYZER: () => `You are a TELECOM INFRASTRUCTURE SPECIALIST analyzing MDF/IDF/TR rooms.
