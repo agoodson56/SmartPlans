@@ -322,7 +322,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     mso-paper-source: 0;
   }
 
-  @page Section1 { mso-header: h1; mso-footer: f1; }
+  @page Section1 { mso-footer: f1; }
   div.Section1 { page: Section1; }
 
   body {
@@ -415,28 +415,21 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     margin-bottom: 14pt;
   }
 
-  /* ── Confidential Footer Bar (inline on every page) ── */
-  .conf-footer {
-    text-align: center;
-    font-size: 7.5pt;
-    font-weight: bold;
-    color: ${b.navy};
-    text-transform: uppercase;
-    letter-spacing: 3pt;
-    font-family: Calibri, Arial, sans-serif;
-    margin: 0;
-    padding: 6pt 0 2pt 0;
-    border-top: 1.5pt solid ${b.teal};
-  }
+  /* MsoFooter — Word recognizes this class for footer content */
+  p.MsoFooter { margin: 0; }
 </style>
 </head>
 <body>
 
 <!-- Word footer — appears on EVERY page in MS Word -->
 <div style="mso-element:footer" id="f1">
-  <p style="text-align:center;font-size:8pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding-top:4pt;border-top:1pt solid ${b.teal};">
-    3D CONFIDENTIAL
-  </p>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td style="border-top:1.5pt solid ${b.teal};padding-top:4pt;text-align:center;">
+      <p class="MsoFooter" style="text-align:center;font-size:8.5pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;">
+        3D &nbsp;CONFIDENTIAL &nbsp;&middot;&nbsp; PROPRIETARY
+      </p>
+    </td></tr>
+  </table>
 </div>
 
 <!-- Section1 wrapper — binds all content to @page Section1 which includes the footer -->
@@ -692,11 +685,8 @@ ACCEPTANCE & SIGNATURE BLOCK
 </body>
 </html>`;
 
-    // ── Inject "3D CONFIDENTIAL" footer bar before every page break ──
-    // The mso-element:footer only works in MS Word; this inline version
-    // renders in Google Docs, LibreOffice, PDF export, and print preview.
-    const confBar = `<p style="text-align:center;font-size:7.5pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding:6pt 0 2pt 0;border-top:1.5pt solid ${b.teal};">3D CONFIDENTIAL &nbsp;&middot;&nbsp; PROPRIETARY</p>`;
-    wordHtml = wordHtml.replace(/<div class="page-break"><\/div>/g, confBar + '<div class="page-break"></div>');
+    // No inline confidential bars — the MSO footer (mso-element:footer id="f1")
+    // handles this natively in Microsoft Word on every page.
 
     // Cache for PDF re-download without re-generating
     this._lastFullProposalHTML = wordHtml;
@@ -1253,11 +1243,15 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The 
 </head>
 <body>
 
-<!-- Footer -->
+<!-- Word footer — appears on EVERY page in MS Word -->
 <div style="mso-element:footer" id="f1">
-  <p style="text-align:center;font-size:8pt;font-weight:bold;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding-top:4pt;border-top:1pt solid ${b.teal};">
-    3D CONFIDENTIAL
-  </p>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td style="border-top:1.5pt solid ${b.teal};padding-top:4pt;text-align:center;">
+      <p class="MsoFooter" style="text-align:center;font-size:8.5pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;">
+        3D &nbsp;CONFIDENTIAL &nbsp;&middot;&nbsp; PROPRIETARY
+      </p>
+    </td></tr>
+  </table>
 </div>
 
 <div class="Section1">
@@ -1434,9 +1428,7 @@ PAGE 3 — TOTAL INVESTMENT & SIGNATURE
 
       progressCallback(90, 'Creating downloadable document…');
 
-      // ── Inject confidential footer bar before every page break ──
-      const confBar = `<p style="text-align:center;font-size:7.5pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;padding:6pt 0 2pt 0;border-top:1.5pt solid ${b.teal};">3D CONFIDENTIAL &nbsp;&middot;&nbsp; PROPRIETARY</p>`;
-      wordHtml = wordHtml.replace(/<div class="page-break"><\/div>/g, confBar + '<div class="page-break"></div>');
+      // No inline confidential bars — the MSO footer handles this natively in Word.
 
       // Cache for PDF re-download without re-generating
       this._lastExecProposalHTML = wordHtml;
