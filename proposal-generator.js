@@ -34,11 +34,12 @@ const ProposalGenerator = {
   // ─── Generate the proposal via Gemini AI ───────────────────
   async generateProposal(state, progressCallback) {
     const co = this.COMPANY;
-    const projName = state.projectName || 'Untitled Project';
-    const projType = state.projectType || 'Low Voltage Installation';
-    const projLoc = state.projectLocation || 'To Be Determined';
-    const preparedFor = state.preparedFor || projName;
-    const disciplines = (state.disciplines || []).join(', ') || 'Low Voltage Systems';
+    const _san = (s, max = 500) => String(s ?? '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').substring(0, max);
+    const projName = _san(state.projectName, 200) || 'Untitled Project';
+    const projType = _san(state.projectType, 200) || 'Low Voltage Installation';
+    const projLoc = _san(state.projectLocation, 300) || 'To Be Determined';
+    const preparedFor = _san(state.preparedFor, 200) || projName;
+    const disciplines = (state.disciplines || []).map(d => _san(d, 100)).join(', ') || 'Low Voltage Systems';
     const today = new Date();
     const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const validUntil = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)

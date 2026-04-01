@@ -84,7 +84,6 @@ export async function onRequestPost(context) {
       return Response.json({
         error: 'Cache creation failed',
         status: cacheResponse.status,
-        _debug: errText.replace(/key=[^&"\s]+/gi, 'key=REDACTED').substring(0, 300),
       }, { status: cacheResponse.status });
     }
 
