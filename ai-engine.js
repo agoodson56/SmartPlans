@@ -558,9 +558,12 @@ const SmartBrains = {
       }
       const hasFileData = activeParts.some(p => p.fileData);
       const parts = [{ text: promptText }, ...activeParts];
-      // Low temperature for deterministic construction analysis
+      // Temperature: 0 for cost-critical brains (deterministic pricing),
+      // 0.05 for validators, 0.1 for everything else
+      const DETERMINISTIC_BRAINS = ['MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE', 'ESTIMATE_CORRECTOR'];
+      const LOW_TEMP_BRAINS = ['CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR', 'TARGETED_RESCANNER'];
       const genConfig = {
-        temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
+        temperature: DETERMINISTIC_BRAINS.includes(brainKey) ? 0 : LOW_TEMP_BRAINS.includes(brainKey) ? 0.05 : 0.1,
         maxOutputTokens: brainDef.maxTokens,
       };
       if (useJsonMode) {
@@ -1741,8 +1744,17 @@ ${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 40
 CABLE QUANTITIES & PATHWAYS:
 ${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)}
 
-PRICING DATABASE (use these exact prices):
+PRICING DATABASE (use these EXACT prices — do NOT deviate):
 ${context.pricingContext || 'Use industry standard pricing'}
+
+═══ MANDATORY PRICING RULES ═══
+1. You MUST use the ${tier.toUpperCase()} tier price from the database above for EVERY item.
+   Do NOT randomly select between budget/mid/premium — use ONLY the ${tier.toUpperCase()} tier.
+2. Apply the ${regionMult}× regional multiplier to each ${tier.toUpperCase()} tier price.
+3. If the project type multiplier is shown above, apply it ON TOP of the regional multiplier.
+4. Your final unit cost = database ${tier.toUpperCase()} price × ${regionMult} (region) × project type multiplier (if any).
+5. Do NOT invent prices. If an item is not in the database, use the CLOSEST matching item's price.
+6. CONSISTENCY: If you price an indoor fixed dome camera, use the EXACT "fixed_indoor_dome" price from the database — not a made-up number between budget and premium.
 
 ═══ PRICING GUARDRAILS (HARD LIMITS — violations will be rejected) ═══
 These are maximum allowable unit costs. If your calculated cost exceeds these, use the maximum listed.
@@ -1943,6 +1955,16 @@ CRITICAL RULES:
 9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
 10. You MUST include all NON-INSTALLATION phases below — these are real labor costs
 
+═══ LABOR HOUR SANITY BOUNDS (MANDATORY CHECK) ═══
+Before returning, verify your total_hours against these project-size benchmarks:
+- Under 50 devices: 400-2,000 total hours (2-10 tech-weeks)
+- 50-100 devices: 1,500-5,000 total hours (8-25 tech-weeks)
+- 100-200 devices: 3,000-10,000 total hours (15-50 tech-weeks)
+- 200-500 devices: 6,000-20,000 total hours (30-100 tech-weeks)
+- Over 500 devices: 15,000-50,000 total hours (max realistic scope)
+If your total_hours falls OUTSIDE these ranges, RE-CHECK your math. Do NOT return hours above 50,000.
+crew_recommendation.duration_weeks should be 4-52 (1 month to 1 year). If above 52, reduce weeks and increase crew.
+
 Calculate labor by PROJECT PHASE:
 1. Rough-In (35-40% of field labor) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
 2. Trim/Termination (20-25%) — device mounting, terminations, rack dress
@@ -2047,9 +2069,9 @@ NOTE: Travel costs are now configured by the user on Stage 7 (Travel & Costs) AF
 Set total_travel to $0 in your project_summary. The system will inject the correct deterministic travel amount.
 Do NOT estimate or guess travel costs — they will be overridden by user-configured values.
 
-CRITICAL RULES:
-1. Your total_materials MUST EXACTLY EQUAL the Material Pricer's "total_with_markup" value (NOT "grand_total" — that is the base cost before markup). The sell price is what goes into the SOV and project summary.
-2. Your total_labor MUST EXACTLY EQUAL the Labor Calculator's "total_with_markup" value (NOT the base cost)
+CRITICAL RULES (VIOLATING ANY OF THESE IS A FATAL ERROR):
+1. Your total_materials MUST EXACTLY EQUAL the Material Pricer's "total_with_markup" value (NOT "grand_total" — that is the base cost before markup). The sell price is what goes into the SOV and project summary. Copy the EXACT number — do not round, recalculate, or adjust it.
+2. Your total_labor MUST EXACTLY EQUAL the Labor Calculator's "total_with_markup" value (NOT the base cost). Copy the EXACT number.
 3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total — all values must be SELL PRICES (with markup applied)
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total

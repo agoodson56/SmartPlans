@@ -3128,6 +3128,92 @@ function renderBidComparison(comparison, competitorName) {
   return html;
 }
 
+// ─── BOM Validation & Auto-Repair ───
+// Runs after AI analysis to catch and fix absurd values before the estimator sees them
+function validateAndRepairBOM(analysis) {
+  if (!analysis?.categories) return analysis;
+  const warnings = [];
+  const cats = analysis.categories;
+
+  for (let ci = 0; ci < cats.length; ci++) {
+    const cat = cats[ci];
+    if (!cat.items || !Array.isArray(cat.items)) continue;
+
+    for (let ii = cat.items.length - 1; ii >= 0; ii--) {
+      const item = cat.items[ii];
+      const name = (item.item || item.name || '').toLowerCase();
+      const qty = item.qty || 0;
+      const unitCost = item.unit_cost || item.unitCost || 0;
+      const unit = (item.unit || '').toLowerCase();
+
+      // ── Check 1: $0 or $1 unit costs on real equipment (broken pricing) ──
+      const isEquipment = /camera|switch|nvr|ups|rack|panel|reader|controller|server|monitor|detector|strobe|horn/i.test(name);
+      if (isEquipment && unitCost < 5) {
+        warnings.push(`⚠️ REMOVED: "${item.item || item.name}" has $${unitCost} unit cost (broken pricing)`);
+        cat.items.splice(ii, 1);
+        continue;
+      }
+
+      // ── Check 2: Absurd quantities ──
+      // Cameras should never exceed 500 on any realistic project
+      if (/camera|dome|ptz|bullet|fisheye|panoramic|multisensor/i.test(name) && unit === 'ea' && qty > 500) {
+        warnings.push(`⚠️ CAPPED: "${item.item || item.name}" qty ${qty} → 500 (max realistic camera count)`);
+        item.qty = 500;
+        item.ext_cost = item.qty * unitCost;
+      }
+      // Switches, NVRs, racks should never exceed 50
+      if (/switch|nvr|server|rack|cabinet/i.test(name) && unit === 'ea' && qty > 50) {
+        warnings.push(`⚠️ CAPPED: "${item.item || item.name}" qty ${qty} → 50`);
+        item.qty = 50;
+        item.ext_cost = item.qty * unitCost;
+      }
+      // Cable in feet: cap at 500,000 ft (~95 miles)
+      if (unit === 'ft' && qty > 500000) {
+        warnings.push(`⚠️ CAPPED: "${item.item || item.name}" qty ${qty}ft → 500,000ft`);
+        item.qty = 500000;
+        item.ext_cost = item.qty * unitCost;
+      }
+
+      // ── Check 3: Math verification — ext_cost must equal qty × unit_cost ──
+      const expectedExt = Math.round(item.qty * unitCost * 100) / 100;
+      if (item.ext_cost && Math.abs(item.ext_cost - expectedExt) > 1) {
+        warnings.push(`⚠️ MATH FIX: "${item.item || item.name}" ext_cost $${item.ext_cost} → $${expectedExt} (${item.qty} × $${unitCost})`);
+        item.ext_cost = expectedExt;
+      }
+    }
+
+    // Recalculate category subtotal
+    cat.subtotal = cat.items.reduce((s, i) => s + (i.ext_cost || 0), 0);
+  }
+
+  // Recalculate grand total
+  analysis.grandTotal = cats.reduce((s, c) => s + (c.subtotal || 0), 0);
+  if (analysis.grand_total !== undefined) analysis.grand_total = analysis.grandTotal;
+
+  // ── Check 4: Missing CCTV category when CCTV discipline is selected ──
+  const disciplines = state.disciplines || [];
+  if (disciplines.includes('CCTV')) {
+    const hasCCTV = cats.some(c => /cctv|camera|surveillance/i.test(c.name) && c.items && c.items.length > 1);
+    if (!hasCCTV) {
+      warnings.push('🔴 CRITICAL: CCTV discipline selected but no CCTV category found or it has ≤1 item — analysis may have failed partially');
+    }
+  }
+
+  if (warnings.length > 0) {
+    console.warn(`[BOM Validation] ${warnings.length} issue(s) found and repaired:`);
+    warnings.forEach(w => console.warn(`  ${w}`));
+    state._bomValidationWarnings = warnings;
+    if (typeof spToast === 'function') {
+      spToast(`BOM Validation: ${warnings.length} issue(s) auto-repaired. Check console for details.`, 'warning');
+    }
+  } else {
+    state._bomValidationWarnings = [];
+    console.log('[BOM Validation] ✅ All checks passed');
+  }
+
+  return analysis;
+}
+
 // ─── Travel & Incidentals Computation ───
 function computeTravelIncidentals() {
   const t = state.travel;
@@ -3973,6 +4059,16 @@ function renderStep7(container) {
           </button>
         </div>` : ''}
       </div>`;
+
+  // ── BOM Validation Warnings Banner ──
+  if (state._bomValidationWarnings && state._bomValidationWarnings.length > 0) {
+    html += `<div style="margin:12px 0;padding:14px 18px;border-radius:10px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);">
+      <div style="font-weight:700;font-size:13px;color:#F59E0B;margin-bottom:8px;">⚠️ BOM Validation: ${state._bomValidationWarnings.length} Issue(s) Auto-Repaired</div>
+      <div style="font-size:12px;color:var(--text-muted);line-height:1.6;">
+        ${state._bomValidationWarnings.map(w => `<div style="padding:2px 0;">${esc(w)}</div>`).join('')}
+      </div>
+    </div>`;
+  }
 
   // ── Editable BOM Table ──
   let bomTableHtml = '';
@@ -6955,6 +7051,24 @@ async function runGeminiAnalysis(updateProgress) {
       state.analyzing = false;
       state.analysisComplete = true;
       state.completedSteps.add("review");
+      // ── Validate & repair BOM before estimator sees it ──
+      if (state.aiAnalysis) {
+        state.aiAnalysis = validateAndRepairBOM(state.aiAnalysis);
+      }
+      // ── Validate & clamp labor hours to prevent travel blowup ──
+      const _labCalc = result.brainResults?.wave2_25?.LABOR_CALCULATOR;
+      if (_labCalc) {
+        const MAX_HOURS = 50000;
+        const MAX_WEEKS = 52;
+        if (_labCalc.total_hours > MAX_HOURS) {
+          console.warn(`[Labor Validation] total_hours ${_labCalc.total_hours} exceeds ${MAX_HOURS} — clamping`);
+          _labCalc.total_hours = MAX_HOURS;
+        }
+        if (_labCalc.crew_recommendation?.duration_weeks > MAX_WEEKS) {
+          console.warn(`[Labor Validation] duration_weeks ${_labCalc.crew_recommendation.duration_weeks} exceeds ${MAX_WEEKS} — clamping`);
+          _labCalc.crew_recommendation.duration_weeks = MAX_WEEKS;
+        }
+      }
       // Populate AI crew recommendation from Labor Calculator
       const laborCalc = result.brainResults?.wave2_25?.LABOR_CALCULATOR;
       if (laborCalc) {
