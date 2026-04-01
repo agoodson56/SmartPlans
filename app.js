@@ -751,6 +751,30 @@ function generateMasterReport() {
 
   // ── Gather all data ──
   const bom = getFilteredBOM(state.aiAnalysis, state.disciplines);
+
+  // Apply supplier price overrides so Master Report matches Step 7 table and exports
+  const overrides = state.supplierPriceOverrides || {};
+  if (Object.keys(overrides).length > 0) {
+    for (const [key, override] of Object.entries(overrides)) {
+      const [catIdx, itemIdx] = key.split('-').map(Number);
+      if (bom.categories?.[catIdx]?.items?.[itemIdx]) {
+        const item = bom.categories[catIdx].items[itemIdx];
+        if (override.qty != null) item.qty = override.qty;
+        item.unitCost = override.unitCost;
+        item.extCost = Math.round((item.qty * override.unitCost) * 100) / 100;
+        if (override.mfg) item.mfg = override.mfg;
+        if (override.partNumber) item.partNumber = override.partNumber;
+      }
+    }
+    bom.grandTotal = 0;
+    for (const cat of (bom.categories || [])) {
+      cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
+      cat.subtotal = Math.round(cat.subtotal * 100) / 100;
+      bom.grandTotal += cat.subtotal;
+    }
+    bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
+  }
+
   const bomWithTravel = state.travel.enabled ? injectTravelIntoBOM(bom) : bom;
   const travelCosts = state.travel.enabled ? computeTravelIncidentals() : null;
   const cos = extractPotentialChangeOrders(state);

@@ -293,7 +293,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     progressCallback(85, 'Creating downloadable document…');
 
     // ─── Word-native HTML — uses tables + bgcolor (NOT modern CSS) ───
-    const wordHtml = `<!DOCTYPE html>
+    let wordHtml = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office"
       xmlns:w="urn:schemas-microsoft-com:office:word"
       xmlns:v="urn:schemas-microsoft-com:vml"
@@ -1009,6 +1009,27 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
       if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._computeFullBreakdown) {
         const analysis = state.aiAnalysis || '';
         let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+
+        // Apply supplier price overrides BEFORE computation (same as export-engine & Master Report)
+        const overrides = state.supplierPriceOverrides || {};
+        if (bom && Object.keys(overrides).length > 0) {
+          for (const [key, override] of Object.entries(overrides)) {
+            const [catIdx, itemIdx] = key.split('-').map(Number);
+            if (bom.categories?.[catIdx]?.items?.[itemIdx]) {
+              const item = bom.categories[catIdx].items[itemIdx];
+              if (override.qty != null) item.qty = override.qty;
+              item.unitCost = override.unitCost;
+              item.extCost = Math.round((item.qty * override.unitCost) * 100) / 100;
+              if (override.mfg) item.mfg = override.mfg;
+              if (override.partNumber) item.partNumber = override.partNumber;
+            }
+          }
+          for (const cat of (bom.categories || [])) {
+            cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
+          }
+          bom.grandTotal = bom.categories.reduce((s, c) => s + (c.subtotal || 0), 0);
+        }
+
         if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
           bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
         }
@@ -1191,7 +1212,7 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The 
       const bodyHtml = this._markdownToHtml(aiText);
 
       // ─── Build the 3-page Word document ───
-      const wordHtml = `<!DOCTYPE html>
+      let wordHtml = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office"
       xmlns:w="urn:schemas-microsoft-com:office:word"
       xmlns:v="urn:schemas-microsoft-com:vml"
@@ -1421,7 +1442,7 @@ PAGE 3 — TOTAL INVESTMENT & SIGNATURE
       this._lastExecProposalHTML = wordHtml;
 
       // Download
-      const blob = new Blob([wordHtml], { type: 'application/msword' });
+      const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       const safeName = projName.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
