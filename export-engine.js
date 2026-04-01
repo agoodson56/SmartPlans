@@ -257,7 +257,30 @@ const SmartPlansExport = {
             console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
         }
 
-        // Priority 1: Financial Engine brain (fully-loaded bid price with labor, overhead, profit, contingency)
+        // Priority 1: Deterministic BOM computation (materials + markups + labor + burden + travel + contingency)
+        // This uses the ACTUAL BOM data with user-configured markup percentages — single source of truth.
+        // The Financial Engine AI brain calculates its own totals which often DON'T match the
+        // deterministic markup formula, causing proposal/export number mismatches.
+        if (bom?.categories?.length > 0) {
+            const breakdown = this._computeFullBreakdown(state, bom);
+            if (breakdown.grandTotal > 1000) {
+                console.log(`[Export] ✅ Grand total from deterministic BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
+                state._bomGrandTotal = breakdown.grandTotal;
+                state._bomBreakdown = breakdown;
+                return breakdown.grandTotal;
+            }
+        }
+
+        // Priority 2: Bid strategy if user applied one
+        if (state.bidStrategy?.applied) {
+            const result = this.applyBidStrategy?.(state);
+            if (result?.grandTotalWithStrategy > 1000) {
+                console.log(`[Export] Grand total from Bid Strategy: $${result.grandTotalWithStrategy.toLocaleString()}`);
+                return this._round(result.grandTotalWithStrategy);
+            }
+        }
+
+        // Priority 3: Financial Engine brain (fallback when BOM computation not available)
         const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
         if (finEngine?.project_summary?.grand_total > 1000) {
             let val = this._round(finEngine.project_summary.grand_total);
@@ -267,12 +290,12 @@ const SmartPlansExport = {
                 val = this._round(val - aiTravel + stage6Travel);
                 console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()})`);
             }
-            console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
+            console.log(`[Export] ⚠️ Grand total from Financial Engine AI (fallback): $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
         }
 
-        // Priority 2: Estimate Corrector's corrected grand total (raw BOM only — fallback)
+        // Priority 4: Estimate Corrector's corrected grand total (raw BOM only — last resort)
         const corrector = state.brainResults?.wave3_85_corrected;
         if (corrector?.corrected_grand_total > 1000) {
             const val = this._round(corrector.corrected_grand_total);
@@ -281,36 +304,7 @@ const SmartPlansExport = {
             return val;
         }
 
-        // Priority 3: Compute from BOM + markups (last resort)
-        const finEngineAlt = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
-        if (finEngineAlt?.project_summary?.grand_total > 1000) {
-            const val = this._round(finEngineAlt.project_summary.grand_total);
-            console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
-            state._bomGrandTotal = val;
-            return val;
-        }
-
-        // Priority 3: Bid strategy if user applied one
-        if (state.bidStrategy?.applied) {
-            const result = this.applyBidStrategy?.(state);
-            if (result?.grandTotalWithStrategy > 1000) {
-                console.log(`[Export] Grand total from Bid Strategy: $${result.grandTotalWithStrategy.toLocaleString()}`);
-                return this._round(result.grandTotalWithStrategy);
-            }
-        }
-
-        // Priority 4: Compute with full markups from BOM (fallback)
-        if (bom?.categories?.length > 0) {
-            const breakdown = this._computeFullBreakdown(state, bom);
-            if (breakdown.grandTotal > 1000) {
-                console.log(`[Export] Grand total from BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
-                state._bomGrandTotal = breakdown.grandTotal;
-                state._bomBreakdown = breakdown;
-                return breakdown.grandTotal;
-            }
-        }
-
-        // Priority 5: Raw BOM + 10% contingency (last resort)
+        // Priority 5: Raw BOM + 10% contingency (emergency fallback)
         const rawTotal = bom?.grandTotal || 0;
         console.warn(`[Export] Grand total fallback: raw BOM $${rawTotal} + 10%`);
         return this._round(rawTotal * 1.1);

@@ -979,19 +979,12 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
     }
   },
 
-  // Extract grand total — MUST return the SAME number as export-engine.js
-  // _getFullyLoadedTotal so that the proposal hero number, the BOM Excel
-  // BID PRICE, the SmartPM Contract Value, and the JSON grandTotal all match.
-  //
-  // Formula (identical to _getFullyLoadedTotal Priority 1b):
-  //   sum of filtered BOM category subtotals + 10% contingency
+  // Extract grand total — ALWAYS recomputes from BOM + user-configured markups.
+  // This ensures proposal, export Excel, and contract value all show the SAME number.
+  // Uses _computeFullBreakdown (deterministic) — NOT the Financial Engine AI total,
+  // which uses a different formula and often produces a lower, inconsistent number.
   _extractGrandTotal(state) {
-    // Priority 1: Use cached number from _computeFullBreakdown
-    if (state._bomGrandTotal && state._bomGrandTotal > 1000) {
-      return state._bomGrandTotal;
-    }
-
-    // Priority 2: Compute using the SAME function as export-engine.js
+    // ALWAYS recompute from BOM to avoid stale cached values from Financial Engine AI
     try {
       if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._computeFullBreakdown) {
         const analysis = state.aiAnalysis || '';
@@ -1009,6 +1002,11 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
         }
       }
     } catch (e) { console.warn('[ProposalGen] _extractGrandTotal error:', e); }
+
+    // Fallback: use cached value only if fresh BOM computation failed
+    if (state._bomGrandTotal && state._bomGrandTotal > 1000) {
+      return state._bomGrandTotal;
+    }
 
     return null;
   },

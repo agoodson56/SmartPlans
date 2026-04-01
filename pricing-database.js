@@ -475,6 +475,68 @@ const PRICING_DB = {
             notes: "Standard pricing applies."
         },
     },
+
+    // ═══════════════════════════════════════════════════════════
+    // CIVIL WORK & SUBCONTRACTOR COST REFERENCE
+    // Industry-standard rates for underground/site work
+    // These anchor the AI so it doesn't guess low
+    // ═══════════════════════════════════════════════════════════
+    civilWork: {
+        directional_boring: {
+            // Per linear foot by conduit diameter — includes mobilization amortized
+            "2_inch":  { unit: "per LF", low: 25, mid: 40, high: 60, description: "2\" bore under pavement/landscape" },
+            "3_inch":  { unit: "per LF", low: 35, mid: 55, high: 80, description: "3\" bore under pavement" },
+            "4_inch":  { unit: "per LF", low: 45, mid: 70, high: 100, description: "4\" bore under roadway/railroad" },
+            mobilization: { unit: "each", low: 2500, mid: 4000, high: 6000, description: "Drill rig mobilization/demobilization" },
+        },
+        trenching: {
+            "24in_landscape": { unit: "per LF", low: 8, mid: 14, high: 22, description: "24\" deep trench in landscape/dirt" },
+            "24in_asphalt":   { unit: "per LF", low: 18, mid: 28, high: 42, description: "24\" deep trench through asphalt" },
+            "36in_landscape": { unit: "per LF", low: 12, mid: 20, high: 30, description: "36\" deep trench in landscape" },
+            "36in_asphalt":   { unit: "per LF", low: 25, mid: 38, high: 55, description: "36\" deep trench through asphalt" },
+            backfill_compact: { unit: "per LF", low: 3, mid: 6, high: 10, description: "Sand bedding + compacted backfill" },
+        },
+        surface_restoration: {
+            asphalt_patch:     { unit: "per SF", low: 8, mid: 14, high: 22, description: "Asphalt sawcut + remove + repave" },
+            concrete_patch:    { unit: "per SF", low: 12, mid: 20, high: 32, description: "Concrete sawcut + remove + repour" },
+            landscape_restore: { unit: "per LF", low: 4, mid: 8, high: 15, description: "Sod/irrigation repair" },
+            concrete_sawcut:   { unit: "per LF", low: 3, mid: 5, high: 8, description: "Concrete/asphalt sawcutting" },
+        },
+        core_drilling: {
+            "2_inch":  { unit: "per hole", low: 75, mid: 125, high: 200, description: "2\" core through concrete" },
+            "4_inch":  { unit: "per hole", low: 150, mid: 250, high: 400, description: "4\" core through concrete/CMU" },
+            "6_inch":  { unit: "per hole", low: 250, mid: 400, high: 600, description: "6\" core through concrete" },
+            mobilization: { unit: "each", low: 500, mid: 800, high: 1200, description: "Core drill mobilization" },
+        },
+        utility_locating: {
+            potholing:   { unit: "per hole", low: 300, mid: 500, high: 800, description: "Vacuum excavation pothole" },
+            usa_north:   { unit: "each", low: 0, mid: 0, high: 0, description: "811/USA North locate (free but required)" },
+            private_locate: { unit: "per day", low: 800, mid: 1200, high: 1800, description: "Private utility locator" },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // SUBCONTRACTOR COST BENCHMARKS
+    // Minimum expected costs by trade for project validation
+    // ═══════════════════════════════════════════════════════════
+    subcontractorBenchmarks: {
+        transit_railroad: {
+            civil_contractor_min: 60000,      // Minimum civil sub for transit (boring, trenching, restoration)
+            electrical_contractor_min: 80000,  // Dedicated circuits, panels, grounding for camera/access systems
+            rwic_flagman_daily: 1200,          // Per day, per flagman
+            rwic_min_days: 25,                 // Minimum flagman days for a multi-week transit project
+            rwic_min_total: 30000,             // Absolute floor for RWIC costs
+            rpl_insurance_min: 25000,          // Minimum RPL for railroad project
+            safety_training_per_worker: 350,   // TSA/TWIC + railroad safety orientation
+            traffic_control_daily: 1500,       // Flaggers + cones + arrow board per day
+            traffic_control_min_days: 15,      // Minimum days needing traffic control
+        },
+        standard: {
+            civil_contractor_min: 15000,
+            electrical_contractor_min: 25000,
+            traffic_control_daily: 800,
+        },
+    },
 };
 
 // Make available for import in app.js (loaded via <script> tag)

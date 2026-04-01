@@ -771,11 +771,26 @@ function generateMasterReport() {
   const riserDiagram = state.brainResults?.wave1?.RISER_DIAGRAM_ANALYZER;
 
   const confidence = financialEngine?.confidence_score || financialEngine?.confidence || 85;
-  // Use Financial Engine grand total (includes G&A, profit, warranty, contingency) as the BID PRICE.
-  // Fall back to BOM material total only if Financial Engine didn't produce a project_summary.
-  const financialGrandTotal = financialEngine?.project_summary?.grand_total || 0;
-  const grandTotal = financialGrandTotal > 0 ? financialGrandTotal : (bomWithTravel.grandTotal || 0);
+  // Use the SAME deterministic calculation as export-engine and proposal-generator:
+  // BOM materials × markup + labor × markup + equipment + subs + burden + travel + contingency.
+  // This ensures Master Report, Excel BOM, JSON export, and proposals all show ONE number.
   const materialTotal = bomWithTravel.grandTotal || 0;
+  let grandTotal = 0;
+  try {
+    if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._computeFullBreakdown) {
+      const bd = SmartPlansExport._computeFullBreakdown(state, bomWithTravel);
+      if (bd.grandTotal > 1000) {
+        grandTotal = bd.grandTotal;
+        state._bomGrandTotal = bd.grandTotal;
+        state._bomBreakdown = bd;
+      }
+    }
+  } catch (e) { console.warn('[MasterReport] _computeFullBreakdown error:', e); }
+  // Fallback: Financial Engine AI total, then raw BOM
+  if (grandTotal <= 0) {
+    const financialGrandTotal = financialEngine?.project_summary?.grand_total || 0;
+    grandTotal = financialGrandTotal > 0 ? financialGrandTotal : materialTotal;
+  }
   const bidNumber = state.estimateId || ('SP-' + now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0'));
 
   // Build section numbering dynamically
@@ -893,8 +908,25 @@ function generateMasterReport() {
     html += `<div class="callout-teal">${esc(financialEngine.project_summary.scope_description)}</div>`;
   }
 
-  // Financial breakdown table
-  if (financialEngine?.project_summary) {
+  // Financial breakdown table — use deterministic breakdown when available, fall back to AI Financial Engine
+  const bd = state._bomBreakdown;
+  if (bd && bd.grandTotal > 1000) {
+    // Deterministic breakdown (matches export/proposal numbers exactly)
+    const pct = (v) => grandTotal > 0 ? ((v / grandTotal) * 100).toFixed(1) + '%' : '';
+    html += `<h3>Financial Summary</h3><table>
+      <tr><th style="width:55%;">Category</th><th style="text-align:right;">Base Cost</th><th style="text-align:right;">Markup</th><th style="text-align:right;">Sell Price</th><th style="text-align:right;">% of Total</th></tr>
+      <tr><td>Materials</td><td style="text-align:right;">${fmt(bd.materials)}</td><td style="text-align:right;">${Math.round(bd.matPct * 100)}%</td><td style="text-align:right;">${fmt(bd.matSell)}</td><td style="text-align:right;">${pct(bd.matSell)}</td></tr>
+      <tr><td>Labor</td><td style="text-align:right;">${fmt(bd.laborBase)}</td><td style="text-align:right;">${Math.round(bd.labPct * 100)}%</td><td style="text-align:right;">${fmt(bd.labSell)}</td><td style="text-align:right;">${pct(bd.labSell)}</td></tr>
+      ${bd.eqSell > 0 ? `<tr><td>Equipment</td><td style="text-align:right;">${fmt(bd.equipment)}</td><td style="text-align:right;">${Math.round(bd.eqPct * 100)}%</td><td style="text-align:right;">${fmt(bd.eqSell)}</td><td style="text-align:right;">${pct(bd.eqSell)}</td></tr>` : ''}
+      ${bd.subSell > 0 ? `<tr><td>Subcontractors</td><td style="text-align:right;">${fmt(bd.subs)}</td><td style="text-align:right;">${Math.round(bd.subPct * 100)}%</td><td style="text-align:right;">${fmt(bd.subSell)}</td><td style="text-align:right;">${pct(bd.subSell)}</td></tr>` : ''}
+      ${bd.burden > 0 ? `<tr><td>Burden/Overhead</td><td style="text-align:right;">${fmt(bd.laborBase)}</td><td style="text-align:right;">${Math.round(bd.burdenRate * 100)}%</td><td style="text-align:right;">${fmt(bd.burden)}</td><td style="text-align:right;">${pct(bd.burden)}</td></tr>` : ''}
+      ${bd.travel > 0 ? `<tr><td>Travel & Incidentals</td><td style="text-align:right;">${fmt(bd.travel)}</td><td style="text-align:right;">—</td><td style="text-align:right;">${fmt(bd.travel)}</td><td style="text-align:right;">${pct(bd.travel)}</td></tr>` : ''}
+      <tr style="background:#e0f2fe;font-weight:700;"><td>SUBTOTAL</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.subtotal)}</td><td style="text-align:right;"></td></tr>
+      <tr><td>Contingency (10%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.contingency)}</td><td style="text-align:right;">${pct(bd.contingency)}</td></tr>
+      <tr style="background:#0D9488;color:white;font-weight:700;"><td>TOTAL BID</td><td colspan="2"></td><td style="text-align:right;">${fmt(grandTotal)}</td><td style="text-align:right;">100%</td></tr>
+    </table>`;
+  } else if (financialEngine?.project_summary) {
+    // Fallback: AI Financial Engine breakdown (legacy path)
     const ps = financialEngine.project_summary;
     html += `<h3>Financial Summary</h3><table>
       <tr><th style="width:55%;">Category</th><th style="text-align:right;">Amount</th><th style="text-align:right;">% of Total</th></tr>

@@ -1579,11 +1579,62 @@ YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment r
     - Builder's risk insurance
     - Umbrella/excess liability (if project requires higher limits)
 
+═══ CIVIL WORK COST REFERENCE (USE THESE — DO NOT GUESS LOWER) ═══
+DIRECTIONAL BORING:
+- 2" conduit: $25-$60 per linear foot (+ $2,500-$6,000 mobilization per rig)
+- 3" conduit: $35-$80 per linear foot
+- 4" conduit: $45-$100 per linear foot
+- PVC Sch 80 under railroad/highway: use HIGH end ($60-$100/LF) due to depth and safety requirements
+- Minimum bore job: $5,000 (even for short runs — mobilization dominates)
+
+TRENCHING:
+- 24" deep in landscape: $8-$22 per linear foot
+- 24" deep through asphalt: $18-$42 per linear foot
+- 36" deep in landscape: $12-$30 per linear foot
+- Backfill + compaction: add $3-$10 per linear foot
+- Sand bedding required for all conduit: add $3-$6 per linear foot
+
+SURFACE RESTORATION (often forgotten — MAJOR cost):
+- Asphalt sawcut + remove + repave: $8-$22 per square foot (trench width × length)
+- Concrete sawcut + remove + repour: $12-$32 per square foot
+- Landscape/sod restoration: $4-$15 per linear foot
+
+CORE DRILLING:
+- 2" hole: $75-$200 per hole
+- 4" hole: $150-$400 per hole
+- 6" hole: $250-$600 per hole
+- Mobilization: $500-$1,200 per trip
+
+═══ SUBCONTRACTOR COST MINIMUMS (HARD FLOORS) ═══
+${(() => {
+  const isTransit = (context.projectType || '').toLowerCase().includes('transit') ||
+                    (context.projectType || '').toLowerCase().includes('railroad') ||
+                    (context.projectName || '').toLowerCase().includes('amtrak') ||
+                    (context.projectName || '').toLowerCase().includes('rail');
+  const benchmarks = typeof PRICING_DB !== 'undefined' && PRICING_DB.subcontractorBenchmarks
+    ? (isTransit ? PRICING_DB.subcontractorBenchmarks.transit_railroad : PRICING_DB.subcontractorBenchmarks.standard)
+    : {};
+  if (isTransit) {
+    return `THIS IS A TRANSIT/RAILROAD PROJECT — apply these MINIMUM subcontractor costs:
+- Civil contractor (boring + trenching + restoration): MINIMUM $${benchmarks.civil_contractor_min || 60000}
+- Electrical contractor (dedicated circuits, panels, grounding): MINIMUM $${benchmarks.electrical_contractor_min || 80000}
+- RWIC/Flagman: $${benchmarks.rwic_flagman_daily || 1200}/day × minimum ${benchmarks.rwic_min_days || 25} days = MINIMUM $${benchmarks.rwic_min_total || 30000}
+- RPL Insurance: MINIMUM $${benchmarks.rpl_insurance_min || 25000}
+- Safety training: $${benchmarks.safety_training_per_worker || 350}/worker
+- Traffic control: $${benchmarks.traffic_control_daily || 1500}/day × minimum ${benchmarks.traffic_control_min_days || 15} days
+If your subcontractor totals fall below these minimums, you are UNDERESTIMATING. Adjust UP.`;
+  }
+  return `Subcontractor minimums (standard project):
+- Civil contractor: minimum $${benchmarks.civil_contractor_min || 15000} if ANY underground work exists
+- Electrical contractor: minimum $${benchmarks.electrical_contractor_min || 25000} for dedicated circuits`;
+})()}
+
 CRITICAL: Be EXHAUSTIVE. If you see ANY exterior conduit runs, underground pathways, parking lot crossings, road crossings, or rooftop equipment on the plans, you MUST include the associated civil work, trenching, boring, traffic control, and restoration. Missing these items leads to MASSIVE cost overruns.
 
 CRITICAL — OUT-OF-TOWN PROJECTS: If the project location is NOT within 60 miles of Rancho Cordova, CA, travel & per diem is MANDATORY. Calculate: crew_size × daily_rate × project_duration_days. This is typically $150K-$400K+ on large out-of-town projects and is the #1 reason estimates come in too low.
 
 CRITICAL — TRANSIT/RAILROAD PROJECTS: If the project is for Amtrak, BNSF, a transit authority, or any railroad, you MUST include RWIC/flagman costs, RPL insurance, safety training, and work window restrictions. Railroad flagmen alone can cost $30,000-$80,000+ on a multi-week project.
+RWIC/flagman is required for EVERY DAY that crews work near or on railroad right-of-way — not just a few days. For a multi-week project with 5+ crew, budget 25-40 flagman-days minimum.
 
 Return ONLY valid JSON:
 {
@@ -1595,18 +1646,20 @@ Return ONLY valid JSON:
     { "type": "PVC Schedule 40 2-inch", "quantity_ft": 200, "location": "Underground parking lot to building", "install_method": "direct burial 24-inch depth" }
   ],
   "civil_work": [
-    { "scope": "Directional boring", "distance_ft": 150, "diameter": "2-inch", "surface": "Under parking lot", "est_cost_range": "$3000-$5000" },
-    { "scope": "Open-cut trenching", "distance_ft": 300, "depth_in": 24, "surface": "Grass/landscape", "est_cost_range": "$2000-$3500" }
+    { "scope": "Directional boring", "distance_ft": 500, "diameter": "2-inch", "surface": "Under parking lot/railroad ROW", "est_cost_range": "$20000-$35000", "rate_per_ft": "$40-$60" },
+    { "scope": "Open-cut trenching", "distance_ft": 300, "depth_in": 24, "surface": "Grass/landscape", "est_cost_range": "$4200-$9000", "rate_per_ft": "$14-$30" }
   ],
   "traffic_control": [
-    { "item": "Certified Flaggers", "duration_days": 3, "daily_rate": 450, "reason": "Road crossing boring operation" },
-    { "item": "Traffic Control Plan", "est_cost": 1500, "reason": "Required by city for lane closure" },
-    { "item": "Cones/barricades/arrow board", "duration_days": 3, "daily_rate": 200, "reason": "Parking lot work zone safety" }
+    { "item": "Certified Flaggers", "duration_days": 15, "daily_rate": 650, "reason": "Road crossing boring operation and track-side work" },
+    { "item": "Traffic Control Plan", "est_cost": 2500, "reason": "Required by city/railroad for lane/track closure" },
+    { "item": "Cones/barricades/arrow board", "duration_days": 15, "daily_rate": 350, "reason": "Parking lot and roadway work zone safety" }
   ],
   "subcontractors": [
     { "trade": "Core Drilling", "scope": "12 penetrations through concrete floors", "est_cost_range": "$3000-$5000" },
-    { "trade": "Directional Boring", "scope": "150ft bore under parking lot for 2-inch conduit", "est_cost_range": "$4500-$7000" },
-    { "trade": "Asphalt Patching", "scope": "Restore 2 saw cuts in parking lot", "est_cost_range": "$800-$1500" }
+    { "trade": "Directional Boring", "scope": "500ft bore under parking/railroad ROW for 2-inch PVC Sch 80", "est_cost_range": "$20000-$35000" },
+    { "trade": "Electrical Contractor", "scope": "Dedicated 20A circuits to each IDF, new sub-panel, grounding", "est_cost_range": "$80000-$150000" },
+    { "trade": "Asphalt/Concrete Patching", "scope": "Restore sawcuts and boring entry/exit pits", "est_cost_range": "$5000-$12000" },
+    { "trade": "Landscape Restoration", "scope": "Sod replacement, irrigation repair after trenching", "est_cost_range": "$3000-$8000" }
   ],
   "setup_teardown": [
     { "item": "Mobilization", "est_cost": 2500, "details": "Initial delivery of tools, lifts, materials" },
@@ -1755,6 +1808,26 @@ ${context.pricingContext || 'Use industry standard pricing'}
 4. Your final unit cost = database ${tier.toUpperCase()} price × ${regionMult} (region) × project type multiplier (if any).
 5. Do NOT invent prices. If an item is not in the database, use the CLOSEST matching item's price.
 6. CONSISTENCY: If you price an indoor fixed dome camera, use the EXACT "fixed_indoor_dome" price from the database — not a made-up number between budget and premium.
+${(() => {
+  const isTransit = (context.projectType || '').toLowerCase().includes('transit') ||
+                    (context.projectType || '').toLowerCase().includes('railroad') ||
+                    (context.projectName || '').toLowerCase().includes('amtrak') ||
+                    (context.projectName || '').toLowerCase().includes('rail');
+  if (isTransit) {
+    const ptm = typeof PRICING_DB !== 'undefined' && PRICING_DB.projectTypeMultipliers?.transit_railroad;
+    return `
+═══ TRANSIT/RAILROAD EQUIPMENT PRICING (MANDATORY) ═══
+This is a TRANSIT/RAILROAD project. ALL equipment MUST be transit-rated:
+- Cameras: Use PREMIUM tier × ${ptm?.equipment_multiplier || 2.5}× transit multiplier. Minimum $${ptm?.min_camera_cost || 1500}/camera.
+  Transit cameras are IK10 vandal-proof, IP67 weatherproof, -40°C to +60°C rated. They cost 2-3× standard cameras.
+  Do NOT use budget camera models (no Hikvision DS-2CD series, no Dahua). Use Axis Q-series, Bosch FLEXIDOME, or Hanwha X-series.
+- NVRs/Servers: Minimum $${ptm?.min_nvr_cost || 3000}/unit. Enterprise-grade with RAID, redundant power.
+- Switches: Minimum $${ptm?.min_switch_cost || 800}/unit. Industrial managed PoE switches (Cisco IE series, Hirschmann).
+- Labor multiplier: ${ptm?.labor_multiplier || 1.8}× (restricted work windows, safety overhead).
+If your per-camera cost is below $${ptm?.min_camera_cost || 1500}, you are using the WRONG camera model. Fix it.`;
+  }
+  return '';
+})()}
 
 ═══ PRICING GUARDRAILS (HARD LIMITS — violations will be rejected) ═══
 These are maximum allowable unit costs. If your calculated cost exceeds these, use the maximum listed.
@@ -2119,6 +2192,31 @@ If Special Conditions flagged transit/railroad work:
 - RPL Insurance: $15,000-$50,000+ → add to project_summary
 - Safety training: $200-$500/worker → add to Labor column
 - Work window premium: 20-30% increase to labor hours (reduced productivity) → should already be in Labor Calculator
+
+═══ SUBCONTRACTOR COST VALIDATION (MANDATORY CHECK BEFORE RETURNING) ═══
+${(() => {
+  const isTransit = (context.projectType || '').toLowerCase().includes('transit') ||
+                    (context.projectType || '').toLowerCase().includes('railroad') ||
+                    (context.projectName || '').toLowerCase().includes('amtrak') ||
+                    (context.projectName || '').toLowerCase().includes('rail');
+  const benchmarks = typeof PRICING_DB !== 'undefined' && PRICING_DB.subcontractorBenchmarks
+    ? (isTransit ? PRICING_DB.subcontractorBenchmarks.transit_railroad : PRICING_DB.subcontractorBenchmarks.standard)
+    : {};
+  if (isTransit) {
+    return `THIS IS A TRANSIT/RAILROAD PROJECT — enforce these MINIMUM subcontractor costs in your SOV:
+- Civil work (boring + trenching + restoration): MINIMUM $${benchmarks.civil_contractor_min || 60000}
+- Electrical contractor (dedicated circuits, panels, grounding for camera/access systems): MINIMUM $${benchmarks.electrical_contractor_min || 80000}
+- RWIC/Flagman: MINIMUM $${benchmarks.rwic_min_total || 30000} (${benchmarks.rwic_min_days || 25}+ days × $${benchmarks.rwic_flagman_daily || 1200}/day)
+- RPL Insurance: MINIMUM $${benchmarks.rpl_insurance_min || 25000}
+- Traffic control: MINIMUM $${(benchmarks.traffic_control_daily || 1500) * (benchmarks.traffic_control_min_days || 15)} (${benchmarks.traffic_control_min_days || 15} days × $${benchmarks.traffic_control_daily || 1500}/day)
+If your total_subcontractors is below $200,000 on a transit project with underground work, you are almost certainly UNDERESTIMATING.
+The subcontractor column should typically be 15-25% of total project cost on transit work.
+CHECK: Does your subcontractor total look reasonable compared to the scope? If not, INCREASE IT.`;
+  }
+  return `Subcontractor minimums:
+- If underground work exists: civil contractor minimum $${benchmarks.civil_contractor_min || 15000}
+- Electrical contractor minimum: $${benchmarks.electrical_contractor_min || 25000}`;
+})()}
 
 Return ONLY valid JSON:
 {
@@ -3460,7 +3558,48 @@ Return ONLY valid JSON:
       }
     }
 
-    return ctx.substring(0, 12000);
+    // ── Add civil work cost references ──
+    if (PRICING_DB.civilWork) {
+      ctx += `\n\nCIVIL WORK COST REFERENCE (use these for subcontractor pricing):\n`;
+      ctx += `Directional Boring:\n`;
+      for (const [k, v] of Object.entries(PRICING_DB.civilWork.directional_boring || {})) {
+        if (typeof v === 'object' && v.mid !== undefined) {
+          ctx += `  ${k}: $${v.low}-$${v.high} ${v.unit} (${v.description})\n`;
+        }
+      }
+      ctx += `Trenching:\n`;
+      for (const [k, v] of Object.entries(PRICING_DB.civilWork.trenching || {})) {
+        if (typeof v === 'object' && v.mid !== undefined) {
+          ctx += `  ${k}: $${v.low}-$${v.high} ${v.unit} (${v.description})\n`;
+        }
+      }
+      ctx += `Surface Restoration:\n`;
+      for (const [k, v] of Object.entries(PRICING_DB.civilWork.surface_restoration || {})) {
+        if (typeof v === 'object' && v.mid !== undefined) {
+          ctx += `  ${k}: $${v.low}-$${v.high} ${v.unit} (${v.description})\n`;
+        }
+      }
+      ctx += `Core Drilling:\n`;
+      for (const [k, v] of Object.entries(PRICING_DB.civilWork.core_drilling || {})) {
+        if (typeof v === 'object' && v.mid !== undefined) {
+          ctx += `  ${k}: $${v.low}-$${v.high} ${v.unit} (${v.description})\n`;
+        }
+      }
+    }
+
+    // ── Add subcontractor benchmarks ──
+    if (PRICING_DB.subcontractorBenchmarks) {
+      const isTransit = /amtrak|bnsf|transit|railroad|rail/i.test(projectText);
+      const bench = isTransit ? PRICING_DB.subcontractorBenchmarks.transit_railroad : PRICING_DB.subcontractorBenchmarks.standard;
+      if (bench) {
+        ctx += `\nSUBCONTRACTOR BENCHMARKS (${isTransit ? 'TRANSIT' : 'STANDARD'}):\n`;
+        for (const [k, v] of Object.entries(bench)) {
+          ctx += `  ${k}: $${v.toLocaleString()}\n`;
+        }
+      }
+    }
+
+    return ctx.substring(0, 15000);
   },
 
 
