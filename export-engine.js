@@ -2358,7 +2358,7 @@ Return ONLY the JSON array. No other text.`;
                     for (const p of parts) {
                         if (p.text && !p.thought) fullText += p.text;
                     }
-                } catch (e) { /* skip unparseable lines */ }
+                } catch (e) { if (state?._debugMode) console.warn('[SmartPlans] SSE line parse skip:', e.message); }
             }
         }
 
@@ -2738,7 +2738,7 @@ Return ONLY the JSON array. No other text.`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
     },
 
     // ─── Apply Bid Strategy — per-category markups & contingency ───

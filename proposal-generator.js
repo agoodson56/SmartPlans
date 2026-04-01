@@ -1194,7 +1194,7 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The 
                 for (const p of chunkParts) {
                   if (p.text && !p.thought) aiText += p.text;
                 }
-              } catch (e) { /* skip malformed */ }
+              } catch (e) { console.debug('[ProposalGen] SSE chunk parse skip:', e.message); }
             }
           }
         }
@@ -1460,7 +1460,7 @@ PAGE 3 — TOTAL INVESTMENT & SIGNATURE
       a.download = `${safeName}_Executive_Proposal.doc`;
       document.body.appendChild(a);
       a.click();
-      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 60000);
 
       progressCallback(100, 'Executive proposal downloaded!');
       if (typeof spToast === 'function') spToast('Executive proposal downloaded successfully!', 'success');

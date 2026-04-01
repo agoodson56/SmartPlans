@@ -694,6 +694,7 @@ const state = {
   _exclusionsTab: 'exclusion', // active tab: 'exclusion', 'assumption', 'clarification'
 };
 
+let _appToken = '';
 
 // ═══════════════════════════════════════════════════════════════
 // UTILITIES
@@ -4523,7 +4524,7 @@ function renderStep7(container) {
   // Master Report button
   const masterBtn = document.getElementById("btn-master-report");
   if (masterBtn) masterBtn.addEventListener("click", () => {
-    try { generateMasterReport(); } catch (err) { console.error('[MasterReport]', err); if (typeof spToast === 'function') spToast('Error generating report: ' + err.message, 'error'); }
+    try { generateMasterReport(); } catch (err) { console.error('[MasterReport]', err); if (typeof spToast === 'function') spToast('Error generating report. Please try again.', 'error'); }
   });
 
   // Export package buttons
@@ -4553,10 +4554,9 @@ function renderStep7(container) {
       const result = SmartPlansExport.exportSupplierBOM(state, supplierName.trim(), format);
       // Record the quote in the database
       if (state.estimateId) {
-        const token = sessionStorage.getItem("sp_app_token") || "";
         await fetch(`/api/estimates/${state.estimateId}/supplier-quotes`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-App-Token": token },
+          headers: { "Content-Type": "application/json", "X-App-Token": _appToken },
           body: JSON.stringify({
             supplier_name: supplierName.trim(),
             item_count: result.itemCount || 0,
@@ -4567,8 +4567,8 @@ function renderStep7(container) {
       }
       spToast(`BOM sent to ${esc(supplierName.trim())} (${format.toUpperCase()})`, "success");
     } catch (err) {
-      console.error("[SupplierExport]", err);
-      spToast("Failed to export supplier BOM: " + err.message, "error");
+      console.error('[SmartPlans]', err);
+      spToast("Failed to export supplier BOM. Please try again.", "error");
     }
   }
 
@@ -4635,14 +4635,13 @@ function renderStep7(container) {
 
       // Update the matching supplier quote record
       if (state.estimateId) {
-        const token = sessionStorage.getItem("sp_app_token") || "";
         // Find the most recent 'sent' quote to update
         const quotes = state.supplierQuotes || [];
         const sentQuote = quotes.find(q => q.status === "sent");
         if (sentQuote) {
           await fetch(`/api/estimates/${state.estimateId}/supplier-quotes/${sentQuote.id}`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json", "X-App-Token": token },
+            headers: { "Content-Type": "application/json", "X-App-Token": _appToken },
             body: JSON.stringify({
               received_at: new Date().toISOString(),
               quoted_total: result.newTotal,
@@ -4659,8 +4658,8 @@ function renderStep7(container) {
       render();
       spToast(`Supplier pricing applied — ${result.itemsUpdated} items updated, total changed by ${delta}`, "success");
     } catch (err) {
-      console.error("[SupplierImport]", err);
-      spToast("Failed to import supplier pricing: " + err.message, "error");
+      console.error('[SmartPlans]', err);
+      spToast("Failed to import supplier pricing. Please try again.", "error");
     }
   }
 
@@ -4668,9 +4667,8 @@ function renderStep7(container) {
   async function loadSupplierQuotes() {
     if (!state.estimateId) return;
     try {
-      const token = sessionStorage.getItem("sp_app_token") || "";
       const resp = await fetch(`/api/estimates/${state.estimateId}/supplier-quotes`, {
-        headers: { "X-App-Token": token },
+        headers: { "X-App-Token": _appToken },
       });
       if (resp.ok) {
         const data = await resp.json();
@@ -4765,7 +4763,7 @@ function renderStep7(container) {
       if (typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(e) { console.warn('Silent error:', e); }
     } catch (err) {
       console.error('[SmartPlans] Bid comparison error:', err);
-      resultsDiv.innerHTML = `<p style="color:#ef4444;font-size:12px;">Failed to parse bid: ${esc(err.message)}</p>`;
+      resultsDiv.innerHTML = `<p style="color:#ef4444;font-size:12px;">Failed to parse bid data. Please check the format.</p>`;
     }
   });
 
@@ -5337,7 +5335,7 @@ function renderStep7(container) {
       revBtn.disabled = true;
 
       try {
-        const res = await fetchWithRetry(`/api/estimates/${state.estimateId}/revisions`, { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 10000 }, 3);
+        const res = await fetchWithRetry(`/api/estimates/${state.estimateId}/revisions`, { headers: { 'X-App-Token': _appToken }, _timeout: 10000 }, 3);
         const data = await res.json();
         const revisions = data.revisions || [];
         const inlineList = document.getElementById('revision-inline-list');
@@ -5371,7 +5369,7 @@ function renderStep7(container) {
         console.error('[SmartPlans] Failed to load revisions:', err);
         revBtn.textContent = 'View Revisions';
         revBtn.disabled = false;
-        spToast('Failed to load revisions: ' + err.message, 'error');
+        console.error('[SmartPlans]', err); spToast('Failed to load revisions. Please try again.', 'error');
       }
     });
   }
@@ -5429,8 +5427,7 @@ function initExclusionsPanel(container) {
     if (swapIdx < 0 || swapIdx >= filtered.length) return;
     const tmp = filtered[idx].sort_order; filtered[idx].sort_order = filtered[swapIdx].sort_order; filtered[swapIdx].sort_order = tmp;
     if (state.estimateId) {
-      const _soToken = sessionStorage.getItem('sp_app_token') || '';
-      fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _soToken },
+      fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
         body: JSON.stringify({ id: filtered[idx].id, items: [{ id: filtered[idx].id, sort_order: filtered[idx].sort_order }, { id: filtered[swapIdx].id, sort_order: filtered[swapIdx].sort_order }] })
       }).catch(err => console.warn('[SmartPlans] Sort order update failed:', err));
     }
@@ -5450,7 +5447,7 @@ function initExclusionsPanel(container) {
       const v = inp.value.trim();
       if (!v || v === cur) { renderExclList(); return; }
       item.text = v;
-      if (state.estimateId) { const _eiToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _eiToken }, body: JSON.stringify({ id: item.id, text: v }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+      if (state.estimateId) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify({ id: item.id, text: v }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
       renderExclList();
       if (typeof spToast === 'function') spToast('Item updated', 'success');
     }
@@ -5462,7 +5459,7 @@ function initExclusionsPanel(container) {
     const idx = state.exclusions.findIndex(e => e.id === id);
     if (idx < 0) return;
     state.exclusions.splice(idx, 1);
-    if (state.estimateId) { const _delToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-App-Token': _delToken }, body: JSON.stringify({ id }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+    if (state.estimateId) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify({ id }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
     renderExclList();
     if (typeof spToast === 'function') spToast('Item removed', 'success');
   }
@@ -5472,7 +5469,7 @@ function initExclusionsPanel(container) {
     const maxOrder = state.exclusions.filter(e => e.type === state._exclusionsTab).reduce((m, e) => Math.max(m, e.sort_order || 0), 0);
     const newItem = { id: crypto.randomUUID().replace(/-/g, ''), type: state._exclusionsTab, text: t, category: category || 'General', sort_order: maxOrder + 1 };
     state.exclusions.push(newItem);
-    if (state.estimateId) { const _addToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _addToken }, body: JSON.stringify(newItem) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+    if (state.estimateId) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify(newItem) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
     renderExclList();
   }
 
@@ -5509,7 +5506,7 @@ function initExclusionsPanel(container) {
         const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: d.type, text: d.text, category: d.category || 'General', sort_order: d.sort_order || 0 };
         state.exclusions.push(ni); newItems.push(ni); added++;
       }
-      if (state.estimateId && newItems.length > 0) { const _defToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _defToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+      if (state.estimateId && newItems.length > 0) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
       renderExclList();
       if (typeof spToast === 'function') spToast(`${added} default items loaded`, 'success');
     });
@@ -5552,13 +5549,13 @@ function initExclusionsPanel(container) {
             const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: s.type, text: s.text.trim(), category: s.category || 'General', sort_order: maxO + 1 };
             state.exclusions.push(ni); newItems.push(ni); added++;
           }
-          if (state.estimateId && newItems.length > 0) { const _aiToken = sessionStorage.getItem('sp_app_token') || ''; fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _aiToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+          if (state.estimateId && newItems.length > 0) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
           renderExclList();
           if (typeof spToast === 'function') spToast(`${added} AI-generated items added`, 'success');
         } else { if (typeof spToast === 'function') spToast('Could not parse AI suggestions', 'warning'); }
       } catch (err) {
         console.error('[SmartPlans] Auto-generate exclusions error:', err);
-        if (typeof spToast === 'function') spToast('Auto-generate failed: ' + err.message, 'error');
+        console.error('[SmartPlans]', err); if (typeof spToast === 'function') spToast('Auto-generate failed. Please try again.', 'error');
       } finally {
         autoGenBtn.disabled = false;
         autoGenBtn.innerHTML = '<i data-lucide="sparkles" style="width:12px;height:12px;"></i> Auto-Generate';
@@ -5570,7 +5567,7 @@ function initExclusionsPanel(container) {
   // Load from API on first render
   if (state.estimateId && !state._exclusionsLoaded) {
     state._exclusionsLoaded = true;
-    fetch(`/api/estimates/${state.estimateId}/exclusions`, { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' } }).then(r => r.json()).then(data => {
+    fetch(`/api/estimates/${state.estimateId}/exclusions`, { headers: { 'X-App-Token': _appToken } }).then(r => r.json()).then(data => {
       if (data.exclusions && data.exclusions.length > 0) { state.exclusions = data.exclusions.map(e => ({ ...e, _saved: true })); renderExclList(); }
     }).catch(err => console.warn('[SmartPlans] Failed to load exclusions:', err));
   }
@@ -7696,7 +7693,7 @@ async function saveEstimate(showToast = true) {
         const timeout = setTimeout(() => controller.abort(), 120000);
         res = await fetch(url, {
           method,
-          headers: { 'Content-Type': 'application/json', 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' },
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
           body: jsonBody,
           signal: controller.signal,
         });
@@ -7708,7 +7705,7 @@ async function saveEstimate(showToast = true) {
         const lightPayload = { ...payload, export_data: null };
         const lightRes = await fetchWithRetry(url, {
           method,
-          headers: { 'Content-Type': 'application/json', 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' },
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
           body: JSON.stringify(lightPayload),
           _timeout: 30000,
         }, 3);
@@ -7719,7 +7716,7 @@ async function saveEstimate(showToast = true) {
         // Now PUT just the export_data
         res = await fetchWithRetry(`/api/estimates/${estId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' },
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
           body: JSON.stringify({ export_data: exportPkg }),
           _timeout: 120000,
         }, 3);
@@ -7727,7 +7724,7 @@ async function saveEstimate(showToast = true) {
     } else {
       res = await fetchWithRetry(url, {
         method,
-        headers: { 'Content-Type': 'application/json', 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' },
+        headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
         body: jsonBody,
         _timeout: 60000,
       }, 3);
@@ -7743,7 +7740,7 @@ async function saveEstimate(showToast = true) {
     const localOk = saveToLocalStorage(payload);
     if (showToast) {
       if (localOk) spToast('Saved offline — will sync when connection restores', 'info');
-      else spToast('Failed to save: ' + err.message, 'error');
+      else { console.error('[SmartPlans]', err); spToast('Failed to save. Please try again.', 'error'); }
     }
   }
 }
@@ -7761,7 +7758,7 @@ async function loadEstimate(id) {
       return;
     }
 
-    const res = await fetchWithRetry(`/api/estimates/${id}`, { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 15000 }, 3);
+    const res = await fetchWithRetry(`/api/estimates/${id}`, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     const est = data.estimate;
@@ -7774,7 +7771,7 @@ async function loadEstimate(id) {
     spToast(`Loaded: ${state.projectName || 'Untitled'}`, 'info');
   } catch (err) {
     console.error('[SmartPlans] Load error:', err);
-    spToast('Failed to load estimate: ' + err.message, 'error');
+    console.error('[SmartPlans]', err); spToast('Failed to load estimate. Please try again.', 'error');
   }
 }
 
@@ -7890,14 +7887,14 @@ async function deleteEstimate(id, name) {
       return;
     }
 
-    const res = await fetchWithRetry(`/api/estimates/${id}`, { method: 'DELETE', headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 10000 }, 3);
+    const res = await fetchWithRetry(`/api/estimates/${id}`, { method: 'DELETE', headers: { 'X-App-Token': _appToken }, _timeout: 10000 }, 3);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     if (state.estimateId === id) state.estimateId = null;
     spToast('Estimate deleted');
     showSavedEstimates();
   } catch (err) {
-    spToast('Failed to delete: ' + err.message, 'error');
+    console.error('[SmartPlans]', err); spToast('Failed to delete. Please try again.', 'error');
   }
 }
 
@@ -7932,7 +7929,7 @@ async function showSavedEstimates() {
   let estimates = [];
   let cloudOk = false;
   try {
-    const res = await fetchWithRetry('/api/estimates', { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 10000 }, 3);
+    const res = await fetchWithRetry('/api/estimates', { headers: { 'X-App-Token': _appToken }, _timeout: 10000 }, 3);
     const data = await res.json();
     if (!data.error) {
       estimates = data.estimates || [];
@@ -8044,7 +8041,7 @@ async function showRevisionHistory(estimateId, projectName) {
   document.body.appendChild(panel);
 
   try {
-    const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions`, { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 10000 }, 3);
+    const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions`, { headers: { 'X-App-Token': _appToken }, _timeout: 10000 }, 3);
     const data = await res.json();
     const revisions = data.revisions || [];
     const container = document.getElementById('revision-list');
@@ -8099,7 +8096,7 @@ async function showRevisionHistory(estimateId, projectName) {
   } catch (err) {
     console.error('[SmartPlans] Failed to load revisions:', err);
     const container = document.getElementById('revision-list');
-    if (container) container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--accent-amber);">Failed to load revisions: ${esc(err.message)}</div>`;
+    if (container) container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--accent-amber);">Failed to load revisions. Please try again.</div>`;
   }
 }
 
@@ -8135,8 +8132,8 @@ async function compareRevision(estimateId, revId) {
   try {
     // Fetch revision data and current estimate data in parallel
     const [revRes, curRes] = await Promise.all([
-      fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 15000 }, 3),
-      fetchWithRetry(`/api/estimates/${estimateId}`, { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 15000 }, 3)
+      fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3),
+      fetchWithRetry(`/api/estimates/${estimateId}`, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3)
     ]);
 
     const revData = await revRes.json();
@@ -8235,7 +8232,7 @@ async function compareRevision(estimateId, revId) {
   } catch (err) {
     console.error('[SmartPlans] Compare failed:', err);
     const body = compPanel.querySelector('.saved-panel-body');
-    if (body) body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--accent-amber);">Failed to compare: ${esc(err.message)}</div>`;
+    if (body) body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--accent-amber);">Failed to compare. Please try again.</div>`;
   }
 }
 
@@ -8244,7 +8241,7 @@ async function restoreRevision(estimateId, revId, revNum) {
 
   try {
     // Fetch the full revision data
-    const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 15000 }, 3);
+    const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
@@ -8264,7 +8261,7 @@ async function restoreRevision(estimateId, revId, revNum) {
 
     const putRes = await fetchWithRetry(`/api/estimates/${estimateId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' },
+      headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
       body: JSON.stringify(payload),
       _timeout: 15000,
     }, 3);
@@ -8283,7 +8280,7 @@ async function restoreRevision(estimateId, revId, revNum) {
     spToast(`Restored to Revision #${revNum}`, 'success');
   } catch (err) {
     console.error('[SmartPlans] Restore failed:', err);
-    spToast('Failed to restore revision: ' + err.message, 'error');
+    console.error('[SmartPlans]', err); spToast('Failed to restore revision. Please try again.', 'error');
   }
 }
 
@@ -8293,7 +8290,7 @@ async function deleteRevision(estimateId, revId, projectName) {
   try {
     const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, {
       method: 'DELETE',
-      headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' },
+      headers: { 'X-App-Token': _appToken },
       _timeout: 10000,
     }, 3);
     const data = await res.json();
@@ -8303,7 +8300,7 @@ async function deleteRevision(estimateId, revId, projectName) {
     showRevisionHistory(estimateId, projectName);
   } catch (err) {
     console.error('[SmartPlans] Delete revision failed:', err);
-    spToast('Failed to delete revision: ' + err.message, 'error');
+    console.error('[SmartPlans]', err); spToast('Failed to delete revision. Please try again.', 'error');
   }
 }
 
@@ -8335,8 +8332,8 @@ async function showActualsPanel(estimateId, projectName) {
   document.body.appendChild(panel);
   try {
     const [estRes, actualsRes] = await Promise.all([
-      fetchWithRetry('/api/estimates/' + estimateId, { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 15000 }, 3),
-      fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { headers: { 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, _timeout: 15000 }, 3)
+      fetchWithRetry('/api/estimates/' + estimateId, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3),
+      fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3)
     ]);
     const estData = await estRes.json();
     const actualsData = await actualsRes.json();
@@ -8357,7 +8354,7 @@ async function showActualsPanel(estimateId, projectName) {
   } catch (err) {
     console.error('[SmartPlans] Failed to load actuals panel:', err);
     const body = document.getElementById('actuals-body');
-    if (body) body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--accent-rose);">Failed to load: ' + esc(err.message) + '</div>';
+    if (body) body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--accent-rose);">Failed to load. Please try again.</div>';
   }
 }
 
@@ -8439,11 +8436,11 @@ function _renderActualsTable(estimateId, projectName, bom, actualsMap) {
       saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
       try {
         var items = _collectActualsItems(bom, projectName);
-        var res = await fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': sessionStorage.getItem('sp_app_token') || '' }, body: JSON.stringify({ items: items }), _timeout: 15000 }, 3);
+        var res = await fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify({ items: items }), _timeout: 15000 }, 3);
         var data = await res.json();
         if (data.error) throw new Error(data.error);
         spToast('Actuals saved — ' + data.inserted + ' items recorded', 'success');
-      } catch (err) { spToast('Failed to save actuals: ' + err.message, 'error'); }
+      } catch (err) { console.error('[SmartPlans]', err); spToast('Failed to save actuals. Please try again.', 'error'); }
       finally { saveBtn.disabled = false; saveBtn.textContent = 'Save Actuals'; }
     });
   }
@@ -8456,7 +8453,7 @@ function _renderActualsTable(estimateId, projectName, bom, actualsMap) {
         var data = await res.json();
         if (data.error) throw new Error(data.error);
         spToast('Benchmarks updated — ' + (data.updated || 0) + ' items aggregated', 'success');
-      } catch (err) { spToast('Failed to update benchmarks: ' + err.message, 'error'); }
+      } catch (err) { console.error('[SmartPlans]', err); spToast('Failed to update benchmarks. Please try again.', 'error'); }
       finally { benchBtn.disabled = false; benchBtn.textContent = 'Update Benchmarks'; }
     });
   }
@@ -9499,7 +9496,7 @@ async function openSymbolMapViewer() {
     }
   } catch (err) {
     console.error('[SymbolMap] PDF load error:', err);
-    _showMapLoading('Failed to load PDF files: ' + err.message);
+    _showMapLoading('Failed to load PDF files. Please try again.');
     return;
   }
 
@@ -9681,7 +9678,7 @@ async function _renderMapPage(globalPageNum) {
     if (loadingEl) loadingEl.style.display = 'none';
   } catch (err) {
     console.error('[SymbolMap] Render error:', err);
-    if (loadingEl) loadingEl.innerHTML = `<div style="color:#FCA5A5;">Render error: ${esc(err.message)}</div>`;
+    if (loadingEl) loadingEl.innerHTML = `<div style="color:#FCA5A5;">Render error. Please try again.</div>`;
   }
 
   _symMap.rendering = false;
@@ -10284,6 +10281,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!sessionStorage.getItem('sp_app_token')) {
     sessionStorage.setItem('sp_app_token', crypto.randomUUID());
   }
+  _appToken = sessionStorage.getItem('sp_app_token');
 
   render();
   // Start API quota monitoring — warns users before they hit limits

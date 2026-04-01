@@ -78,6 +78,11 @@ const SmartBrains = {
     retryBaseDelay: 1500,
     timeout: 150000,                         // 2.5 min for standard brains
     proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
+    keySlots: 18,                            // Number of API key slots (GEMINI_KEY_0 … GEMINI_KEY_17)
+    sseTimeoutMs: 60000,                     // SSE stream idle timeout
+    jpegQuality: 0.85,                       // JPEG compression quality for drawing chunks
+    inlineThresholdBytes: 15 * 1024 * 1024,  // 15 MB — above this, use File API upload
+    chunkThresholdBytes: 45 * 1024 * 1024,   // Split PDFs over 45MB into chunks
   },
 
 
@@ -141,7 +146,7 @@ const SmartBrains = {
 
   async _encodeAllFiles(state, progressCallback) {
     const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB per file (Gemini File API)
-    const INLINE_THRESHOLD = 15 * 1024 * 1024; // 15 MB — above this, use File API upload
+    const INLINE_THRESHOLD = this.config.inlineThresholdBytes;
 
     const fileGroups = {
       legends: state.legendFiles || [],
@@ -195,7 +200,7 @@ const SmartBrains = {
 
             // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
-              const CHUNK_THRESHOLD = 45 * 1024 * 1024; // Split PDFs over 45MB into chunks (smaller files upload fine as single)
+              const CHUNK_THRESHOLD = this.config.chunkThresholdBytes;
               const PAGES_PER_CHUNK = 30;
               const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
 
@@ -462,7 +467,7 @@ const SmartBrains = {
       }
 
       // Convert to JPEG blob (much smaller than PNG for drawings)
-      const blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.85));
+      const blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', this.config.jpegQuality));
       if (blob) {
         // Create a File object so it works with _uploadToFileAPI
         const chunkFile = new File([blob], `chunk_${c + 1}.jpg`, { type: 'image/jpeg' });
@@ -704,7 +709,7 @@ const SmartBrains = {
         keySlot = 0;
       } else {
         // No uploaded files — safe to rotate across all keys
-        keySlot = (brainDef.id + attempt) % 18;
+        keySlot = (brainDef.id + attempt) % this.config.keySlots;
       }
 
       // If context cache is available, use it instead of sending files
@@ -754,7 +759,7 @@ const SmartBrains = {
         // Errors come through as _proxyError events in the stream.
         // Non-proxy responses (direct API) may still return error codes.
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
-          const nextSlot = (brainDef.id + attempt + 1) % 18;
+          const nextSlot = (brainDef.id + attempt + 1) % this.config.keySlots;
           const delay = this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500;
           console.warn(`[Brain:${brainDef.name}] API ${response.status}, rotating to key slot ${nextSlot}, retrying in ${Math.round(delay)}ms`);
           await new Promise(r => setTimeout(r, delay));
@@ -768,7 +773,7 @@ const SmartBrains = {
 
         // ── Read SSE stream and assemble response ──
         const { text, thoughtText } = await this._readSSEStream(response, brainDef.name, {
-          timeoutMs: 60000,
+          timeoutMs: this.config.sseTimeoutMs,
           trackUsage: true,
           onProxyError: (chunk) => {
             const errStatus = chunk.status || 500;
@@ -805,7 +810,7 @@ const SmartBrains = {
             console.warn(`[Brain:${brainDef.name}] fileData rejected by Google — will retry with inline_data only`);
           }
           // Error from zero-timeout proxy — retryable (429/403/500+)
-          const nextSlot = (brainDef.id + attempt + 1) % 18;
+          const nextSlot = (brainDef.id + attempt + 1) % this.config.keySlots;
           console.warn(`[Brain:${brainDef.name}] Proxy reported API ${err.status}, rotating to key slot ${nextSlot}, retrying…`);
         } else if (err.name === 'AbortError') {
           console.warn(`[Brain:${brainDef.name}] Timeout, attempt ${attempt + 1}`);
@@ -826,14 +831,14 @@ const SmartBrains = {
         const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
         const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
         if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
-        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % 18 };
+        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % this.config.keySlots };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
         const ctrl = new AbortController();
         const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
         const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fbBody), signal: ctrl.signal });
         clearTimeout(tmr);
         const { text: fbText, thoughtText: fbThought } = await this._readSSEStream(fbResp, brainDef.name, {
-          timeoutMs: 60000,
+          timeoutMs: this.config.sseTimeoutMs,
         });
                 if (fbText && fbText.length >= 20) {
           this._log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
@@ -842,66 +847,6 @@ const SmartBrains = {
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty`);
       } catch (fbErr) {
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} failed: ${fbErr.message}`);
-      }
-    }
-
-    // ── Legacy fallback path (kept for backward compat) ──
-    if (brainDef.useProModel && modelName !== this.config.model) {
-      console.warn(`[Brain:${brainDef.name}] All fallbacks failed — last attempt with ${this.config.model}`);
-      try {
-        const fbParts = [{ text: promptText }, ...cleanFileParts];
-        const fbGenConfig = {
-          temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
-          maxOutputTokens: brainDef.maxTokens,
-        };
-        if (useJsonMode) {
-          fbGenConfig.responseMimeType = 'application/json';
-        }
-        // No thinkingConfig for Flash model
-
-        const fbBody = {
-          contents: [{ parts: fbParts }],
-          generationConfig: fbGenConfig,
-          _model: this.config.model,
-          _brainSlot: hasUploadedFiles ? 0 : brainDef.id,
-          // Pass upload key name if available (same key that uploaded the file)
-          ...(uploadKeyName ? { _uploadKeyName: uploadKeyName } : {}),
-        };
-
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), this.config.timeout);
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(fbBody),
-          signal: controller.signal,
-        });
-        clearTimeout(timer);
-
-        if (response.ok) {
-          // Handle SSE streaming in fallback too
-          const { text, thoughtText: fbThoughtText } = await this._readSSEStream(response, brainDef.name, {
-            timeoutMs: 60000,
-            onProxyError: (chunk) => {
-              console.warn(`[Brain:${brainDef.name}] Fallback proxy error: ${chunk.status} ${chunk.message}`);
-              if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google says: ${chunk._debug}`);
-            },
-          });
-                    // Use thought content if regular text is empty
-          if ((!text || text.length < 20) && fbThoughtText.length >= 20) {
-            console.warn(`[Brain:${brainDef.name}] Fallback was thought-only (${fbThoughtText.length} chars) — using thinking content`);
-            text = fbThoughtText;
-          }
-          if (text && text.length >= 20) {
-            this._log(`[Brain:${brainDef.name}] ✓ Fallback complete (${text.length} chars)`);
-            return text;
-          }
-          console.warn(`[Brain:${brainDef.name}] Fallback returned empty — text: ${text.length} chars, thought: ${fbThoughtText.length} chars`);
-        } else {
-          console.warn(`[Brain:${brainDef.name}] Fallback HTTP ${response.status}`);
-        }
-      } catch (fbErr) {
-        console.warn(`[Brain:${brainDef.name}] Fallback also failed:`, fbErr.message);
       }
     }
 
