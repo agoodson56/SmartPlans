@@ -139,6 +139,8 @@ const SmartPlansExport = {
                 })),
                 totalLineItems: filteredBom.categories.reduce((s, c) => s + c.items.length, 0),
                 supplierOverrides: state.supplierPriceOverrides || {},
+                manualBomItems: state.manualBomItems || [],
+                deletedBomItems: state.deletedBomItems || {},
                 // Phase assignment per category for SmartPM SOV
                 phaseAssignments: this._buildPhaseAssignments(state, filteredBom),
             },

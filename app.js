@@ -666,6 +666,8 @@ const state = {
 
   // Supplier Pricing
   supplierPriceOverrides: {},   // "catIndex-itemIndex" → { unitCost, supplierName, appliedAt }
+  manualBomItems: [],           // user-added items: [{ catIndex, name, qty, unit, unitCost, mfg, partNumber }]
+  deletedBomItems: {},          // "catIndex-itemIndex" → true for deleted AI items
   supplierQuotes: [],           // cached list from API
 
   // Bid Strategy — per-category markup & confidence
@@ -1806,9 +1808,10 @@ function getFilteredBOM(aiAnalysis, disciplines) {
   // FIX: If this estimate was loaded from a truncated save, use the pre-structured
   // financials data instead of re-parsing the chopped markdown. This restores the
   // correct BOM for bids saved with the old truncation bug.
+  let bom;
   if (state._restoredFinancials?.categories?.length > 0) {
     const restored = state._restoredFinancials;
-    const bom = {
+    bom = {
       categories: restored.categories.map(cat => ({
         name: cat.name,
         subtotal: cat.subtotal,
@@ -1826,14 +1829,57 @@ function getFilteredBOM(aiAnalysis, disciplines) {
       })),
       grandTotal: restored.bomRawTotal || restored.categories.reduce((s, c) => s + c.subtotal, 0),
     };
-    return bom;
+  } else {
+    bom = SmartPlansExport._extractBOMFromAnalysis(aiAnalysis);
+    if (typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
+      bom = SmartPlansExport._filterBOMByDisciplines(bom, disciplines);
+    }
   }
 
-  const bom = SmartPlansExport._extractBOMFromAnalysis(aiAnalysis);
-  // Travel & incidentals are injected automatically by _filterBOMByDisciplines
-  if (typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
-    return SmartPlansExport._filterBOMByDisciplines(bom, disciplines);
+  // ── Apply manual item edits (add/delete) ──
+  const deleted = state.deletedBomItems || {};
+  const manual = state.manualBomItems || [];
+
+  // Remove deleted items
+  if (Object.keys(deleted).length > 0) {
+    bom.categories.forEach((cat, ci) => {
+      cat.items = cat.items.filter((_, ii) => !deleted[ci + '-' + ii]);
+    });
   }
+
+  // Add manual items into their target categories
+  if (manual.length > 0) {
+    manual.forEach(mi => {
+      const ci = mi.catIndex;
+      if (bom.categories[ci]) {
+        bom.categories[ci].items.push({
+          name: mi.name,
+          item: mi.name,
+          qty: mi.qty || 0,
+          unit: mi.unit || 'EA',
+          unitCost: mi.unitCost || 0,
+          extCost: Math.round((mi.qty || 0) * (mi.unitCost || 0) * 100) / 100,
+          mfg: mi.mfg || '',
+          partNumber: mi.partNumber || '',
+          category: 'manual',
+          _manual: true,
+          _manualId: mi.id,
+        });
+      }
+    });
+  }
+
+  // Recalculate subtotals and grand total after add/delete
+  if (Object.keys(deleted).length > 0 || manual.length > 0) {
+    bom.grandTotal = 0;
+    bom.categories.forEach(cat => {
+      cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
+      cat.subtotal = Math.round(cat.subtotal * 100) / 100;
+      bom.grandTotal += cat.subtotal;
+    });
+    bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
+  }
+
   return bom;
 }
 
@@ -3962,7 +4008,7 @@ function renderStep7(container) {
     let _bomRows = '';
     _bomData.categories.forEach((cat, ci) => {
       _bomRows += `<tr style="background:rgba(13,148,136,0.08);">
-        <td colspan="8" style="padding:10px 12px;font-weight:700;font-size:13px;color:rgba(20,184,166,0.95);border-bottom:1px solid rgba(20,184,166,0.12);">${esc(cat.name)}</td>
+        <td colspan="9" style="padding:10px 12px;font-weight:700;font-size:13px;color:rgba(20,184,166,0.95);border-bottom:1px solid rgba(20,184,166,0.12);">${esc(cat.name)}</td>
       </tr>`;
       cat.items.forEach((item, ii) => {
         _bomRowNum++;
@@ -3984,17 +4030,33 @@ function renderStep7(container) {
               style="width:80px;padding:3px 6px;border-radius:5px;border:1px solid rgba(20,184,166,0.25);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:12px;text-align:right;outline:none;${_isEdited ? 'border-color:rgba(13,148,136,0.5);background:rgba(13,148,136,0.12);' : ''}" />
           </td>
           <td style="padding:6px 10px;font-size:12px;color:var(--text-primary);text-align:right;font-weight:600;" class="bom-ext-cost" data-key="${_key}">${_fmtDollar(item.extCost)}</td>
+          <td style="padding:4px 6px;text-align:center;">
+            <button class="bom-delete-btn" data-key="${_key}" data-manual-id="${item._manualId || ''}" title="Remove item" style="background:none;border:1px solid rgba(239,68,68,0.2);color:#ef4444;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;line-height:1;opacity:0.6;transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">✕</button>
+          </td>
         </tr>`;
       });
+      // Add Item button for this category
+      _bomRows += `<tr class="bom-add-item-row" data-cat="${ci}">
+        <td colspan="9" style="padding:4px 12px;">
+          <button class="bom-add-item-btn" data-cat="${ci}" style="background:none;border:1px dashed rgba(20,184,166,0.3);color:rgba(20,184,166,0.7);cursor:pointer;font-size:11px;padding:4px 12px;border-radius:4px;font-weight:600;transition:all 0.2s;width:100%;" onmouseover="this.style.borderColor='rgba(20,184,166,0.6)';this.style.color='rgba(20,184,166,1)'" onmouseout="this.style.borderColor='rgba(20,184,166,0.3)';this.style.color='rgba(20,184,166,0.7)'">+ Add Item to ${esc(cat.name)}</button>
+        </td>
+      </tr>`;
       _bomRows += `<tr style="background:rgba(13,148,136,0.04);border-bottom:2px solid rgba(20,184,166,0.12);">
-        <td colspan="7" style="padding:6px 12px;font-size:12px;font-weight:700;color:var(--text-muted);text-align:right;">Subtotal — ${esc(cat.name)}</td>
+        <td colspan="8" style="padding:6px 12px;font-size:12px;font-weight:700;color:var(--text-muted);text-align:right;">Subtotal — ${esc(cat.name)}</td>
         <td style="padding:6px 10px;font-size:13px;font-weight:700;color:rgba(20,184,166,0.9);text-align:right;" class="bom-subtotal" data-cat="${ci}">${_fmtDollar(cat.subtotal)}</td>
       </tr>`;
     });
 
-    const _summaryBar = _overrideCount > 0
+    const _manualCount = (state.manualBomItems || []).length;
+    const _deletedCount = Object.keys(state.deletedBomItems || {}).length;
+    const _totalEdits = _overrideCount + _manualCount + _deletedCount;
+    const _editParts = [];
+    if (_overrideCount > 0) _editParts.push(`${_overrideCount} edited`);
+    if (_manualCount > 0) _editParts.push(`${_manualCount} added`);
+    if (_deletedCount > 0) _editParts.push(`${_deletedCount} removed`);
+    const _summaryBar = _totalEdits > 0
       ? `<div id="bom-summary-bar" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(13,148,136,0.06);border:1px solid rgba(13,148,136,0.18);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-          <span style="font-size:12px;color:var(--text-muted);">${_overrideCount} item${_overrideCount > 1 ? 's' : ''} manually edited &middot; Original: ${_fmtDollar(_bomOriginalGrand)} &rarr; Current: ${_fmtDollar(_bomData.grandTotal)} (${_deltaStr})</span>
+          <span style="font-size:12px;color:var(--text-muted);">${_editParts.join(' · ')} &middot; Original: ${_fmtDollar(_bomOriginalGrand)} &rarr; Current: ${_fmtDollar(_bomData.grandTotal)} (${_deltaStr})</span>
           <button id="bom-reset-overrides" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.06);color:#ef4444;font-size:11px;font-weight:600;cursor:pointer;">Reset to AI Prices</button>
         </div>`
       : `<div id="bom-summary-bar" style="display:none;"></div>`;
@@ -4020,12 +4082,13 @@ function renderStep7(container) {
                 <th style="padding:8px 10px;text-align:center;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">Unit</th>
                 <th style="padding:8px 10px;text-align:right;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">Unit Cost</th>
                 <th style="padding:8px 10px;text-align:right;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);">Ext Cost</th>
+                <th style="padding:8px 10px;text-align:center;font-size:11px;color:rgba(20,184,166,0.8);font-weight:700;border-bottom:2px solid rgba(20,184,166,0.2);width:36px;"></th>
               </tr>
             </thead>
             <tbody>
               ${_bomRows}
               <tr style="background:rgba(13,148,136,0.15);">
-                <td colspan="7" style="padding:10px 12px;font-size:14px;font-weight:700;color:var(--text-primary);text-align:right;">Grand Total</td>
+                <td colspan="8" style="padding:10px 12px;font-size:14px;font-weight:700;color:var(--text-primary);text-align:right;">Grand Total</td>
                 <td style="padding:10px 12px;font-size:14px;font-weight:700;color:#0D9488;text-align:right;" id="bom-grand-total">${_fmtDollar(_bomData.grandTotal)}</td>
               </tr>
             </tbody>
@@ -4036,7 +4099,7 @@ function renderStep7(container) {
   }
 
   // ── Regenerate Proposal button (conditional) ──
-  const _hasOverrides = Object.keys(state.supplierPriceOverrides || {}).length > 0;
+  const _hasOverrides = Object.keys(state.supplierPriceOverrides || {}).length > 0 || (state.manualBomItems || []).length > 0 || Object.keys(state.deletedBomItems || {}).length > 0;
   const regenButton = _hasOverrides ? `
       <button class="proposal-gen-btn" id="btn-regen-proposal" style="margin-top:10px;background:linear-gradient(135deg,rgba(16,185,129,0.15),rgba(13,148,136,0.06));border:2px solid rgba(16,185,129,0.45);">
         <div class="proposal-gen-btn__shine" style="background:linear-gradient(90deg,transparent,rgba(16,185,129,0.15),transparent);"></div>
@@ -4581,6 +4644,8 @@ function renderStep7(container) {
   if (bomResetBtn) {
     bomResetBtn.addEventListener('click', () => {
       state.supplierPriceOverrides = {};
+      state.manualBomItems = [];
+      state.deletedBomItems = {};
       renderStep7(container);
     });
   }
@@ -4666,7 +4731,7 @@ function renderStep7(container) {
           <button id="bom-reset-overrides" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.06);color:#ef4444;font-size:11px;font-weight:600;cursor:pointer;">Reset to AI Prices</button>`;
         // Re-bind reset button
         const newResetBtn = document.getElementById('bom-reset-overrides');
-        if (newResetBtn) newResetBtn.addEventListener('click', () => { state.supplierPriceOverrides = {}; renderStep7(container); });
+        if (newResetBtn) newResetBtn.addEventListener('click', () => { state.supplierPriceOverrides = {}; state.manualBomItems = []; state.deletedBomItems = {}; renderStep7(container); });
       } else {
         summaryBar.style.display = 'none';
       }
@@ -4691,6 +4756,103 @@ function renderStep7(container) {
         const costInput = row.querySelector('.bom-edit-cost');
         if (qtyInput && costInput) _bomRecalc(key, qtyInput, costInput);
       }, 300);
+    });
+  });
+
+  // ── BOM Delete Item handlers ──
+  document.querySelectorAll('.bom-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.key;
+      const manualId = btn.dataset.manualId;
+      if (manualId) {
+        // Remove manually added item
+        state.manualBomItems = (state.manualBomItems || []).filter(mi => mi.id !== manualId);
+      } else {
+        // Mark AI item as deleted
+        if (!state.deletedBomItems) state.deletedBomItems = {};
+        state.deletedBomItems[key] = true;
+        // Clean up any override for this item
+        delete state.supplierPriceOverrides[key];
+      }
+      renderStep7(container);
+    });
+  });
+
+  // ── BOM Add Item handlers ──
+  document.querySelectorAll('.bom-add-item-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ci = parseInt(btn.dataset.cat);
+      const row = btn.closest('tr');
+      // Check if form already exists
+      if (row.nextElementSibling && row.nextElementSibling.classList.contains('bom-add-form-row')) return;
+      // Insert inline add form
+      const formRow = document.createElement('tr');
+      formRow.className = 'bom-add-form-row';
+      formRow.style.cssText = 'background:rgba(13,148,136,0.06);border:1px dashed rgba(20,184,166,0.3);';
+      formRow.innerHTML = `
+        <td style="padding:6px 4px;"></td>
+        <td style="padding:6px 4px;" colspan="2">
+          <input type="text" class="bom-add-name" placeholder="Item name" style="width:100%;padding:4px 8px;border:1px solid rgba(20,184,166,0.3);background:rgba(0,0,0,0.02);color:var(--text-primary);font-size:12px;border-radius:4px;outline:none;font-family:var(--font-sans);" />
+        </td>
+        <td style="padding:6px 4px;">
+          <input type="text" class="bom-add-mfg" placeholder="MFG" style="width:100%;padding:4px 6px;border:1px solid rgba(20,184,166,0.3);background:rgba(0,0,0,0.02);color:var(--text-primary);font-size:11px;border-radius:4px;outline:none;" />
+        </td>
+        <td style="padding:6px 4px;">
+          <input type="number" class="bom-add-qty" placeholder="Qty" value="1" min="0" step="1" style="width:60px;padding:4px 6px;border:1px solid rgba(20,184,166,0.3);background:rgba(0,0,0,0.02);color:var(--text-primary);font-size:12px;border-radius:4px;text-align:center;outline:none;" />
+        </td>
+        <td style="padding:6px 4px;">
+          <input type="text" class="bom-add-unit" placeholder="EA" value="EA" style="width:50px;padding:4px 6px;border:1px solid rgba(20,184,136,0.3);background:rgba(0,0,0,0.02);color:var(--text-primary);font-size:11px;border-radius:4px;text-align:center;outline:none;" />
+        </td>
+        <td style="padding:6px 4px;">
+          <input type="number" class="bom-add-cost" placeholder="0.00" min="0" step="0.01" style="width:80px;padding:4px 6px;border:1px solid rgba(20,184,166,0.3);background:rgba(0,0,0,0.02);color:var(--text-primary);font-size:12px;border-radius:4px;text-align:right;outline:none;" />
+        </td>
+        <td style="padding:6px 4px;" colspan="2">
+          <div style="display:flex;gap:4px;">
+            <button class="bom-add-save" style="padding:4px 10px;border:1px solid rgba(16,185,129,0.4);background:rgba(16,185,129,0.1);color:#059669;cursor:pointer;font-size:11px;font-weight:700;border-radius:4px;">Add</button>
+            <button class="bom-add-cancel" style="padding:4px 8px;border:1px solid rgba(239,68,68,0.2);background:none;color:#ef4444;cursor:pointer;font-size:11px;border-radius:4px;">Cancel</button>
+          </div>
+        </td>
+      `;
+      row.parentNode.insertBefore(formRow, row.nextSibling);
+
+      // Focus name field
+      const nameInput = formRow.querySelector('.bom-add-name');
+      if (nameInput) nameInput.focus();
+
+      // Save handler
+      formRow.querySelector('.bom-add-save').addEventListener('click', () => {
+        const name = formRow.querySelector('.bom-add-name').value.trim();
+        if (!name) { formRow.querySelector('.bom-add-name').style.borderColor = '#ef4444'; return; }
+        const qty = parseFloat(formRow.querySelector('.bom-add-qty').value) || 1;
+        const unit = formRow.querySelector('.bom-add-unit').value.trim() || 'EA';
+        const unitCost = parseFloat(formRow.querySelector('.bom-add-cost').value) || 0;
+        const mfg = formRow.querySelector('.bom-add-mfg').value.trim();
+        if (!state.manualBomItems) state.manualBomItems = [];
+        state.manualBomItems.push({
+          id: 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          catIndex: ci,
+          name,
+          qty,
+          unit,
+          unitCost,
+          mfg,
+          partNumber: '',
+        });
+        renderStep7(container);
+      });
+
+      // Cancel handler
+      formRow.querySelector('.bom-add-cancel').addEventListener('click', () => {
+        formRow.remove();
+      });
+
+      // Enter key saves
+      formRow.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('keydown', e => {
+          if (e.key === 'Enter') formRow.querySelector('.bom-add-save').click();
+          if (e.key === 'Escape') formRow.querySelector('.bom-add-cancel').click();
+        });
+      });
     });
   });
 
@@ -7563,9 +7725,15 @@ function _restoreStateFromPayload(id, pkg, est) {
     if (pkg.pricingConfig.markup) state.markup = { ...state.markup, ...pkg.pricingConfig.markup };
   }
 
-  // ── Restore supplier price overrides ──
+  // ── Restore supplier price overrides & manual BOM edits ──
   if (pkg?.financials?.supplierOverrides && Object.keys(pkg.financials.supplierOverrides).length > 0) {
     state.supplierPriceOverrides = pkg.financials.supplierOverrides;
+  }
+  if (pkg?.financials?.manualBomItems && Array.isArray(pkg.financials.manualBomItems)) {
+    state.manualBomItems = pkg.financials.manualBomItems;
+  }
+  if (pkg?.financials?.deletedBomItems && Object.keys(pkg.financials.deletedBomItems).length > 0) {
+    state.deletedBomItems = pkg.financials.deletedBomItems;
   }
 
   if (pkg?.analysis?.rawMarkdown) {
