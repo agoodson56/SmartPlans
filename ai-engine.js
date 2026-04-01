@@ -1365,7 +1365,7 @@ Return ONLY valid JSON:
     }
   ],
   "backbone_cables": [
-    { "type": "fiber_sm_os2", "strand_count": 12, "runs": 3, "avg_length_ft": 300 }
+    { "type": "fiber_sm_os2", "strand_count": 12, "runs": 3, "avg_length_ft": 300, "total_length_ft": 900 }
   ],
   "pathways": [
     { "type": "cable_tray", "size": "12x4", "length_ft": 500, "location": "Above ceiling corridors" },
@@ -3255,8 +3255,8 @@ Return ONLY valid JSON:
     { "system": "Structured Cabling", "description": "Main fiber backbone", "from": "MDF-1F", "to": "IDF-3F", "cable_type": "12-strand SM fiber", "quantity": 2, "pathway": "4\" conduit" }
   ],
   "backbone_cables": [
-    { "type": "fiber_sm", "strand_count": 12, "runs": 6, "total_length_ft": 1200, "termination": "LC connectors" },
-    { "type": "cat6a_25pair", "pairs": 25, "runs": 4, "total_length_ft": 800 }
+    { "type": "fiber_sm", "strand_count": 12, "runs": 6, "avg_length_ft": 200, "total_length_ft": 1200, "termination": "LC connectors" },
+    { "type": "cat6a_25pair", "pairs": 25, "runs": 4, "avg_length_ft": 200, "total_length_ft": 800 }
   ],
   "vertical_pathways": [
     { "from_floor": "1F", "to_floor": "2F", "pathway_type": "4-inch conduit", "quantity": 3, "fill_pct": 40 }

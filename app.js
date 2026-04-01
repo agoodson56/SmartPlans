@@ -8712,8 +8712,31 @@ function buildCablePathwayCard(st) {
       </div>`;
   }).join('');
 
-  // Backbone cables summary (from CABLE_PATHWAY, not zone-calculated)
-  const backbones = (cable.backbone_cables || []);
+  // Backbone cables summary (from CABLE_PATHWAY + RISER_DIAGRAM_ANALYZER)
+  // Merge backbone data from both sources, prefer CABLE_PATHWAY (has avg_length_ft schema)
+  const riserBackbones = state.brainResults?.wave1?.RISER_DIAGRAM_ANALYZER?.backbone_cables || [];
+  let backbones = (cable.backbone_cables || []);
+  if (backbones.length === 0 && riserBackbones.length > 0) {
+    backbones = riserBackbones;
+  }
+  // Fill in missing avg_length_ft from building dimensions or riser data
+  const _floorH = state.floorToFloorHeight || 14;
+  const _bldgW = state.floorPlateWidth || 0;
+  const _bldgD = state.floorPlateDepth || 0;
+  const _mdfIdf = state.brainResults?.wave1?.MDF_IDF_ANALYZER || {};
+  const _roomCount = (_mdfIdf.rooms || _mdfIdf.idf_rooms || []).length + (_mdfIdf.mdf_room ? 1 : 0);
+  backbones.forEach(b => {
+    if (!b.avg_length_ft && b.total_length_ft && b.runs > 0) {
+      b.avg_length_ft = Math.round(b.total_length_ft / b.runs);
+      b._lengthBasis = 'calculated from total_length_ft ÷ runs';
+    }
+    if (!b.avg_length_ft) {
+      // Estimate: avg backbone run = building diagonal/2 + floor-to-floor + 30ft slack
+      const diag = (_bldgW > 0 && _bldgD > 0) ? Math.sqrt(_bldgW * _bldgW + _bldgD * _bldgD) : 200;
+      b.avg_length_ft = Math.round(diag / 2 + _floorH + 30);
+      b._lengthBasis = 'estimated (building diagonal/2 + floor height + slack)';
+    }
+  });
   const backboneHtml = backbones.length > 0 ? `
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(0,0,0,0.06);">
       <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">Backbone / Riser Cables</div>
@@ -8733,7 +8756,7 @@ function buildCablePathwayCard(st) {
                 <td style="padding:7px 10px;font-size:12px;">${(b.type||'').toUpperCase().replace(/_/g,' ')}</td>
                 <td style="padding:7px 10px;font-size:12px;text-align:center;">${b.strand_count || b.pairs || '—'}</td>
                 <td style="padding:7px 10px;font-size:12px;text-align:center;">${b.runs || '—'}</td>
-                <td style="padding:7px 10px;font-size:12px;text-align:right;">${b.avg_length_ft ? b.avg_length_ft + ' ft' : '—'}</td>
+                <td style="padding:7px 10px;font-size:12px;text-align:right;" title="${b._lengthBasis || 'from drawings'}">${b.avg_length_ft ? b.avg_length_ft + ' ft' + (b._lengthBasis ? ' *' : '') : '—'}</td>
               </tr>`).join('')}
           </tbody>
         </table>
