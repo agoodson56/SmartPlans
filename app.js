@@ -10672,87 +10672,51 @@ function extractPotentialChangeOrders(st) {
     return single ? Math.round(parseFloat(single[1])) : 0;
   }
 
-  // 1. Devil's Advocate challenges
+  // Helper to push a CO if not duplicate
+  function addCO(desc, cost, severity, source, justification) {
+    if (!desc || cos.some(c => c.description === desc)) return;
+    cos.push({
+      id: `CO-${String(id++).padStart(3, '0')}`,
+      description: desc,
+      category: 'change_order',
+      estimatedCost: cost,
+      severity: severity || 'medium',
+      source,
+      recommendation: justification || '',
+    });
+  }
+
+  // ═══ ONLY extract TRUE change orders — scope NOT in plans or specs ═══
+  // Devil's Advocate "challenges" and "missed_items" are BID CORRECTIONS, not COs.
+  // Cross Validator "issues" are QA findings to fix in the bid, not COs.
+  // If it's on the plans or in the specs, it belongs in our bid — period.
+
+  // 1. Devil's Advocate — true_change_orders only
   const da = br.wave3?.DEVILS_ADVOCATE;
-  if (da?.challenges) {
-    da.challenges.forEach(c => {
-      cos.push({
-        id: `CO-${String(id++).padStart(3, '0')}`,
-        description: c.description || c.issue || 'Unspecified challenge',
-        category: c.category || 'scope_gap',
-        estimatedCost: parseImpact(c.estimated_impact),
-        severity: c.severity || 'medium',
-        source: "Devil's Advocate",
-        recommendation: c.recommendation || '',
-      });
+  if (da?.true_change_orders && Array.isArray(da.true_change_orders)) {
+    da.true_change_orders.forEach(co => {
+      const desc = co.description || co.item || '';
+      addCO(desc, parseImpact(co.estimated_impact), co.severity, "Devil's Advocate", co.justification || '');
     });
   }
 
-  // 2. Devil's Advocate missed_items (if separate from challenges)
-  if (da?.missed_items && Array.isArray(da.missed_items)) {
-    da.missed_items.forEach(item => {
-      const desc = typeof item === 'string' ? item : (item.description || item.item || JSON.stringify(item));
-      const cost = typeof item === 'object' ? parseImpact(item.estimated_cost || item.estimated_impact) : 0;
-      // Avoid duplicates with challenges
-      if (!cos.some(c => c.description === desc)) {
-        cos.push({
-          id: `CO-${String(id++).padStart(3, '0')}`,
-          description: desc,
-          category: 'missing_item',
-          estimatedCost: cost,
-          severity: 'high',
-          source: "Devil's Advocate",
-          recommendation: typeof item === 'object' ? (item.recommendation || '') : '',
-        });
-      }
+  // 2. Spec Cross-Reference — true_change_orders only
+  const scr = br.wave1?.SPEC_CROSS_REF;
+  if (scr?.true_change_orders && Array.isArray(scr.true_change_orders)) {
+    scr.true_change_orders.forEach(co => {
+      const desc = co.description || co.item || '';
+      addCO(desc, parseImpact(co.estimated_impact), co.severity, 'Spec Cross-Ref', co.justification || '');
     });
   }
 
-  // 3. Cross Validator issues
-  const cv = br.wave3?.CROSS_VALIDATOR;
-  if (cv?.issues && Array.isArray(cv.issues)) {
-    cv.issues.forEach(issue => {
-      const desc = typeof issue === 'string' ? issue : (issue.description || issue.issue || '');
-      if (desc && !cos.some(c => c.description === desc)) {
-        cos.push({
-          id: `CO-${String(id++).padStart(3, '0')}`,
-          description: desc,
-          category: typeof issue === 'object' ? (issue.category || 'scope_gap') : 'scope_gap',
-          estimatedCost: typeof issue === 'object' ? parseImpact(issue.estimated_impact) : 0,
-          severity: typeof issue === 'object' ? (issue.severity || 'medium') : 'medium',
-          source: 'Cross Validator',
-          recommendation: typeof issue === 'object' ? (issue.recommendation || '') : '',
-        });
-      }
-    });
-  }
-
-  // 4. Special Conditions — flag items that may not be in BOM
+  // 3. Special Conditions — ONLY items flagged as NOT in contract scope
+  // Permits and site conditions that ARE called out in specs belong in the bid.
+  // Only include items explicitly identified as outside the contract scope.
   const sc = br.wave1?.SPECIAL_CONDITIONS;
-  if (sc) {
-    const flagSections = [
-      { key: 'permits', label: 'Permit / Inspection', sev: 'medium' },
-      { key: 'site_conditions', label: 'Site Condition', sev: 'medium' },
-    ];
-    flagSections.forEach(({ key, label, sev }) => {
-      const items = sc[key];
-      if (Array.isArray(items)) {
-        items.forEach(item => {
-          const desc = typeof item === 'string' ? item : (item.description || item.item || item.name || '');
-          const cost = typeof item === 'object' ? parseImpact(item.cost || item.estimated_cost) : 0;
-          if (desc && !cos.some(c => c.description === desc)) {
-            cos.push({
-              id: `CO-${String(id++).padStart(3, '0')}`,
-              description: `${label}: ${desc}`,
-              category: key,
-              estimatedCost: cost,
-              severity: sev,
-              source: 'Special Conditions',
-              recommendation: '',
-            });
-          }
-        });
-      }
+  if (sc?.true_change_orders && Array.isArray(sc.true_change_orders)) {
+    sc.true_change_orders.forEach(co => {
+      const desc = co.description || co.item || '';
+      addCO(desc, parseImpact(co.estimated_impact || co.cost), co.severity, 'Special Conditions', co.justification || '');
     });
   }
 
@@ -10809,7 +10773,7 @@ function buildChangeOrderCard(st) {
       </div>
       <div id="co-collapsible" style="display:${st._changeOrdersOpen ? 'block' : 'none'};margin-top:12px;">
         <p style="color:rgba(0,0,0,0.5);font-size:12px;margin-bottom:16px;">
-          Items identified by the AI that may result in change orders during construction. These are scope gaps, missing items, or conditions not fully captured in the base bid. Use this to prepare your client or build contingency.
+          Items NOT in the plans or specifications that may arise during construction. These are legitimate change order risks — ambiguous scope, owner-requested additions, code requirements not addressed in contract documents, or conditions that can't be known until construction begins. Items that ARE on the plans or specs are already included in your bid.
         </p>
 
         <!-- Severity Summary -->

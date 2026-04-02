@@ -1696,8 +1696,15 @@ Return ONLY valid JSON:
   },
   "risks": [
     { "risk": "Pre-1980 building — potential asbestos", "mitigation": "Environmental survey before penetrations", "severity": "high" }
+  ],
+  "true_change_orders": [
+    { "description": "Scope item NOT in plans or specs that may arise during construction", "severity": "medium", "estimated_impact": "$5,000-$10,000", "justification": "Not shown on plans, not called out in specifications — only discoverable during construction or site walk" }
   ]
-}`,
+}
+
+═══ CRITICAL: BID vs. CHANGE ORDER DISTINCTION ═══
+Everything you identify above (equipment rentals, subcontractors, permits, civil work, etc.) that IS shown on the plans or called out in the specifications MUST be included in the bid — these are NOT change orders.
+The "true_change_orders" field is ONLY for items that are NOT in the plans AND NOT in the specs but could reasonably arise during construction. Examples: hidden site conditions, ambiguous scope boundaries, code requirements not addressed in contract documents.`,
 
       // ── BRAIN 6: Material Pricer ─────────────────────────────
       MATERIAL_PRICER: () => {
@@ -2989,6 +2996,22 @@ ATTACK VECTORS — Challenge the estimate on:
 6. DOUBLE COUNTING? Same device counted in multiple categories
 7. PHANTOM ITEMS? Materials listed that don't match any symbol on plans
 
+═══ CRITICAL DISTINCTION: BID ERRORS vs. CHANGE ORDERS ═══
+If something IS on the plans or specs and we missed it — that is a BID ERROR, NOT a change order.
+Put bid errors in "challenges" and "missed_items" — these get corrected in our bid.
+
+A TRUE CHANGE ORDER is ONLY for scope that is NOT in the plans AND NOT in the specs.
+Examples of TRUE change orders:
+- Owner verbally mentioned adding cameras to the parking garage but it's not in the drawings or spec
+- The spec says "coordinate with GC for power" but no electrical scope is shown — who pays for the electrician?
+- Building conditions that can't be known until site visit (e.g., asbestos, hidden obstacles)
+- Ambiguous spec language that could be interpreted as additional scope beyond what's drawn
+- Items referenced in specs as "future" or "owner-furnished" that may change
+- Code-required items that are neither drawn nor specified (e.g., fire stopping not called out)
+
+DO NOT put items in true_change_orders if they are shown on the plans or called out in the specifications.
+If it's on the plans or in the specs, it belongs in our bid — period.
+
 Return ONLY valid JSON:
 {
   "challenges": [
@@ -2998,7 +3021,10 @@ Return ONLY valid JSON:
   "risk_level": "low|medium|high|critical",
   "missed_items": [],
   "pricing_flags": [],
-  "overall_assessment": "string"
+  "overall_assessment": "string",
+  "true_change_orders": [
+    { "severity": "high", "description": "Spec references 'future card readers at gates' — not drawn or spec'd but owner may add during construction", "estimated_impact": "$5,000-$12,000", "justification": "Not in plans or specs — referenced only as future scope in general notes" }
+  ]
 }`,
 
       // ── BRAIN 18: Detail Verifier (Wave 3.5 — 4th Read) ──────
@@ -3188,7 +3214,9 @@ Look specifically for:
 - Surge protectors / SPDs
 These are HIGH-VALUE items that are often specified in the specs but easy to miss.
 
-CRITICAL CHECK: Look for scope items in the spec that have NO corresponding symbol on any drawing. These are commonly missed and result in change orders.
+CRITICAL CHECK: Look for scope items in the spec that have NO corresponding symbol on any drawing. These MUST be included in the bid — they are NOT change orders. If the spec calls for it, we bid it, even if it's not drawn.
+
+TRUE CHANGE ORDERS: Items that are NOT in the specs AND NOT on the drawings but could arise during construction (ambiguous scope boundaries, owner-furnished items that may change, code requirements not addressed in either document). Put these in "true_change_orders" in your output.
 
 Return ONLY valid JSON:
 {
@@ -3211,7 +3239,10 @@ Return ONLY valid JSON:
     { "item": "IP Camera", "spec_model": "Axis P3245-V", "drawing_symbol": "C1", "match": true }
   ],
   "spec_sections_reviewed": ["27 10 00", "28 13 00", "28 23 00"],
-  "overall_spec_drawing_alignment": 85
+  "overall_spec_drawing_alignment": 85,
+  "true_change_orders": [
+    { "description": "Spec references 'future intercom stations' in general notes but no qty, location, or model specified — owner may add during construction", "severity": "medium", "estimated_impact": "$3,000-$8,000", "justification": "Not specified with enough detail to bid — referenced only as future scope" }
+  ]
 }`,
 
       // ── BRAIN 22: Annotation Reader (Wave 1) ────────────────────
