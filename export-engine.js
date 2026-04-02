@@ -204,13 +204,16 @@ const SmartPlansExport = {
 
     // ─── Classify BOM categories into material/equipment/subs ──
     _classifyBOM(bom, _debugMode) {
-        let materials = 0, equipment = 0, subs = 0, travel = 0;
+        let materials = 0, equipment = 0, subs = 0, travel = 0, generalConditions = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
             let bucket = 'materials';
             if (/travel|per\s*diem|lodging|hotel|mileage|incidental/.test(n)) {
                 travel += (cat.subtotal || 0);
                 bucket = 'TRAVEL';
+            } else if (/general\s*condition|bond|mobilization|demobilization|mob.*demob|rrpli|permits?\s*&?\s*fees/.test(n)) {
+                generalConditions += (cat.subtotal || 0);
+                bucket = 'GEN_CONDITIONS';
             } else if (/subcontract|civil|traffic|safety|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
                 bucket = 'SUBS';
@@ -222,13 +225,13 @@ const SmartPlansExport = {
             }
             if (_debugMode) console.log(`[BOM Classify] "${cat.name}" ($${(cat.subtotal||0).toLocaleString()}) → ${bucket}`);
         }
-        return { materials, equipment, subs, travel };
+        return { materials, equipment, subs, travel, generalConditions };
     },
 
     // ─── Compute full bid price breakdown with all markups ──
     // SINGLE SOURCE OF TRUTH: Every output reads from this.
     _computeFullBreakdown(state, bom) {
-        const { materials, equipment, subs, travel: bomTravel } = this._classifyBOM(bom, state?._debugMode);
+        const { materials, equipment, subs, travel: bomTravel, generalConditions } = this._classifyBOM(bom, state?._debugMode);
         const cfg = state.pricingConfig?.markup || state.markup || {};
         const matPct = (cfg.material ?? 50) / 100;
         const labPct = (cfg.labor ?? 50) / 100;
@@ -274,17 +277,20 @@ const SmartPlansExport = {
             travel = this._round(computeTravelIncidentals().grandTotal || 0);
         }
 
-        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
+        // General Conditions are at-cost (no markup — bonds/insurance are already final pricing)
+        const gcTotal = this._round(generalConditions);
+
+        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel + gcTotal);
         const contingency = this._round(subtotal * contingencyPct);
         const grandTotal = this._round(subtotal + contingency);
 
-        if (state?._debugMode) console.log(`[BOM Sell] matSell=$${matSell.toLocaleString()} labSell=$${labSell.toLocaleString()} eqSell=$${eqSell.toLocaleString()} subSell=$${subSell.toLocaleString()} burden=$${burden.toLocaleString()} travel=$${travel.toLocaleString()}`);
+        if (state?._debugMode) console.log(`[BOM Sell] matSell=$${matSell.toLocaleString()} labSell=$${labSell.toLocaleString()} eqSell=$${eqSell.toLocaleString()} subSell=$${subSell.toLocaleString()} gcTotal=$${gcTotal.toLocaleString()} burden=$${burden.toLocaleString()} travel=$${travel.toLocaleString()}`);
         if (state?._debugMode) console.log(`[BOM Total] subtotal=$${subtotal.toLocaleString()} + contingency=$${contingency.toLocaleString()} = grandTotal=$${grandTotal.toLocaleString()}`);
 
         return {
-            materials, equipment, subs, laborBase, laborSource,
+            materials, equipment, subs, generalConditions: gcTotal, laborBase, laborSource,
             matPct, labPct, eqPct, subPct,
-            matSell, labSell, eqSell, subSell,
+            matSell, labSell, eqSell, subSell, gcTotal,
             burden, burdenRate: includeBurden ? burdenRate : 0,
             travel, subtotal, contingency, contingencyPct, grandTotal
         };

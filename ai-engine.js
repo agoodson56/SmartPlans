@@ -1796,6 +1796,53 @@ Max = premium × 2.5. Fixed dome indoor $1300, outdoor $1800 | PTZ $8750 | Panor
 9. Include UPS, inverters, ATS, battery backup, PDUs, surge protectors from all sources
 10. EVERY item MUST have non-empty "mfg" and "partNumber" fields
 
+═══ GENERAL CONDITIONS (MANDATORY — every project has these) ═══
+11. ALWAYS create a "General Conditions" category with:
+    - Performance & Payment Bonds: typically 1.5-2.5% of total contract value
+    - General Liability Insurance: typically 1% of contract
+    - Mobilization/Demobilization: typically 1-2% of contract (trailers, temp power, setup/teardown)
+    - Permits & Fees: building permits, inspection fees
+    For TRANSIT/RAILROAD: ALSO include Railroad Protective Liability Insurance (RRPLI) at $25,000-$65,000
+    For GOVERNMENT: Include prevailing wage compliance costs
+    General Conditions typically total 8-15% of direct costs. If yours is below 5%, you are UNDERESTIMATING.
+
+═══ TRENCHING & CIVIL WORK (CRITICAL — #1 CAUSE OF UNDERESTIMATION) ═══
+12. Sawcutting and trenching MUST be priced as SCOPE OF WORK per linear foot, NOT as equipment rental.
+    When drawings show "sawcut and trench for conduit" with a linear footage quantity, price the WORK:
+    - ALL-IN rate includes: sawcutting pavement, excavating trench, installing conduit in trench, sand bedding, backfill, compaction, surface restoration (repave/repour)
+    - Concrete ALL-IN: $85-$290/LF depending on depth and tier
+    - Asphalt ALL-IN: $65-$225/LF depending on depth and tier
+    - Railroad/transit heavy: $160-$420/LF (includes RWIC overhead, multiple conduits)
+    - A concrete saw is a TOOL (~$150/day rental). The WORK of sawcutting 2000 LF of concrete is $10,000-$16,000 for the sawcutting ALONE, plus trenching, plus conduit, plus restoration.
+    - EXAMPLE: 2100 LF of sawcut+trench through concrete at a railroad station = 2100 × $280/LF = $588,000 (not $1,500 for a saw rental)
+    DO NOT confuse equipment rental costs with scope-of-work costs. This error causes $200K-$500K underestimates.
+
+═══ UPS SIZING (MATCH THE SPEC — DO NOT DOWNSIZE) ═══
+13. If drawings or equipment schedules show a station-sized UPS/inverter (10kVA+), price the ACTUAL specified size:
+    - 50kVA station UPS: $50,000-$135,000 (not a $725 rack-mount unit)
+    - 100kVA station UPS: $85,000-$220,000
+    - Station inverter/charger: $60,000-$190,000
+    Check equipment schedules for kVA ratings. A "station sized UPS" is NOT a rack-mount UPS.
+
+═══ ELECTRICAL DISTRIBUTION (include if in scope) ═══
+14. Include dedicated power circuits if drawings show them:
+    - 20A circuit all-in: $1,500-$4,000/circuit
+    - 30A circuit all-in: $2,500-$6,500/circuit
+    - New panelboards: $800-$9,000 depending on amperage
+    - New poles with foundations: $8,000-$38,000/pole
+    - Handholes/pull boxes: $400-$3,000 each
+    If electrical is subcontracted, ensure the sub amount covers ALL circuits, panels, and site electrical.
+
+═══ NON-ELV SCOPES (include ONLY if in our contract scope) ═══
+15. If construction documents show non-ELV scopes that WE are responsible for, create categories for:
+    - Glazing/window film: blast film $200-$550/window, glazing replacement $120-$320/SF
+    - Masonry: infill openings $800-$2,200/SF
+    - HVAC: mini-split for IDF/MDF $6,000-$18,000 each
+    - Finishes: paint touchup, ceiling repair, drywall patch (use allowances)
+    - Signage: $400-$1,500/sign
+    - Survey: $5,000-$22,000 (construction survey + utility locating)
+    These are REAL costs that add up to $50K-$150K on security/station projects.
+
 ═══ SPECIFIED PRODUCTS ═══
 ${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.specified_products || [], null, 2).substring(0, 1500)}
 ${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.power_equipment_found || [], null, 2).substring(0, 1000)}
@@ -1859,6 +1906,15 @@ CONDUIT LABOR UNITS (do NOT skip conduit labor — it is a major cost driver):
 - Liquid-tight flex: 0.10-0.15 hrs/ft
 - Pull boxes/junction boxes: 1.0-2.0 hrs each
 - Cable pulling through conduit: 0.03-0.08 hrs/ft depending on fill
+
+TRENCHING / SAWCUTTING LABOR (if NOT subcontracted):
+- Concrete sawcutting: 0.15-0.25 hrs/LF (walk-behind saw through concrete/asphalt)
+- Trench excavation: 0.20-0.40 hrs/LF (mini-excavator + hand work)
+- Conduit installation in trench: 0.10-0.15 hrs/LF
+- Backfill and compaction: 0.08-0.12 hrs/LF
+- Surface restoration: 0.15-0.30 hrs/LF (concrete repour or asphalt patch)
+- TOTAL all-in trenching labor: 0.70-1.20 hrs/LF through concrete
+NOTE: If trenching is subcontracted (civil contractor), include ONLY coordination/supervision labor, not the trench labor itself. The sub's cost covers their labor.
 
 SHIFT DIFFERENTIALS (apply if work shift is not Standard):
 - Night shift: add 15% to base labor rates
@@ -2035,7 +2091,7 @@ CRITICAL RULES (VIOLATING ANY OF THESE IS A FATAL ERROR):
 3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total — all values must be SELL PRICES (with markup applied)
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total
-6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + G&A + profit + warranty + contingency
+6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + general_conditions + G&A + profit + warranty + contingency
 7. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
 8. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
 9. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
@@ -2043,6 +2099,24 @@ CRITICAL RULES (VIOLATING ANY OF THESE IS A FATAL ERROR):
 11. G&A OVERHEAD is MANDATORY: Apply 15% to (materials + labor + equipment + subcontractors) subtotal. This covers company overhead (office, trucks, insurance, admin staff). This is separate from markup.
 12. PROFIT MARGIN is MANDATORY: Apply 10% to the subtotal after G&A. This is the company's profit. Without this, you are bidding at cost.
 13. WARRANTY RESERVE: Add 1.5% of total project cost for warranty callback labor during the 1-year warranty period.
+
+═══ GENERAL CONDITIONS (MANDATORY — INCLUDE IN EVERY BID) ═══
+14. ALWAYS include a "General Conditions" SOV line item containing:
+    - Performance & Payment Bonds: 1.5-2.5% of total contract value
+    - General Liability Insurance: ~1% of contract
+    - Mobilization/Demobilization: 1-2% of contract
+    - Permits & Fees
+    For TRANSIT/RAILROAD: ALSO include Railroad Protective Liability Insurance (RRPLI) at $25,000-$65,000
+    General Conditions typically total 8-15% of direct costs ($80K-$200K on a $1M+ project).
+    If your general_conditions total is below 5% of direct costs, you are UNDERESTIMATING.
+15. Add total_general_conditions to the project_summary alongside other cost components.
+
+═══ TRENCHING SCOPE VALIDATION (CRITICAL) ═══
+16. If Material Pricer or Special Conditions shows sawcut/trench scope with linear footage:
+    - Verify it is priced as ALL-IN scope-of-work per linear foot ($85-$420/LF), NOT as equipment rental ($150/day)
+    - If Civil Contractor sub amount seems too low for the trenching scope, INCREASE it
+    - EXAMPLE: 2100 LF of concrete sawcut+trench at a transit station should be $400,000-$600,000, not $40,000
+    - Cross-check: Material Pricer's trenching cost vs Special Conditions' civil work estimate
 
 ═══ COST BUILD-UP ORDER (follow this EXACTLY) ═══
 1. Direct Costs: total_materials + total_labor + total_equipment + total_subcontractors
@@ -2147,6 +2221,7 @@ Return ONLY valid JSON:
     "total_labor": 0,
     "total_equipment": 0,
     "total_subcontractors": 0,
+    "total_general_conditions": 0,
     "total_travel": 0,
     "total_transit_costs": 0,
     "total_insurance": 0,
@@ -3451,6 +3526,66 @@ Return ONLY valid JSON:
             } else {
               ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'}\n`;
             }
+          }
+        }
+      }
+    }
+
+    // ── Add General Conditions reference ──
+    if (PRICING_DB.generalConditions) {
+      ctx += `\n\nGENERAL CONDITIONS (MANDATORY on every project):\n`;
+      ctx += `Bonds:\n`;
+      for (const [k, v] of Object.entries(PRICING_DB.generalConditions.bonds || {})) {
+        if (typeof v === 'object' && v[tier] !== undefined) ctx += `  ${k}: ${v[tier]}% of contract (${v.description})\n`;
+      }
+      ctx += `Insurance:\n`;
+      for (const [k, v] of Object.entries(PRICING_DB.generalConditions.insurance || {})) {
+        if (typeof v === 'object' && v[tier] !== undefined) {
+          if (v.unit === 'lump sum') ctx += `  ${k}: $${(v[tier] * regionMult).toFixed(0)} lump sum (${v.description})\n`;
+          else ctx += `  ${k}: ${v[tier]}% of contract (${v.description})\n`;
+        }
+      }
+      ctx += `Mobilization:\n`;
+      for (const [k, v] of Object.entries(PRICING_DB.generalConditions.mobilization || {})) {
+        if (typeof v === 'object' && v[tier] !== undefined) {
+          if (v.unit === 'lump sum') ctx += `  ${k}: $${(v[tier] * regionMult).toFixed(0)} (${v.description})\n`;
+          else ctx += `  ${k}: ${v[tier]}% of contract (${v.description})\n`;
+        }
+      }
+    }
+
+    // ── Add Electrical Distribution reference ──
+    if (PRICING_DB.electricalDistribution) {
+      ctx += `\n\nELECTRICAL DISTRIBUTION (UPS, panels, circuits, site electrical):\n`;
+      for (const [subCat, items] of Object.entries(PRICING_DB.electricalDistribution)) {
+        ctx += `  ${subCat}:\n`;
+        for (const [k, v] of Object.entries(items)) {
+          if (typeof v === 'object' && v[tier] !== undefined) {
+            ctx += `    ${k}: $${(v[tier] * regionMult).toFixed(0)}/${v.unit || 'ea'} (${v.description})\n`;
+          }
+        }
+      }
+    }
+
+    // ── Add Equipment Rental reference ──
+    if (PRICING_DB.equipmentRental) {
+      ctx += `\n\nEQUIPMENT RENTAL (per-day rates — multiply by rental days):\n`;
+      for (const [subCat, items] of Object.entries(PRICING_DB.equipmentRental)) {
+        for (const [k, v] of Object.entries(items)) {
+          if (typeof v === 'object' && v[tier] !== undefined) {
+            ctx += `  ${k}: $${(v[tier] * regionMult).toFixed(0)}/day (${v.description})\n`;
+          }
+        }
+      }
+    }
+
+    // ── Add Non-ELV Scopes reference ──
+    if (PRICING_DB.nonELVScopes) {
+      ctx += `\n\nNON-ELV SCOPES (include if in contract — glazing, masonry, HVAC, finishes):\n`;
+      for (const [subCat, items] of Object.entries(PRICING_DB.nonELVScopes)) {
+        for (const [k, v] of Object.entries(items)) {
+          if (typeof v === 'object' && v[tier] !== undefined) {
+            ctx += `  ${k}: $${(v[tier] * regionMult).toFixed(0)}/${v.unit || 'ea'} (${v.description})\n`;
           }
         }
       }

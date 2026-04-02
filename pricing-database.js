@@ -477,6 +477,126 @@ const PRICING_DB = {
     },
 
     // ═══════════════════════════════════════════════════════════
+    // GENERAL CONDITIONS — Bonds, Insurance, Mob/Demob
+    // These are REAL project costs typically 8-15% of contract
+    // ═══════════════════════════════════════════════════════════
+    generalConditions: {
+        bonds: {
+            performance_payment: { unit: "% of contract", budget: 1.5, mid: 2.0, premium: 2.5, description: "Performance & Payment Bonds (surety)" },
+            bid_bond: { unit: "% of contract", budget: 0.5, mid: 0.5, premium: 0.5, description: "Bid Bond (typically included)" },
+        },
+        insurance: {
+            general_liability:      { unit: "% of contract", budget: 0.8, mid: 1.0, premium: 1.2, description: "Commercial General Liability Insurance" },
+            rrpli:                  { unit: "lump sum",      budget: 25000, mid: 45000, premium: 65000, description: "Railroad Protective Liability Insurance (transit/railroad ONLY)" },
+            builders_risk:          { unit: "% of contract", budget: 0.3, mid: 0.5, premium: 0.8, description: "Builder's Risk / Installation Floater" },
+            umbrella_excess:        { unit: "% of contract", budget: 0.2, mid: 0.3, premium: 0.5, description: "Umbrella / Excess Liability" },
+            professional_liability: { unit: "lump sum",      budget: 2000, mid: 4000, premium: 8000, description: "Professional Liability / E&O" },
+        },
+        mobilization: {
+            mob_demob:        { unit: "% of contract", budget: 1.0, mid: 1.5, premium: 2.0, description: "Mobilization & Demobilization (equipment, trailers, temp facilities)" },
+            temporary_facilities: { unit: "lump sum", budget: 3000, mid: 6000, premium: 12000, description: "Job trailer, temp power, temp fencing, dumpsters" },
+            permits_fees:         { unit: "lump sum", budget: 2000, mid: 5000, premium: 10000, description: "Building permits, inspection fees, utility fees" },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // ELECTRICAL DISTRIBUTION — Power circuits, UPS, panels
+    // These support ELV systems but are often electrical scope
+    // ═══════════════════════════════════════════════════════════
+    electricalDistribution: {
+        ups: {
+            ups_rack_1kva:      { unit: "each", budget: 500,    mid: 725,     premium: 1200,    description: "1kVA Rack-mount UPS (Eaton/APC)" },
+            ups_rack_3kva:      { unit: "each", budget: 1500,   mid: 2500,    premium: 4000,    description: "3kVA Rack-mount UPS (Eaton/APC)" },
+            ups_rack_6kva:      { unit: "each", budget: 3500,   mid: 5500,    premium: 8500,    description: "6kVA Rack-mount UPS" },
+            ups_rack_10kva:     { unit: "each", budget: 5000,   mid: 7500,    premium: 12000,   description: "10kVA Rack-mount UPS (Schneider/Eaton)" },
+            ups_floor_15kva:    { unit: "each", budget: 12000,  mid: 20000,   premium: 32000,   description: "15kVA Floor-standing UPS" },
+            ups_floor_20kva:    { unit: "each", budget: 18000,  mid: 30000,   premium: 48000,   description: "20kVA Floor-standing UPS" },
+            ups_floor_30kva:    { unit: "each", budget: 28000,  mid: 45000,   premium: 72000,   description: "30kVA Floor-standing UPS" },
+            ups_station_50kva:  { unit: "each", budget: 50000,  mid: 85000,   premium: 135000,  description: "50kVA Station-sized UPS (Eaton 9395/Schneider Galaxy)" },
+            ups_station_100kva: { unit: "each", budget: 85000,  mid: 140000,  premium: 220000,  description: "100kVA Station-sized UPS system" },
+            ups_battery_cab:    { unit: "each", budget: 3000,   mid: 5000,    premium: 8000,    description: "External battery cabinet for extended runtime" },
+            ats_transfer_switch:{ unit: "each", budget: 3500,   mid: 6000,    premium: 12000,   description: "Automatic Transfer Switch (100-200A)" },
+            inverter_station:   { unit: "each", budget: 60000,  mid: 100000,  premium: 190000,  description: "Station-sized inverter/charger system (transit)" },
+        },
+        panels: {
+            panelboard_100a:  { unit: "each", budget: 800,   mid: 1500,  premium: 3000,  description: "100A 120/208V panelboard" },
+            panelboard_200a:  { unit: "each", budget: 1500,  mid: 2800,  premium: 5000,  description: "200A 120/208V panelboard" },
+            panelboard_400a:  { unit: "each", budget: 3000,  mid: 5500,  premium: 9000,  description: "400A distribution panelboard" },
+            disconnect_switch:{ unit: "each", budget: 250,   mid: 500,   premium: 1000,  description: "Fused disconnect switch (60-200A)" },
+        },
+        circuits: {
+            power_circuit_20a: { unit: "each", budget: 1500,  mid: 2500,   premium: 4000,   description: "Dedicated 20A 120V circuit (wire, breaker, conduit, labor)" },
+            power_circuit_30a: { unit: "each", budget: 2500,  mid: 4000,   premium: 6500,   description: "Dedicated 30A 208V circuit (wire, breaker, conduit, labor)" },
+            power_circuit_50a: { unit: "each", budget: 4000,  mid: 6500,   premium: 10000,  description: "Dedicated 50A 208V circuit (wire, breaker, conduit, labor)" },
+            power_circuit_100a:{ unit: "each", budget: 8000,  mid: 14000,  premium: 22000,  description: "Dedicated 100A 208V feeder circuit" },
+        },
+        site_electrical: {
+            utility_pole_wood: { unit: "each", budget: 8000,  mid: 15000, premium: 25000, description: "New wood utility/camera pole with foundation" },
+            utility_pole_steel:{ unit: "each", budget: 12000, mid: 22000, premium: 38000, description: "New steel pole (20-40ft) with concrete foundation" },
+            pole_foundation:   { unit: "each", budget: 2500,  mid: 4500,  premium: 8000,  description: "Concrete pole foundation (caisson/direct embed)" },
+            handhole_small:    { unit: "each", budget: 400,   mid: 800,   premium: 1500,  description: "Handhole/pull box (small, 12×12)" },
+            handhole_large:    { unit: "each", budget: 800,   mid: 1600,  premium: 3000,  description: "Handhole/pull box (large, 24×36)" },
+            transformer_pad:   { unit: "each", budget: 3000,  mid: 5000,  premium: 9000,  description: "Pad-mount transformer foundation" },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // EQUIPMENT RENTAL — Lifts, excavators, tools
+    // Per-day rates, typical rental periods in parentheses
+    // ═══════════════════════════════════════════════════════════
+    equipmentRental: {
+        lifts: {
+            scissor_19ft:    { unit: "per day", budget: 125, mid: 185, premium: 275, description: "Scissor lift 19ft (indoor)" },
+            scissor_32ft:    { unit: "per day", budget: 200, mid: 300, premium: 450, description: "Scissor lift 32ft (outdoor rough terrain)" },
+            boom_45ft:       { unit: "per day", budget: 275, mid: 400, premium: 600, description: "Articulating boom lift 45ft" },
+            boom_60ft:       { unit: "per day", budget: 350, mid: 500, premium: 750, description: "Articulating boom lift 60ft" },
+            boom_80ft:       { unit: "per day", budget: 500, mid: 750, premium: 1100, description: "Articulating boom lift 80ft" },
+            bucket_truck:    { unit: "per day", budget: 400, mid: 600, premium: 900, description: "Bucket truck (35-50ft)" },
+        },
+        excavation: {
+            mini_excavator:  { unit: "per day", budget: 250, mid: 400, premium: 600, description: "Mini-excavator/backhoe (trenching)" },
+            skid_steer:      { unit: "per day", budget: 200, mid: 350, premium: 500, description: "Skid steer with attachments" },
+            plate_compactor: { unit: "per day", budget: 50,  mid: 85,  premium: 125, description: "Plate compactor (backfill)" },
+        },
+        tools: {
+            concrete_saw:    { unit: "per day", budget: 100, mid: 150, premium: 225, description: "Walk-behind concrete/asphalt saw" },
+            cable_tugger:    { unit: "per day", budget: 150, mid: 250, premium: 400, description: "Cable tugger/puller" },
+            core_drill:      { unit: "per day", budget: 75,  mid: 125, premium: 200, description: "Core drill with bits" },
+            generator_port:  { unit: "per day", budget: 75,  mid: 125, premium: 200, description: "Portable generator 5-10kW" },
+            fusion_splicer:  { unit: "per day", budget: 200, mid: 350, premium: 500, description: "Fiber optic fusion splicer" },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // NON-ELV SCOPES — Architectural, mechanical, misc trades
+    // Include when contract covers these scopes
+    // ═══════════════════════════════════════════════════════════
+    nonELVScopes: {
+        glazing: {
+            blast_film:      { unit: "per EA", budget: 200, mid: 350, premium: 550, description: "Blast mitigation / security film per window (installed)" },
+            glazing_replace: { unit: "per SF", budget: 120, mid: 200, premium: 320, description: "Replace glazing panel (remove + new glass + install)" },
+        },
+        masonry: {
+            infill_opening:  { unit: "per SF", budget: 800, mid: 1500, premium: 2200, description: "Infill masonry opening (CMU + mortar + finish)" },
+        },
+        hvac: {
+            mini_split:      { unit: "each", budget: 6000, mid: 10000, premium: 18000, description: "Ductless mini-split AC unit (installed, for IDF/MDF cooling)" },
+        },
+        finishes: {
+            paint_touchup:   { unit: "allowance", budget: 3000, mid: 6000, premium: 12000, description: "Wall repair and paint touchup (per floor/area)" },
+            ceiling_repair:  { unit: "allowance", budget: 1500, mid: 3500, premium: 7000, description: "Ceiling tile repair/replacement" },
+            drywall_patch:   { unit: "allowance", budget: 1000, mid: 2500, premium: 5000, description: "Gypsum board patch and paint at device locations" },
+        },
+        signage: {
+            door_signage:    { unit: "each", budget: 400, mid: 800, premium: 1500, description: "ADA/security signage at controlled doors" },
+        },
+        survey: {
+            construction_survey: { unit: "allowance", budget: 5000,  mid: 12000, premium: 22000, description: "Construction survey / as-built verification" },
+            utility_locate:      { unit: "allowance", budget: 3000,  mid: 8000,  premium: 15000, description: "Utility locating (potholing + private locator)" },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
     // CIVIL WORK & SUBCONTRACTOR COST REFERENCE
     // Industry-standard rates for underground/site work
     // These anchor the AI so it doesn't guess low
@@ -495,6 +615,13 @@ const PRICING_DB = {
             "36in_landscape": { unit: "per LF", budget: 12, mid: 20, premium: 30, description: "36\" deep trench in landscape" },
             "36in_asphalt":   { unit: "per LF", budget: 25, mid: 38, premium: 55, description: "36\" deep trench through asphalt" },
             backfill_compact: { unit: "per LF", budget: 3, mid: 6, premium: 10, description: "Sand bedding + compacted backfill" },
+            // ALL-IN RATES: sawcut + trench + conduit install + backfill + surface restore
+            // Use these for scope-of-work pricing (matches how GCs/owners price trenching)
+            allin_concrete_24in: { unit: "per LF", budget: 85, mid: 145, premium: 220, description: "ALL-IN: sawcut concrete + 24\" trench + conduit + backfill + concrete patch" },
+            allin_concrete_36in: { unit: "per LF", budget: 110, mid: 185, premium: 290, description: "ALL-IN: sawcut concrete + 36\" trench + conduit + backfill + concrete patch" },
+            allin_asphalt_24in:  { unit: "per LF", budget: 65, mid: 110, premium: 175, description: "ALL-IN: sawcut asphalt + 24\" trench + conduit + backfill + asphalt patch" },
+            allin_asphalt_36in:  { unit: "per LF", budget: 85, mid: 145, premium: 225, description: "ALL-IN: sawcut asphalt + 36\" trench + conduit + backfill + asphalt patch" },
+            allin_railroad_heavy:{ unit: "per LF", budget: 160, mid: 280, premium: 420, description: "ALL-IN HEAVY: Railroad/transit sawcut + trench + multiple conduits + restore (RWIC overhead included)" },
         },
         surface_restoration: {
             asphalt_patch:     { unit: "per SF", budget: 8, mid: 14, premium: 22, description: "Asphalt sawcut + remove + repave" },
