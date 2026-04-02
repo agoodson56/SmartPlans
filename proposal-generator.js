@@ -322,7 +322,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     mso-paper-source: 0;
   }
 
-  @page Section1 { mso-footer: f1; }
+  @page Section1 { mso-footer: f1; mso-first-footer: f1; mso-title-page: no; }
   div.Section1 { page: Section1; }
 
   body {
@@ -535,6 +535,9 @@ COVER PAGE — Word-native table layout (renders perfectly)
   </td></tr>
 </table>
 
+<!-- Confidential bar before page break -->
+${this._confBar()}
+
 <!--
 ═══════════════════════════════════════════════════════════
 TABLE OF CONTENTS
@@ -559,6 +562,9 @@ TABLE OF CONTENTS
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">09</span> <span style="font-size:11pt;color:#222;">Acceptance &amp; Authorization</span></td></tr>
 </table>
 
+<!-- Confidential bar before page break -->
+${this._confBar()}
+
 <!--
 ═══════════════════════════════════════════════════════════
 PROPOSAL BODY — AI-Generated Content
@@ -575,6 +581,9 @@ ${financialTableHtml}
 ${pricingStrategySummaryHtml}
 
 ${grandTotalDisplay ? `
+<!-- Confidential bar before page break -->
+${this._confBar()}
+
 <!--
 ═══════════════════════════════════════════════════════════
 TOTAL INVESTMENT — Hardcoded from analysis (guaranteed to appear)
@@ -605,6 +614,9 @@ TOTAL INVESTMENT — Hardcoded from analysis (guaranteed to appear)
   <tr><td bgcolor="${b.teal}" style="height:3pt;font-size:1pt;">&nbsp;</td></tr>
 </table>
 ` : ''}
+
+<!-- Confidential bar before page break -->
+${this._confBar()}
 
 <!--
 ═══════════════════════════════════════════════════════════
@@ -681,12 +693,12 @@ ACCEPTANCE & SIGNATURE BLOCK
   <span style="font-size:7pt;color:#aaa;">&copy; ${year} ${co.name}. All rights reserved. This document contains confidential and proprietary information.</span>
 </p>
 
+<!-- Final confidential bar -->
+${this._confBar()}
+
 </div><!-- /Section1 -->
 </body>
 </html>`;
-
-    // No inline confidential bars — the MSO footer (mso-element:footer id="f1")
-    // handles this natively in Microsoft Word on every page.
 
     // Cache for PDF re-download without re-generating
     this._lastFullProposalHTML = wordHtml;
@@ -783,7 +795,7 @@ ACCEPTANCE & SIGNATURE BLOCK
     // Headers — each ## section starts on a new page
     html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
     html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<div class="page-break"></div><h2>$1</h2>');
+    html = html.replace(/^## (.+)$/gm, `${this._confBar()}<div class="page-break"></div><h2>$1</h2>`);
     html = html.replace(/^# (.+)$/gm, '<h2 style="font-size:20pt;">$1</h2>');
 
     // Bold / Italic
@@ -824,6 +836,19 @@ ACCEPTANCE & SIGNATURE BLOCK
 
   _escText(str) {
     return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  },
+
+  // Inline CONFIDENTIAL bar — rendered visually in the document as a fallback
+  // for when the MSO footer doesn't render (Word Online, LibreOffice, some Word versions)
+  _confBar() {
+    const b = this.BRAND;
+    return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14pt;">
+  <tr><td style="border-top:1.5pt solid ${b.teal};padding-top:4pt;text-align:center;">
+    <p style="text-align:center;font-size:7.5pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;">
+      3D &nbsp;CONFIDENTIAL &nbsp;&middot;&nbsp; PROPRIETARY
+    </p>
+  </td></tr>
+</table>`;
   },
 
 
@@ -883,6 +908,8 @@ ACCEPTANCE & SIGNATURE BLOCK
     });
 
     return `
+<!-- Confidential bar before page break -->
+${this._confBar()}
 <div class="page-break"></div>
 
 <table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:8pt;">
@@ -957,6 +984,8 @@ ACCEPTANCE & SIGNATURE BLOCK
     }
 
     return `
+<!-- Confidential bar before page break -->
+${this._confBar()}
 <div class="page-break"></div>
 
 <table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:8pt;">
@@ -1238,7 +1267,7 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The 
 <![endif]-->
 <style>
   @page { size: 8.5in 11in; margin: 0.7in 0.85in 0.8in 0.85in; mso-header-margin: 0.3in; mso-footer-margin: 0.4in; }
-  @page Section1 { mso-footer: f1; }
+  @page Section1 { mso-footer: f1; mso-first-footer: f1; mso-title-page: no; }
   div.Section1 { page: Section1; }
   body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.65; color: #222; margin: 0; padding: 0; }
   .page-break { page-break-before: always; }
@@ -1344,6 +1373,9 @@ PAGE 1 — STUNNING COVER PAGE
   This proposal is valid for thirty (30) calendar days from ${dateStr} &middot; Valid until ${validUntil}
 </p>
 
+<!-- Confidential bar before page break -->
+${this._confBar()}
+
 <!--
 ═══════════════════════════════════════════════════════════
 PAGE 2 — EXECUTIVE SUMMARY, SCOPE & PRICING TABLE
@@ -1362,6 +1394,9 @@ PAGE 2 — EXECUTIVE SUMMARY, SCOPE & PRICING TABLE
 </table>
 
 ${bodyHtml}
+
+<!-- Confidential bar before page break -->
+${this._confBar()}
 
 <!--
 ═══════════════════════════════════════════════════════════
@@ -1439,11 +1474,14 @@ PAGE 3 — TOTAL INVESTMENT & SIGNATURE
   </td></tr>
 </table>
 
+<!-- Final confidential bar -->
+${this._confBar()}
+
 </div></body></html>`;
 
       progressCallback(90, 'Creating downloadable document…');
 
-      // No inline confidential bars — the MSO footer handles this natively in Word.
+      // Inline confidential bars added at page breaks + MSO footer for belt-and-suspenders coverage.
 
       // Cache for PDF re-download without re-generating
       this._lastExecProposalHTML = wordHtml;
