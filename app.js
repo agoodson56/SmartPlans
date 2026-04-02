@@ -7994,6 +7994,39 @@ function _restoreStateFromPayload(id, pkg, est) {
     state.brainResults = pkg.brainResults;
   }
 
+  // ── Restore Bid Strategy (CRITICAL — per-category markup overrides affect bid total) ──
+  if (pkg?.bidStrategy) {
+    state.bidStrategy = { ...pkg.bidStrategy };
+  }
+
+  // ── Restore Excluded Change Orders (CRITICAL — affects proposal CO list and totals) ──
+  if (pkg?.excludedChangeOrders && Array.isArray(pkg.excludedChangeOrders)) {
+    state._excludedCOs = new Set(pkg.excludedChangeOrders);
+  }
+
+  // ── Restore Selected RFIs ──
+  if (pkg?.selectedRFIs && Array.isArray(pkg.selectedRFIs)) {
+    state.selectedRFIs = new Set(pkg.selectedRFIs);
+  }
+
+  // ── Restore Bid Phases (user-created alternates/phases) ──
+  if (pkg?.bidPhasesRaw && Array.isArray(pkg.bidPhasesRaw) && pkg.bidPhasesRaw.length > 0) {
+    state.bidPhases = pkg.bidPhasesRaw;
+    state._bidPhaseCounter = pkg._bidPhaseCounter || (pkg.bidPhasesRaw.length + 1);
+  }
+
+  // ── Restore Exclusions/Assumptions/Clarifications (full array) ──
+  if (pkg?.exclusionsRaw && Array.isArray(pkg.exclusionsRaw) && pkg.exclusionsRaw.length > 0) {
+    state.exclusions = pkg.exclusionsRaw;
+    state._exclusionsLoaded = true;
+  }
+
+  // ── Restore Quality Assurance Data ──
+  if (pkg?.mathValidation) state.mathValidation = pkg.mathValidation;
+  if (pkg?.sectionCompleteness) state.sectionCompleteness = pkg.sectionCompleteness;
+  if (pkg?.failedBrains) state.failedBrains = pkg.failedBrains;
+  if (pkg?.brainStats) state.brainStats = pkg.brainStats;
+
   // ── Restore Travel & Incidentals (CRITICAL — without this, bid total drops on reload) ──
   if (pkg?.travelConfig) {
     const tc = pkg.travelConfig;
@@ -8015,6 +8048,14 @@ function _restoreStateFromPayload(id, pkg, est) {
       parkingPerDay: tc.parkingPerDay || 25,
       tollsPerTrip: tc.tollsPerTrip || 0,
     };
+  }
+  // Restore AI travel recommendations
+  if (pkg?.travelAIRecommendations) {
+    const ai = pkg.travelAIRecommendations;
+    state.travel.aiRecommendedTechs = ai.aiRecommendedTechs || null;
+    state.travel.aiRecommendedDays = ai.aiRecommendedDays || null;
+    state.travel.aiCrewBreakdown = ai.aiCrewBreakdown || null;
+    state.travel.aiReasoning = ai.aiReasoning || null;
   }
   if (pkg?.incidentalsConfig) {
     const ic = pkg.incidentalsConfig;
@@ -8047,16 +8088,22 @@ function _restoreStateFromPayload(id, pkg, est) {
 
     // ── SAFETY NET: Detect old saves missing critical data ──
     const missingData = [];
-    if (!pkg?.brainResults) missingData.push('labor hours');
+    if (!pkg?.brainResults) missingData.push('labor hours & brain data');
     if (!pkg?.travelConfig && pkg?.financials?.grandTotal > 50000) missingData.push('travel settings');
+    if (!pkg?.exclusionsRaw && (pkg?.exclusions?.length > 0 || pkg?.assumptions?.length > 0)) missingData.push('exclusions/assumptions');
     if (missingData.length > 0) {
       state._legacySaveWarning = true;
       console.warn(`[SmartPlans] OLD SAVE FORMAT detected — missing: ${missingData.join(', ')}`);
       if (typeof spToast === 'function') {
         setTimeout(() => {
-          spToast(`⚠️ This bid was saved before the latest update and is missing ${missingData.join(' & ')}. The bid total shown may be LOWER than the actual bid. Please RE-RUN the analysis to get accurate numbers, then save again.`, 'error', 15000);
+          spToast(`⚠️ This bid was saved before the latest update and is missing ${missingData.join(' & ')}. The bid total may be LOWER than the actual bid. Please RE-RUN the analysis to get accurate numbers, then save again.`, 'error', 15000);
         }, 800);
       }
+    } else if (pkg?.brainResults && pkg?.travelConfig) {
+      // Good save — auto-re-save to pick up any new fields added since last save
+      setTimeout(() => {
+        if (state.analysisComplete) saveEstimate(false);
+      }, 3000);
     }
   } else {
     state.aiAnalysis = null;

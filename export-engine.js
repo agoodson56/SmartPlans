@@ -220,7 +220,44 @@ const SmartPlansExport = {
                 unexpectedBufferPct: state.incidentals?.unexpectedBufferPct || 5,
             },
 
-            // Bid Phases / Alternates for multi-phase option pricing
+            // AI Travel recommendations (from Labor Calculator brain)
+            travelAIRecommendations: {
+                aiRecommendedTechs: state.travel?.aiRecommendedTechs || null,
+                aiRecommendedDays: state.travel?.aiRecommendedDays || null,
+                aiCrewBreakdown: state.travel?.aiCrewBreakdown || null,
+                aiReasoning: state.travel?.aiReasoning || null,
+            },
+
+            // Bid Strategy — per-category markup overrides (CRITICAL for bid total)
+            bidStrategy: state.bidStrategy ? { ...state.bidStrategy } : null,
+
+            // Excluded Change Orders — user's CO exclusion choices
+            excludedChangeOrders: state._excludedCOs ? [...state._excludedCOs] : [],
+
+            // Selected RFIs — user's RFI selections for proposals
+            selectedRFIs: state.selectedRFIs ? [...state.selectedRFIs] : [],
+
+            // Raw Bid Phases — user-created phases/alternates with category assignments
+            bidPhasesRaw: state.bidPhases ? state.bidPhases.map(p => ({
+                id: p.id, name: p.name, type: p.type,
+                categoryIndices: p.categoryIndices || [],
+                includeInProposal: p.includeInProposal !== false,
+            })) : null,
+            _bidPhaseCounter: state._bidPhaseCounter || 1,
+
+            // Exclusions/Assumptions/Clarifications — full array with IDs and sort order
+            exclusionsRaw: (state.exclusions || []).map(e => ({
+                id: e.id, type: e.type, text: e.text,
+                category: e.category || '', sort_order: e.sort_order || 0,
+            })),
+
+            // Quality assurance data
+            mathValidation: state.mathValidation || null,
+            sectionCompleteness: state.sectionCompleteness || null,
+            failedBrains: state.failedBrains || [],
+            brainStats: state.brainStats || null,
+
+            // Bid Phases / Alternates for multi-phase option pricing (computed export)
             bidPhases: this._buildBidPhasesExport(state, filteredBom),
 
             // Symbol Inventory Audit — per-sheet/per-location device breakdown for count verification
