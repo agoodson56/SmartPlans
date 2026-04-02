@@ -2275,7 +2275,7 @@ function renderStep0(container) {
 
     <div class="form-group">
       <label class="form-label" for="prevailing-wage">Prevailing Wage / Davis-Bacon</label>
-      <p class="form-hint">For government, public, or federally funded projects. Determines labor rate classifications and certified payroll requirements.</p>
+      <p class="form-hint">For government, public, or federally funded projects. Determines labor rate classifications and certified payroll requirements. When active, labor rates auto-populate with loaded rates (base + fringes) and burden is disabled to prevent double-counting.</p>
       <select class="form-select" id="prevailing-wage">
         <option value="">Not applicable — standard rates</option>
         <option value="davis-bacon">Davis-Bacon (federal project)</option>
@@ -2369,9 +2369,12 @@ function renderStep0(container) {
         })() : `
         <div style="margin-top:6px;color:var(--accent-amber);font-weight:600;">💡 Select a county above to auto-populate labor rates</div>`}
 
+        <div style="margin-top:10px;padding:8px 12px;background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);border-radius:6px;font-size:11px;color:#f43f5e;font-weight:600;">
+          ⚠️ Do NOT add burden on top of prevailing wage loaded rates — fringes (health, pension, vacation, training) are already included. Burden is automatically disabled when prevailing wage rates are applied.
+        </div>
         <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">
           <div>• Correct wage classifications per ELV trade</div>
-          <div>• Base hourly rate + fringe benefits = loaded rate</div>
+          <div>• Base hourly rate + fringe benefits = loaded rate (burden is baked in)</div>
           <div>• Certified payroll requirements</div>
           <div>• Apprentice ratio guidelines</div>
         </div>
@@ -2447,7 +2450,7 @@ function renderStep0(container) {
 
       <div class="form-group">
         <label class="form-label" for="regional-multiplier">Regional Cost Multiplier</label>
-        <p class="form-hint">Adjusts all material costs based on geographic market conditions.</p>
+        <p class="form-hint">Adjusts all material costs based on geographic market conditions. Example: 1.15x means materials cost 15% more than national average. Select the region closest to your project location.</p>
         <select class="form-select" id="regional-multiplier">
           ${Object.entries(PRICING_DB.regionalMultipliers).map(([key, val]) =>
     `<option value="${key}">${key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())} (${val.toFixed(2)}×)</option>`
@@ -2456,16 +2459,24 @@ function renderStep0(container) {
       </div>
 
       <div style="border-top:1px solid rgba(255,255,255,0.06);margin:16px 0;"></div>
-      <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:12px;">👷 Labor Rates ($/hr)</div>
+      <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:4px;">👷 Labor Rates ($/hr)</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">
+        ${state.prevailingWage
+          ? '🔒 These are <strong>loaded rates</strong> (base + fringes) auto-populated from prevailing wage tables. Do not add burden on top.'
+          : 'Enter your company\'s <strong>base hourly rates</strong> for each role. If burden is enabled below, it will be applied on top of these rates. If using prevailing wage, select it above to auto-populate.'}
+      </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        ${Object.entries(state.laborRates).map(([key, val]) => `
+        ${Object.entries(state.laborRates).map(([key, val]) => {
+          const labels = { pm: 'Project Manager', journeyman: 'Journeyman Tech', lead: 'Lead Tech', foreman: 'Foreman', apprentice: 'Apprentice', programmer: 'Programmer' };
+          const hints = { pm: 'Oversees schedule, budget, and coordination', journeyman: 'Primary installer — cable pulling, device mounting', lead: 'Senior tech — leads crew, troubleshoots', foreman: 'On-site supervisor — manages daily work', apprentice: 'Entry-level — assists journeymen, lower rate', programmer: 'System programming, commissioning, testing' };
+          return `
           <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="labor-${key}">${key === "pm" ? "Project Manager" : key === "journeyman" ? "Journeyman Tech" : key === "lead" ? "Lead Tech" : key === "foreman" ? "Foreman" : key === "apprentice" ? "Apprentice" : "Programmer"
-    }</label>
+            <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="labor-${key}">${labels[key] || key}</label>
             <input class="form-input labor-rate-input" type="number" step="0.50" min="0" id="labor-${key}" value="${val.toFixed(2)}" style="font-size:14px;padding:8px 10px;">
-          </div>
-        `).join("")}
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${hints[key] || ''}</div>
+          </div>`;
+        }).join("")}
       </div>
 
       <div style="display:flex;align-items:center;gap:10px;margin-top:16px;">
@@ -2474,44 +2485,61 @@ function renderStep0(container) {
           Include labor burden (taxes, WC, GL, insurance)
         </label>
       </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;padding-left:26px;">
+        ${state.prevailingWage
+          ? '<span style="color:#f43f5e;font-weight:600;">⚠️ Prevailing wage rates already include fringes — burden should be OFF to avoid double-counting.</span>'
+          : 'Enable for private/commercial jobs where your labor rates are base rates only. Adds employer taxes (FICA, FUTA/SUTA), Workers Comp, GL insurance, and benefits on top of base hourly rates.'}
+      </div>
       ${state.includeBurden ? `
       <div class="form-group" style="margin-top:8px;margin-bottom:0;">
         <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="burden-rate">Burden Rate (%)</label>
         <input class="form-input" type="number" step="1" min="0" max="100" id="burden-rate" value="${state.burdenRate}" style="width:120px;font-size:14px;padding:8px 10px;">
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Typical: 30-40% — covers FICA, FUTA/SUTA, WC, GL, H&W, pension</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+          Typical: 30-40% for private work. Covers FICA (7.65%), FUTA/SUTA (3-6%), Workers Comp (5-15%), GL (3-5%), Health/Benefits (5-12%).
+        </div>
+        ${state.prevailingWage ? '<div style="margin-top:4px;font-size:11px;color:#f43f5e;font-weight:600;">⚠️ WARNING: You have prevailing wage selected AND burden enabled. This will double-count fringes. Uncheck burden or switch to standard rates.</div>' : ''}
       </div>
       ` : ""}
 
       <div style="border-top:1px solid rgba(255,255,255,0.06);margin:16px 0;"></div>
-      <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:12px;">📈 Markup / Margin (%)</div>
+      <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:4px;">📈 Markup / Margin (%)</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">
+        Markup is applied on top of cost to produce your sell price. Example: $100 cost × 25% markup = $125 sell price. Applies to all items in each category. Typical ELV ranges: Materials 15-30%, Labor 20-40%, Equipment 10-25%, Subs 5-15%.
+      </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-material">Material Markup</label>
           <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-material" value="${state.markup.material}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Applied to all cable, devices, panels, hardware. Typical: 15-30%</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-labor">Labor Markup</label>
           <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-labor" value="${state.markup.labor}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Applied to total labor cost (hours × rate ${state.includeBurden ? '× burden' : ''}). Typical: 20-40%</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-equipment">Equipment Markup</label>
           <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-equipment" value="${state.markup.equipment}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Lifts, test equipment, specialty tools. Typical: 10-25%</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-subcontractor">Subcontractor Markup</label>
           <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-subcontractor" value="${state.markup.subcontractor}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Applied to sub bids (fire alarm, electrical, etc.). Typical: 5-15%</div>
         </div>
       </div>
 
       <div class="info-card info-card--emerald" style="margin-top:16px;">
         <div class="info-card-title">💡 How Pricing Works</div>
         <div class="info-card-body">
-          <div>• Material costs use ${state.pricingTier.toUpperCase()} tier prices from the built-in database (200+ ELV items)</div>
+          <div>• Material costs use <strong>${state.pricingTier.toUpperCase()}</strong> tier prices from the built-in database (200+ ELV items)</div>
           <div>• Labor cost = Hours × Rate ${state.includeBurden ? `× (1 + ${state.burdenRate}% burden)` : "(no burden applied)"}</div>
           <div>• Final price = Cost × (1 + Markup%)</div>
-          <div>• Regional multiplier adjusts for local market: ${(PRICING_DB.regionalMultipliers[state.regionalMultiplier] || 1.0).toFixed(2)}×</div>
+          <div>• Regional multiplier adjusts for local market: <strong>${(PRICING_DB.regionalMultipliers[state.regionalMultiplier] || 1.0).toFixed(2)}×</strong></div>
           <div>• The AI references these rates to produce a <strong>fully priced estimate</strong></div>
+          ${state.prevailingWage ? '<div style="margin-top:6px;color:#f43f5e;font-weight:600;">⚠️ Prevailing wage active — labor rates are loaded (base + fringes). Do NOT enable burden or you will double-count fringes.</div>' : ''}
+          ${!state.prevailingWage && !state.includeBurden ? '<div style="margin-top:6px;color:var(--accent-amber);">💡 Burden is OFF — make sure your labor rates already include taxes, WC, GL, and insurance, or enable burden above.</div>' : ''}
         </div>
       </div>
     </div>
