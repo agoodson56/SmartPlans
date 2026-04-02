@@ -1132,13 +1132,22 @@ const SmartPlansExport = {
             const summaryPatterns = /subtotal|summary|recap|rollup|total.*table/i;
             const realCategories = categories.filter(cat => {
                 if (summaryPatterns.test(cat.name)) {
-                    console.warn(`[SmartPlans Export] REMOVED duplicate summary category: "${cat.name}" ($${cat.items.reduce((s, i) => s + (i.extCost || 0), 0).toFixed(2)}) — this was double-counting real items`);
+                    // Only log once per category name to avoid console spam on re-renders
+                    const warnKey = `_bomWarn_${cat.name}`;
+                    if (!this[warnKey]) {
+                        this[warnKey] = true;
+                        console.warn(`[SmartPlans Export] REMOVED duplicate summary category: "${cat.name}" ($${cat.items.reduce((s, i) => s + (i.extCost || 0), 0).toFixed(2)}) — this was double-counting real items`);
+                    }
                     return false;
                 }
                 // Also remove categories where item names are just dollar amounts (e.g., "$15,373.52")
                 const dollarNameItems = cat.items.filter(i => /^\$[\d,]+\.?\d*$/.test((i.item || i.name || '').trim()));
                 if (dollarNameItems.length > 0 && dollarNameItems.length === cat.items.length) {
-                    console.warn(`[SmartPlans Export] REMOVED dollar-amount category: "${cat.name}" — all items are summary values, not real materials`);
+                    const warnKey2 = `_bomWarn_dollar_${cat.name}`;
+                    if (!this[warnKey2]) {
+                        this[warnKey2] = true;
+                        console.warn(`[SmartPlans Export] REMOVED dollar-amount category: "${cat.name}" — all items are summary values, not real materials`);
+                    }
                     return false;
                 }
                 return true;
