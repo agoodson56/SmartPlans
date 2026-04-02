@@ -757,6 +757,8 @@ function openPrintAsPDF(html) {
     return;
   }
   // Strip Word-specific XML that causes browser rendering issues
+  // NOTE: Keep inline confBar tables (they have no mso- properties)
+  // NOTE: Keep the mso-element:footer div — it won't render in browser but won't hurt
   const cleanHtml = html
     .replace(/xmlns:o="[^"]*"/g, '')
     .replace(/xmlns:w="[^"]*"/g, '')
@@ -764,9 +766,7 @@ function openPrintAsPDF(html) {
     .replace(/<!\[if[^]*?\]>/gi, '')
     .replace(/<!\[endif\]-->/gi, '')
     .replace(/<!--\[if[^]*?endif\]-->/gi, '')
-    .replace(/mso-[^;":]+(:[^;"]+)?/g, '')
-    .replace(/<xml>[\s\S]*?<\/xml>/gi, '')
-    .replace(/style="mso-element:footer"[^>]*>[\s\S]*?<\/div>/gi, '');
+    .replace(/<xml>[\s\S]*?<\/xml>/gi, '');
   printWin.document.write(cleanHtml);
   printWin.document.close();
   printWin.onload = () => { setTimeout(() => printWin.print(), 500); };

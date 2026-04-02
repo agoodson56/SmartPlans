@@ -536,14 +536,13 @@ COVER PAGE — Word-native table layout (renders perfectly)
 </table>
 
 <!-- Confidential bar before page break -->
-${this._confBar()}
+${this._confBar(true)}
 
 <!--
 ═══════════════════════════════════════════════════════════
 TABLE OF CONTENTS
 ═══════════════════════════════════════════════════════════
 -->
-<div class="page-break"></div>
 
 <p style="font-size:22pt;font-weight:bold;color:${b.navy};margin-bottom:6pt;font-family:Calibri,Arial,sans-serif;">Table of Contents</p>
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:18pt;">
@@ -563,14 +562,13 @@ TABLE OF CONTENTS
 </table>
 
 <!-- Confidential bar before page break -->
-${this._confBar()}
+${this._confBar(true)}
 
 <!--
 ═══════════════════════════════════════════════════════════
 PROPOSAL BODY — AI-Generated Content
 ═══════════════════════════════════════════════════════════
 -->
-<div class="page-break"></div>
 
 ${bodyHtml}
 
@@ -582,14 +580,13 @@ ${pricingStrategySummaryHtml}
 
 ${grandTotalDisplay ? `
 <!-- Confidential bar before page break -->
-${this._confBar()}
+${this._confBar(true)}
 
 <!--
 ═══════════════════════════════════════════════════════════
 TOTAL INVESTMENT — Hardcoded from analysis (guaranteed to appear)
 ═══════════════════════════════════════════════════════════
 -->
-<div class="page-break"></div>
 
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24pt;">
   <tr><td bgcolor="${b.teal}" style="height:3pt;font-size:1pt;">&nbsp;</td></tr>
@@ -616,14 +613,13 @@ TOTAL INVESTMENT — Hardcoded from analysis (guaranteed to appear)
 ` : ''}
 
 <!-- Confidential bar before page break -->
-${this._confBar()}
+${this._confBar(true)}
 
 <!--
 ═══════════════════════════════════════════════════════════
 ACCEPTANCE & SIGNATURE BLOCK
 ═══════════════════════════════════════════════════════════
 -->
-<div class="page-break"></div>
 
 <h2>Acceptance &amp; Authorization</h2>
 
@@ -795,7 +791,7 @@ ${this._confBar()}
     // Headers — each ## section starts on a new page
     html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
     html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.+)$/gm, `${this._confBar()}<div class="page-break"></div><h2>$1</h2>`);
+    html = html.replace(/^## (.+)$/gm, `${this._confBar(true)}<h2>$1</h2>`);
     html = html.replace(/^# (.+)$/gm, '<h2 style="font-size:20pt;">$1</h2>');
 
     // Bold / Italic
@@ -838,11 +834,12 @@ ${this._confBar()}
     return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   },
 
-  // Inline CONFIDENTIAL bar — rendered visually in the document as a fallback
-  // for when the MSO footer doesn't render (Word Online, LibreOffice, some Word versions)
-  _confBar() {
+  // Inline CONFIDENTIAL bar — rendered visually in the document
+  // Uses page-break-after so the bar stays at the BOTTOM of the page
+  // (if placed before a page-break-before div, Word pushes it to the next page)
+  _confBar(includePageBreak = false) {
     const b = this.BRAND;
-    return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14pt;">
+    return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14pt;${includePageBreak ? 'page-break-after:always;' : ''}">
   <tr><td style="border-top:1.5pt solid ${b.teal};padding-top:4pt;text-align:center;">
     <p style="text-align:center;font-size:7.5pt;font-weight:bold;color:${b.navy};text-transform:uppercase;letter-spacing:3pt;font-family:Calibri,Arial,sans-serif;margin:0;">
       3D &nbsp;CONFIDENTIAL &nbsp;&middot;&nbsp; PROPRIETARY
@@ -908,9 +905,8 @@ ${this._confBar()}
     });
 
     return `
-<!-- Confidential bar before page break -->
-${this._confBar()}
-<div class="page-break"></div>
+<!-- Confidential bar with page break -->
+${this._confBar(true)}
 
 <table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:8pt;">
   <tr>
@@ -984,9 +980,8 @@ ${this._confBar()}
     }
 
     return `
-<!-- Confidential bar before page break -->
-${this._confBar()}
-<div class="page-break"></div>
+<!-- Confidential bar with page break -->
+${this._confBar(true)}
 
 <table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:8pt;">
   <tr>
@@ -1374,14 +1369,13 @@ PAGE 1 — STUNNING COVER PAGE
 </p>
 
 <!-- Confidential bar before page break -->
-${this._confBar()}
+${this._confBar(true)}
 
 <!--
 ═══════════════════════════════════════════════════════════
 PAGE 2 — EXECUTIVE SUMMARY, SCOPE & PRICING TABLE
 ═══════════════════════════════════════════════════════════
 -->
-<div class="page-break"></div>
 
 <!-- Teal header bar for page 2 -->
 <table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:16pt;">
@@ -1396,14 +1390,13 @@ PAGE 2 — EXECUTIVE SUMMARY, SCOPE & PRICING TABLE
 ${bodyHtml}
 
 <!-- Confidential bar before page break -->
-${this._confBar()}
+${this._confBar(true)}
 
 <!--
 ═══════════════════════════════════════════════════════════
 PAGE 3 — TOTAL INVESTMENT & SIGNATURE
 ═══════════════════════════════════════════════════════════
 -->
-<div class="page-break"></div>
 
 <!-- Header bar -->
 <table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:20pt;">
