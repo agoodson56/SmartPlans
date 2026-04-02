@@ -997,7 +997,7 @@ const SecurityDashboard = {
         <h2 style="font-size:18px;font-weight:700;margin:0;">Security Dashboard</h2>
         <button onclick="SecurityDashboard.close()" style="background:none;border:1px solid rgba(148,163,184,0.2);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:4px 10px;font-size:14px;">✕</button>
       </div>
-      <div id="sec-dash-content" style="color:var(--text-muted,#94a3b8);">Loading security data...</div>`;
+      <div id="sec-dash-content" style="color:#cbd5e1;">Loading security data...</div>`;
     document.body.appendChild(panel);
 
     await this._loadData();
@@ -1060,7 +1060,7 @@ const SecurityDashboard = {
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div>
             <div style="font-weight:600;color:var(--text-primary);">Account Registration</div>
-            <div style="font-size:12px;margin-top:2px;">Allow new @3dtsi.com users to create accounts</div>
+            <div style="font-size:12px;margin-top:2px;color:#cbd5e1;">Allow new @3dtsi.com users to create accounts</div>
           </div>
           <button id="sec-toggle-reg"
             style="padding:6px 16px;border-radius:6px;border:1px solid ${registrationEnabled ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'};background:${registrationEnabled ? 'rgba(244,63,94,0.1)' : 'rgba(16,185,129,0.1)'};color:${registrationEnabled ? '#f43f5e' : '#10b981'};font-size:12px;font-weight:600;cursor:pointer;">
@@ -1075,8 +1075,8 @@ const SecurityDashboard = {
         ${securityChecks.map(c => `
           <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border-color,rgba(148,163,184,0.06));">
             <span style="width:8px;height:8px;border-radius:50%;background:${c.status === 'pass' ? '#10b981' : c.status === 'warn' ? '#f59e0b' : '#818cf8'};flex-shrink:0;"></span>
-            <span style="font-weight:600;color:var(--text-primary);min-width:160px;">${esc(c.name)}</span>
-            <span style="font-size:12px;">${esc(c.detail)}</span>
+            <span style="font-weight:600;color:#f1f5f9;min-width:160px;">${esc(c.name)}</span>
+            <span style="font-size:12px;color:#cbd5e1;">${esc(c.detail)}</span>
           </div>`).join('')}
       </div>
 
@@ -1112,11 +1112,11 @@ const SecurityDashboard = {
             ${accounts.map(a => `
               <tr style="border-top:1px solid var(--border-color,rgba(148,163,184,0.06));">
                 <td style="padding:8px 12px;color:var(--text-primary);font-weight:500;">${esc(a.name)}</td>
-                <td style="padding:8px 12px;">${esc(a.email)}</td>
-                <td style="padding:8px 12px;">${esc(a.role)}</td>
+                <td style="padding:8px 12px;color:#cbd5e1;">${esc(a.email)}</td>
+                <td style="padding:8px 12px;color:#cbd5e1;">${esc(a.role)}</td>
                 <td style="padding:8px 12px;text-align:center;">${a.is_admin ? '<span style="color:#10b981;">Yes</span>' : 'No'}</td>
                 <td style="padding:8px 12px;text-align:center;">${a.is_active ? '<span style="color:#10b981;">Yes</span>' : '<span style="color:#f43f5e;">No</span>'}</td>
-                <td style="padding:8px 12px;font-size:11px;">${a.last_login ? new Date(a.last_login + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Never'}</td>
+                <td style="padding:8px 12px;font-size:11px;color:#cbd5e1;">${a.last_login ? new Date(a.last_login + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Never'}</td>
                 <td style="padding:8px 12px;text-align:center;">
                   ${a.id !== _currentUser?.id ? `
                     <button data-sec-action="toggle-active" data-user-id="${esc(a.id)}" data-active="${a.is_active ? '1' : '0'}"

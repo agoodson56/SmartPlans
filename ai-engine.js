@@ -709,12 +709,10 @@ const SmartBrains = {
       }
       const hasFileData = activeParts.some(p => p.fileData);
       const parts = [{ text: promptText }, ...activeParts];
-      // Temperature: 0 for cost-critical brains (deterministic pricing),
-      // 0.05 for validators, 0.1 for everything else
-      const DETERMINISTIC_BRAINS = ['MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE', 'ESTIMATE_CORRECTOR'];
-      const LOW_TEMP_BRAINS = ['CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR', 'TARGETED_RESCANNER'];
+      // Temperature: 0 for ALL brains — consistency is critical for a bidding tool.
+      // Every re-run should produce the same BOM, change orders, and proposal text.
       const genConfig = {
-        temperature: DETERMINISTIC_BRAINS.includes(brainKey) ? 0 : LOW_TEMP_BRAINS.includes(brainKey) ? 0.05 : 0.1,
+        temperature: 0,
         maxOutputTokens: brainDef.maxTokens,
       };
       if (useJsonMode) {
@@ -857,7 +855,7 @@ const SmartBrains = {
       const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
-        const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
+        const fbGenConfig = { temperature: 0, maxOutputTokens: 16384 };
         if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
         const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % this.config.keySlots };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
