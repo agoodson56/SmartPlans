@@ -1027,7 +1027,9 @@ const SmartPlansExport = {
                     // Check if this heading looks like a material/cost category
                     const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|breakdown|bill|bom/i.test(heading);
                     // Exclude summary/rollup sections that re-state subtotals (causes double-counting)
-                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary/i.test(heading);
+                    // Also exclude subcontractor, travel, and equipment rental sections — these are NOT material costs.
+                    // They are handled separately in the Travel & Costs step and should not be in the BOM.
+                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary|subcontract|travel|per diem|hotel|lodging|special equipment.*condition|equipment.*rental|rental.*equipment|civil work|traffic control|flagg/i.test(heading);
 
                     if (isCategory && !isNonCategory) {
                         // Save previous category if it has items
@@ -2224,8 +2226,10 @@ const SmartPlansExport = {
                             cellTexts.forEach((c, idx) => {
                                 if (c.includes('row') && c.match(/row\s*#?$/i)) colRowNum = idx;
                                 else if (c.includes('row')) colRowNum = colRowNum === -1 ? idx : colRowNum;
-                                if (c.includes('supplier') && c.includes('cost')) colSupplierCost = idx;
+                                // Match "Supplier Unit Cost" but NOT "Supplier Extended Cost"
+                                if (c.includes('supplier') && c.includes('unit') && c.includes('cost')) colSupplierCost = idx;
                                 else if (c.includes('supplier') && c.includes('unit')) colSupplierCost = colSupplierCost === -1 ? idx : colSupplierCost;
+                                else if (c.includes('supplier') && c.includes('cost') && !c.includes('extended')) colSupplierCost = colSupplierCost === -1 ? idx : colSupplierCost;
                                 if (c.includes('part') && (c.includes('number') || c.includes('#'))) colPartNumber = idx;
                                 if (c.includes('description') || c.includes('item desc')) colName = idx;
                             });

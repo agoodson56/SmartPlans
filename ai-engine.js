@@ -1535,16 +1535,9 @@ YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment r
     - Generator rental (if no permanent power available)
     - Portable restroom (remote locations)
 
-15. TRAVEL & PER DIEM (if project location is NOT local — over 60 miles from Rancho Cordova, CA):
-    - Hotel/lodging: estimate $150-$250/night per worker (use GSA rates for location)
-    - Per diem meals: $60-$79/day per worker (GSA M&IE rate)
-    - Vehicle mileage or rental: truck rental + fuel for crew and materials
-    - Airfare (if 500+ miles) for crew rotation
-    - Number of workers × number of project days = TOTAL TRAVEL COST
-    - Weekend trips home (if project > 2 weeks, budget 1 round-trip/worker/2 weeks)
-    - Parking, tolls, and incidental expenses
-    - CALCULATE: (hotel + per_diem) × workers × project_days = travel subtotal
-    - This is often 15-25% OF TOTAL PROJECT COST on out-of-town work
+15. TRAVEL & PER DIEM:
+    NOTE: Travel costs are handled separately by the user in the Travel & Costs step.
+    Just note whether the project appears to be local or out-of-town. Do NOT calculate travel costs.
 
 16. TRANSIT / RAILROAD / INFRASTRUCTURE-SPECIFIC (for Amtrak, BNSF, UP, light rail, metro, airport, DOT):
     - Railroad flagmen/RWIC (Railroad Worker in Charge): $1,000-$1,500/DAY — MANDATORY for any track-side work
@@ -1595,36 +1588,15 @@ CORE DRILLING:
 - 6" hole: $250-$600 per hole
 - Mobilization: $500-$1,200 per trip
 
-═══ SUBCONTRACTOR COST MINIMUMS (HARD FLOORS) ═══
-${(() => {
-  const isTransit = (context.projectType || '').toLowerCase().includes('transit') ||
-                    (context.projectType || '').toLowerCase().includes('railroad') ||
-                    (context.projectName || '').toLowerCase().includes('amtrak') ||
-                    (context.projectName || '').toLowerCase().includes('rail');
-  const benchmarks = typeof PRICING_DB !== 'undefined' && PRICING_DB.subcontractorBenchmarks
-    ? (isTransit ? PRICING_DB.subcontractorBenchmarks.transit_railroad : PRICING_DB.subcontractorBenchmarks.standard)
-    : {};
-  if (isTransit) {
-    return `THIS IS A TRANSIT/RAILROAD PROJECT — apply these MINIMUM subcontractor costs:
-- Civil contractor (boring + trenching + restoration): MINIMUM $${benchmarks.civil_contractor_min || 60000}
-- Electrical contractor (dedicated circuits, panels, grounding): MINIMUM $${benchmarks.electrical_contractor_min || 80000}
-- RWIC/Flagman: $${benchmarks.rwic_flagman_daily || 1200}/day × minimum ${benchmarks.rwic_min_days || 25} days = MINIMUM $${benchmarks.rwic_min_total || 30000}
-- RPL Insurance: MINIMUM $${benchmarks.rpl_insurance_min || 25000}
-- Safety training: $${benchmarks.safety_training_per_worker || 350}/worker
-- Traffic control: $${benchmarks.traffic_control_daily || 1500}/day × minimum ${benchmarks.traffic_control_min_days || 15} days
-If your subcontractor totals fall below these minimums, you are UNDERESTIMATING. Adjust UP.`;
-  }
-  return `Subcontractor minimums (standard project):
-- Civil contractor: minimum $${benchmarks.civil_contractor_min || 15000} if ANY underground work exists
-- Electrical contractor: minimum $${benchmarks.electrical_contractor_min || 25000} for dedicated circuits`;
-})()}
+═══ IMPORTANT: COST ESTIMATES ARE FOR REFERENCE ONLY ═══
+Your cost estimates for subcontractors, civil work, and equipment rentals are INFORMATIONAL.
+They help the estimator understand the scope. Do NOT inflate costs with mandatory minimums.
+Provide realistic cost ranges based on what you see in the plans and specs.
 
-CRITICAL: Be EXHAUSTIVE. If you see ANY exterior conduit runs, underground pathways, parking lot crossings, road crossings, or rooftop equipment on the plans, you MUST include the associated civil work, trenching, boring, traffic control, and restoration. Missing these items leads to MASSIVE cost overruns.
+Travel & per diem costs are handled separately by the user — do NOT calculate travel totals.
 
-CRITICAL — OUT-OF-TOWN PROJECTS: If the project location is NOT within 60 miles of Rancho Cordova, CA, travel & per diem is MANDATORY. Calculate: crew_size × daily_rate × project_duration_days. This is typically $150K-$400K+ on large out-of-town projects and is the #1 reason estimates come in too low.
-
-CRITICAL — TRANSIT/RAILROAD PROJECTS: If the project is for Amtrak, BNSF, a transit authority, or any railroad, you MUST include RWIC/flagman costs, RPL insurance, safety training, and work window restrictions. Railroad flagmen alone can cost $30,000-$80,000+ on a multi-week project.
-RWIC/flagman is required for EVERY DAY that crews work near or on railroad right-of-way — not just a few days. For a multi-week project with 5+ crew, budget 25-40 flagman-days minimum.
+For transit/railroad projects: identify RWIC/flagman requirements, RPL insurance needs, and safety requirements,
+but let the estimator determine actual costs based on their subcontractor quotes.
 
 Return ONLY valid JSON:
 {
@@ -1785,21 +1757,20 @@ ${(() => {
   if (isTransit) {
     const ptm = typeof PRICING_DB !== 'undefined' && PRICING_DB.projectTypeMultipliers?.transit_railroad;
     return `
-═══ TRANSIT/RAILROAD EQUIPMENT PRICING (MANDATORY) ═══
-This is a TRANSIT/RAILROAD project. ALL equipment MUST be transit-rated:
-- Cameras: Use PREMIUM tier × ${ptm?.equipment_multiplier || 2.5}× transit multiplier. Minimum $${ptm?.min_camera_cost || 1500}/camera.
-  Transit cameras are IK10 vandal-proof, IP67 weatherproof, -40°C to +60°C rated. They cost 2-3× standard cameras.
-  Do NOT use budget camera models (no Hikvision DS-2CD series, no Dahua). Use Axis Q-series, Bosch FLEXIDOME, or Hanwha X-series.
-- NVRs/Servers: Minimum $${ptm?.min_nvr_cost || 3000}/unit. Enterprise-grade with RAID, redundant power.
-- Switches: Minimum $${ptm?.min_switch_cost || 800}/unit. Industrial managed PoE switches (Cisco IE series, Hirschmann).
-- Labor multiplier: ${ptm?.labor_multiplier || 1.8}× (restricted work windows, safety overhead).
-If your per-camera cost is below $${ptm?.min_camera_cost || 1500}, you are using the WRONG camera model. Fix it.`;
+═══ TRANSIT/RAILROAD EQUIPMENT PRICING ═══
+This is a TRANSIT/RAILROAD project. Equipment should be commercial/industrial grade:
+- Cameras: Use PREMIUM tier pricing from the database. Do NOT multiply by 2.5×. Use actual distributor pricing.
+  Transit cameras (IK10 vandal, IP67) typically cost $1,500-$3,500 each through distribution, NOT $8,000+.
+- NVRs/Servers: Enterprise-grade with RAID. $3,000-$16,000 depending on channel count.
+- Switches: Industrial managed PoE switches (Cisco IE series). $800-$2,400 each.
+Use the pricing database values directly with the regional multiplier. Do NOT apply a separate transit equipment multiplier.`;
   }
   return '';
 })()}
 
 ═══ PRICING GUARDRAILS (max unit costs — clamp if exceeded) ═══
-Max = premium × 2.5. Fixed dome indoor $1300, outdoor $1800 | PTZ $8750 | Panoramic $7000 | Fisheye $8750 | LPR $8000 | NVR $16250 | PoE 8p $950, 24p $2375, 48p $3750 | AC panel $2125 | Reader $1200 | Strike $700 | Monitor 22" $1125, 32" $1875 | Pole $3000 | Patch panel $650
+Fixed dome indoor $800, outdoor $1200 | PTZ $3500 | Panoramic $3500 | Multi-sensor $4500 | Fisheye $2000 | LPR $5000 | NVR $16250 | PoE 8p $950, 24p $2375, 48p $3750 | AC panel $2125 | Reader $1200 | Strike $700 | Monitor 22" $1125, 32" $1875 | Pole $3000 | Patch panel $650
+Use ACTUAL distributor pricing, not MSRP. Most cameras sell for 40-60% of list price through distribution.
 
 ═══ CRITICAL RULES ═══
 1. Create category for EVERY selected discipline — missing one is a FATAL ERROR
@@ -2109,92 +2080,20 @@ CRITICAL RULES (VIOLATING ANY OF THESE IS A FATAL ERROR):
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total
 6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + general_conditions + G&A + profit + warranty + contingency
-7. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
-8. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
-9. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
-10. Include a separate SOV line item for "Civil Work & Site Restoration" if underground/exterior work exists
-11. G&A OVERHEAD is MANDATORY: Apply 15% to (materials + labor + equipment + subcontractors) subtotal. This covers company overhead (office, trucks, insurance, admin staff). This is separate from markup.
-12. PROFIT MARGIN is MANDATORY: Apply 10% to the subtotal after G&A. This is the company's profit. Without this, you are bidding at cost.
-13. WARRANTY RESERVE: Add 1.5% of total project cost for warranty callback labor during the 1-year warranty period.
+7. Do NOT include subcontractor costs, travel costs, equipment rental, or insurance in the SOV or project summary.
+   These are handled separately by the estimator outside of this analysis.
+   The SOV should contain ONLY material and labor costs for the ELV scope of work.
+8. SOV line items should cover: materials by discipline, labor by phase, and mobilization/demobilization.
+9. Do NOT add G&A overhead, profit margin, warranty reserve, or contingency — the app calculates markup separately.
 
-═══ GENERAL CONDITIONS (MANDATORY — INCLUDE IN EVERY BID) ═══
-14. ALWAYS include a "General Conditions" SOV line item containing:
-    - Performance & Payment Bonds: 1.5-2.5% of total contract value
-    - General Liability Insurance: ~1% of contract
-    - Mobilization/Demobilization: 1-2% of contract
-    - Permits & Fees
-    For TRANSIT/RAILROAD: ALSO include Railroad Protective Liability Insurance (RRPLI) at $25,000-$65,000
-    General Conditions typically total 8-15% of direct costs ($80K-$200K on a $1M+ project).
-    If your general_conditions total is below 5% of direct costs, you are UNDERESTIMATING.
-15. Add total_general_conditions to the project_summary alongside other cost components.
+═══ COST BUILD-UP (MATERIALS + LABOR ONLY) ═══
+The SOV should contain ONLY:
+1. Material costs by discipline (from Material Pricer)
+2. Labor costs by phase (from Labor Calculator)
+3. Mobilization/Demobilization
 
-═══ TRENCHING SCOPE VALIDATION (CRITICAL) ═══
-16. If Material Pricer or Special Conditions shows sawcut/trench scope with linear footage:
-    - Verify it is priced as ALL-IN scope-of-work per linear foot ($85-$420/LF), NOT as equipment rental ($150/day)
-    - If Civil Contractor sub amount seems too low for the trenching scope, INCREASE it
-    - EXAMPLE: 2100 LF of concrete sawcut+trench at a transit station should be $400,000-$600,000, not $40,000
-    - Cross-check: Material Pricer's trenching cost vs Special Conditions' civil work estimate
-
-═══ COST BUILD-UP ORDER (follow this EXACTLY) ═══
-1. Direct Costs: total_materials + total_labor + total_equipment + total_subcontractors
-2. Add: total_travel + total_transit_costs + total_insurance
-3. = PROJECT DIRECT COST SUBTOTAL
-4. Add: G&A Overhead (15% of direct costs) → this covers company operating expenses
-5. = TOTAL COST WITH OVERHEAD
-6. Add: Profit (10% of cost with overhead) → this is the company's earnings
-7. Add: Warranty Reserve (1.5% of total)
-8. Add: Contingency (10% of total) → for unknowns and scope changes
-9. = GRAND TOTAL (this is the BID PRICE)
-
-GENERATE:
-1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
-2. Travel & Per Diem calculation — MANDATORY if project is 60+ miles from Rancho Cordova, CA
-3. Transit/Railroad costs — MANDATORY if project involves Amtrak, BNSF, transit authority, railroad, airport, or DOT
-4. Prevailing wage determination (if applicable)
-5. Complete project cost summary with G&A, profit, warranty, and contingency
-
-═══ TRAVEL & PER DIEM CALCULATION RULES ═══
-If the project location is 60+ miles from Rancho Cordova, CA (Sacramento area):
-- Crew size: use the Labor Calculator's crew_recommendation
-- Project duration: use the Labor Calculator's duration_weeks × 5 working days
-- Hotel: use GSA rate for the city (typically $150-$250/night)
-- Per diem: use GSA M&IE rate for the city (typically $60-$79/day)
-- Vehicle: $2,000-$3,500/month for truck rental + fuel
-- Weekend trips home: 1 round-trip per worker per 2 weeks if project > 2 weeks
-- FORMULA: travel_total = (hotel_rate + per_diem_rate) × crew_size × working_days + vehicle_costs + weekend_trips
-- Travel is typically 15-25% of total project cost on out-of-town work — if your travel is less than 10%, you are probably UNDERESTIMATING
-
-═══ TRANSIT / RAILROAD COST RULES ═══
-If Special Conditions flagged transit/railroad work:
-- RWIC/Flagman costs: $1,000-$1,500/day × number of track-side work days → add to Subcontractor column
-- RPL Insurance: $15,000-$50,000+ → add to project_summary
-- Safety training: $200-$500/worker → add to Labor column
-- Work window premium: 20-30% increase to labor hours (reduced productivity) → should already be in Labor Calculator
-
-═══ SUBCONTRACTOR COST VALIDATION (MANDATORY CHECK BEFORE RETURNING) ═══
-${(() => {
-  const isTransit = (context.projectType || '').toLowerCase().includes('transit') ||
-                    (context.projectType || '').toLowerCase().includes('railroad') ||
-                    (context.projectName || '').toLowerCase().includes('amtrak') ||
-                    (context.projectName || '').toLowerCase().includes('rail');
-  const benchmarks = typeof PRICING_DB !== 'undefined' && PRICING_DB.subcontractorBenchmarks
-    ? (isTransit ? PRICING_DB.subcontractorBenchmarks.transit_railroad : PRICING_DB.subcontractorBenchmarks.standard)
-    : {};
-  if (isTransit) {
-    return `THIS IS A TRANSIT/RAILROAD PROJECT — enforce these MINIMUM subcontractor costs in your SOV:
-- Civil work (boring + trenching + restoration): MINIMUM $${benchmarks.civil_contractor_min || 60000}
-- Electrical contractor (dedicated circuits, panels, grounding for camera/access systems): MINIMUM $${benchmarks.electrical_contractor_min || 80000}
-- RWIC/Flagman: MINIMUM $${benchmarks.rwic_min_total || 30000} (${benchmarks.rwic_min_days || 25}+ days × $${benchmarks.rwic_flagman_daily || 1200}/day)
-- RPL Insurance: MINIMUM $${benchmarks.rpl_insurance_min || 25000}
-- Traffic control: MINIMUM $${(benchmarks.traffic_control_daily || 1500) * (benchmarks.traffic_control_min_days || 15)} (${benchmarks.traffic_control_min_days || 15} days × $${benchmarks.traffic_control_daily || 1500}/day)
-If your total_subcontractors is below $200,000 on a transit project with underground work, you are almost certainly UNDERESTIMATING.
-The subcontractor column should typically be 15-25% of total project cost on transit work.
-CHECK: Does your subcontractor total look reasonable compared to the scope? If not, INCREASE IT.`;
-  }
-  return `Subcontractor minimums:
-- If underground work exists: civil contractor minimum $${benchmarks.civil_contractor_min || 15000}
-- Electrical contractor minimum: $${benchmarks.electrical_contractor_min || 25000}`;
-})()}
+Do NOT include: subcontractors, travel, equipment rental, insurance, G&A, profit, contingency, or general conditions.
+These are handled separately by the estimator. Your job is to produce accurate material and labor numbers only.
 
 Return ONLY valid JSON:
 {
@@ -2463,40 +2362,31 @@ Break labor into phases. Use this EXACT table format:
 **Labor Subtotals Table:**
 | Phase | Hours | Labor Cost | Markup ${labMarkup}% | Sell Price |
 
-## 5. SPECIAL EQUIPMENT & CONDITIONS
-| Item | Duration | Daily/Unit Cost | Total Cost | Markup ${eqMarkup}% | Sell Price |
-Include: lifts, scaffolding, tools, certifiers, splicers
+## 5. SPECIAL CONDITIONS & NOTES
+List any special conditions identified (permits, site access, safety requirements, railroad work, etc.)
+as informational notes. Do NOT include dollar amounts — these are handled separately by the estimator.
 
-## 6. SUBCONTRACTOR COSTS
-| Trade | Scope | Cost | Markup ${subMarkup}% | Sell Price |
-Include: core drilling, trenching, firestopping, electrical
+## 6. SCHEDULE OF VALUES (SOV)
+Material + Labor only:
+| SOV # | Description | Material | Labor | Total |
 
-## 7. TRAVEL & PER DIEM
-If project is distant from Rancho Cordova, CA. Otherwise state "Local Project — No Travel Required"
-
-## 8. SCHEDULE OF VALUES (SOV)
-AIA G703 format:
-| SOV # | Description | Material | Labor | Equipment | Subcontractor | Total |
-
-## 9. PROJECT COST SUMMARY
+## 7. PROJECT COST SUMMARY
 | Category | Base Cost | Markup | Sell Price |
 |----------|-----------|--------|------------|
 | Materials | $XXX | ${matMarkup}% | $XXX |
 | Labor | $XXX | ${labMarkup}% | $XXX |
-| Equipment | $XXX | ${eqMarkup}% | $XXX |
-| Subcontractors | $XXX | ${subMarkup}% | $XXX |
-| Travel | $XXX | — | $XXX |
 | **SUBTOTAL** | | | **$XXX** |
-| Contingency 10% | | | $XXX |
-| **GRAND TOTAL** | | | **$XXX** |
 
-## 10. PREVAILING WAGE DETERMINATION
+NOTE: Subcontractor costs, travel, equipment rental, insurance, contingency, and G&A are
+handled separately by the estimator and are NOT included in this summary.
+
+## 8. PREVAILING WAGE DETERMINATION
 If applicable, list wage classifications. Otherwise "Not Applicable"
 
-## 11. OBSERVATIONS & RECOMMENDATIONS
+## 9. OBSERVATIONS & RECOMMENDATIONS
 Key findings from the analysis
 
-## 12. RECOMMENDED RFIs
+## 10. RECOMMENDED RFIs
 Gaps that need architect/engineer clarification
 
 CRITICAL RULES:
@@ -3520,13 +3410,9 @@ Return ONLY valid JSON:
     const ptMult = PRICING_DB.projectTypeMultipliers?.[projectTypeKey];
     if (ptMult && projectTypeKey !== 'commercial_standard') {
       ctx += `⚠️ PROJECT TYPE: ${ptMult.label}\n`;
-      ctx += `  EQUIPMENT MULTIPLIER: ${ptMult.equipment_multiplier}× — apply to ALL cameras, NVRs, switches, panels, readers\n`;
-      ctx += `  LABOR MULTIPLIER: ${ptMult.labor_multiplier}× — apply to ALL labor hours and rates\n`;
-      ctx += `  MINIMUM CAMERA COST: $${ptMult.min_camera_cost}/each (do NOT price cameras below this)\n`;
-      ctx += `  MINIMUM NVR COST: $${ptMult.min_nvr_cost}/each (do NOT price NVRs below this)\n`;
-      ctx += `  MINIMUM SWITCH COST: $${ptMult.min_switch_cost}/each (do NOT price switches below this)\n`;
+      ctx += `  Use premium-tier pricing from the database for this project type.\n`;
       ctx += `  NOTE: ${ptMult.notes}\n`;
-      ctx += `  THIS IS MANDATORY — prices BELOW these minimums will result in a losing bid.\n\n`;
+      ctx += `  Use actual distributor pricing — do not apply arbitrary multipliers to list prices.\n\n`;
     }
 
     // Only include pricing categories relevant to selected disciplines
