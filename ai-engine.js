@@ -1093,17 +1093,14 @@ const SmartBrains = {
       return { valid: false, reason: `Missing required fields: ${missing.join(', ')}` };
     }
 
-    // ── Labor Calculator: ensure PM and non-installation phases have hours ──
+    // ── Labor Calculator: ensure overhead phase exists with hours ──
     if (brainKey === 'LABOR_CALCULATOR' && Array.isArray(parsed.phases)) {
-      const requiredPhases = ['project management', 'engineering', 'coordination', 'superintendent', 'safety'];
       const phaseNames = parsed.phases.map(p => (p.name || '').toLowerCase());
-      const missingPhases = requiredPhases.filter(rp => !phaseNames.some(pn => pn.includes(rp)));
-      if (missingPhases.length >= 3) {
-        return { valid: false, reason: `Missing non-installation phases: ${missingPhases.join(', ')}. These are mandatory labor costs.` };
-      }
-      const pmPhase = parsed.phases.find(p => /project management/i.test(p.name));
-      if (pmPhase && (pmPhase.phase_hours || 0) === 0) {
-        return { valid: false, reason: 'Project Management phase has 0 hours — PM is mandatory on every project.' };
+      const hasOverhead = phaseNames.some(pn =>
+        pn.includes('overhead') || pn.includes('project management') || pn.includes('engineering')
+      );
+      if (!hasOverhead) {
+        return { valid: false, reason: 'Missing project overhead phase. Include a "Project Overhead" phase for PM, submittals, and coordination.' };
       }
     }
 
