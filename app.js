@@ -587,6 +587,7 @@ const state = {
     numTrips: 1,
     // Costs
     hotelPerNight: 175,
+    hotelNightsPerWeek: 4, // Mon-Thu nights, drive home Fri (5 work days = 4 hotel nights)
     perDiemPerDay: 79,     // GSA per diem rate
     mileageRoundTrip: 0,   // miles
     mileageRate: 0.70,     // IRS rate $/mile
@@ -1054,7 +1055,7 @@ function generateMasterReport() {
       <div class="stat-box"><div class="stat-value">${fmt(travelCosts.grandTotal)}</div><div class="stat-label">Total Travel Cost</div></div>
     </div>`;
     html += `<table><tr><th style="width:65%;">Item</th><th style="text-align:right;">Amount</th></tr>`;
-    if (travelCosts.hotel > 0) html += `<tr><td>Hotel (${travelCosts.totalPersonDays} nights @ ${fmt(state.travel.hotelPerNight)}/night)</td><td style="text-align:right;">${fmt(travelCosts.hotel)}</td></tr>`;
+    if (travelCosts.hotel > 0) html += `<tr><td>Hotel (${travelCosts.totalHotelNights} nights @ ${fmt(state.travel.hotelPerNight)}/night — ${state.travel.hotelNightsPerWeek ?? 4} nights/wk)</td><td style="text-align:right;">${fmt(travelCosts.hotel)}</td></tr>`;
     if (travelCosts.perdiem > 0) html += `<tr><td>Per Diem / Meals (${travelCosts.totalPersonDays} days @ ${fmt(state.travel.perDiemPerDay)}/day)</td><td style="text-align:right;">${fmt(travelCosts.perdiem)}</td></tr>`;
     if (travelCosts.mileage > 0) html += `<tr><td>Mileage</td><td style="text-align:right;">${fmt(travelCosts.mileage)}</td></tr>`;
     if (travelCosts.airfare > 0) html += `<tr><td>Airfare</td><td style="text-align:right;">${fmt(travelCosts.airfare)}</td></tr>`;
@@ -3417,10 +3418,15 @@ function computeTravelIncidentals() {
   const totalTripDays = workDays;                   // total days on site
 
   // Travel costs
-  // Hotel & per diem: based on total on-site days (doesn't multiply by trips)
+  // Hotel: uses nights-per-week ratio (e.g., 5 work days = 4 hotel nights = 0.8 ratio)
+  // Per diem: based on total work days (meals needed every day on site)
   const hotelRate = t.hotelPerNight || 175;
+  const hotelNightsPerWeek = t.hotelNightsPerWeek ?? 4;
+  const workDaysPerWeek = 5;
+  const hotelRatio = hotelNightsPerWeek / workDaysPerWeek; // e.g., 4/5 = 0.8
+  const totalHotelNights = Math.ceil(totalPersonDays * hotelRatio);
   const perDiemRate = t.perDiemPerDay || 79;
-  const hotel = totalPersonDays * hotelRate;
+  const hotel = totalHotelNights * hotelRate;
   const perdiem = totalPersonDays * perDiemRate;
   // Getting TO the site: these DO multiply by trips
   const mileage = t.numTrips * (t.mileageRoundTrip || 0) * (t.mileageRate || 0.70);
@@ -3446,7 +3452,7 @@ function computeTravelIncidentals() {
 
   return {
     totalLaborHours, techs, workDays, totalPersonDays, totalTripDays,
-    laborHoursCapped,
+    totalHotelNights, laborHoursCapped,
     hotel, perdiem, mileage, airfare, rental, parking, tolls,
     travelSubtotal,
     permits, insurance, bonding, equipmentRental, fuelTransit,
@@ -3465,7 +3471,7 @@ function injectTravelIntoBOM(bom) {
     if (unitCost > 0 && qty > 0) travelItems.push({ name, qty, unit, unitCost: Math.round(unitCost * 100) / 100, extCost: Math.round(qty * unitCost * 100) / 100 });
   };
 
-  addItem(`Hotel (${costs.techs} techs × ${costs.workDays} days)`, costs.totalPersonDays, 'NIGHT', state.travel.hotelPerNight);
+  addItem(`Hotel (${costs.totalHotelNights} nights — ${state.travel.hotelNightsPerWeek ?? 4} nights/wk × ${costs.techs} techs)`, costs.totalHotelNights, 'NIGHT', state.travel.hotelPerNight);
   addItem(`Per Diem / Meals (${costs.totalPersonDays} person-days)`, costs.totalPersonDays, 'DAY', state.travel.perDiemPerDay);
   if (state.travel.mileageRoundTrip > 0) addItem(`Mileage (${state.travel.mileageRoundTrip} mi RT × ${state.travel.numTrips} trips)`, state.travel.numTrips * state.travel.mileageRoundTrip, 'MI', state.travel.mileageRate);
   if (state.travel.airfarePerPerson > 0) addItem(`Airfare (${costs.techs} techs × ${state.travel.numTrips} trips)`, costs.techs * state.travel.numTrips, 'EA', state.travel.airfarePerPerson);
@@ -3768,7 +3774,7 @@ function renderStep6Travel(container) {
         </div>
       </div>
       <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">
-        ${totalHours > 0 ? `${totalHours.toLocaleString()} hrs ÷ (${costs.techs} techs × ${t.hoursPerDay} hrs/day) = ${costs.workDays} work days | ${costs.totalPersonDays} total person-days${costs.laborHoursCapped ? ' <span style="color:#f59e0b;font-weight:700;">⚠️ AI labor hours were unrealistically high and were capped at 50,000 — review scheduling manually</span>' : ''}` : 'Enter scheduling details manually — labor hours not available from analysis.'}
+        ${totalHours > 0 ? `${totalHours.toLocaleString()} hrs ÷ (${costs.techs} techs × ${t.hoursPerDay} hrs/day) = ${costs.workDays} work days | ${costs.totalPersonDays} person-days | ${costs.totalHotelNights} hotel nights (${t.hotelNightsPerWeek ?? 4}/wk)${costs.laborHoursCapped ? ' <span style="color:#f59e0b;font-weight:700;">⚠️ AI labor hours were unrealistically high and were capped at 50,000 — review scheduling manually</span>' : ''}` : 'Enter scheduling details manually — labor hours not available from analysis.'}
       </div>
     </div>
 
@@ -3782,9 +3788,14 @@ function renderStep6Travel(container) {
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA avg: $175/night</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-hotel-nights">Hotel Nights / Week</label>
+          <input class="form-input" type="number" min="0" max="7" step="1" id="t6-hotel-nights" value="${t.hotelNightsPerWeek ?? 4}" style="font-size:14px;padding:8px 10px;">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Typical: 4 (Mon-Thu, drive home Fri)</div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-perdiem">Per Diem $/day</label>
           <input class="form-input t6-input" type="number" min="0" step="1" id="t6-perdiem" data-key="perDiemPerDay" value="${t.perDiemPerDay || 79}" placeholder="79" style="font-size:14px;padding:8px 10px;">
-          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA rate: $79/day</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA rate: $79/day — charged all 5 work days</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-mileage">Mileage (RT miles)</label>
@@ -3845,7 +3856,7 @@ function renderStep6Travel(container) {
     <div style="background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(251,191,36,0.06));border:1px solid rgba(245,158,11,0.3);border-radius:12px;padding:20px;">
       <div style="font-weight:800;font-size:16px;color:var(--accent-amber);margin-bottom:12px;">🧮 Stage 7 Cost Summary</div>
       <div style="display:grid;grid-template-columns:1fr auto;gap:4px 16px;font-size:13px;">
-        <div>🏨 Hotel (${costs.totalPersonDays} person-nights)</div><div style="text-align:right;font-weight:600;">${fmt(costs.hotel)}</div>
+        <div>🏨 Hotel (${costs.totalHotelNights} nights @ ${fmt(state.travel.hotelPerNight || 175)}/night)</div><div style="text-align:right;font-weight:600;">${fmt(costs.hotel)}</div>
         <div>🍽️ Per Diem (${costs.totalPersonDays} person-days)</div><div style="text-align:right;font-weight:600;">${fmt(costs.perdiem)}</div>
         ${costs.mileage > 0 ? `<div>🚗 Mileage</div><div style="text-align:right;font-weight:600;">${fmt(costs.mileage)}</div>` : ''}
         ${costs.airfare > 0 ? `<div>✈️ Airfare</div><div style="text-align:right;font-weight:600;">${fmt(costs.airfare)}</div>` : ''}
@@ -3898,6 +3909,12 @@ function renderStep6Travel(container) {
 
   const schedTrips = document.getElementById('sched-trips');
   if (schedTrips) schedTrips.addEventListener('change', e => { state.travel.numTrips = parseInt(e.target.value) || 1; renderStep6Travel(container); });
+
+  const hotelNightsInput = document.getElementById('t6-hotel-nights');
+  if (hotelNightsInput) hotelNightsInput.addEventListener('change', e => {
+    state.travel.hotelNightsPerWeek = Math.max(0, Math.min(7, parseInt(e.target.value) || 4));
+    renderStep6Travel(container);
+  });
 
   document.querySelectorAll('.t6-input').forEach(input => {
     input.addEventListener('change', e => {
