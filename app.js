@@ -2050,7 +2050,15 @@ function renderContent() {
         }
         renderStep6Travel(main);
         break;
-      case 7: renderStep7(main); break;
+      case 7:
+        renderStep7(main);
+        // Auto-save when viewing Results — ensures latest travel/pricing is persisted
+        if (state.analysisComplete && !state._resultsSaved) {
+          state._resultsSaved = true;
+          setTimeout(() => saveEstimate(false), 1000);
+          console.log('[SmartPlans] Auto-saved on Results view');
+        }
+        break;
     }
   } catch (err) {
     console.error('Render error:', err);
@@ -3894,6 +3902,11 @@ function renderStep6Travel(container) {
   document.getElementById('travel-enabled').addEventListener('change', e => {
     state.travel.enabled = e.target.checked;
     renderStep6Travel(container);
+    // Auto-save immediately when travel is toggled — this changes the bid total significantly
+    if (state.analysisComplete) {
+      setTimeout(() => saveEstimate(false), 500);
+      console.log(`[SmartPlans] Auto-saved: travel ${e.target.checked ? 'enabled' : 'disabled'}`);
+    }
   });
 
   document.querySelectorAll('input[name="calc-mode"]').forEach(radio => {
@@ -3931,6 +3944,16 @@ function renderStep6Travel(container) {
       if (key) { state.incidentals[key] = parseFloat(e.target.value) || 0; renderStep6Travel(container); }
     });
   });
+
+  // ── Auto-save travel settings after any change (debounced) ──
+  // Prevents losing travel data if user closes browser without manually saving
+  if (window._travelAutoSaveTimer) clearTimeout(window._travelAutoSaveTimer);
+  window._travelAutoSaveTimer = setTimeout(() => {
+    if (state.analysisComplete && state.travel.enabled) {
+      saveEstimate(false); // silent save — no toast
+      console.log('[SmartPlans] Auto-saved travel settings');
+    }
+  }, 2000);
 }
 
 // ─── Step 7: Results & RFIs ───
@@ -8016,11 +8039,23 @@ function _restoreStateFromPayload(id, pkg, est) {
     const wasTruncated = state.aiAnalysis.includes('[truncated for storage]');
     if (wasTruncated && pkg?.financials?.categories?.length > 0) {
       console.warn('[SmartPlans] Detected truncated AI analysis — restoring BOM from saved financials');
-      // Rebuild the BOM markdown tables from structured financials data
-      // so getFilteredBOM() produces correct numbers
       state._restoredFinancials = pkg.financials;
       if (typeof spToast === 'function') {
         setTimeout(() => spToast('⚠️ This bid was saved with an older version that truncated data. Numbers restored from backup. Re-save to fix permanently.', 'warning', 8000), 500);
+      }
+    }
+
+    // ── SAFETY NET: Detect old saves missing critical data ──
+    const missingData = [];
+    if (!pkg?.brainResults) missingData.push('labor hours');
+    if (!pkg?.travelConfig && pkg?.financials?.grandTotal > 50000) missingData.push('travel settings');
+    if (missingData.length > 0) {
+      state._legacySaveWarning = true;
+      console.warn(`[SmartPlans] OLD SAVE FORMAT detected — missing: ${missingData.join(', ')}`);
+      if (typeof spToast === 'function') {
+        setTimeout(() => {
+          spToast(`⚠️ This bid was saved before the latest update and is missing ${missingData.join(' & ')}. The bid total shown may be LOWER than the actual bid. Please RE-RUN the analysis to get accurate numbers, then save again.`, 'error', 15000);
+        }, 800);
       }
     }
   } else {
