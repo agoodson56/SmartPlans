@@ -4107,7 +4107,7 @@ function renderStep7(container) {
           </div>
         </div>
         ${tocHtml}
-        <div class="info-card-body ai-analysis-content" id="ai-analysis-printable" style="white-space:pre-wrap; line-height:1.75; max-height:600px; overflow-y:auto;">${formatAIResponse(state.aiAnalysis)}</div>
+        <div class="info-card-body ai-analysis-content" id="ai-analysis-printable" style="white-space:pre-wrap; line-height:1.75; max-height:600px; overflow-y:auto;">${formatAIResponse(state.aiAnalysis, tocItems)}</div>
       </div>
       ${validationBanners}
     `;
@@ -7648,19 +7648,42 @@ function exportAnalysis() {
 // AI RESPONSE FORMATTER
 // ═══════════════════════════════════════════════════════════════
 
-function formatAIResponse(text) {
+function formatAIResponse(text, tocItems) {
   if (!text) return "";
   // Basic markdown-to-HTML conversion for display
   let html = esc(text);
 
+  // Build a lookup map from heading title → toc id for scroll targets
+  const tocMap = {};
+  if (tocItems && tocItems.length) {
+    tocItems.forEach(t => {
+      // Normalize: strip bold markers and trim, matching how tocItems were built
+      const key = t.title.replace(/\*+/g, '').trim().toLowerCase();
+      tocMap[key] = t.id;
+    });
+  }
+  let _tocIdx = 0;
+
   // Horizontal rules
   html = html.replace(/^-{3,}$/gm, '<hr style="border:none;border-top:1px solid var(--border-medium);margin:16px 0;">');
 
-  // Headers
-  html = html.replace(/^#### (.+)$/gm, '<strong style="color:var(--accent-emerald);font-size:13px;display:block;margin-top:10px;">$1</strong>');
-  html = html.replace(/^### (.+)$/gm, '<strong style="color:var(--accent-sky);font-size:14px;display:block;margin-top:14px;">$1</strong>');
-  html = html.replace(/^## (.+)$/gm, '<div style="color:var(--accent-indigo);font-size:15px;font-weight:700;display:block;margin-top:20px;margin-bottom:4px;padding:8px 12px;background:rgba(129,140,248,0.08);border-radius:6px;border-left:3px solid var(--accent-indigo);">$1</div>');
-  html = html.replace(/^# (.+)$/gm, '<div style="color:var(--text-primary);font-size:17px;font-weight:800;display:block;margin-top:24px;margin-bottom:8px;padding:10px 14px;background:rgba(56,189,248,0.06);border-radius:8px;border-left:3px solid var(--accent-sky);">$1</div>');
+  // Headers — inject toc id attribute so Jump-to-Section links work
+  function _headingId(rawTitle) {
+    const clean = rawTitle.replace(/\*+/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim().toLowerCase();
+    const id = tocMap[clean];
+    if (id) return ` id="${id}"`;
+    // fallback: sequential toc- id matching the order TOC was built
+    const fallbackId = 'toc-' + _tocIdx;
+    if (tocItems && _tocIdx < tocItems.length && tocItems[_tocIdx].title.replace(/\*+/g, '').trim().toLowerCase() === clean) {
+      _tocIdx++;
+      return ` id="${fallbackId}"`;
+    }
+    return '';
+  }
+  html = html.replace(/^#### (.+)$/gm, (m, title) => `<strong${_headingId(title)} style="color:var(--accent-emerald);font-size:13px;display:block;margin-top:10px;">${title}</strong>`);
+  html = html.replace(/^### (.+)$/gm, (m, title) => `<strong${_headingId(title)} style="color:var(--accent-sky);font-size:14px;display:block;margin-top:14px;">${title}</strong>`);
+  html = html.replace(/^## (.+)$/gm, (m, title) => `<div${_headingId(title)} style="color:var(--accent-indigo);font-size:15px;font-weight:700;display:block;margin-top:20px;margin-bottom:4px;padding:8px 12px;background:rgba(129,140,248,0.08);border-radius:6px;border-left:3px solid var(--accent-indigo);">${title}</div>`);
+  html = html.replace(/^# (.+)$/gm, (m, title) => `<div${_headingId(title)} style="color:var(--text-primary);font-size:17px;font-weight:800;display:block;margin-top:24px;margin-bottom:8px;padding:10px 14px;background:rgba(56,189,248,0.06);border-radius:8px;border-left:3px solid var(--accent-sky);">${title}</div>`);
 
   // Bold
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>');
