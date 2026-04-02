@@ -111,8 +111,9 @@
         }, 5000);
     </script>
     <script
-      src="https://js.sentry-cdn.com/60b02e5d7804fc77476c97324b9039e5.min.js"
+      src="https://browser.sentry-cdn.com/8.48.0/bundle.tracing.min.js"
       crossorigin="anonymous"
+      integrity="sha384-sMlSBJbhBWOw0AFvLMIFBgRCxVNL4N3ND3SQYN/OfWi3nAlOHlSOyFr7v22DZ1zb"
     ></script>
     <script>
       if (typeof Sentry !== 'undefined' && typeof Sentry.init === 'function') {
@@ -120,9 +121,8 @@
           dsn: "https://60b02e5d7804fc77476c97324b9039e5@o4511099720957952.ingest.us.sentry.io/4511099752284160",
           environment: location.hostname.includes('localhost') ? 'development' : 'production',
           release: 'smartplans@5.0.0',
+          integrations: [Sentry.browserTracingIntegration()],
           tracesSampleRate: 0.1,
-          replaysSessionSampleRate: 0,
-          replaysOnErrorSampleRate: 0,
           initialScope: { tags: { app: 'smartplans' } },
         });
         console.log('[SmartPlans] Sentry error tracking initialized');
