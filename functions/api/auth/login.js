@@ -58,9 +58,16 @@ export async function onRequestPost(context) {
             return Response.json({ error: 'Email and password required' }, { status: 400 });
         }
 
-        const user = await env.DB.prepare(
-            'SELECT id, email, name, password_hash, password_salt, role, is_admin, is_active FROM user_accounts WHERE email = ?'
-        ).bind(email).first();
+        let user;
+        try {
+            user = await env.DB.prepare(
+                'SELECT id, email, name, password_hash, password_salt, role, is_admin, is_active FROM user_accounts WHERE email = ?'
+            ).bind(email).first();
+        } catch (dbErr) {
+            // Table may not exist yet (fresh install — user needs to register first)
+            console.warn('[Auth] Login query failed (table may not exist):', dbErr.message);
+            return Response.json({ error: 'No accounts exist yet. Please create an account first.' }, { status: 401 });
+        }
 
         if (!user) {
             await isRateLimited(env.DB, ip, true);

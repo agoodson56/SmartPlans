@@ -27,9 +27,10 @@ export async function onRequest(context) {
         });
     }
 
-    // Block unauthorized origins — SEC: reject missing Origin on AI endpoints
-    // This prevents curl/Postman from hitting the AI proxy without going through the browser
-    if (!isAllowedOrigin(origin, false)) {
+    // Block unauthorized origins — allow same-origin (missing Origin header is normal
+    // for same-origin fetch on Cloudflare Pages), but reject bad Origins.
+    // The session/token auth below is the real protection against unauthorized access.
+    if (!isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
