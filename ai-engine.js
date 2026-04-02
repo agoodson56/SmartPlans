@@ -1758,19 +1758,18 @@ ${(() => {
     const ptm = typeof PRICING_DB !== 'undefined' && PRICING_DB.projectTypeMultipliers?.transit_railroad;
     return `
 ═══ TRANSIT/RAILROAD EQUIPMENT PRICING ═══
-This is a TRANSIT/RAILROAD project. Equipment should be commercial/industrial grade:
-- Cameras: Use PREMIUM tier pricing from the database. Do NOT multiply by 2.5×. Use actual distributor pricing.
-  Transit cameras (IK10 vandal, IP67) typically cost $1,500-$3,500 each through distribution, NOT $8,000+.
-- NVRs/Servers: Enterprise-grade with RAID. $3,000-$16,000 depending on channel count.
-- Switches: Industrial managed PoE switches (Cisco IE series). $800-$2,400 each.
+This is a TRANSIT/RAILROAD project. Use commercial/industrial grade but at REAL distributor prices:
+- Cameras: Use MID or PREMIUM tier from DB. Axis vandal-rated (IK10, IP67) cameras cost $500-$1,500 each through distribution (ADI/Anixter). Example: Axis P3265-LVE ~$380, P3268-LV ~$780, Q6315-LE PTZ ~$1,200.
+- NVRs/Servers: $650-$4,500 depending on channel count. Most station NVRs are 16-32ch.
+- Switches: Managed PoE switches $180-$950 each. Cisco IE series at distributor cost.
 Use the pricing database values directly with the regional multiplier. Do NOT apply a separate transit equipment multiplier.`;
   }
   return '';
 })()}
 
 ═══ PRICING GUARDRAILS (max unit costs — clamp if exceeded) ═══
-Fixed dome indoor $800, outdoor $1200 | PTZ $3500 | Panoramic $3500 | Multi-sensor $4500 | Fisheye $2000 | LPR $5000 | NVR $16250 | PoE 8p $950, 24p $2375, 48p $3750 | AC panel $2125 | Reader $1200 | Strike $700 | Monitor 22" $1125, 32" $1875 | Pole $3000 | Patch panel $650
-Use ACTUAL distributor pricing, not MSRP. Most cameras sell for 40-60% of list price through distribution.
+Fixed dome indoor $350, outdoor $500 | PTZ $1800 | Panoramic $1800 | Multi-sensor $2200 | Fisheye $1000 | LPR $2000 | NVR 8ch $800, 16ch $1400, 32ch $2500, 64ch $4500 | PoE 8p $250, 24p $700, 48p $1100 | AC panel $1000 | Reader $250 | Strike $200 | Monitor 22" $350, 32" $600 | Pole $900 | Patch panel $120
+Use ACTUAL distributor pricing, not MSRP. Contractors buy from ADI/Anixter/Wesco at 40-60% off list. Example: Axis P3267-LME ~$730, P3268-LVE ~$780, P3738-PLE ~$1,400, P4708-PLVE ~$980 through distribution.
 
 ═══ CRITICAL RULES ═══
 1. Create category for EVERY selected discipline — missing one is a FATAL ERROR
@@ -1923,18 +1922,19 @@ CRITICAL RULES:
 6. If consensus shows 0 fire alarm devices, do NOT add fire alarm labor
 7. You MUST include conduit installation labor if Special Conditions or Cable Pathway shows conduit runs
 8. Apply shift differential if work shift is not Standard
-9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
-10. You MUST include all NON-INSTALLATION phases below — these are real labor costs
+9. If project is transit/railroad, apply 10-15% productivity loss factor for restricted work windows (experienced transit contractors account for this efficiently)
+10. Include the Project Overhead phase below — but keep it lean (8-12% of field labor)
 
 ═══ LABOR HOUR SANITY BOUNDS (MANDATORY CHECK) ═══
-Before returning, verify your total_hours against these project-size benchmarks:
-- Under 50 devices: 400-2,000 total hours (2-10 tech-weeks)
-- 50-100 devices: 1,500-5,000 total hours (8-25 tech-weeks)
-- 100-200 devices: 3,000-10,000 total hours (15-50 tech-weeks)
-- 200-500 devices: 6,000-20,000 total hours (30-100 tech-weeks)
-- Over 500 devices: 15,000-50,000 total hours (max realistic scope)
-If your total_hours falls OUTSIDE these ranges, RE-CHECK your math. Do NOT return hours above 50,000.
-crew_recommendation.duration_weeks should be 4-52 (1 month to 1 year). If above 52, reduce weeks and increase crew.
+Before returning, verify your total_hours against these REAL-WORLD benchmarks from experienced ELV contractors:
+- Under 25 devices: 80-400 total hours (1-2 tech-weeks)
+- 25-50 devices: 300-800 total hours (2-4 tech-weeks)
+- 50-100 devices: 600-1,800 total hours (3-9 tech-weeks)
+- 100-200 devices: 1,200-3,500 total hours (6-18 tech-weeks)
+- 200-500 devices: 2,500-7,000 total hours (12-35 tech-weeks)
+- Over 500 devices: 5,000-15,000 total hours (max realistic scope)
+If your total_hours exceeds the upper bound, you are OVERESTIMATING. Experienced contractors do this work efficiently.
+crew_recommendation.duration_weeks should be 2-40. If above 40, reduce weeks and increase crew.
 
 Calculate labor by PROJECT PHASE:
 1. Rough-In (35-40% of field labor) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
@@ -1942,110 +1942,53 @@ Calculate labor by PROJECT PHASE:
 3. Programming (8-12%) — system programming, configuration, database entry
 4. Testing/Commissioning (8-12%) — cable certification, device verification, punch list
 5. Commissioning & Owner Training (3-5%) — AHJ walkthroughs, camera aiming sessions with owner, access control enrollment, system integration testing with existing infrastructure, owner staff training (2-4 sessions)
-6. As-Built Drawings & Closeout (2-3%) — red-line markups, CAD/Revit as-builts, O&M manual compilation, warranty documentation, closeout binder assembly. Typically 40-80 hours for a large project.
+6. As-Built Drawings & Closeout (2-3%) — red-line markups, as-builts, O&M manual compilation, warranty documentation, closeout binder assembly.
 
-NON-INSTALLATION LABOR — you MUST include ALL of these as separate phases with NON-ZERO hours.
-These are REAL costs on every project. Omitting them is the #1 reason bids lose money.
+NON-INSTALLATION LABOR — include as a SINGLE "Project Overhead" phase.
+Most ELV contractors bundle PM, submittals, as-builts, and coordination into company overhead.
+The foreman IS the on-site lead tech — do NOT add a separate full-time superintendent on top of the crew.
+DO NOT pad labor with full-time PM or superintendent hours — these are covered by the labor markup.
 
-7. Engineering & Submittals (3-5% of total labor cost):
-   - Submittal preparation: product data, shop drawings, cut sheets (40-80 hrs)
-   - Engineer review coordination and resubmittals (20-40 hrs)
-   - Riser diagram and pathway design (20-40 hrs)
-   - Use PM rate for this work
-   - MINIMUM 60 hours for any project over $500K
+7. Project Overhead (8-12% of total field labor hours):
+   Combines: engineering/submittals, PM coordination, safety briefings, as-built documentation, closeout.
+   - Small projects (<50 devices): 40-80 hours
+   - Medium projects (50-150 devices): 60-120 hours
+   - Large projects (150+ devices): 100-200 hours
+   Use PM or lead rate for this phase.
+   NOTE: The foreman/lead tech IS counted in field phases — do NOT double-count supervision.
 
-8. Project Management (MANDATORY — dedicated PM for full project duration):
-   - 1 PM at PM rate × 40 hrs/wk × project duration in weeks
-   - Scheduling, procurement, RFIs, change orders, weekly OAC meetings, daily reports
-   - For an 8-week project: 320 hrs. For 12 weeks: 480 hrs. For 16 weeks: 640 hrs.
-   - PM hours are NEVER zero — every project has a PM from mobilization to closeout
-   - This is NOT included in field labor — it is ADDITIONAL overhead
-
-9. Site Superintendent / Foreman (on-site supervision for duration):
-   - 1 Foreman at foreman rate × 40-50 hrs/wk × field duration
-   - Crew coordination, quality control, daily safety briefings, GC interface
-   - For an 8-week field project: 320-400 hrs at foreman rate
-   - Required on ALL projects with 3+ field techs
-
-10. Safety & Compliance (especially transit/railroad/prevailing wage):
-    - Safety orientation for each worker (4-8 hrs per person)
-    - Weekly toolbox talks (0.5 hr × crew size × weeks)
-    - Site-specific safety plans, JSA/JHA preparation
-    - Transit/railroad: RWIC coordination, safety briefings, track safety training
-    - Typical: 40-120 hours depending on project size and requirements
-
-11. Warehouse, Material Handling & Logistics:
-    - Receiving, inventory, staging, kitting for field crews
-    - Delivery coordination, material returns
-    - Tool management and calibration
-    - Typical: 40-80 hours for a $500K+ project
-    - Use apprentice rate
-
-12. CAD / As-Built Documentation:
-    - Shop drawing preparation (if not covered in Engineering phase)
-    - As-built red-line markup and CAD/Revit updates
-    - O&M manual compilation, warranty documentation
-    - Typical: 40-100 hours. Use PM or programmer rate
-
-13. Coordination & Idle Time (10-15% of total field labor hours):
-    - Waiting for other trades (electrician, drywall, ceiling grid)
-    - GC schedule delays and re-sequencing
-    - Elevator/lift access wait times, material delivery delays
-    - Safety stand-downs, orientation time
-    - This is REAL cost — crews get paid whether working or waiting
-    - MINIMUM 10% of total field hours
-
-Return ONLY valid JSON. EVERY phase MUST have non-zero hours and cost:
+Return ONLY valid JSON. Each phase MUST have non-zero hours and cost:
 {
   "phases": [
-    {"name":"Rough-In","pct_of_total":35,"tasks":[
-      {"description":"Install EMT conduit — 2000 LF","classification":"journeyman","hours":240,"rate":65.00,"cost":15600},
-      {"description":"Pull cable — 45000 ft","classification":"journeyman","hours":180,"rate":65.00,"cost":11700},
-      {"description":"Install cable tray — 500 LF","classification":"journeyman","hours":100,"rate":65.00,"cost":6500}
-    ],"phase_hours":520,"phase_cost":33800},
-    {"name":"Trim & Termination","pct_of_total":22,"tasks":[
-      {"description":"Mount & wire 56 cameras","classification":"journeyman","hours":168,"rate":65.00,"cost":10920},
-      {"description":"Terminate 150 data drops","classification":"journeyman","hours":75,"rate":65.00,"cost":4875}
-    ],"phase_hours":243,"phase_cost":15795},
-    {"name":"Programming & Configuration","pct_of_total":10,"tasks":[
-      {"description":"VMS programming, camera config","classification":"programmer","hours":80,"rate":55.00,"cost":4400}
-    ],"phase_hours":80,"phase_cost":4400},
-    {"name":"Testing & Commissioning","pct_of_total":9,"tasks":[
-      {"description":"Cable certification, device verification","classification":"lead","hours":100,"rate":72.00,"cost":7200}
-    ],"phase_hours":100,"phase_cost":7200},
-    {"name":"Owner Training & Closeout","pct_of_total":3,"tasks":[
-      {"description":"Owner training sessions, closeout docs","classification":"pm","hours":40,"rate":75.00,"cost":3000}
-    ],"phase_hours":40,"phase_cost":3000},
-    {"name":"Engineering & Submittals","pct_of_total":4,"tasks":[
-      {"description":"Submittal prep, shop drawings, resubmittals","classification":"pm","hours":80,"rate":75.00,"cost":6000},
-      {"description":"Riser diagram and pathway design","classification":"pm","hours":24,"rate":75.00,"cost":1800}
-    ],"phase_hours":104,"phase_cost":7800},
-    {"name":"Project Management","pct_of_total":8,"tasks":[
-      {"description":"Dedicated PM — 10 weeks × 40 hrs","classification":"pm","hours":400,"rate":75.00,"cost":30000}
-    ],"phase_hours":400,"phase_cost":30000},
-    {"name":"Site Superintendent","pct_of_total":5,"tasks":[
-      {"description":"Foreman on-site supervision — 8 weeks × 45 hrs","classification":"foreman","hours":360,"rate":52.00,"cost":18720}
-    ],"phase_hours":360,"phase_cost":18720},
-    {"name":"Safety & Compliance","pct_of_total":2,"tasks":[
-      {"description":"Safety orientation, toolbox talks, JSAs","classification":"foreman","hours":60,"rate":52.00,"cost":3120}
-    ],"phase_hours":60,"phase_cost":3120},
-    {"name":"Warehouse & Material Handling","pct_of_total":2,"tasks":[
-      {"description":"Receiving, staging, kitting, tool mgmt","classification":"apprentice","hours":60,"rate":22.00,"cost":1320}
-    ],"phase_hours":60,"phase_cost":1320},
-    {"name":"CAD / As-Built Documentation","pct_of_total":2,"tasks":[
-      {"description":"As-built markups, CAD updates, O&M manuals","classification":"pm","hours":60,"rate":75.00,"cost":4500}
-    ],"phase_hours":60,"phase_cost":4500},
-    {"name":"Coordination & Idle Time","pct_of_total":10,"tasks":[
-      {"description":"Trade coordination, GC delays, access waits","classification":"journeyman","hours":150,"rate":65.00,"cost":9750}
-    ],"phase_hours":150,"phase_cost":9750}
+    {"name":"Rough-In","pct_of_total":38,"tasks":[
+      {"description":"Install EMT conduit — 800 LF","classification":"journeyman","hours":96,"rate":65.00,"cost":6240},
+      {"description":"Pull cable — 18000 ft","classification":"journeyman","hours":72,"rate":65.00,"cost":4680},
+      {"description":"Install cable tray — 200 LF","classification":"journeyman","hours":40,"rate":65.00,"cost":2600}
+    ],"phase_hours":208,"phase_cost":13520},
+    {"name":"Trim & Termination","pct_of_total":25,"tasks":[
+      {"description":"Mount & wire 24 cameras","classification":"journeyman","hours":72,"rate":65.00,"cost":4680},
+      {"description":"Terminate 60 data drops","classification":"journeyman","hours":30,"rate":65.00,"cost":1950}
+    ],"phase_hours":102,"phase_cost":6630},
+    {"name":"Programming & Configuration","pct_of_total":12,"tasks":[
+      {"description":"VMS programming, camera config","classification":"programmer","hours":40,"rate":55.00,"cost":2200}
+    ],"phase_hours":40,"phase_cost":2200},
+    {"name":"Testing & Commissioning","pct_of_total":10,"tasks":[
+      {"description":"Cable certification, device verification","classification":"lead","hours":48,"rate":72.00,"cost":3456}
+    ],"phase_hours":48,"phase_cost":3456},
+    {"name":"Owner Training & Closeout","pct_of_total":5,"tasks":[
+      {"description":"Owner training sessions, closeout docs","classification":"pm","hours":24,"rate":75.00,"cost":1800}
+    ],"phase_hours":24,"phase_cost":1800},
+    {"name":"Project Overhead","pct_of_total":10,"tasks":[
+      {"description":"Submittals, PM coordination, as-builts, safety","classification":"pm","hours":60,"rate":75.00,"cost":4500}
+    ],"phase_hours":60,"phase_cost":4500}
   ],
-  "total_field_hours": 983,
-  "total_non_field_hours": 1094,
-  "total_hours": 2077,
-  "total_base_cost": 139405,
+  "total_field_hours": 422,
+  "total_non_field_hours": 60,
+  "total_hours": 482,
+  "total_base_cost": 32106,
   "markup_pct": ${context.markup?.labor || 50},
-  "total_with_markup": 209108,
-  "crew_recommendation": {"journeyman":3,"apprentice":2,"foreman":1,"pm":1,"superintendent":1,"duration_weeks":10}
+  "total_with_markup": 48159,
+  "crew_recommendation": {"journeyman":2,"apprentice":1,"foreman":1,"pm":0,"superintendent":0,"duration_weeks":6}
 }`;
       },
 
