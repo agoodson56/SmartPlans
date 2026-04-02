@@ -2205,40 +2205,68 @@ const SmartPlansExport = {
                         return;
                     }
 
-                    // Find header row by scanning for row containing "Row" and "Supplier" (case-insensitive)
+                    // Find header row — try SmartPlans format first, then any common pricing format
                     let headerRowIdx = -1;
                     let colRowNum = -1;
                     let colSupplierCost = -1;
                     let colPartNumber = -1;
                     let colName = -1;
+                    let colMfg = -1;
+                    let colQty = -1;
 
-                    for (let i = 0; i < rows.length; i++) {
+                    for (let i = 0; i < Math.min(rows.length, 20); i++) {
                         const row = rows[i];
                         if (!row || !Array.isArray(row)) continue;
 
-                        const cellTexts = row.map(c => String(c || '').toLowerCase());
-                        const hasRow = cellTexts.some(c => c.includes('row'));
-                        const hasSupplier = cellTexts.some(c => c.includes('supplier'));
+                        const cellTexts = row.map(c => String(c || '').toLowerCase().trim());
+                        // Need at least 3 non-empty cells to be a header
+                        if (cellTexts.filter(c => c.length > 0).length < 3) continue;
 
-                        if (hasRow && hasSupplier) {
+                        // Detect price-like column (the key column we need)
+                        let priceCol = -1, priceScore = 0;
+                        cellTexts.forEach((c, idx) => {
+                            // Best: "supplier unit cost"
+                            if (c.includes('supplier') && c.includes('unit') && c.includes('cost')) { if (priceScore < 10) { priceCol = idx; priceScore = 10; } }
+                            // Good: "supplier cost" (not extended)
+                            else if (c.includes('supplier') && c.includes('cost') && !c.includes('extend')) { if (priceScore < 9) { priceCol = idx; priceScore = 9; } }
+                            // Good: "unit cost" or "unit price"
+                            else if ((c.includes('unit cost') || c.includes('unit price') || c.includes('unit$')) && !c.includes('extend')) { if (priceScore < 8) { priceCol = idx; priceScore = 8; } }
+                            // OK: "cost" or "price" or "rate" (standalone-ish, not "ext cost")
+                            else if (/^(cost|price|rate|cost\s*each|price\s*each|ea\s*cost|ea\s*price)$/.test(c)) { if (priceScore < 7) { priceCol = idx; priceScore = 7; } }
+                            // OK: contains "cost" but not "ext" or "total" or "extended"
+                            else if (c.includes('cost') && !c.includes('ext') && !c.includes('total') && !c.includes('amount') && !c.includes('extended')) { if (priceScore < 5) { priceCol = idx; priceScore = 5; } }
+                        });
+
+                        // Detect description/part/item columns
+                        let hasDescOrPart = cellTexts.some(c =>
+                            c.includes('description') || c.includes('item') || c.includes('part') ||
+                            c.includes('product') || c.includes('material') || c.includes('component') ||
+                            c.includes('model') || c.includes('mfg') || c.includes('manufacturer')
+                        );
+
+                        if (priceCol !== -1 && hasDescOrPart) {
                             headerRowIdx = i;
-                            // Map columns
+                            colSupplierCost = priceCol;
+                            // Map all other columns
                             cellTexts.forEach((c, idx) => {
-                                if (c.includes('row') && c.match(/row\s*#?$/i)) colRowNum = idx;
-                                else if (c.includes('row')) colRowNum = colRowNum === -1 ? idx : colRowNum;
-                                // Match "Supplier Unit Cost" but NOT "Supplier Extended Cost"
-                                if (c.includes('supplier') && c.includes('unit') && c.includes('cost')) colSupplierCost = idx;
-                                else if (c.includes('supplier') && c.includes('unit')) colSupplierCost = colSupplierCost === -1 ? idx : colSupplierCost;
-                                else if (c.includes('supplier') && c.includes('cost') && !c.includes('extended')) colSupplierCost = colSupplierCost === -1 ? idx : colSupplierCost;
-                                if (c.includes('part') && (c.includes('number') || c.includes('#'))) colPartNumber = idx;
-                                if (c.includes('description') || c.includes('item desc')) colName = idx;
+                                if (idx === priceCol) return; // skip the price column we already found
+                                // Row number
+                                if (colRowNum === -1 && (c.match(/^row\s*#?$/) || c === '#' || c === 'no' || c === 'no.' || c === 'line')) colRowNum = idx;
+                                // Part number
+                                if (colPartNumber === -1 && (c.includes('part') && (c.includes('number') || c.includes('#') || c.includes('no'))) || c === 'p/n' || c === 'sku' || c.includes('model')) colPartNumber = idx;
+                                // Manufacturer
+                                if (colMfg === -1 && (c.includes('mfg') || c.includes('manufacturer') || c.includes('brand') || c.includes('vendor') || c.includes('make'))) colMfg = idx;
+                                // Description
+                                if (colName === -1 && (c.includes('description') || c.includes('item desc') || c.includes('item name') || c === 'item' || c === 'product' || c === 'material' || c === 'component')) colName = idx;
+                                // Quantity
+                                if (colQty === -1 && (c === 'qty' || c === 'quantity' || c.includes('qty'))) colQty = idx;
                             });
                             break;
                         }
                     }
 
                     if (headerRowIdx === -1 || colSupplierCost === -1) {
-                        reject(new Error('Could not find header row with "Row" and "Supplier" columns. Ensure the spreadsheet has the expected column headers.'));
+                        reject(new Error('Could not find a pricing column. The spreadsheet needs a header row with a cost/price column and item descriptions. Common headers: "Unit Cost", "Price", "Cost Each", "Supplier Unit Cost".'));
                         return;
                     }
 
@@ -2260,19 +2288,34 @@ const SmartPlansExport = {
                     // Generate current row map for matching
                     const rowMap = this.generateSupplierRowMap(state);
 
-                    // Build lookup maps for fallback matching
+                    // Build multiple lookup maps for flexible matching
                     const rowNumToEntry = {};
                     const partNameToEntry = {};
+                    const partNumToEntry = {};    // part number only
+                    const nameToEntry = {};        // description only (normalized)
                     for (const entry of rowMap) {
                         rowNumToEntry[entry.rowNum] = entry;
                         const key = (entry.partNumber + '||' + entry.name).toLowerCase();
                         partNameToEntry[key] = entry;
+                        // Part number alone (for vendor quotes with different descriptions)
+                        if (entry.partNumber) {
+                            const pnKey = entry.partNumber.toLowerCase().replace(/[-\s]/g, '');
+                            if (!partNumToEntry[pnKey]) partNumToEntry[pnKey] = entry;
+                        }
+                        // Normalized name (strip common noise words)
+                        const nameKey = entry.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        if (nameKey.length > 5 && !nameToEntry[nameKey]) nameToEntry[nameKey] = entry;
                     }
+
+                    console.log(`[SmartPlans] Supplier import: header at row ${headerRowIdx}, priceCol=${colSupplierCost}, partCol=${colPartNumber}, nameCol=${colName}, mfgCol=${colMfg}, rowCol=${colRowNum}`);
+                    console.log(`[SmartPlans] BOM has ${rowMap.length} items to match against`);
 
                     // Extract supplier prices from data rows
                     const overrides = {};
+                    const matchDetails = [];
                     let itemsUpdated = 0;
                     let itemsUnchanged = 0;
+                    let itemsSkipped = 0;
 
                     for (let i = headerRowIdx + 1; i < rows.length; i++) {
                         const row = rows[i];
@@ -2285,17 +2328,19 @@ const SmartPlansExport = {
                         const supplierPrice = parseFloat(costStr);
                         if (isNaN(supplierPrice) || supplierPrice <= 0) continue;
 
-                        // Try Row# match first
+                        // Try Row# match first (SmartPlans exported format)
                         let matched = null;
+                        let matchConfidence = '';
                         if (colRowNum !== -1) {
                             const rawRowNum = row[colRowNum];
                             const rowNum = parseInt(String(rawRowNum).replace(/[^\d]/g, ''));
                             if (!isNaN(rowNum) && rowNumToEntry[rowNum]) {
                                 matched = rowNumToEntry[rowNum];
+                                matchConfidence = 'row#';
                             }
                         }
 
-                        // Fallback: partNumber + name matching
+                        // Fallback 1: exact partNumber + name
                         if (!matched) {
                             const pn = colPartNumber !== -1 ? String(row[colPartNumber] || '').trim() : '';
                             const nm = colName !== -1 ? String(row[colName] || '').trim() : '';
@@ -2303,6 +2348,46 @@ const SmartPlansExport = {
                                 const key = (pn + '||' + nm).toLowerCase();
                                 if (partNameToEntry[key]) {
                                     matched = partNameToEntry[key];
+                                    matchConfidence = 'part+name';
+                                }
+                            }
+                        }
+
+                        // Fallback 2: part number alone (vendor quotes often have different descriptions)
+                        if (!matched) {
+                            const pn = colPartNumber !== -1 ? String(row[colPartNumber] || '').trim() : '';
+                            if (pn) {
+                                const pnKey = pn.toLowerCase().replace(/[-\s]/g, '');
+                                if (pnKey.length > 2 && partNumToEntry[pnKey]) {
+                                    matched = partNumToEntry[pnKey];
+                                    matchConfidence = 'part#';
+                                }
+                            }
+                        }
+
+                        // Fallback 3: scan ALL text cells in the row for a part number match
+                        if (!matched) {
+                            for (let ci = 0; ci < row.length; ci++) {
+                                if (ci === colSupplierCost) continue;
+                                const cellVal = String(row[ci] || '').trim();
+                                if (cellVal.length < 3 || cellVal.length > 60) continue;
+                                const pnKey = cellVal.toLowerCase().replace(/[-\s]/g, '');
+                                if (partNumToEntry[pnKey]) {
+                                    matched = partNumToEntry[pnKey];
+                                    matchConfidence = 'cell-scan';
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Fallback 4: normalized name matching (fuzzy)
+                        if (!matched && colName !== -1) {
+                            const nm = String(row[colName] || '').trim();
+                            if (nm.length > 5) {
+                                const nameKey = nm.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                if (nameToEntry[nameKey]) {
+                                    matched = nameToEntry[nameKey];
+                                    matchConfidence = 'name';
                                 }
                             }
                         }
@@ -2313,8 +2398,15 @@ const SmartPlansExport = {
                                 unitCost: supplierPrice,
                                 supplierName: supplierName,
                             };
+                            matchDetails.push({
+                                ourItem: matched.name,
+                                oldCost: matched.unitCost,
+                                newCost: supplierPrice,
+                                confidence: matchConfidence,
+                            });
                             itemsUpdated++;
                         } else {
+                            itemsSkipped++;
                             itemsUnchanged++;
                         }
                     }
@@ -2344,9 +2436,12 @@ const SmartPlansExport = {
                     const delta = this._round(newTotal - oldTotal);
                     const deltaPercent = oldTotal > 0 ? Math.round((delta / oldTotal) * 10000) / 100 : 0;
 
+                    console.log(`[SmartPlans] Supplier import: ${itemsUpdated} matched, ${itemsSkipped} skipped, ${rowMap.length} BOM items total`);
+
                     resolve({
                         itemsUpdated: itemsUpdated,
                         itemsUnchanged: itemsUnchanged,
+                        itemsSkipped: itemsSkipped,
                         itemsTotal: rowMap.length,
                         oldTotal: oldTotal,
                         newTotal: newTotal,
@@ -2354,6 +2449,7 @@ const SmartPlansExport = {
                         deltaPercent: deltaPercent,
                         overrides: overrides,
                         supplierName: supplierName,
+                        matchDetails: matchDetails,
                     });
 
                 } catch (err) {
