@@ -7966,6 +7966,11 @@ function _restoreStateFromPayload(id, pkg, est) {
     state.deletedBomItems = pkg.financials.deletedBomItems;
   }
 
+  // ── Restore Brain Results (CRITICAL — labor hours, financial engine, consensus counts) ──
+  if (pkg?.brainResults) {
+    state.brainResults = pkg.brainResults;
+  }
+
   // ── Restore Travel & Incidentals (CRITICAL — without this, bid total drops on reload) ──
   if (pkg?.travelConfig) {
     const tc = pkg.travelConfig;

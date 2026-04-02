@@ -165,6 +165,33 @@ const SmartPlansExport = {
                 phaseAssignments: this._buildPhaseAssignments(state, filteredBom),
             },
 
+            // Brain Results — AI analysis outputs from all 27 brains
+            // Persisted so reloading a saved estimate preserves labor hours,
+            // financial engine data, special conditions, consensus counts, etc.
+            brainResults: (() => {
+                const br = state.brainResults;
+                if (!br) return null;
+                try {
+                    // Save the key brain outputs needed for display and calculations
+                    return {
+                        wave0: br.wave0 || null,
+                        wave1: br.wave1 || null,
+                        wave1_5: br.wave1_5 || null,
+                        wave1_75: br.wave1_75 || null,
+                        wave2: br.wave2 || null,
+                        wave2_25: br.wave2_25 || null,
+                        wave2_5_fin: br.wave2_5_fin || null,
+                        wave3: br.wave3 || null,
+                        wave3_5: br.wave3_5 || null,
+                        wave3_85_corrected: br.wave3_85_corrected || null,
+                        wave4: br.wave4 || null,
+                    };
+                } catch (e) {
+                    console.warn('[SmartPlans Export] Failed to serialize brainResults:', e);
+                    return null;
+                }
+            })(),
+
             // Travel & Incidentals configuration (Stage 7)
             // Persisted so reloading a saved estimate preserves the full bid total
             travelConfig: {
