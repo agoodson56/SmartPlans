@@ -165,6 +165,34 @@ const SmartPlansExport = {
                 phaseAssignments: this._buildPhaseAssignments(state, filteredBom),
             },
 
+            // Travel & Incidentals configuration (Stage 7)
+            // Persisted so reloading a saved estimate preserves the full bid total
+            travelConfig: {
+                enabled: state.travel?.enabled || false,
+                calcMode: state.travel?.calcMode || 'byTechs',
+                techCount: state.travel?.techCount || 4,
+                projectDays: state.travel?.projectDays || 30,
+                hoursPerDay: state.travel?.hoursPerDay || 8,
+                numTrips: state.travel?.numTrips || 1,
+                hotelPerNight: state.travel?.hotelPerNight || 175,
+                hotelNightsPerWeek: state.travel?.hotelNightsPerWeek || 4,
+                perDiemPerDay: state.travel?.perDiemPerDay || 79,
+                mileageRoundTrip: state.travel?.mileageRoundTrip || 0,
+                mileageRate: state.travel?.mileageRate || 0.70,
+                airfarePerPerson: state.travel?.airfarePerPerson || 0,
+                rentalCarPerDay: state.travel?.rentalCarPerDay || 85,
+                parkingPerDay: state.travel?.parkingPerDay || 25,
+                tollsPerTrip: state.travel?.tollsPerTrip || 0,
+            },
+            incidentalsConfig: {
+                permits: state.incidentals?.permits || 0,
+                insurance: state.incidentals?.insurance || 0,
+                bonding: state.incidentals?.bonding || 0,
+                equipmentRental: state.incidentals?.equipmentRental || 0,
+                fuelTransit: state.incidentals?.fuelTransit || 0,
+                unexpectedBufferPct: state.incidentals?.unexpectedBufferPct || 5,
+            },
+
             // Bid Phases / Alternates for multi-phase option pricing
             bidPhases: this._buildBidPhasesExport(state, filteredBom),
 

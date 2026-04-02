@@ -7966,6 +7966,41 @@ function _restoreStateFromPayload(id, pkg, est) {
     state.deletedBomItems = pkg.financials.deletedBomItems;
   }
 
+  // ── Restore Travel & Incidentals (CRITICAL — without this, bid total drops on reload) ──
+  if (pkg?.travelConfig) {
+    const tc = pkg.travelConfig;
+    state.travel = {
+      ...state.travel,
+      enabled: tc.enabled ?? false,
+      calcMode: tc.calcMode || 'byTechs',
+      techCount: tc.techCount || 4,
+      projectDays: tc.projectDays || 30,
+      hoursPerDay: tc.hoursPerDay || 8,
+      numTrips: tc.numTrips || 1,
+      hotelPerNight: tc.hotelPerNight || 175,
+      hotelNightsPerWeek: tc.hotelNightsPerWeek || 4,
+      perDiemPerDay: tc.perDiemPerDay || 79,
+      mileageRoundTrip: tc.mileageRoundTrip || 0,
+      mileageRate: tc.mileageRate || 0.70,
+      airfarePerPerson: tc.airfarePerPerson || 0,
+      rentalCarPerDay: tc.rentalCarPerDay || 85,
+      parkingPerDay: tc.parkingPerDay || 25,
+      tollsPerTrip: tc.tollsPerTrip || 0,
+    };
+  }
+  if (pkg?.incidentalsConfig) {
+    const ic = pkg.incidentalsConfig;
+    state.incidentals = {
+      ...state.incidentals,
+      permits: ic.permits || 0,
+      insurance: ic.insurance || 0,
+      bonding: ic.bonding || 0,
+      equipmentRental: ic.equipmentRental || 0,
+      fuelTransit: ic.fuelTransit || 0,
+      unexpectedBufferPct: ic.unexpectedBufferPct || 5,
+    };
+  }
+
   if (pkg?.analysis?.rawMarkdown) {
     state.aiAnalysis = pkg.analysis.rawMarkdown;
     state.analysisComplete = true;
