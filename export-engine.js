@@ -1025,11 +1025,10 @@ const SmartPlansExport = {
 
                 if (heading) {
                     // Check if this heading looks like a material/cost category
-                    const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|breakdown|bill|bom/i.test(heading);
-                    // Exclude summary/rollup sections that re-state subtotals (causes double-counting)
-                    // Also exclude subcontractor, travel, and equipment rental sections — these are NOT material costs.
-                    // They are handled separately in the Travel & Costs step and should not be in the BOM.
-                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary|subcontract|travel|per diem|hotel|lodging|special equipment.*condition|equipment.*rental|rental.*equipment|civil work|traffic control|flagg/i.test(heading);
+                    const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|breakdown|bill|bom|civil|trench|sawcut|saw.?cut|bollard|ups\b|power|electrical|window.?film|glazing|fiber|masonry|signage|survey|spare|consumable|waste/i.test(heading);
+                    // Exclude summary/rollup sections and commentary that re-state subtotals (causes double-counting)
+                    // Only exclude INFORMATIONAL sections, NOT priced scope categories
+                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary|travel|per diem|hotel|lodging|special equipment.*condition|equipment.*rental|rental.*equipment/i.test(heading);
 
                     if (isCategory && !isNonCategory) {
                         // Save previous category if it has items
