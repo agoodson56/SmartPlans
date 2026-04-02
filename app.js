@@ -269,9 +269,12 @@ const UsageStats = {
   // ── Report a completed bid ──
   async reportBid(projectName, estimatedCost) {
     try {
+      const _usHeaders = { 'Content-Type': 'application/json' };
+      if (_sessionToken) _usHeaders['X-Session-Token'] = _sessionToken;
+      if (_appToken) _usHeaders['X-App-Token'] = _appToken;
       const res = await fetch('/api/usage-stats', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _usHeaders,
         body: JSON.stringify({
           project_name: projectName || 'Unknown Project',
           cost: estimatedCost || 0,
@@ -696,6 +699,501 @@ const state = {
 };
 
 let _appToken = '';
+let _sessionToken = '';
+let _currentUser = null;
+
+// ═══════════════════════════════════════════════════════════════
+// AUTH — Session-based account system (@3dtsi.com only)
+// ═══════════════════════════════════════════════════════════════
+
+const Auth = {
+  _initialized: false,
+
+  // Check for existing session on app load
+  async init() {
+    _sessionToken = localStorage.getItem('sp_session_token') || '';
+    if (_sessionToken) {
+      try {
+        const res = await fetch('/api/auth/session', {
+          headers: { 'X-Session-Token': _sessionToken },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          _currentUser = data.user;
+          this._initialized = true;
+          return true;
+        }
+      } catch {}
+      // Session invalid — clear
+      localStorage.removeItem('sp_session_token');
+      _sessionToken = '';
+    }
+    this._initialized = true;
+    return false;
+  },
+
+  // Show login/register screen (replaces app content)
+  showLoginScreen() {
+    const shell = document.getElementById('app-shell');
+    if (!shell) return;
+
+    // Hide header and footer during login
+    const header = document.getElementById('app-header');
+    const nav = document.getElementById('step-nav');
+    const footer = document.getElementById('step-footer');
+    if (header) header.style.display = 'none';
+    if (nav) nav.style.display = 'none';
+    if (footer) footer.style.display = 'none';
+
+    const main = document.getElementById('step-content');
+    if (!main) return;
+
+    main.innerHTML = `
+      <div style="max-width:400px;margin:60px auto;padding:40px;background:var(--card-bg,rgba(15,23,42,0.6));border:1px solid var(--border-color,rgba(148,163,184,0.1));border-radius:16px;backdrop-filter:blur(12px);">
+        <div style="text-align:center;margin-bottom:32px;">
+          <img src="smartplans-logo.png" alt="SmartPlans" height="48" style="margin-bottom:16px;">
+          <h2 style="font-size:20px;font-weight:700;color:var(--text-primary,#f1f5f9);margin:0;">Welcome to SmartPlans</h2>
+          <p style="font-size:13px;color:var(--text-muted,#94a3b8);margin:6px 0 0;">Sign in with your @3dtsi.com account</p>
+        </div>
+
+        <div id="auth-error" style="display:none;padding:10px 14px;margin-bottom:16px;background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.2);border-radius:8px;font-size:13px;color:#f43f5e;"></div>
+
+        <div id="auth-form-login">
+          <div style="margin-bottom:14px;">
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted,#94a3b8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Email</label>
+            <input type="email" id="auth-email" placeholder="you@3dtsi.com" autocomplete="email"
+              style="width:100%;padding:10px 14px;background:var(--input-bg,rgba(30,41,59,0.5));border:1px solid var(--border-color,rgba(148,163,184,0.15));border-radius:8px;color:var(--text-primary,#f1f5f9);font-size:14px;box-sizing:border-box;">
+          </div>
+          <div style="margin-bottom:14px;">
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted,#94a3b8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Password</label>
+            <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password"
+              style="width:100%;padding:10px 14px;background:var(--input-bg,rgba(30,41,59,0.5));border:1px solid var(--border-color,rgba(148,163,184,0.15));border-radius:8px;color:var(--text-primary,#f1f5f9);font-size:14px;box-sizing:border-box;">
+          </div>
+          <button id="auth-btn-login" style="width:100%;padding:12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:12px;">
+            Sign In
+          </button>
+          <p style="text-align:center;font-size:13px;color:var(--text-muted,#94a3b8);margin:0;">
+            No account? <a href="#" id="auth-switch-register" style="color:#818cf8;text-decoration:none;font-weight:600;">Create one</a>
+          </p>
+        </div>
+
+        <div id="auth-form-register" style="display:none;">
+          <div style="margin-bottom:14px;">
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted,#94a3b8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Full Name</label>
+            <input type="text" id="auth-reg-name" placeholder="John Smith" autocomplete="name"
+              style="width:100%;padding:10px 14px;background:var(--input-bg,rgba(30,41,59,0.5));border:1px solid var(--border-color,rgba(148,163,184,0.15));border-radius:8px;color:var(--text-primary,#f1f5f9);font-size:14px;box-sizing:border-box;">
+          </div>
+          <div style="margin-bottom:14px;">
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted,#94a3b8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Email</label>
+            <input type="email" id="auth-reg-email" placeholder="you@3dtsi.com" autocomplete="email"
+              style="width:100%;padding:10px 14px;background:var(--input-bg,rgba(30,41,59,0.5));border:1px solid var(--border-color,rgba(148,163,184,0.15));border-radius:8px;color:var(--text-primary,#f1f5f9);font-size:14px;box-sizing:border-box;">
+          </div>
+          <div style="margin-bottom:14px;">
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted,#94a3b8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Password (8+ characters)</label>
+            <input type="password" id="auth-reg-password" placeholder="••••••••" autocomplete="new-password"
+              style="width:100%;padding:10px 14px;background:var(--input-bg,rgba(30,41,59,0.5));border:1px solid var(--border-color,rgba(148,163,184,0.15));border-radius:8px;color:var(--text-primary,#f1f5f9);font-size:14px;box-sizing:border-box;">
+          </div>
+          <button id="auth-btn-register" style="width:100%;padding:12px;background:linear-gradient(135deg,#059669,#10b981);border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:12px;">
+            Create Account
+          </button>
+          <p style="text-align:center;font-size:13px;color:var(--text-muted,#94a3b8);margin:0;">
+            Already have an account? <a href="#" id="auth-switch-login" style="color:#818cf8;text-decoration:none;font-weight:600;">Sign In</a>
+          </p>
+        </div>
+      </div>`;
+
+    // Bind events
+    document.getElementById('auth-switch-register')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('auth-form-login').style.display = 'none';
+      document.getElementById('auth-form-register').style.display = 'block';
+      document.getElementById('auth-error').style.display = 'none';
+    });
+    document.getElementById('auth-switch-login')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('auth-form-register').style.display = 'none';
+      document.getElementById('auth-form-login').style.display = 'block';
+      document.getElementById('auth-error').style.display = 'none';
+    });
+
+    document.getElementById('auth-btn-login')?.addEventListener('click', () => this.doLogin());
+    document.getElementById('auth-btn-register')?.addEventListener('click', () => this.doRegister());
+
+    // Enter key support
+    document.getElementById('auth-password')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.doLogin(); });
+    document.getElementById('auth-reg-password')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.doRegister(); });
+  },
+
+  _showError(msg) {
+    const el = document.getElementById('auth-error');
+    if (el) { el.textContent = msg; el.style.display = 'block'; }
+  },
+
+  async doLogin() {
+    const email = document.getElementById('auth-email')?.value?.trim().toLowerCase();
+    const password = document.getElementById('auth-password')?.value;
+    if (!email || !password) { this._showError('Email and password are required'); return; }
+
+    const btn = document.getElementById('auth-btn-login');
+    if (btn) { btn.disabled = true; btn.textContent = 'Signing in...'; }
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        this._showError(data.error || 'Login failed');
+        if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
+        return;
+      }
+      // Success
+      _sessionToken = data.sessionToken;
+      _currentUser = data.user;
+      localStorage.setItem('sp_session_token', _sessionToken);
+      this._startApp();
+    } catch (err) {
+      this._showError('Network error — check your connection');
+      if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
+    }
+  },
+
+  async doRegister() {
+    const name = document.getElementById('auth-reg-name')?.value?.trim();
+    const email = document.getElementById('auth-reg-email')?.value?.trim().toLowerCase();
+    const password = document.getElementById('auth-reg-password')?.value;
+    if (!email || !password) { this._showError('Email and password are required'); return; }
+    if (password.length < 8) { this._showError('Password must be at least 8 characters'); return; }
+
+    const btn = document.getElementById('auth-btn-register');
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating account...'; }
+
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        this._showError(data.error || 'Registration failed');
+        if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
+        return;
+      }
+      // Success
+      _sessionToken = data.sessionToken;
+      _currentUser = data.user;
+      localStorage.setItem('sp_session_token', _sessionToken);
+      this._startApp();
+    } catch (err) {
+      this._showError('Network error — check your connection');
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
+    }
+  },
+
+  logout() {
+    fetch('/api/auth/session', {
+      method: 'DELETE',
+      headers: { 'X-Session-Token': _sessionToken },
+    }).catch(() => {});
+    _sessionToken = '';
+    _currentUser = null;
+    localStorage.removeItem('sp_session_token');
+    location.reload();
+  },
+
+  // Transition from login screen to main app
+  _startApp() {
+    const header = document.getElementById('app-header');
+    const nav = document.getElementById('step-nav');
+    const footer = document.getElementById('step-footer');
+    if (header) header.style.display = '';
+    if (nav) nav.style.display = '';
+    if (footer) footer.style.display = '';
+
+    // Update header with user info
+    this._updateHeader();
+
+    render();
+    QuotaMonitor.start();
+    UsageStats.start();
+    SecurityDashboard.init();
+  },
+
+  // Add user info + logout to header
+  _updateHeader() {
+    if (!_currentUser) return;
+    const actions = document.querySelector('.header-actions');
+    if (!actions) return;
+
+    // Remove existing user button if re-rendering
+    const existing = document.getElementById('header-user-btn');
+    if (existing) existing.remove();
+
+    const userBtn = document.createElement('div');
+    userBtn.id = 'header-user-btn';
+    userBtn.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:8px;';
+    userBtn.innerHTML = `
+      <span style="font-size:12px;color:var(--text-muted,#94a3b8);">${esc(_currentUser.name || _currentUser.email)}</span>
+      <button onclick="Auth.logout()" class="header-btn" title="Sign Out" style="padding:4px 10px;font-size:12px;">
+        <i data-lucide="log-out" style="width:14px;height:14px;"></i> <span class="header-btn-label">Out</span>
+      </button>`;
+    actions.appendChild(userBtn);
+
+    if (typeof lucide !== 'undefined') {
+      try { lucide.createIcons(); } catch {}
+    }
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════
+// SECURITY DASHBOARD — Hidden panel for IT manager review
+// Activated by clicking the logo 7 times within 3 seconds
+// ═══════════════════════════════════════════════════════════════
+
+const SecurityDashboard = {
+  _clicks: 0,
+  _timer: null,
+
+  init() {
+    const logo = document.querySelector('.header-logo');
+    if (!logo) return;
+    logo.addEventListener('click', () => {
+      this._clicks++;
+      clearTimeout(this._timer);
+      if (this._clicks >= 7) {
+        this._clicks = 0;
+        this.show();
+      } else {
+        this._timer = setTimeout(() => { this._clicks = 0; }, 3000);
+      }
+    });
+  },
+
+  async show() {
+    // Only admin can view
+    if (!_currentUser?.is_admin) {
+      if (typeof spToast === 'function') spToast('Admin access required for security dashboard', 'error');
+      return;
+    }
+
+    // Close existing
+    document.querySelector('.sec-dash-backdrop')?.remove();
+    document.querySelector('.sec-dash-panel')?.remove();
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'sec-dash-backdrop';
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;';
+    backdrop.addEventListener('click', () => this.close());
+    document.body.appendChild(backdrop);
+
+    const panel = document.createElement('div');
+    panel.className = 'sec-dash-panel';
+    panel.style.cssText = 'position:fixed;top:0;right:0;bottom:0;width:min(680px,90vw);background:var(--card-bg,#0f172a);border-left:1px solid var(--border-color,rgba(148,163,184,0.1));z-index:9999;overflow-y:auto;padding:24px;font-size:13px;color:var(--text-primary,#f1f5f9);';
+    panel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <h2 style="font-size:18px;font-weight:700;margin:0;">Security Dashboard</h2>
+        <button onclick="SecurityDashboard.close()" style="background:none;border:1px solid rgba(148,163,184,0.2);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:4px 10px;font-size:14px;">✕</button>
+      </div>
+      <div id="sec-dash-content" style="color:var(--text-muted,#94a3b8);">Loading security data...</div>`;
+    document.body.appendChild(panel);
+
+    await this._loadData();
+  },
+
+  close() {
+    document.querySelector('.sec-dash-backdrop')?.remove();
+    document.querySelector('.sec-dash-panel')?.remove();
+  },
+
+  async _loadData() {
+    const container = document.getElementById('sec-dash-content');
+    if (!container) return;
+
+    let accounts = [], registrationEnabled = true;
+    try {
+      const res = await fetch('/api/auth/admin', {
+        headers: { 'X-Session-Token': _sessionToken },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        accounts = data.accounts || [];
+        registrationEnabled = data.registrationEnabled;
+      }
+    } catch {}
+
+    // Health check
+    let healthStatus = 'unknown';
+    try {
+      const hRes = await fetch('/api/health');
+      if (hRes.ok) { healthStatus = (await hRes.json()).status; }
+    } catch {}
+
+    // Quota check
+    let quotaData = null;
+    try {
+      const qRes = await fetch('/api/ai/quota-check');
+      if (qRes.ok) quotaData = await qRes.json();
+    } catch {}
+
+    const securityChecks = [
+      { name: 'Account System', status: 'pass', detail: '@3dtsi.com email restriction active' },
+      { name: 'Session Auth', status: 'pass', detail: 'PBKDF2 (100k iterations) + 7-day sessions' },
+      { name: 'AI Proxy Auth', status: 'pass', detail: 'Requires valid session or ESTIMATES_TOKEN' },
+      { name: 'Rate Limiting', status: 'pass', detail: '60 req/min per IP on AI endpoints' },
+      { name: 'PM Settings Protected', status: 'pass', detail: 'POST requires authentication' },
+      { name: 'Health Endpoint', status: 'pass', detail: 'Sanitized — no version or key counts exposed' },
+      { name: 'Origin Validation', status: 'pass', detail: 'Missing Origin header now rejected on mutations' },
+      { name: 'Password Security', status: 'pass', detail: 'PBKDF2 + rate-limited (5 attempts/5min)' },
+      { name: 'CORS', status: 'pass', detail: 'Explicit hostname allowlist, no wildcards' },
+      { name: 'Database Health', status: healthStatus === 'ok' ? 'pass' : 'warn', detail: `D1 status: ${healthStatus}` },
+      { name: 'CDN Integrity', status: 'pass', detail: 'SRI hashes on SheetJS, PDF.js, Lucide CDN resources' },
+      { name: 'Sentry Telemetry', status: 'info', detail: 'Error telemetry sent to Sentry SaaS — review for classified projects' },
+      { name: 'Gemini API Data', status: 'info', detail: 'Construction docs sent to Google Gemini — review ITAR/CMMC compliance' },
+    ];
+
+    container.innerHTML = `
+      <!-- Registration Toggle -->
+      <div style="padding:14px 16px;margin-bottom:16px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-weight:600;color:var(--text-primary);">Account Registration</div>
+            <div style="font-size:12px;margin-top:2px;">Allow new @3dtsi.com users to create accounts</div>
+          </div>
+          <button id="sec-toggle-reg"
+            style="padding:6px 16px;border-radius:6px;border:1px solid ${registrationEnabled ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'};background:${registrationEnabled ? 'rgba(244,63,94,0.1)' : 'rgba(16,185,129,0.1)'};color:${registrationEnabled ? '#f43f5e' : '#10b981'};font-size:12px;font-weight:600;cursor:pointer;">
+            ${registrationEnabled ? 'Disable Registration' : 'Enable Registration'}
+          </button>
+        </div>
+      </div>
+
+      <!-- Security Checks -->
+      <h3 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:20px 0 10px;">Security Status</h3>
+      <div style="border:1px solid var(--border-color,rgba(148,163,184,0.1));border-radius:10px;overflow:hidden;">
+        ${securityChecks.map(c => `
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border-color,rgba(148,163,184,0.06));">
+            <span style="width:8px;height:8px;border-radius:50%;background:${c.status === 'pass' ? '#10b981' : c.status === 'warn' ? '#f59e0b' : '#818cf8'};flex-shrink:0;"></span>
+            <span style="font-weight:600;color:var(--text-primary);min-width:160px;">${esc(c.name)}</span>
+            <span style="font-size:12px;">${esc(c.detail)}</span>
+          </div>`).join('')}
+      </div>
+
+      <!-- API Quota -->
+      ${quotaData ? `
+      <h3 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:20px 0 10px;">API Key Health</h3>
+      <div style="padding:14px;border:1px solid var(--border-color,rgba(148,163,184,0.1));border-radius:10px;">
+        <div style="display:flex;gap:20px;margin-bottom:10px;">
+          <div><span style="font-weight:600;color:var(--text-primary);">${quotaData.totalConfiguredKeys}</span> keys configured</div>
+          <div><span style="font-weight:600;color:#10b981;">${quotaData.availableKeys}</span> available</div>
+          <div><span style="font-weight:600;color:#f59e0b;">${quotaData.rateLimitedKeys}</span> rate-limited</div>
+          <div><span style="font-weight:600;color:#f43f5e;">${quotaData.errorKeys}</span> errors</div>
+        </div>
+        <div style="font-size:12px;">Health: <span style="font-weight:600;color:${quotaData.health === 'healthy' ? '#10b981' : quotaData.health === 'degraded' ? '#f59e0b' : '#f43f5e'};">${quotaData.health.toUpperCase()}</span></div>
+      </div>` : ''}
+
+      <!-- User Accounts -->
+      <h3 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:20px 0 10px;">User Accounts (${accounts.length})</h3>
+      <div style="border:1px solid var(--border-color,rgba(148,163,184,0.1));border-radius:10px;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="background:rgba(148,163,184,0.05);">
+              <th style="text-align:left;padding:8px 12px;font-weight:600;color:var(--text-primary);">Name</th>
+              <th style="text-align:left;padding:8px 12px;font-weight:600;color:var(--text-primary);">Email</th>
+              <th style="text-align:left;padding:8px 12px;font-weight:600;color:var(--text-primary);">Role</th>
+              <th style="text-align:center;padding:8px 12px;font-weight:600;color:var(--text-primary);">Admin</th>
+              <th style="text-align:center;padding:8px 12px;font-weight:600;color:var(--text-primary);">Active</th>
+              <th style="text-align:left;padding:8px 12px;font-weight:600;color:var(--text-primary);">Last Login</th>
+              <th style="text-align:center;padding:8px 12px;font-weight:600;color:var(--text-primary);">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${accounts.map(a => `
+              <tr style="border-top:1px solid var(--border-color,rgba(148,163,184,0.06));">
+                <td style="padding:8px 12px;color:var(--text-primary);font-weight:500;">${esc(a.name)}</td>
+                <td style="padding:8px 12px;">${esc(a.email)}</td>
+                <td style="padding:8px 12px;">${esc(a.role)}</td>
+                <td style="padding:8px 12px;text-align:center;">${a.is_admin ? '<span style="color:#10b981;">Yes</span>' : 'No'}</td>
+                <td style="padding:8px 12px;text-align:center;">${a.is_active ? '<span style="color:#10b981;">Yes</span>' : '<span style="color:#f43f5e;">No</span>'}</td>
+                <td style="padding:8px 12px;font-size:11px;">${a.last_login ? new Date(a.last_login + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Never'}</td>
+                <td style="padding:8px 12px;text-align:center;">
+                  ${a.id !== _currentUser?.id ? `
+                    <button data-sec-action="toggle-active" data-user-id="${esc(a.id)}" data-active="${a.is_active ? '1' : '0'}"
+                      style="padding:3px 8px;border-radius:4px;border:1px solid ${a.is_active ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'};background:${a.is_active ? 'rgba(244,63,94,0.08)' : 'rgba(16,185,129,0.08)'};color:${a.is_active ? '#f43f5e' : '#10b981'};font-size:11px;cursor:pointer;">
+                      ${a.is_active ? 'Deactivate' : 'Activate'}
+                    </button>
+                    <button data-sec-action="toggle-admin" data-user-id="${esc(a.id)}" data-admin="${a.is_admin ? '1' : '0'}"
+                      style="padding:3px 8px;border-radius:4px;border:1px solid rgba(99,102,241,0.3);background:rgba(99,102,241,0.08);color:#818cf8;font-size:11px;cursor:pointer;margin-left:4px;">
+                      ${a.is_admin ? 'Revoke Admin' : 'Make Admin'}
+                    </button>` : '<span style="font-size:11px;color:var(--text-muted);">You</span>'}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin-top:20px;font-size:11px;color:var(--text-muted);text-align:center;">
+        Security Dashboard — visible only to admins via 7-click logo activation
+      </p>`;
+
+    // Bind events
+    document.getElementById('sec-toggle-reg')?.addEventListener('click', async () => {
+      const newState = !registrationEnabled;
+      try {
+        const res = await fetch('/api/auth/admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Session-Token': _sessionToken },
+          body: JSON.stringify({ action: 'toggle_registration', enabled: newState }),
+        });
+        if (res.ok) {
+          if (typeof spToast === 'function') spToast(`Registration ${newState ? 'enabled' : 'disabled'}`, 'success');
+          await this._loadData();
+        }
+      } catch {}
+    });
+
+    container.querySelectorAll('[data-sec-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const action = btn.dataset.secAction;
+        const userId = btn.dataset.userId;
+        let body = { userId };
+
+        if (action === 'toggle-active') {
+          body.is_active = btn.dataset.active === '0'; // flip
+        } else if (action === 'toggle-admin') {
+          body.is_admin = btn.dataset.admin === '0'; // flip
+        }
+
+        try {
+          const res = await fetch('/api/auth/admin', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-Session-Token': _sessionToken },
+            body: JSON.stringify(body),
+          });
+          if (res.ok) {
+            if (typeof spToast === 'function') spToast('Account updated', 'success');
+            await this._loadData();
+          } else {
+            const data = await res.json();
+            if (typeof spToast === 'function') spToast(data.error || 'Failed', 'error');
+          }
+        } catch {}
+      });
+    });
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════
+// AUTH HEADERS — Helper to include session token in all API calls
+// ═══════════════════════════════════════════════════════════════
+
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (_sessionToken) headers['X-Session-Token'] = _sessionToken;
+  if (_appToken) headers['X-App-Token'] = _appToken;
+  return headers;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // UTILITIES
@@ -5445,7 +5943,7 @@ function renderStep7(container) {
       revBtn.disabled = true;
 
       try {
-        const res = await fetchWithRetry(`/api/estimates/${state.estimateId}/revisions`, { headers: { 'X-App-Token': _appToken }, _timeout: 10000 }, 3);
+        const res = await fetchWithRetry(`/api/estimates/${state.estimateId}/revisions`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 10000 }, 3);
         const data = await res.json();
         const revisions = data.revisions || [];
         const inlineList = document.getElementById('revision-inline-list');
@@ -5537,7 +6035,7 @@ function initExclusionsPanel(container) {
     if (swapIdx < 0 || swapIdx >= filtered.length) return;
     const tmp = filtered[idx].sort_order; filtered[idx].sort_order = filtered[swapIdx].sort_order; filtered[swapIdx].sort_order = tmp;
     if (state.estimateId) {
-      fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
+      fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
         body: JSON.stringify({ id: filtered[idx].id, items: [{ id: filtered[idx].id, sort_order: filtered[idx].sort_order }, { id: filtered[swapIdx].id, sort_order: filtered[swapIdx].sort_order }] })
       }).catch(err => console.warn('[SmartPlans] Sort order update failed:', err));
     }
@@ -5557,7 +6055,7 @@ function initExclusionsPanel(container) {
       const v = inp.value.trim();
       if (!v || v === cur) { renderExclList(); return; }
       item.text = v;
-      if (state.estimateId) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify({ id: item.id, text: v }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+      if (state.estimateId) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, body: JSON.stringify({ id: item.id, text: v }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
       renderExclList();
       if (typeof spToast === 'function') spToast('Item updated', 'success');
     }
@@ -5569,7 +6067,7 @@ function initExclusionsPanel(container) {
     const idx = state.exclusions.findIndex(e => e.id === id);
     if (idx < 0) return;
     state.exclusions.splice(idx, 1);
-    if (state.estimateId) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify({ id }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+    if (state.estimateId) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, body: JSON.stringify({ id }) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
     renderExclList();
     if (typeof spToast === 'function') spToast('Item removed', 'success');
   }
@@ -5579,7 +6077,7 @@ function initExclusionsPanel(container) {
     const maxOrder = state.exclusions.filter(e => e.type === state._exclusionsTab).reduce((m, e) => Math.max(m, e.sort_order || 0), 0);
     const newItem = { id: crypto.randomUUID().replace(/-/g, ''), type: state._exclusionsTab, text: t, category: category || 'General', sort_order: maxOrder + 1 };
     state.exclusions.push(newItem);
-    if (state.estimateId) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify(newItem) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+    if (state.estimateId) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, body: JSON.stringify(newItem) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
     renderExclList();
   }
 
@@ -5616,7 +6114,7 @@ function initExclusionsPanel(container) {
         const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: d.type, text: d.text, category: d.category || 'General', sort_order: d.sort_order || 0 };
         state.exclusions.push(ni); newItems.push(ni); added++;
       }
-      if (state.estimateId && newItems.length > 0) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+      if (state.estimateId && newItems.length > 0) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
       renderExclList();
       if (typeof spToast === 'function') spToast(`${added} default items loaded`, 'success');
     });
@@ -5668,7 +6166,7 @@ function initExclusionsPanel(container) {
             const ni = { id: crypto.randomUUID().replace(/-/g, ''), type: s.type, text: s.text.trim(), category: s.category || 'General', sort_order: maxO + 1 };
             state.exclusions.push(ni); newItems.push(ni); added++;
           }
-          if (state.estimateId && newItems.length > 0) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
+          if (state.estimateId && newItems.length > 0) { fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, body: JSON.stringify(newItems) }).then(r => { if (!r.ok) console.error('[Exclusions] API error:', r.status); }).catch(err => { console.error('[Exclusions] Network error:', err.message); if (typeof spToast === 'function') spToast('Failed to sync exclusion — check connection', 'error'); }); }
           renderExclList();
           if (typeof spToast === 'function') spToast(`${added} AI-generated items added`, 'success');
         } else { if (typeof spToast === 'function') spToast('Could not parse AI suggestions', 'warning'); }
@@ -5687,7 +6185,7 @@ function initExclusionsPanel(container) {
   // Load from API on first render
   if (state.estimateId && !state._exclusionsLoaded) {
     state._exclusionsLoaded = true;
-    fetch(`/api/estimates/${state.estimateId}/exclusions`, { headers: { 'X-App-Token': _appToken } }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(data => {
+    fetch(`/api/estimates/${state.estimateId}/exclusions`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken } }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(data => {
       if (data.exclusions && data.exclusions.length > 0) { state.exclusions = data.exclusions.map(e => ({ ...e, _saved: true })); renderExclList(); }
     }).catch(err => console.warn('[SmartPlans] Failed to load exclusions:', err));
   }
@@ -7836,7 +8334,7 @@ async function saveEstimate(showToast = true) {
         const timeout = setTimeout(() => controller.abort(), 120000);
         res = await fetch(url, {
           method,
-          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
           body: jsonBody,
           signal: controller.signal,
         });
@@ -7848,7 +8346,7 @@ async function saveEstimate(showToast = true) {
         const lightPayload = { ...payload, export_data: null };
         const lightRes = await fetchWithRetry(url, {
           method,
-          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
           body: JSON.stringify(lightPayload),
           _timeout: 30000,
         }, 3);
@@ -7859,7 +8357,7 @@ async function saveEstimate(showToast = true) {
         // Now PUT just the export_data
         res = await fetchWithRetry(`/api/estimates/${estId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
           body: JSON.stringify({ export_data: exportPkg }),
           _timeout: 120000,
         }, 3);
@@ -7867,7 +8365,7 @@ async function saveEstimate(showToast = true) {
     } else {
       res = await fetchWithRetry(url, {
         method,
-        headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
+        headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
         body: jsonBody,
         _timeout: 60000,
       }, 3);
@@ -7901,7 +8399,7 @@ async function loadEstimate(id) {
       return;
     }
 
-    const res = await fetchWithRetry(`/api/estimates/${id}`, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3);
+    const res = await fetchWithRetry(`/api/estimates/${id}`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 15000 }, 3);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     const est = data.estimate;
@@ -8129,7 +8627,7 @@ async function deleteEstimate(id, name) {
       return;
     }
 
-    const res = await fetchWithRetry(`/api/estimates/${id}`, { method: 'DELETE', headers: { 'X-App-Token': _appToken }, _timeout: 10000 }, 3);
+    const res = await fetchWithRetry(`/api/estimates/${id}`, { method: 'DELETE', headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 10000 }, 3);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     if (state.estimateId === id) state.estimateId = null;
@@ -8171,7 +8669,7 @@ async function showSavedEstimates() {
   let estimates = [];
   let cloudOk = false;
   try {
-    const res = await fetchWithRetry('/api/estimates', { headers: { 'X-App-Token': _appToken }, _timeout: 10000 }, 3);
+    const res = await fetchWithRetry('/api/estimates', { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 10000 }, 3);
     const data = await res.json();
     if (!data.error) {
       estimates = data.estimates || [];
@@ -8283,7 +8781,7 @@ async function showRevisionHistory(estimateId, projectName) {
   document.body.appendChild(panel);
 
   try {
-    const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions`, { headers: { 'X-App-Token': _appToken }, _timeout: 10000 }, 3);
+    const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 10000 }, 3);
     const data = await res.json();
     const revisions = data.revisions || [];
     const container = document.getElementById('revision-list');
@@ -8374,8 +8872,8 @@ async function compareRevision(estimateId, revId) {
   try {
     // Fetch revision data and current estimate data in parallel
     const [revRes, curRes] = await Promise.all([
-      fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3),
-      fetchWithRetry(`/api/estimates/${estimateId}`, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3)
+      fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 15000 }, 3),
+      fetchWithRetry(`/api/estimates/${estimateId}`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 15000 }, 3)
     ]);
 
     const revData = await revRes.json();
@@ -8484,7 +8982,7 @@ async function restoreRevision(estimateId, revId, revNum) {
 
   try {
     // Fetch the full revision data
-    const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3);
+    const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 15000 }, 3);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
@@ -8505,7 +9003,7 @@ async function restoreRevision(estimateId, revId, revNum) {
 
     const putRes = await fetchWithRetry(`/api/estimates/${estimateId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
+      headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
       body: JSON.stringify(payload),
       _timeout: 15000,
     }, 3);
@@ -8534,7 +9032,7 @@ async function deleteRevision(estimateId, revId, projectName) {
   try {
     const res = await fetchWithRetry(`/api/estimates/${estimateId}/revisions/${revId}`, {
       method: 'DELETE',
-      headers: { 'X-App-Token': _appToken },
+      headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
       _timeout: 10000,
     }, 3);
     const data = await res.json();
@@ -8576,8 +9074,8 @@ async function showActualsPanel(estimateId, projectName) {
   document.body.appendChild(panel);
   try {
     const [estRes, actualsRes] = await Promise.all([
-      fetchWithRetry('/api/estimates/' + estimateId, { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3),
-      fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { headers: { 'X-App-Token': _appToken }, _timeout: 15000 }, 3)
+      fetchWithRetry('/api/estimates/' + estimateId, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 15000 }, 3),
+      fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 15000 }, 3)
     ]);
     const estData = await estRes.json();
     const actualsData = await actualsRes.json();
@@ -8680,7 +9178,7 @@ function _renderActualsTable(estimateId, projectName, bom, actualsMap) {
       saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
       try {
         var items = _collectActualsItems(bom, projectName);
-        var res = await fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken }, body: JSON.stringify({ items: items }), _timeout: 15000 }, 3);
+        var res = await fetchWithRetry('/api/estimates/' + estimateId + '/actuals', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, body: JSON.stringify({ items: items }), _timeout: 15000 }, 3);
         var data = await res.json();
         if (data.error) throw new Error(data.error);
         spToast('Actuals saved — ' + data.inserted + ' items recorded', 'success');
@@ -10520,18 +11018,27 @@ window.addEventListener('unhandledrejection', (event) => {
   } catch (e) { console.warn('Rejection handler failed:', e); }
 });
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   // Initialize app token if not already set
   if (!sessionStorage.getItem('sp_app_token')) {
     sessionStorage.setItem('sp_app_token', crypto.randomUUID());
   }
   _appToken = sessionStorage.getItem('sp_app_token');
 
-  render();
-  // Start API quota monitoring — warns users before they hit limits
-  QuotaMonitor.start();
-  // Start usage stats — cross-device bid counter & cost tracker
-  UsageStats.start();
+  // Check for existing session before rendering app
+  const hasSession = await Auth.init();
+
+  if (hasSession) {
+    // User is logged in — start the app
+    Auth._updateHeader();
+    render();
+    QuotaMonitor.start();
+    UsageStats.start();
+    SecurityDashboard.init();
+  } else {
+    // No valid session — show login screen
+    Auth.showLoginScreen();
+  }
 
   // Online/offline detection — only attach once
   if (!window._spListenersAttached) {

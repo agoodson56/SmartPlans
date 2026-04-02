@@ -7,17 +7,12 @@
 import { isAllowedOrigin } from '../_shared/cors.js';
 
 // ── GET: Health check ──────────────────────────────────────────
+// SEC: Sanitized — no version, no key counts, no internal details
 export async function onRequestGet(context) {
   const { env } = context;
   const result = {
     status: 'ok',
-    app: 'smartplans',
-    version: '5.0.0',
     timestamp: new Date().toISOString(),
-    checks: {
-      database: 'ok',
-      gemini_keys: 0,
-    },
   };
 
   // Check D1 database connectivity
@@ -25,17 +20,7 @@ export async function onRequestGet(context) {
     await env.DB.prepare('SELECT 1').first();
   } catch (err) {
     result.status = 'error';
-    result.checks.database = 'error';
   }
-
-  // Count configured GEMINI_KEY_* secrets (0 through 17)
-  let keyCount = 0;
-  for (let i = 0; i <= 17; i++) {
-    if (env[`GEMINI_KEY_${i}`]) {
-      keyCount++;
-    }
-  }
-  result.checks.gemini_keys = keyCount;
 
   const statusCode = result.status === 'ok' ? 200 : 503;
   return Response.json(result, { status: statusCode });

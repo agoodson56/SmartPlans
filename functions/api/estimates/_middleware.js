@@ -4,7 +4,7 @@
 // Handles CORS preflight with PUT + DELETE for estimate updates.
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin, timingSafeCompare } from '../../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare, validateSession } from '../../_shared/cors.js';
 
 export async function onRequest(context) {
     const { request, env } = context;
@@ -20,7 +20,7 @@ export async function onRequest(context) {
             headers: {
                 'Access-Control-Allow-Origin': origin || 'https://smartplans-4g5.pages.dev',
                 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, X-App-Token',
+                'Access-Control-Allow-Headers': 'Content-Type, X-App-Token, X-Session-Token',
                 'Access-Control-Max-Age': '86400',
             },
         });
@@ -31,16 +31,29 @@ export async function onRequest(context) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
-    // Require X-App-Token if ESTIMATES_TOKEN is configured (timing-safe comparison)
+    // SEC: Require session token OR ESTIMATES_TOKEN — fail-closed
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    const appToken = request.headers.get('X-App-Token') || '';
     const envToken = env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const authHeader = request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(authHeader, envToken)) {
-            return Response.json(
-                { error: 'Unauthorized — invalid or missing X-App-Token' },
-                { status: 401 }
-            );
-        }
+    let authenticated = false;
+
+    // Path 1: Session-based auth (new account system)
+    if (sessionToken) {
+        const user = await validateSession(env.DB, sessionToken);
+        if (user) authenticated = true;
+    }
+
+    // Path 2: Legacy ESTIMATES_TOKEN auth
+    if (!authenticated && envToken && appToken) {
+        if (timingSafeCompare(appToken, envToken)) authenticated = true;
+    }
+
+    // SEC: Fail-closed — reject if token is configured but auth failed
+    if (!authenticated && envToken) {
+        return Response.json(
+            { error: 'Authentication required — please log in' },
+            { status: 401 }
+        );
     }
 
     // Process the actual request

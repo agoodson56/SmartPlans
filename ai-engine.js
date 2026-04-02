@@ -343,6 +343,9 @@ const SmartBrains = {
     const result = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/ai/upload');
+      // SEC: Include auth headers for AI proxy authentication
+      if (typeof _sessionToken !== 'undefined' && _sessionToken) xhr.setRequestHeader('X-Session-Token', _sessionToken);
+      if (typeof _appToken !== 'undefined' && _appToken) xhr.setRequestHeader('X-App-Token', _appToken);
 
       // Track upload progress
       if (rawFile.size > 5 * 1024 * 1024) {
@@ -387,7 +390,10 @@ const SmartBrains = {
       while (Date.now() - startTime < maxWaitMs) {
         await new Promise(r => setTimeout(r, pollIntervalMs));
         try {
-          const checkResponse = await fetch(`/api/ai/file-status?name=${encodeURIComponent(result.name)}&key=${encodeURIComponent(result._usedKeyName || '')}`);
+          const _authHdrs = {};
+          if (typeof _sessionToken !== 'undefined' && _sessionToken) _authHdrs['X-Session-Token'] = _sessionToken;
+          if (typeof _appToken !== 'undefined' && _appToken) _authHdrs['X-App-Token'] = _appToken;
+          const checkResponse = await fetch(`/api/ai/file-status?name=${encodeURIComponent(result.name)}&key=${encodeURIComponent(result._usedKeyName || '')}`, { headers: _authHdrs });
           if (checkResponse.ok) {
             const status = await checkResponse.json();
             if (status.state === 'ACTIVE') {
@@ -763,9 +769,12 @@ const SmartBrains = {
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
+        const _invokeHeaders = { 'Content-Type': 'application/json' };
+        if (typeof _sessionToken !== 'undefined' && _sessionToken) _invokeHeaders['X-Session-Token'] = _sessionToken;
+        if (typeof _appToken !== 'undefined' && _appToken) _invokeHeaders['X-App-Token'] = _appToken;
         const response = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _invokeHeaders,
           body: JSON.stringify(body),
           signal: controller.signal,
         });
@@ -852,7 +861,10 @@ const SmartBrains = {
         if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
         const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % this.config.keySlots };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
-        const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fbBody), signal: ctrl.signal });
+        const _fbHeaders = { 'Content-Type': 'application/json' };
+        if (typeof _sessionToken !== 'undefined' && _sessionToken) _fbHeaders['X-Session-Token'] = _sessionToken;
+        if (typeof _appToken !== 'undefined' && _appToken) _fbHeaders['X-App-Token'] = _appToken;
+        const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: _fbHeaders, body: JSON.stringify(fbBody), signal: ctrl.signal });
         clearTimeout(tmr);
         const { text: fbText, thoughtText: fbThought } = await this._readSSEStream(fbResp, brainDef.name, {
           timeoutMs: this.config.sseTimeoutMs,
@@ -3910,9 +3922,12 @@ Return ONLY valid JSON:
       }
       if (fileUris.length > 0) {
         progressCallback(4, '🧠 Creating context cache (saves 90% on API costs)…', this._brainStatus);
+        const _cacheHeaders = { 'Content-Type': 'application/json' };
+        if (typeof _sessionToken !== 'undefined' && _sessionToken) _cacheHeaders['X-Session-Token'] = _sessionToken;
+        if (typeof _appToken !== 'undefined' && _appToken) _cacheHeaders['X-App-Token'] = _appToken;
         const cacheResp = await fetch('/api/ai/cache', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _cacheHeaders,
           body: JSON.stringify({
             fileUris,
             model: 'models/gemini-2.5-pro',

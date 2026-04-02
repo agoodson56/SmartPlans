@@ -1,18 +1,19 @@
 // ═══════════════════════════════════════════════════════════════
-// SMARTPLANS — AI API CORS Middleware
-// Restricts /api/ai/* to same-origin + SmartPlans/SmartPM origins.
-// Prevents external sites from using our Gemini proxy.
+// SMARTPLANS — AI API Auth + CORS Middleware
+// SEC: Requires valid session token OR ESTIMATES_TOKEN to prevent
+// unauthorized use of Gemini API proxy.
+// Rate-limited: 60 requests per IP per minute.
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin } from '../../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare, validateSession, checkRateLimit } from '../../_shared/cors.js';
 
 export async function onRequest(context) {
-    const { request } = context;
+    const { request, env } = context;
     const origin = request.headers.get('Origin') || '';
 
     // Handle preflight
     if (request.method === 'OPTIONS') {
-        if (!isAllowedOrigin(origin)) {
+        if (!isAllowedOrigin(origin, true)) {
             return new Response(null, { status: 403 });
         }
         return new Response(null, {
@@ -20,17 +21,57 @@ export async function onRequest(context) {
             headers: {
                 'Access-Control-Allow-Origin': origin || 'https://smartplans-4g5.pages.dev',
                 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, X-App-Token',
+                'Access-Control-Allow-Headers': 'Content-Type, X-App-Token, X-Session-Token',
                 'Access-Control-Max-Age': '86400',
             },
         });
     }
 
-    // Block unauthorized origins
-    if (!isAllowedOrigin(origin)) {
+    // Block unauthorized origins — SEC: reject missing Origin on AI endpoints
+    // This prevents curl/Postman from hitting the AI proxy without going through the browser
+    if (!isAllowedOrigin(origin, false)) {
+        return Response.json({ error: 'Origin not allowed' }, { status: 403 });
+    }
+
+    // SEC: Rate limiting — 60 requests per IP per minute for AI endpoints
+    const ip = request.headers.get('CF-Connecting-IP') ||
+               request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || 'unknown';
+    try {
+        const blocked = await checkRateLimit(env.DB, `ai_rate:${ip}`, 60, 60);
+        if (blocked) {
+            return Response.json(
+                { error: 'Rate limit exceeded — please wait before making more AI requests' },
+                { status: 429 }
+            );
+        }
+    } catch { /* rate limit check failure is non-fatal */ }
+
+    // SEC: Authentication — require session token OR legacy ESTIMATES_TOKEN
+    // This prevents anyone who discovers the URL from burning through API keys
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    const appToken = request.headers.get('X-App-Token') || '';
+    const envToken = env.ESTIMATES_TOKEN;
+
+    let authenticated = false;
+
+    // Path 1: Session-based auth (new account system)
+    if (sessionToken) {
+        const user = await validateSession(env.DB, sessionToken);
+        if (user) authenticated = true;
+    }
+
+    // Path 2: Legacy app token auth
+    if (!authenticated && envToken && appToken) {
+        if (timingSafeCompare(appToken, envToken)) {
+            authenticated = true;
+        }
+    }
+
+    // SEC: Fail-closed — if neither auth method succeeds AND a token is configured, reject
+    if (!authenticated && envToken) {
         return Response.json(
-            { error: 'Origin not allowed' },
-            { status: 403 }
+            { error: 'Authentication required — please log in' },
+            { status: 401 }
         );
     }
 
@@ -38,14 +79,13 @@ export async function onRequest(context) {
     const response = await context.next();
 
     // Never re-wrap SSE streams — consuming response.body breaks the ReadableStream
-    // for cross-domain clients waiting on the event-stream. Clone headers only.
     if (response.headers.get('Content-Type')?.includes('text/event-stream')) {
         const headers = new Headers(response.headers);
         if (origin) headers.set('Access-Control-Allow-Origin', origin);
         return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     }
 
-    // For normal (non-streaming) responses, safe to re-wrap
+    // For normal responses
     const newResponse = new Response(response.body, response);
     if (origin) {
         newResponse.headers.set('Access-Control-Allow-Origin', origin);

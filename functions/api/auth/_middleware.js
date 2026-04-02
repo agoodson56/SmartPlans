@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-// SMARTPLANS — PM API CORS Middleware
-// Allows SmartPM (smartpm.pages.dev) to call /api/pm/* endpoints.
+// SMARTPLANS — Auth API CORS Middleware
+// Handles CORS for /api/auth/* endpoints
 // ═══════════════════════════════════════════════════════════════
 
 import { isAllowedOrigin } from '../../_shared/cors.js';
@@ -18,7 +18,7 @@ export async function onRequest(context) {
             status: 204,
             headers: {
                 'Access-Control-Allow-Origin': origin || 'https://smartplans-4g5.pages.dev',
-                'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, X-App-Token, X-Session-Token',
                 'Access-Control-Max-Age': '86400',
             },
@@ -30,14 +30,10 @@ export async function onRequest(context) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
-    // Process the actual request
     const response = await context.next();
-
-    // Add CORS headers to response
     const newResponse = new Response(response.body, response);
     if (origin) {
         newResponse.headers.set('Access-Control-Allow-Origin', origin);
     }
-
     return newResponse;
 }

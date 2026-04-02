@@ -4,7 +4,7 @@
 // POST /api/pm/settings             — Set/update a setting
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin } from '../../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare, validateSession } from '../../_shared/cors.js';
 
 /**
  * Hash a password using PBKDF2 with 100,000 iterations and a random 16-byte salt.
@@ -98,6 +98,22 @@ export async function onRequestPost(context) {
     const origin = request.headers.get('Origin') || '';
     if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    // SEC: Require authentication for POST — session token OR ESTIMATES_TOKEN
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    const appToken = request.headers.get('X-App-Token') || '';
+    const envToken = env.ESTIMATES_TOKEN;
+    let authenticated = false;
+    if (sessionToken) {
+        const user = await validateSession(env.DB, sessionToken);
+        if (user) authenticated = true;
+    }
+    if (!authenticated && envToken && appToken && timingSafeCompare(appToken, envToken)) {
+        authenticated = true;
+    }
+    if (!authenticated && envToken) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
     try {

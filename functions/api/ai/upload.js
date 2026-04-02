@@ -160,7 +160,7 @@ export async function onRequestPost(context) {
             mimeType: result.file.mimeType,
             sizeBytes: result.file.sizeBytes,
             state: result.file.state,
-            _usedKeyName: usedKeyName,
+            _usedKeyName: usedKeyName, // Client needs this to pin cache/invoke to same key
         });
 
     } catch (err) {
