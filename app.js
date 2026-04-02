@@ -2434,17 +2434,61 @@ function renderStep0(container) {
 
       <div class="form-group">
         <label class="form-label" for="pricing-tier">Material Pricing Tier</label>
-        <p class="form-hint">Sets the unit cost level for all materials. Budget = value brands, Mid = standard spec, Premium = high-end specified.</p>
+        <p class="form-hint">Sets the unit cost level for all 200+ materials in the pricing database. This is one of the biggest factors in your total bid price. Choose based on what the project specifications require.</p>
         <select class="form-select" id="pricing-tier">
           <option value="budget">💰 Budget — Value brands, competitive bid</option>
           <option value="mid">⚖️ Mid-Range — Standard spec, name brands (default)</option>
           <option value="premium">👑 Premium — High-end, specified brand</option>
         </select>
-        <div style="margin-top:8px;padding:10px 14px;background:rgba(56,189,248,0.06);border-radius:8px;border:1px solid rgba(56,189,248,0.12);font-size:12px;color:var(--text-secondary);">
-          <strong>Example comparison:</strong><br>
-          Cat 6A Plenum: Budget $0.22/ft → Mid $0.32/ft → Premium $0.48/ft<br>
-          Fixed Outdoor Dome: Budget $180 → Mid $380 → Premium $720<br>
-          FACP (Medium): Budget $2,500 → Mid $5,000 → Premium $9,500
+
+        <div style="margin-top:10px;padding:12px 14px;background:rgba(56,189,248,0.06);border-radius:8px;border:1px solid rgba(56,189,248,0.12);font-size:12px;color:var(--text-secondary);">
+          <strong style="color:var(--text-primary);font-size:13px;">How to choose the right tier:</strong>
+
+          <div style="margin-top:10px;padding:8px 10px;background:rgba(245,158,11,0.06);border-left:3px solid var(--accent-amber);border-radius:0 6px 6px 0;">
+            <strong style="color:var(--accent-amber);">💰 Budget</strong> — Use when specs say <strong>"or equal"</strong> or <strong>"or approved equivalent"</strong>. You pick the products.<br>
+            <span style="color:var(--text-muted);font-size:11px;">Best for: competitive open bids, tenant improvements, design-build where you choose brands.<br>
+            Brands: generic/value (Vertical Cable, Amcrest, Luma, Firelite MS-series, Potter)</span>
+          </div>
+
+          <div style="margin-top:8px;padding:8px 10px;background:rgba(16,185,129,0.06);border-left:3px solid var(--accent-emerald);border-radius:0 6px 6px 0;">
+            <strong style="color:var(--accent-emerald);">⚖️ Mid-Range (Default)</strong> — Use when specs <strong>name manufacturers</strong> but don't specify exact models. <strong>Safest pick if unsure.</strong><br>
+            <span style="color:var(--text-muted);font-size:11px;">Best for: most government/institutional jobs, standard prevailing wage projects, named brands in spec.<br>
+            Brands: Belden, Panduit, CommScope, Axis M-series, Hanwha Wisenet, Notifier NFS2-3030</span>
+          </div>
+
+          <div style="margin-top:8px;padding:8px 10px;background:rgba(139,92,246,0.06);border-left:3px solid var(--accent-violet);border-radius:0 6px 6px 0;">
+            <strong style="color:var(--accent-violet);">👑 Premium</strong> — Use when specs list <strong>exact make and model</strong> with <strong>"no substitutions"</strong> or <strong>"basis of design."</strong><br>
+            <span style="color:var(--text-muted);font-size:11px;">Best for: hospitals, airports, data centers, federal/high-security, specs with part numbers on symbol legends.<br>
+            Brands: Belden REVConnect, Axis P-series, Bosch Flexidome 8000i, Notifier NFS2-3030 fully loaded</span>
+          </div>
+
+          <div style="margin-top:10px;border-top:1px solid rgba(56,189,248,0.12);padding-top:8px;">
+            <strong>Quick reference — look for this in the specs:</strong>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;margin-top:4px;font-size:11px;">
+              <div>"Or equal" / "or approved equivalent"</div><div style="font-weight:600;color:var(--accent-amber);">→ Budget</div>
+              <div>Brand names listed, no model numbers</div><div style="font-weight:600;color:var(--accent-emerald);">→ Mid</div>
+              <div>Exact model numbers, "no substitutions"</div><div style="font-weight:600;color:var(--accent-violet);">→ Premium</div>
+              <div>No spec at all (design-build)</div><div style="font-weight:600;color:var(--accent-amber);">→ Budget or Mid</div>
+              <div>Not sure / can't tell</div><div style="font-weight:600;color:var(--accent-emerald);">→ Mid (always safe)</div>
+            </div>
+          </div>
+
+          <div style="margin-top:10px;border-top:1px solid rgba(56,189,248,0.12);padding-top:8px;">
+            <strong>Example price impact (same items, different tiers):</strong>
+            <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:2px 8px;margin-top:4px;font-size:11px;">
+              <div style="font-weight:600;color:var(--text-muted);">Item</div>
+              <div style="font-weight:600;color:var(--accent-amber);text-align:right;">Budget</div>
+              <div style="font-weight:600;color:var(--accent-emerald);text-align:right;">Mid</div>
+              <div style="font-weight:600;color:var(--accent-violet);text-align:right;">Premium</div>
+              <div>Cat 6A Plenum (per ft)</div><div style="text-align:right;">$0.22</div><div style="text-align:right;">$0.32</div><div style="text-align:right;">$0.48</div>
+              <div>Fixed Outdoor Dome</div><div style="text-align:right;">$180</div><div style="text-align:right;">$380</div><div style="text-align:right;">$720</div>
+              <div>FACP (Medium)</div><div style="text-align:right;">$2,500</div><div style="text-align:right;">$5,000</div><div style="text-align:right;">$9,500</div>
+            </div>
+          </div>
+
+          <div style="margin-top:8px;padding:6px 10px;background:rgba(244,63,94,0.06);border-radius:6px;font-size:11px;color:#f43f5e;font-weight:600;">
+            ⚠️ On a $1.5M job, the wrong tier can swing your bid $300K-$500K. Picking Premium when specs allow "or equal" = overbid and lose. Picking Budget when specs say "no substitutions" = underbid and lose money.
+          </div>
         </div>
       </div>
 
