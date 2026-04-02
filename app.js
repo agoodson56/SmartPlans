@@ -2250,8 +2250,8 @@ function renderStep0(container) {
     </div>
 
     <div class="form-group">
-      <label class="form-label" for="project-location">Project Location <span style="color:var(--text-muted);font-weight:400">(for travel estimate)</span></label>
-      <p class="form-hint">City and state of the project site. If the project is 100+ miles from your office, travel expenses (hotel, meals, airfare, vehicle) will be calculated.</p>
+      <label class="form-label" for="project-location">Project Location</label>
+      <p class="form-hint">City and state of the project site. Used by the AI for regional context (prevailing wage area, material availability, climate). Travel and per diem are configured separately in <strong>Stage 7</strong> after the AI analysis — they are not calculated automatically from this field.</p>
       <input class="form-input" type="text" id="project-location" value="${esc(state.projectLocation)}" placeholder="e.g., Austin, TX or Miami, FL">
     </div>
 
@@ -2417,7 +2417,7 @@ function renderStep0(container) {
 
     <div class="info-card info-card--amber" style="margin-top:24px;">
       <div class="info-card-title">✈️ Travel & Per Diem</div>
-      <div class="info-card-body">Travel, per diem, and incidental costs are configured in <strong>Stage 7</strong> after the AI analysis completes. The AI will recommend crew size and schedule based on your project scope.</div>
+      <div class="info-card-body">Travel, per diem, and incidental costs are configured manually in <strong>Stage 7</strong> after the AI analysis completes. You will need to enable travel and enter hotel rates, per diem, airfare, mileage, rental car, and any incidentals (permits, insurance, bonding). The AI recommends crew size and schedule, but you set the travel costs. <strong>If this is a local job with no travel, you can skip Stage 7.</strong></div>
     </div>
 
     <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0 8px;"></div>
