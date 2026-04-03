@@ -2418,6 +2418,10 @@ function getFilteredBOM(aiAnalysis, disciplines) {
     };
   } else {
     bom = SmartPlansExport._extractBOMFromAnalysis(aiAnalysis);
+    // Apply transit/railroad station-grade pricing adjustments (UPS battery, trench floors, travel cap)
+    if (typeof SmartPlansExport._applyTransitAdjustments === 'function') {
+      SmartPlansExport._applyTransitAdjustments(bom, state);
+    }
     if (typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
       bom = SmartPlansExport._filterBOMByDisciplines(bom, disciplines);
     }

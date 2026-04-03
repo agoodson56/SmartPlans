@@ -863,6 +863,10 @@ ${this._confBar()}
     try {
       if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis) {
         bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+        // Apply transit station-grade pricing adjustments (UPS battery, trench floors, travel cap)
+        if (bom && typeof SmartPlansExport._applyTransitAdjustments === 'function') {
+          SmartPlansExport._applyTransitAdjustments(bom, state);
+        }
         // Filter out categories for unselected disciplines
         if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
           bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
@@ -1059,6 +1063,10 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
           bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
         }
 
+        // Apply transit station-grade pricing adjustments
+        if (bom && typeof SmartPlansExport._applyTransitAdjustments === 'function') {
+          SmartPlansExport._applyTransitAdjustments(bom, state);
+        }
         if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
           bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
         }
