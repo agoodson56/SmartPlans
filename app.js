@@ -8718,12 +8718,29 @@ async function showSavedEstimates() {
     return;
   }
 
-  container.innerHTML = (!cloudOk ? '<div style="padding:8px 14px;margin-bottom:10px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;font-size:12px;color:var(--accent-amber);">⚠ Cloud unavailable — showing cached and offline estimates</div>' : '') +
-    estimates.map(est => {
-      const discArr = est.disciplines ? _safeParseDisciplines(est.disciplines) : [];
-      const dateStr = est.updated_at ? new Date(est.updated_at.endsWith('Z') ? est.updated_at : est.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
-      const isCurrent = state.estimateId === est.id;
-      return `<div class="est-card" style="${isCurrent ? 'border-color:var(--accent-indigo);' : ''}${est._isLocal ? 'border-left:3px solid var(--accent-amber);' : ''}">
+  // Group estimates by creator (folder per person)
+  const folders = {};
+  const currentUserName = _currentUser?.name || _currentUser?.email || 'Me';
+  for (const est of estimates) {
+    const owner = est.created_by_name || 'Unassigned';
+    if (!folders[owner]) folders[owner] = [];
+    folders[owner].push(est);
+  }
+
+  // Sort folders: current user first, then alphabetical
+  const folderNames = Object.keys(folders).sort((a, b) => {
+    if (a === currentUserName) return -1;
+    if (b === currentUserName) return 1;
+    if (a === 'Unassigned' || a === 'Unknown') return 1;
+    if (b === 'Unassigned' || b === 'Unknown') return -1;
+    return a.localeCompare(b);
+  });
+
+  const renderEstCard = (est) => {
+    const discArr = est.disciplines ? _safeParseDisciplines(est.disciplines) : [];
+    const dateStr = est.updated_at ? new Date(est.updated_at.endsWith('Z') ? est.updated_at : est.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    const isCurrent = state.estimateId === est.id;
+    return `<div class="est-card" style="${isCurrent ? 'border-color:var(--accent-indigo);' : ''}${est._isLocal ? 'border-left:3px solid var(--accent-amber);' : ''}">
       <div style="display:flex;justify-content:space-between;align-items:start;">
         <div class="est-card-name">${esc(est.project_name || 'Untitled')}${isCurrent ? ' <span style="font-size:11px;color:var(--accent-indigo);">(current)</span>' : ''}${est._isLocal ? ' <span style="font-size:11px;color:var(--accent-amber);">(offline)</span>' : ''}</div>
         <span class="est-card-status est-card-status--${esc((est.status || 'draft').split(' ')[0])}">${esc(est.status || 'draft')}</span>
@@ -8741,10 +8758,43 @@ async function showSavedEstimates() {
         <button class="est-card-btn est-card-btn--delete" data-action="delete" data-est-id="${esc(est.id)}" data-est-name="${esc(est.project_name || '')}">🗑 Delete</button>
       </div>
     </div>`;
+  };
+
+  container.innerHTML = (!cloudOk ? '<div style="padding:8px 14px;margin-bottom:10px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;font-size:12px;color:var(--accent-amber);">⚠ Cloud unavailable — showing cached and offline estimates</div>' : '') +
+    folderNames.map(folderName => {
+      const folderEstimates = folders[folderName];
+      const isMe = folderName === currentUserName;
+      const folderIcon = isMe ? '📁' : '👤';
+      const bidCount = folderEstimates.length;
+      return `<div class="est-folder" style="margin-bottom:16px;">
+        <div class="est-folder-header" data-folder="${esc(folderName)}" style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;cursor:pointer;user-select:none;margin-bottom:8px;">
+          <span class="est-folder-chevron" style="font-size:12px;transition:transform 0.2s;">▶</span>
+          <span style="font-size:16px;">${folderIcon}</span>
+          <span style="font-size:14px;font-weight:600;color:var(--text-primary);flex:1;">${esc(folderName)}${isMe ? ' <span style="font-size:11px;font-weight:400;color:var(--accent-indigo);">(you)</span>' : ''}</span>
+          <span style="font-size:12px;color:var(--text-muted);background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:10px;">${bidCount} bid${bidCount !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="est-folder-body" data-folder-body="${esc(folderName)}" style="display:none;padding-left:12px;">
+          ${folderEstimates.map(renderEstCard).join('')}
+        </div>
+      </div>`;
     }).join('');
 
-  // Event delegation for estimate card action buttons (safe — no inline onclick)
+  // Folder toggle — expand/collapse on click
   container.addEventListener('click', (e) => {
+    const header = e.target.closest('.est-folder-header');
+    if (header) {
+      const folderName = header.getAttribute('data-folder');
+      const body = container.querySelector(`[data-folder-body="${folderName}"]`);
+      const chevron = header.querySelector('.est-folder-chevron');
+      if (body) {
+        const isOpen = body.style.display !== 'none';
+        body.style.display = isOpen ? 'none' : 'block';
+        if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(90deg)';
+      }
+      return;
+    }
+
+    // Event delegation for estimate card action buttons (safe — no inline onclick)
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     e.stopPropagation();
@@ -8756,6 +8806,10 @@ async function showSavedEstimates() {
     else if (action === 'actuals') showActualsPanel(estId, estName);
     else if (action === 'delete') deleteEstimate(estId, estName);
   });
+
+  // Auto-expand current user's folder
+  const myHeader = container.querySelector(`[data-folder="${esc(currentUserName)}"]`);
+  if (myHeader) myHeader.click();
 }
 
 

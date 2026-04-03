@@ -17,6 +17,11 @@ CREATE TABLE IF NOT EXISTS estimates (
 CREATE INDEX IF NOT EXISTS idx_estimates_status ON estimates(status);
 CREATE INDEX IF NOT EXISTS idx_estimates_created ON estimates(created_at DESC);
 
+-- v5.52: Add ownership tracking — bids stay in creator's folder even when edited by others
+ALTER TABLE estimates ADD COLUMN created_by TEXT;
+ALTER TABLE estimates ADD COLUMN created_by_name TEXT;
+CREATE INDEX IF NOT EXISTS idx_estimates_created_by ON estimates(created_by);
+
 -- Estimate revisions (version history)
 CREATE TABLE IF NOT EXISTS estimate_revisions (
     id TEXT PRIMARY KEY,

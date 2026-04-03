@@ -18,7 +18,9 @@ export async function onRequestGet(context) {
 
     try {
         const est = await env.DB.prepare(
-            `SELECT * FROM estimates WHERE id = ?`
+            `SELECT e.*, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
+             FROM estimates e LEFT JOIN user_accounts u ON u.id = e.created_by
+             WHERE e.id = ?`
         ).bind(params.id).first();
         if (!est) return Response.json({ error: 'Estimate not found' }, { status: 404 });
 

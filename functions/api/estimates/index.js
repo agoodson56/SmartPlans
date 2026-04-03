@@ -3,7 +3,7 @@
 // POST /api/estimates — Save a new estimate
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin, timingSafeCompare } from '../../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare, validateSession } from '../../_shared/cors.js';
 
 export async function onRequestGet(context) {
     const { env, request } = context;
@@ -23,9 +23,12 @@ export async function onRequestGet(context) {
 
     try {
         const res = await env.DB.prepare(
-            `SELECT id, project_name, project_type, project_location, disciplines,
-                    pricing_tier, status, created_at, updated_at
-             FROM estimates ORDER BY updated_at DESC LIMIT 100`
+            `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
+                    e.pricing_tier, e.status, e.created_at, e.updated_at,
+                    e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
+             FROM estimates e
+             LEFT JOIN user_accounts u ON u.id = e.created_by
+             ORDER BY e.updated_at DESC LIMIT 100`
         ).all();
         return Response.json({ estimates: res.results || [] });
     } catch (err) {
@@ -54,6 +57,12 @@ export async function onRequestPost(context) {
         const body = await request.json();
         const id = crypto.randomUUID().replace(/-/g, '');
 
+        // Resolve the creating user from session token
+        const sessionToken = request.headers.get('X-Session-Token') || '';
+        const user = await validateSession(env.DB, sessionToken);
+        const createdBy = user?.id || null;
+        const createdByName = user?.name || null;
+
         // Input validation
         const projectName = String(body.project_name || 'Untitled').substring(0, 200);
         const projectType = body.project_type ? String(body.project_type).substring(0, 100) : null;
@@ -77,8 +86,8 @@ export async function onRequestPost(context) {
 
         await env.DB.prepare(`
             INSERT INTO estimates (id, project_name, project_type, project_location,
-                disciplines, pricing_tier, status, export_data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                disciplines, pricing_tier, status, export_data, created_by, created_by_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
             id,
             projectName,
@@ -88,6 +97,8 @@ export async function onRequestPost(context) {
             pricingTier,
             status,
             exportData,
+            createdBy,
+            createdByName,
         ).run();
 
         return Response.json({ id, success: true }, { status: 201 });
