@@ -3224,3 +3224,15 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* ─── BOM Item Tooltip ─── */
+.bom-item-cell {
+  position: relative;
+}
+.bom-item-cell:hover .bom-tooltip {
+  display: block;
+}
+.bom-item-cell .bom-info-icon:hover {
+  background: rgba(99, 102, 241, 0.25);
+  color: rgba(99, 102, 241, 1);
+}

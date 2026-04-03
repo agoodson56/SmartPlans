@@ -4779,6 +4779,60 @@ function renderStep7(container) {
     const _delta = _bomData.grandTotal - _bomOriginalGrand;
     const _deltaStr = _delta >= 0 ? '+' + _fmtDollar(_delta) : '-' + _fmtDollar(Math.abs(_delta));
 
+    // Build a human-readable tooltip description for each BOM item
+    const _bomDescribe = (itemName, catName, mfg, partNum, unit, category) => {
+      const parts = [];
+      // Category context
+      if (catName) parts.push('Category: ' + catName);
+      // Manufacturer + Part#
+      if (mfg && mfg !== '-') parts.push('Manufacturer: ' + mfg);
+      if (partNum && partNum !== '-') parts.push('Part #: ' + partNum);
+      if (unit && unit !== 'ea' && unit !== 'EA') parts.push('Unit: ' + unit);
+      // Smart description based on item keywords
+      const n = (itemName || '').toLowerCase();
+      if (/cat\s*6a/i.test(n)) parts.push('Category 6A copper cable — 10Gbps data, PoE capable');
+      else if (/cat\s*6\b/i.test(n) && !/6a/i.test(n)) parts.push('Category 6 copper cable — 1Gbps data, PoE capable');
+      else if (/fiber.*cable|fiber.*backbone|strand.*fiber/i.test(n)) parts.push('Fiber optic backbone cable for long-distance/inter-building runs');
+      else if (/patch\s*panel/i.test(n)) parts.push('Patch panel — terminates cable runs in MDF/IDF for patching');
+      else if (/patch\s*cord|jumper/i.test(n)) parts.push('Short cable for connecting patch panel ports to switches');
+      else if (/network\s*switch|poe\s*switch|managed\s*switch/i.test(n)) parts.push('Network switch — provides data/PoE ports for connected devices');
+      else if (/ups\b|uninterruptible/i.test(n)) parts.push('Uninterruptible power supply — battery backup for network equipment');
+      else if (/pdu|power\s*distribution/i.test(n)) parts.push('Power distribution unit — distributes AC power in equipment rack');
+      else if (/rack\b|cabinet\b|enclosure/i.test(n)) parts.push('Equipment rack/cabinet for mounting network and security gear');
+      else if (/camera|dome|bullet|ptz|turret/i.test(n)) parts.push('Video surveillance camera — CCTV/IP security camera');
+      else if (/nvr|network\s*video/i.test(n)) parts.push('Network video recorder — stores and manages IP camera footage');
+      else if (/vms|video\s*management/i.test(n)) parts.push('Video management software license for camera monitoring');
+      else if (/reader|card\s*reader|proximity/i.test(n)) parts.push('Access control card reader for secured entry points');
+      else if (/controller|access\s*control\s*panel/i.test(n)) parts.push('Access control panel — manages door readers and lock relays');
+      else if (/electric.*strike|mag.*lock|magnetic.*lock|door.*lock/i.test(n)) parts.push('Electric door lock hardware for access-controlled entries');
+      else if (/credential|key\s*card|fob|badge/i.test(n)) parts.push('Access credentials — cards, fobs, or badges for users');
+      else if (/speaker|amplifier|audio/i.test(n)) parts.push('Audio/paging equipment for public address or background music');
+      else if (/display|monitor|screen|tv\b/i.test(n)) parts.push('Display/monitor for digital signage or video walls');
+      else if (/projector/i.test(n)) parts.push('Video projector for conference or presentation rooms');
+      else if (/detector|smoke|heat/i.test(n)) parts.push('Fire alarm detection device — smoke or heat sensor');
+      else if (/pull\s*station/i.test(n)) parts.push('Manual fire alarm pull station for emergency activation');
+      else if (/strobe|horn|notification/i.test(n)) parts.push('Fire alarm notification appliance — audible/visual alert');
+      else if (/fire\s*alarm\s*panel|facp/i.test(n)) parts.push('Fire alarm control panel — central monitoring and control');
+      else if (/intrusion|motion\s*sensor|pir\b|glass\s*break/i.test(n)) parts.push('Intrusion detection sensor — motion, glass break, or contact');
+      else if (/conduit|emt|pvc.*pipe|pathway/i.test(n)) parts.push('Cable pathway — conduit or raceway for running cables');
+      else if (/cable\s*tray|ladder\s*rack|j.?hook/i.test(n)) parts.push('Cable support system for routing cable bundles');
+      else if (/backboard|plywood/i.test(n)) parts.push('Equipment mounting backboard — fire-rated plywood');
+      else if (/grounding|tgb|tmgb|ground\s*bar/i.test(n)) parts.push('Telecommunications grounding bar for equipment bonding');
+      else if (/label|labeling/i.test(n)) parts.push('Cable and port labeling materials for identification');
+      else if (/jack\b|keystone|outlet|faceplate/i.test(n)) parts.push('Data outlet — wall jack/faceplate for cable termination');
+      else if (/license|software|subscription/i.test(n)) parts.push('Software license or subscription for system operation');
+      else if (/warranty|maintenance|support/i.test(n)) parts.push('Warranty or maintenance/support agreement');
+      else if (/labor|install|commission|programming/i.test(n)) parts.push('Labor service — installation, programming, or commissioning');
+      else if (/trench|sawcut|excavat/i.test(n)) parts.push('Civil work — trenching or sawcutting for underground conduit');
+      else if (/bollard/i.test(n)) parts.push('Protective bollard — vehicle barrier for equipment protection');
+      else if (/window\s*film|glazing/i.test(n)) parts.push('Security window film or glazing treatment');
+      else if (/bond|insurance|rrpli/i.test(n)) parts.push('Bonding or insurance requirement for contract compliance');
+      else if (/permit/i.test(n)) parts.push('Permit fees for jurisdictional code compliance');
+      else if (/mobiliz/i.test(n)) parts.push('Mobilization/demobilization — crew travel and site setup costs');
+      else if (/spare|consumable/i.test(n)) parts.push('Spare parts or consumable materials for project contingency');
+      return parts.join('\n');
+    };
+
     let _bomRowNum = 0;
     let _bomRows = '';
     _bomData.categories.forEach((cat, ci) => {
@@ -4790,9 +4844,10 @@ function renderStep7(container) {
         const _key = ci + '-' + ii;
         const _isEdited = !!_bomOverrides[_key];
         const _editBg = _isEdited ? 'background:rgba(13,148,136,0.10);' : '';
+        const _tipText = _bomDescribe(item.name || item.item, cat.name, item.mfg, item.partNumber, item.unit, item.category);
         _bomRows += `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);${_editBg}" data-bom-cat="${ci}" data-bom-item="${ii}">
           <td style="padding:6px 10px;font-size:12px;color:var(--text-muted);text-align:center;">${_bomRowNum}</td>
-          <td style="padding:6px 10px;font-size:12px;color:var(--text-primary);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(item.name)}">${esc(item.name)}</td>
+          <td style="padding:6px 10px;font-size:12px;color:var(--text-primary);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;position:relative;" class="bom-item-cell" title="${esc(_tipText)}"><span style="display:inline-flex;align-items:center;gap:5px;max-width:100%;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(item.name || item.item)}</span><span class="bom-info-icon" style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(99,102,241,0.12);color:rgba(99,102,241,0.7);font-size:10px;font-weight:700;cursor:help;">i</span></span></td>
           <td style="padding:6px 10px;font-size:11px;color:var(--text-muted);">${esc(item.mfg || '-')}</td>
           <td style="padding:6px 10px;font-size:11px;color:var(--text-muted);">${esc(item.partNumber || '-')}</td>
           <td style="padding:6px 8px;text-align:center;">
