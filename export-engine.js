@@ -177,6 +177,40 @@ const SmartPlansExport = {
             // Work Breakdown Structure — auto-generated from bid data
             // Produces a hierarchical task tree for PM tracking
             workBreakdown: this._buildWorkBreakdown(state),
+
+            // Travel & Incidentals configuration — MUST be saved per bid
+            // Without this, loading a bid keeps the PREVIOUS bid's per diem/travel values
+            travelConfig: {
+                enabled: state.travel?.enabled || false,
+                calcMode: state.travel?.calcMode || 'byTechs',
+                techCount: state.travel?.techCount || 4,
+                projectDays: state.travel?.projectDays || 30,
+                hoursPerDay: state.travel?.hoursPerDay || 8,
+                numTrips: state.travel?.numTrips || 1,
+                hotelPerNight: state.travel?.hotelPerNight || 175,
+                hotelNightsPerWeek: state.travel?.hotelNightsPerWeek || 4,
+                perDiemPerDay: state.travel?.perDiemPerDay || 79,
+                mileageRoundTrip: state.travel?.mileageRoundTrip || 0,
+                mileageRate: state.travel?.mileageRate || 0.70,
+                airfarePerPerson: state.travel?.airfarePerPerson || 0,
+                rentalCarPerDay: state.travel?.rentalCarPerDay || 85,
+                parkingPerDay: state.travel?.parkingPerDay || 25,
+                tollsPerTrip: state.travel?.tollsPerTrip || 0,
+            },
+            incidentalsConfig: {
+                permits: state.incidentals?.permits || 0,
+                insurance: state.incidentals?.insurance || 0,
+                bonding: state.incidentals?.bonding || 0,
+                equipmentRental: state.incidentals?.equipmentRental || 0,
+                fuelTransit: state.incidentals?.fuelTransit || 0,
+                unexpectedBufferPct: state.incidentals?.unexpectedBufferPct || 5,
+            },
+            travelAIRecommendations: {
+                aiRecommendedTechs: state.travel?.aiRecommendedTechs || null,
+                aiRecommendedDays: state.travel?.aiRecommendedDays || null,
+                aiCrewBreakdown: state.travel?.aiCrewBreakdown || null,
+                aiReasoning: state.travel?.aiReasoning || null,
+            },
         };
     },
 
