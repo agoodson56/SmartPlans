@@ -1342,6 +1342,39 @@ const SmartPlansExport = {
                 return hasRealItems;
             });
 
+            // ═══ DEDUPLICATION: Remove duplicate items between MDF/head-end and Network categories ═══
+            // AI often generates both a location-based "MDF" category AND a "Network & Headend" category
+            // with the SAME items (racks, switches, UPS, PDU). Keep the larger category, remove dupes from smaller.
+            const mdfCat = activeCategories.find(c => /mdf|head.?end|main.*closet|telecom.*room/i.test(c.name));
+            const netCat = activeCategories.find(c => /network.*head|head.*network|network.*material|network.*equipment/i.test(c.name));
+            if (mdfCat && netCat && mdfCat !== netCat) {
+                // Build fingerprint set from MDF items (the typically larger/more detailed category)
+                const mdfFingerprints = new Set();
+                for (const item of mdfCat.items) {
+                    // Normalize: lowercase, strip quantities, create a generic fingerprint
+                    const fp = (item.item || '').toLowerCase()
+                        .replace(/\d+/g, '#')
+                        .replace(/[^a-z#]/g, '')
+                        .substring(0, 30);
+                    mdfFingerprints.add(fp);
+                }
+                const beforeCount = netCat.items.length;
+                netCat.items = netCat.items.filter(item => {
+                    const fp = (item.item || '').toLowerCase()
+                        .replace(/\d+/g, '#')
+                        .replace(/[^a-z#]/g, '')
+                        .substring(0, 30);
+                    if (mdfFingerprints.has(fp)) {
+                        console.log(`[SmartPlans] Dedup: removing "${item.item}" ($${item.extCost}) from "${netCat.name}" — already in "${mdfCat.name}"`);
+                        return false;
+                    }
+                    return true;
+                });
+                if (netCat.items.length < beforeCount) {
+                    console.log(`[SmartPlans] Dedup: removed ${beforeCount - netCat.items.length} duplicate items from "${netCat.name}"`);
+                }
+            }
+
             // Calculate subtotals & grand total from REAL categories only
             // FIX: ALWAYS compute subtotals from actual line item extCosts.
             let grandTotal = 0;
@@ -1384,7 +1417,8 @@ const SmartPlansExport = {
         // AI routinely prices a $3K rack-mount UPS when transit stations need $50K-$135K station UPS + $60K-$100K batteries
         let upsTotal = 0;
         let upsItems = [];
-        let batteryFound = false;
+        let batteryTotal = 0;
+        let batteryItems = [];
         for (const cat of bom.categories) {
             for (const item of cat.items) {
                 const n = (item.item || '').toLowerCase();
@@ -1392,16 +1426,17 @@ const SmartPlansExport = {
                     upsTotal += (item.extCost || 0);
                     upsItems.push(item);
                 }
-                if (/battery|batter/i.test(n) && /bank|system|station|cabinet|string/i.test(n)) {
-                    batteryFound = true;
+                if (/battery|batter/i.test(n)) {
+                    batteryTotal += (item.extCost || 0);
+                    batteryItems.push(item);
                 }
             }
         }
 
         // If UPS items exist but total < $25K, this is a rack-mount UPS — reprice to station-grade
         if (upsItems.length > 0 && upsTotal < 25000) {
-            const mainUps = upsItems[0]; // adjust the primary UPS item
-            const stationUpsPrice = 65000; // midpoint of $50K-$135K range
+            const mainUps = upsItems[0];
+            const stationUpsPrice = 65000;
             console.log(`[SmartPlans] Transit UPS floor ↑: "${mainUps.item}" $${mainUps.unitCost} → $${stationUpsPrice} (station-sized UPS for transit)`);
             mainUps.unitCost = stationUpsPrice;
             mainUps.extCost = (mainUps.qty || 1) * stationUpsPrice;
@@ -1409,8 +1444,9 @@ const SmartPlansExport = {
             if (!/station/i.test(mainUps.item)) mainUps.item = mainUps.item + ' (Station-Sized)';
         }
 
-        // If no battery bank found and UPS exists, inject one
-        if (upsItems.length > 0 && !batteryFound) {
+        // Battery bank check: transit station batteries cost $60K-$100K.
+        // If battery total is under $20K (rack battery shelf ≠ station battery bank), inject real battery bank.
+        if (upsItems.length > 0 && batteryTotal < 20000) {
             // Find the category that contains the UPS item
             for (const cat of bom.categories) {
                 if (cat.items.some(i => upsItems.includes(i))) {
@@ -1425,7 +1461,7 @@ const SmartPlansExport = {
                         category: 'equipment',
                     };
                     cat.items.push(batteryItem);
-                    console.log(`[SmartPlans] Transit battery bank injected: $98,000 (station-sized battery system)`);
+                    console.log(`[SmartPlans] Transit battery bank injected: $98,000 (existing battery items total only $${batteryTotal.toLocaleString()} — station needs $60K-$100K)`);
                     break;
                 }
             }
