@@ -4229,11 +4229,12 @@ function renderStep6Travel(container) {
     </div>
 
     <!-- ENABLE TRAVEL -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;font-weight:600;color:var(--text-primary);">
         <input type="checkbox" id="travel-enabled" ${t.enabled ? 'checked' : ''} style="width:18px;height:18px;">
         Enable Travel & Per Diem Costs
       </label>
+      <button id="btn-no-perdiem" style="padding:8px 16px;border-radius:8px;border:2px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.06);color:#ef4444;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:6px;" onmouseover="this.style.background='rgba(239,68,68,0.12)';this.style.borderColor='rgba(239,68,68,0.5)'" onmouseout="this.style.background='rgba(239,68,68,0.06)';this.style.borderColor='rgba(239,68,68,0.3)'">🚫 No Per Diem — Local Job</button>
     </div>
 
     ${t.enabled ? `
@@ -4408,6 +4409,29 @@ function renderStep6Travel(container) {
     if (state.analysisComplete) {
       setTimeout(() => saveEstimate(false), 500);
       console.log(`[SmartPlans] Auto-saved: travel ${e.target.checked ? 'enabled' : 'disabled'}`);
+    }
+  });
+
+  const noPdBtn = document.getElementById('btn-no-perdiem');
+  if (noPdBtn) noPdBtn.addEventListener('click', () => {
+    state.travel.enabled = false;
+    state.travel.hotelPerNight = 0;
+    state.travel.perDiemPerDay = 0;
+    state.travel.mileageRoundTrip = 0;
+    state.travel.airfarePerPerson = 0;
+    state.travel.rentalCarPerDay = 0;
+    state.travel.parkingPerDay = 0;
+    state.travel.tollsPerTrip = 0;
+    state.incidentals.permits = 0;
+    state.incidentals.insurance = 0;
+    state.incidentals.bonding = 0;
+    state.incidentals.equipmentRental = 0;
+    state.incidentals.fuelTransit = 0;
+    renderStep6Travel(container);
+    spToast('Travel & per diem cleared — local job, no travel costs', 'info');
+    if (state.analysisComplete) {
+      setTimeout(() => saveEstimate(false), 500);
+      console.log('[SmartPlans] Auto-saved: no per diem / local job');
     }
   });
 
