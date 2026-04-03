@@ -698,6 +698,110 @@ const state = {
   _exclusionsTab: 'exclusion', // active tab: 'exclusion', 'assumption', 'clarification'
 };
 
+// ─── Start New Bid — full state reset ───
+function startNewBid() {
+  if (state.analyzing) {
+    spToast('Cannot start a new bid while analysis is running.', 'error');
+    return;
+  }
+  // Warn if there's unsaved work
+  if (state.analysisComplete && !state.estimateId) {
+    if (!confirm('You have unsaved analysis results. Start a new bid anyway?')) return;
+  }
+
+  // Reset all form & analysis state
+  state.currentStep = 0;
+  state.completedSteps.clear();
+  state.analyzing = false;
+  state.analysisComplete = false;
+  state.projectName = '';
+  state.preparedFor = '';
+  state.projectType = '';
+  state.disciplines = [];
+  state.fileFormat = '';
+  state.specificItems = '';
+  state.knownQuantities = '';
+  state.codeJurisdiction = '';
+  state.projectLocation = '';
+  state.prevailingWage = '';
+  state.workShift = '';
+  state.priorEstimate = '';
+
+  // Reset files
+  state.legendFiles = [];
+  state.planFiles = [];
+  state.specFiles = [];
+  state.addendaFiles = [];
+  state.hasAddenda = null;
+  state.rawFiles.clear();
+  state.notes = '';
+
+  // Reset AI results
+  state.aiAnalysis = null;
+  state.aiError = null;
+  state.mathValidation = null;
+  state.sectionCompleteness = null;
+  state.brainResults = null;
+
+  // Reset RFIs & selections
+  state.selectedRFIs.clear();
+  state.expandedRFI = null;
+
+  // Reset estimate link (next save creates new record)
+  state.estimateId = null;
+
+  // Reset supplier & BOM edits
+  state.supplierPriceOverrides = {};
+  state.manualBomItems = [];
+  state.deletedBomItems = {};
+  state.supplierQuotes = [];
+
+  // Reset bid strategy
+  state.bidStrategy = {
+    categoryMarkups: {},
+    defaultMaterialMarkup: 50,
+    defaultLaborMarkup: 50,
+    contingencyByConfidence: { high: 5, medium: 10, low: 20 },
+    applied: false,
+  };
+  state.bidPhases = [
+    { id: 'base', name: 'Base Bid', type: 'base', categoryIndices: [], includeInProposal: true }
+  ];
+  state._bidPhasesOpen = false;
+  state._bidPhaseCounter = 0;
+
+  // Reset travel (keep rates, clear AI recommendations)
+  state.travel.enabled = false;
+  state.travel.aiRecommendedTechs = null;
+  state.travel.aiRecommendedDays = null;
+  state.travel.aiCrewBreakdown = null;
+  state.travel.aiReasoning = null;
+  state.travel.calcMode = 'byTechs';
+  state.travel.techCount = 4;
+  state.travel.projectDays = 30;
+  state.travel.numTrips = 1;
+
+  // Reset incidentals
+  state.incidentals.permits = 0;
+  state.incidentals.insurance = 0;
+  state.incidentals.bonding = 0;
+  state.incidentals.equipmentRental = 0;
+  state.incidentals.fuelTransit = 0;
+  state.incidentals.unexpectedBufferPct = 5;
+
+  // Reset change orders
+  state._changeOrdersOpen = false;
+  state._excludedCOs = new Set();
+
+  // Reset exclusions
+  state.exclusions = [];
+  state._exclusionsLoaded = false;
+
+  render();
+  scrollContentTop();
+  spToast('Ready for a new bid', 'success');
+}
+
 let _appToken = '';
 let _sessionToken = '';
 let _currentUser = null;
@@ -2608,23 +2712,9 @@ function renderFooter() {
 
   if (state.currentStep === 7) {
     footer.innerHTML = `
-      <button class="footer-btn--restart" id="btn-restart">🔄 Start New Analysis</button>
+      <button class="footer-btn--restart" id="btn-restart" data-action="start-new-bid">🔄 Start New Bid</button>
     `;
     footer.style.justifyContent = "center";
-    document.getElementById("btn-restart").addEventListener("click", () => {
-      state.currentStep = 0;
-      state.completedSteps.clear();
-      state.analysisComplete = false;
-      state.selectedRFIs.clear();
-      state.expandedRFI = null;
-      state.estimateId = null; // Reset so next save creates a new record
-      state.aiAnalysis = null;
-      state.aiError = null;
-      state.supplierPriceOverrides = {};
-      state.supplierQuotes = [];
-      render();
-      scrollContentTop();
-    });
     return;
   }
 
@@ -11238,6 +11328,12 @@ document.addEventListener("DOMContentLoaded", async () => {
             btn.getAttribute('data-rev-id'),
             parseInt(btn.getAttribute('data-rev-num'), 10)
           );
+          break;
+        case 'start-new-bid':
+          startNewBid();
+          break;
+        case 'show-saved-estimates':
+          showSavedEstimates();
           break;
       }
     });

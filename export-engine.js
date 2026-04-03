@@ -220,26 +220,31 @@ const SmartPlansExport = {
         };
     },
 
-    // ─── Classify BOM categories into material/equipment/subs ──
+    // ─── Classify BOM categories into material/equipment/subs/labor ──
     _classifyBOM(bom) {
-        let materials = 0, equipment = 0, subs = 0;
+        let materials = 0, equipment = 0, subs = 0, labor = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
             if (/subcontract|civil|traffic|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
             } else if (/equipment|air.?condition|hvac.?condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
+            } else if (/labor|install|rough.?in|trim|commission|program|test|mobiliz|phase\s*\d/i.test(n)) {
+                // Labor categories that leaked past the BOM parser filter —
+                // segregate them so they don't inflate the material total
+                labor += (cat.subtotal || 0);
+                console.warn(`[Export] BOM category "${cat.name}" classified as LABOR (not material) — $${(cat.subtotal || 0).toLocaleString()}`);
             } else {
                 materials += (cat.subtotal || 0);
             }
         }
-        return { materials, equipment, subs };
+        return { materials, equipment, subs, labor };
     },
 
     // ─── Compute full bid price breakdown with all markups ──
     // SINGLE SOURCE OF TRUTH: Every output reads from this.
     _computeFullBreakdown(state, bom) {
-        const { materials, equipment, subs } = this._classifyBOM(bom);
+        const { materials, equipment, subs, labor: bomLabor } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
         const matPct = (cfg.material ?? 50) / 100;
         const labPct = (cfg.labor ?? 50) / 100;
@@ -250,9 +255,24 @@ const SmartPlansExport = {
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         const contingencyPct = 0.10;
 
-        // Labor estimate: based on loaded crew rates and material cost
-        // ELV labor typically runs 80-120% of material cost
-        const laborBase = this._round(materials * 1.0);
+        // ── Labor: use REAL data from Labor Calculator brain when available ──
+        // Previously this always used materials × 1.0 which doubled labor when
+        // the AI already calculated it via NECA standards.
+        const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
+        let laborBase;
+        if (laborCalc?.total_base_cost > 0) {
+            // Real NECA-based labor from the Labor Calculator brain
+            laborBase = this._round(laborCalc.total_base_cost);
+            console.log(`[Export] Labor from LABOR_CALCULATOR: $${laborBase.toLocaleString()} (${laborCalc.total_hours || 0} hrs)`);
+        } else if (bomLabor > 0) {
+            // Labor categories leaked into BOM — use those directly (already costed)
+            laborBase = this._round(bomLabor);
+            console.log(`[Export] Labor from BOM categories: $${laborBase.toLocaleString()}`);
+        } else {
+            // No labor data at all — estimate from material cost (legacy fallback)
+            laborBase = this._round(materials * 1.0);
+            console.warn(`[Export] No labor data available — estimating as 100% of materials: $${laborBase.toLocaleString()}`);
+        }
 
         const matSell = this._round(materials * (1 + matPct));
         const labSell = this._round(laborBase * (1 + labPct));
@@ -912,7 +932,7 @@ const SmartPlansExport = {
                     // Check if this heading looks like a material/cost category
                     const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|breakdown|bill|bom/i.test(heading);
                     // Exclude summary/rollup sections that re-state subtotals (causes double-counting)
-                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary/i.test(heading);
+                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase\s*\d|rough.?in|trim|programming|testing|commissioning|mobilization|demobilization|install\s*labor|crew|man.?hours|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary|schedule of values|sov\b|project management|engineering|submittal|closeout|punch.?list|warranty/i.test(heading);
 
                     if (isCategory && !isNonCategory) {
                         // Save previous category if it has items
@@ -2876,7 +2896,7 @@ Return ONLY the JSON array. No other text.`;
         }
 
         const bs = state.bidStrategy;
-        const isLaborCat = (name) => /labor|install|rough|trim|commission|program|test|mobiliz/i.test(name);
+        const isLaborCat = (name) => /labor|install|rough.?in|trim|commission|program|test|mobiliz|phase\s*\d/i.test(name);
 
         let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
         const categoryBreakdown = [];
