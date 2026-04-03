@@ -204,9 +204,45 @@
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').then(reg => {
                 console.log('[SmartPlans] Service Worker registered');
-                // Check for updates every 5 minutes
-                setInterval(() => reg.update(), 5 * 60 * 1000);
+
+                // Check for updates every 60 seconds (was 5 min)
+                setInterval(() => reg.update(), 60 * 1000);
+
+                // When a new SW is found, auto-apply it
+                reg.addEventListener('updatefound', () => {
+                    const newWorker = reg.installing;
+                    if (!newWorker) return;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'activated') {
+                            // New version is live — show update banner
+                            _showUpdateBanner();
+                        }
+                    });
+                });
+
+                // Also handle the case where a new SW is already waiting
+                if (reg.waiting) _showUpdateBanner();
             }).catch(err => console.warn('[SmartPlans] SW registration failed:', err));
+
+            // Listen for the new SW taking control
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (window._swReloading) return;
+                window._swReloading = true;
+                location.reload();
+            });
+        }
+
+        function _showUpdateBanner() {
+            if (document.getElementById('sp-update-banner')) return;
+            var banner = document.createElement('div');
+            banner.id = 'sp-update-banner';
+            banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:99999;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;display:flex;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.3);cursor:pointer;animation:sp-slide-up 0.3s ease;';
+            banner.innerHTML = '<span style="font-size:20px;">🔄</span> New version available <button onclick="location.reload()" style="background:white;color:#6366f1;border:none;padding:6px 16px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;margin-left:4px;">Update Now</button>';
+            document.body.appendChild(banner);
+            // Auto-reload after 5 seconds if user doesn't click
+            setTimeout(function() {
+                if (!window._swReloading) { window._swReloading = true; location.reload(); }
+            }, 5000);
         }
     </script>
 </body>
