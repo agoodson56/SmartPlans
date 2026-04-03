@@ -794,6 +794,9 @@ const SmartBrains = {
         const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
         const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fbBody), signal: ctrl.signal });
         clearTimeout(tmr);
+        if (!fbResp.ok) {
+            throw new Error(`Fallback HTTP ${fbResp.status}: ${fbResp.statusText}`);
+        }
         let fbText = '', fbThought = '';
         const fbReader = fbResp.body.getReader();
         const fbDec = new TextDecoder();

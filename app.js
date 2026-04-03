@@ -711,7 +711,7 @@ const Auth = {
 
   // Check for existing session on app load
   async init() {
-    _sessionToken = localStorage.getItem('sp_session_token') || '';
+    _sessionToken = sessionStorage.getItem('sp_session_token') || '';
     if (_sessionToken) {
       try {
         const res = await fetch('/api/auth/session', {
@@ -725,7 +725,7 @@ const Auth = {
         }
       } catch {}
       // Session invalid — clear
-      localStorage.removeItem('sp_session_token');
+      sessionStorage.removeItem('sp_session_token');
       _sessionToken = '';
     }
     this._initialized = true;
@@ -852,7 +852,7 @@ const Auth = {
       // Success
       _sessionToken = data.sessionToken;
       _currentUser = data.user;
-      localStorage.setItem('sp_session_token', _sessionToken);
+      sessionStorage.setItem('sp_session_token', _sessionToken);
       this._startApp();
     } catch (err) {
       this._showError('Network error — check your connection');
@@ -885,7 +885,7 @@ const Auth = {
       // Success
       _sessionToken = data.sessionToken;
       _currentUser = data.user;
-      localStorage.setItem('sp_session_token', _sessionToken);
+      sessionStorage.setItem('sp_session_token', _sessionToken);
       this._startApp();
     } catch (err) {
       this._showError('Network error — check your connection');
@@ -900,7 +900,7 @@ const Auth = {
     }).catch(() => {});
     _sessionToken = '';
     _currentUser = null;
-    localStorage.removeItem('sp_session_token');
+    sessionStorage.removeItem('sp_session_token');
     location.reload();
   },
 
@@ -1207,18 +1207,39 @@ function esc(str) {
 
 // ─── Sanitize HTML to prevent XSS — strips dangerous tags, event handlers, and javascript: URLs ──
 function sanitizeHtml(html) {
-  if (!html) return '';
-  // Strip dangerous tags (script, iframe, object, embed, form, meta, base, link)
-  html = html.replace(/<\s*\/?\s*(script|iframe|object|embed|form|meta|base|link)\b[^>]*>/gi, '');
-  // Strip <style> tags that contain expressions (IE expression hack)
-  html = html.replace(/<style\b[^>]*>[\s\S]*?expression\s*\([\s\S]*?<\/style>/gi, '');
-  // Strip on* event handler attributes (onclick, onerror, onload, etc.)
-  html = html.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-  // Strip javascript: URLs in href and src attributes
-  html = html.replace(/(href|src)\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '$1=""');
-  // Also catch unquoted javascript: URLs
-  html = html.replace(/(href|src)\s*=\s*javascript:[^\s>]*/gi, '$1=""');
-  return html;
+    if (!html) return '';
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const ALLOWED_TAGS = new Set(['div','span','p','br','b','i','strong','em','u','h1','h2','h3','h4','h5','h6','ul','ol','li','table','thead','tbody','tr','th','td','a','img','pre','code','blockquote','hr','sup','sub','small','dl','dt','dd','figure','figcaption','details','summary']);
+    const ALLOWED_ATTRS = new Set(['style','class','id','colspan','rowspan','href','src','alt','title','width','height']);
+    const DANGEROUS_URL = /^\s*(javascript|vbscript|data\s*:(?!image\/(png|jpeg|gif|svg\+xml)))/i;
+
+    function clean(node) {
+        const children = [...node.childNodes];
+        for (const child of children) {
+            if (child.nodeType === 1) { // Element
+                const tag = child.tagName.toLowerCase();
+                if (!ALLOWED_TAGS.has(tag)) {
+                    // Replace dangerous element with its text content
+                    const text = document.createTextNode(child.textContent || '');
+                    node.replaceChild(text, child);
+                    continue;
+                }
+                // Remove disallowed attributes
+                const attrs = [...child.attributes];
+                for (const attr of attrs) {
+                    const name = attr.name.toLowerCase();
+                    if (name.startsWith('on') || (!ALLOWED_ATTRS.has(name))) {
+                        child.removeAttribute(attr.name);
+                    } else if ((name === 'href' || name === 'src') && DANGEROUS_URL.test(attr.value)) {
+                        child.removeAttribute(attr.name);
+                    }
+                }
+                clean(child);
+            }
+        }
+    }
+    clean(doc.body);
+    return doc.body.innerHTML;
 }
 
 // ── Shared BOM Override Application — single source of truth for supplier price overrides ──

@@ -8,6 +8,12 @@ const SmartPlansExport = {
 
     _round(val) { return Math.round((val || 0) * 100) / 100; },
 
+    _csvSafe(val) {
+        const s = String(val ?? '');
+        if (/^[=+\-@\t\r]/.test(s)) return "'" + s;
+        return s;
+    },
+
     // ─── Build structured data package ─────────────────────────
     buildExportPackage(state) {
         const now = new Date();
@@ -63,7 +69,7 @@ const SmartPlansExport = {
                 type: state.projectType || "",
                 location: state.projectLocation || "",
                 jurisdiction: state.codeJurisdiction || "",
-                disciplines: [...state.disciplines],
+                disciplines: [...(state.disciplines || [])],
                 fileFormat: state.fileFormat || "",
                 prevailingWage: state.prevailingWage || "",
                 workShift: state.workShift || "",
@@ -74,12 +80,12 @@ const SmartPlansExport = {
             },
 
             documents: {
-                legendFiles: state.legendFiles.map(f => ({ name: f.name, size: f.size, type: f.type })),
-                planFiles: state.planFiles.map(f => ({ name: f.name, size: f.size, type: f.type })),
-                specFiles: state.specFiles.map(f => ({ name: f.name, size: f.size, type: f.type })),
-                addendaFiles: state.addendaFiles.map(f => ({ name: f.name, size: f.size, type: f.type })),
-                totalSheets: state.planFiles.length,
-                totalSpecs: state.specFiles.length,
+                legendFiles: (state.legendFiles || []).map(f => ({ name: f.name, size: f.size, type: f.type })),
+                planFiles: (state.planFiles || []).map(f => ({ name: f.name, size: f.size, type: f.type })),
+                specFiles: (state.specFiles || []).map(f => ({ name: f.name, size: f.size, type: f.type })),
+                addendaFiles: (state.addendaFiles || []).map(f => ({ name: f.name, size: f.size, type: f.type })),
+                totalSheets: (state.planFiles || []).length,
+                totalSpecs: (state.specFiles || []).length,
             },
 
             pricingConfig: {
@@ -219,9 +225,9 @@ const SmartPlansExport = {
         let materials = 0, equipment = 0, subs = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
-            if (/subcontract|civil|traffic|safety|insurance|parking/.test(n)) {
+            if (/subcontract|civil|traffic|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
-            } else if (/equipment|condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
+            } else if (/equipment|air.?condition|hvac.?condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
             } else {
                 materials += (cat.subtotal || 0);
@@ -239,7 +245,8 @@ const SmartPlansExport = {
         const labPct = (cfg.labor ?? 50) / 100;
         const eqPct = (cfg.equipment ?? 15) / 100;
         const subPct = (cfg.subcontractor ?? 10) / 100;
-        const burdenRate = state.pricingConfig?.burdenRate || 0.35;
+        const rawBurden = state.pricingConfig?.burdenRate ?? 35;
+        const burdenRate = rawBurden > 1 ? rawBurden / 100 : rawBurden;
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         const contingencyPct = 0.10;
 
@@ -300,7 +307,6 @@ const SmartPlansExport = {
                 console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()})`);
             }
             console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
-            state._bomGrandTotal = val;
             return val;
         }
 
@@ -309,16 +315,6 @@ const SmartPlansExport = {
         if (corrector?.corrected_grand_total > 1000) {
             const val = this._round(corrector.corrected_grand_total);
             console.log(`[Export] ⚠️ Using Estimate Corrector total (raw BOM, no markups): $${val.toLocaleString()}`);
-            state._bomGrandTotal = val;
-            return val;
-        }
-
-        // Priority 3: Compute from BOM + markups (last resort)
-        const finEngineAlt = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
-        if (finEngineAlt?.project_summary?.grand_total > 1000) {
-            const val = this._round(finEngineAlt.project_summary.grand_total);
-            console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
-            state._bomGrandTotal = val;
             return val;
         }
 
@@ -336,14 +332,17 @@ const SmartPlansExport = {
             const breakdown = this._computeFullBreakdown(state, bom);
             if (breakdown.grandTotal > 1000) {
                 console.log(`[Export] Grand total from BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
-                state._bomGrandTotal = breakdown.grandTotal;
-                state._bomBreakdown = breakdown;
                 return breakdown.grandTotal;
             }
         }
 
-        // Priority 5: Raw BOM + 10% contingency (last resort)
+        // Priority 5: Raw BOM — use _computeFullBreakdown if grandTotal is 0 or very small
         const rawTotal = bom?.grandTotal || 0;
+        if (rawTotal <= 0 && bom?.categories?.length > 0) {
+            const breakdown = this._computeFullBreakdown(state, bom);
+            console.warn(`[Export] Grand total fallback: computed from breakdown $${breakdown.grandTotal}`);
+            return breakdown.grandTotal;
+        }
         console.warn(`[Export] Grand total fallback: raw BOM $${rawTotal} + 10%`);
         return this._round(rawTotal * 1.1);
     },
@@ -1474,7 +1473,7 @@ const SmartPlansExport = {
             rows.push([]);
             rows.push(['3D CONFIDENTIAL — 3D Technology Services Inc.']);
 
-            const csv = rows.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+            const csv = rows.map(r => r.map(c => `"${this._csvSafe(c).replace(/"/g, '""')}"`).join(',')).join('\n');
             this._download(csv, `SmartPlans_BOM_${this._safeName(state)}.csv`, 'text/csv');
         } catch (err) {
             console.error('[SmartPlans] BOM CSV fallback failed:', err);
@@ -1672,7 +1671,7 @@ const SmartPlansExport = {
             }
             rows.push([]);
             rows.push(['3D CONFIDENTIAL — 3D Technology Services Inc.']);
-            const csv = rows.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+            const csv = rows.map(r => r.map(c => `"${this._csvSafe(c).replace(/"/g, '""')}"`).join(',')).join('\n');
             this._download(csv, `SmartPlans_${this._safeName(state)}.csv`, 'text/csv');
         } catch (csvErr) {
             console.error('[SmartPlans] CSV fallback also failed:', csvErr);
@@ -1947,6 +1946,8 @@ const SmartPlansExport = {
                 ]);
             }
 
+            grandTotal += (cat.subtotal || 0);
+
             // Category subtotal row (no pricing shown)
             dataRows.push(['', '', '', '', `SUBTOTAL — ${cat.name}`, '', '', '', '']);
             dataRows.push([]);
@@ -1963,7 +1964,7 @@ const SmartPlansExport = {
             allRows.push([]);
             allRows.push(['3D CONFIDENTIAL — 3D Technology Services Inc.']);
             const csv = allRows.map(r =>
-                r.map(c => `"${String(c != null ? c : '').replace(/"/g, '""')}"`).join(',')
+                r.map(c => `"${this._csvSafe(c).replace(/"/g, '""')}"`).join(',')
             ).join('\n');
             this._download(csv, `SmartPlans_SupplierBOM_${this._safeName(state)}.csv`, 'text/csv');
         } else {
@@ -2000,7 +2001,7 @@ const SmartPlansExport = {
                 allRows.push([]);
                 allRows.push(['3D CONFIDENTIAL — 3D Technology Services Inc.']);
                 const csv = allRows.map(r =>
-                    r.map(c => `"${String(c != null ? c : '').replace(/"/g, '""')}"`).join(',')
+                    r.map(c => `"${this._csvSafe(c).replace(/"/g, '""')}"`).join(',')
                 ).join('\n');
                 this._download(csv, `SmartPlans_SupplierBOM_${this._safeName(state)}.csv`, 'text/csv');
             }
@@ -2927,243 +2928,6 @@ Return ONLY the JSON array. No other text.`;
             totalLabor: this._round(totalLabor),
             totalMarkup: this._round(totalMarkup),
             totalContingency: this._round(totalContingency),
-        };
-    },
-
-    // ─── Import a competitor bid file (xlsx/csv) ─────────────────
-    importCompetitorBid(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onerror = () => reject(new Error('Failed to read file: ' + (reader.error || 'Unknown error')));
-            reader.onload = () => {
-                try {
-                    const data = new Uint8Array(reader.result);
-                    let rows;
-                    const ext = (file.name || '').split('.').pop().toLowerCase();
-
-                    if (ext === 'csv') {
-                        if (typeof XLSX !== 'undefined') {
-                            const wb = XLSX.read(data, { type: 'array' });
-                            const ws = wb.Sheets[wb.SheetNames[0]];
-                            rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-                        } else {
-                            const text = new TextDecoder().decode(data);
-                            rows = text.split('\n').map(line => {
-                                const cells = [];
-                                let current = '';
-                                let inQuotes = false;
-                                for (let i = 0; i < line.length; i++) {
-                                    const ch = line[i];
-                                    if (ch === '"') { inQuotes = !inQuotes; continue; }
-                                    if (ch === ',' && !inQuotes) { cells.push(current.trim()); current = ''; continue; }
-                                    current += ch;
-                                }
-                                cells.push(current.trim());
-                                return cells;
-                            });
-                        }
-                    } else {
-                        if (typeof XLSX === 'undefined') {
-                            reject(new Error('SheetJS (XLSX) library is required to read Excel files.'));
-                            return;
-                        }
-                        const wb = XLSX.read(data, { type: 'array' });
-                        const ws = wb.Sheets[wb.SheetNames[0]];
-                        rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-                    }
-
-                    if (!rows || rows.length < 2) {
-                        reject(new Error('File appears to be empty or has no data rows.'));
-                        return;
-                    }
-
-                    // Find header row
-                    let headerIdx = -1;
-                    let colItem = -1, colQty = -1, colUnitCost = -1, colExtCost = -1, colCategory = -1;
-
-                    for (let i = 0; i < Math.min(rows.length, 15); i++) {
-                        const row = rows[i];
-                        if (!row || !Array.isArray(row)) continue;
-                        const cellTexts = row.map(c => String(c || '').toLowerCase());
-                        const hasItem = cellTexts.some(c => /item|description|material|component|product/i.test(c));
-                        const hasCost = cellTexts.some(c => /cost|price|amount|total|rate|\$/i.test(c));
-                        if (hasItem && hasCost) {
-                            headerIdx = i;
-                            cellTexts.forEach((c, idx) => {
-                                if (/item|description|material|component|product/i.test(c) && colItem === -1) colItem = idx;
-                                if (/^qty$|quantity|^qty/i.test(c)) colQty = idx;
-                                if (/unit\s*(cost|price|\$)|rate/i.test(c)) colUnitCost = idx;
-                                if (/ext|total|amount|^cost$/i.test(c) && colExtCost === -1) colExtCost = idx;
-                                if (/category|section|division|group/i.test(c)) colCategory = idx;
-                            });
-                            break;
-                        }
-                    }
-
-                    if (headerIdx === -1 || colItem === -1) {
-                        reject(new Error('Could not find header row with item description and cost columns.'));
-                        return;
-                    }
-
-                    // Try to derive competitor name from file name
-                    let competitorName = '';
-                    const fnameMatch = (file.name || '').replace(/\.(xlsx|csv)$/i, '').replace(/[-_]/g, ' ');
-                    if (fnameMatch) competitorName = fnameMatch;
-
-                    const parseCurrency = (v) => {
-                        if (v == null || v === '') return 0;
-                        const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
-                        return isNaN(n) ? 0 : n;
-                    };
-
-                    // Parse data rows
-                    const items = [];
-                    for (let i = headerIdx + 1; i < rows.length; i++) {
-                        const row = rows[i];
-                        if (!row || !Array.isArray(row)) continue;
-                        const itemName = String(row[colItem] || '').trim();
-                        if (!itemName) continue;
-
-                        const qty = colQty !== -1 ? (parseFloat(String(row[colQty] || '0').replace(/,/g, '')) || 0) : 0;
-                        const unitCost = colUnitCost !== -1 ? parseCurrency(row[colUnitCost]) : 0;
-                        let extCost = colExtCost !== -1 ? parseCurrency(row[colExtCost]) : 0;
-                        if (extCost === 0 && qty > 0 && unitCost > 0) extCost = this._round(qty * unitCost);
-                        if (extCost === 0 && unitCost > 0) extCost = unitCost;
-                        const category = colCategory !== -1 ? String(row[colCategory] || '').trim() : '';
-
-                        if (extCost > 0 || unitCost > 0) {
-                            items.push({ item: itemName, qty, unitCost, extCost, category });
-                        }
-                    }
-
-                    if (items.length === 0) {
-                        reject(new Error('No priced line items found in the file.'));
-                        return;
-                    }
-
-                    const total = this._round(items.reduce((s, it) => s + it.extCost, 0));
-                    resolve({ competitorName, items, total });
-                } catch (err) {
-                    reject(new Error('Failed to parse competitor bid: ' + err.message));
-                }
-            };
-            reader.readAsArrayBuffer(file);
-        });
-    },
-
-    // ─── Compare our BOM with competitor bid data ──────────────
-    compareWithCompetitorBid(state, competitorData) {
-        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
-
-        // Apply overrides if any
-        const overrides = state.supplierPriceOverrides || {};
-        if (Object.keys(overrides).length > 0) {
-            for (const [key, override] of Object.entries(overrides)) {
-                const [catIdx, itemIdx] = key.split('-').map(Number);
-                if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
-                    const item = bom.categories[catIdx].items[itemIdx];
-                    if (override.qty != null) item.qty = override.qty;
-                    item.unitCost = override.unitCost;
-                    item.extCost = this._round(item.qty * override.unitCost);
-                    if (override.mfg) item.mfg = override.mfg;
-                    if (override.partNumber) item.partNumber = override.partNumber;
-                    if (override.isSubstitute) item._isSubstitute = true;
-                }
-            }
-            bom.grandTotal = 0;
-            for (const cat of bom.categories) {
-                cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
-                cat.subtotal = this._round(cat.subtotal);
-                bom.grandTotal += cat.subtotal;
-            }
-            bom.grandTotal = this._round(bom.grandTotal);
-        }
-
-        // Flatten our items
-        const ourItems = [];
-        for (const cat of bom.categories) {
-            for (const it of cat.items) {
-                ourItems.push({ ...it, category: cat.name });
-            }
-        }
-
-        const compItems = competitorData.items;
-        const matched = [];
-        const ourOnly = [];
-        const theirOnly = [];
-        const usedCompIndices = new Set();
-
-        const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-
-        for (const ourItem of ourItems) {
-            const ourNorm = normalize(ourItem.item || ourItem.name);
-            let bestIdx = -1;
-            let bestScore = 0;
-
-            for (let ci = 0; ci < compItems.length; ci++) {
-                if (usedCompIndices.has(ci)) continue;
-                const compNorm = normalize(compItems[ci].item);
-                const ourWords = ourNorm.split(' ').filter(Boolean);
-                const compWords = compNorm.split(' ').filter(Boolean);
-                const allWords = new Set([...ourWords, ...compWords]);
-                const commonWords = ourWords.filter(w => compWords.includes(w));
-                const score = allWords.size > 0 ? commonWords.length / allWords.size : 0;
-                if (score > bestScore && score >= 0.3) {
-                    bestScore = score;
-                    bestIdx = ci;
-                }
-            }
-
-            if (bestIdx >= 0) {
-                usedCompIndices.add(bestIdx);
-                const comp = compItems[bestIdx];
-                const variance = ourItem.extCost - comp.extCost;
-                const variancePct = comp.extCost !== 0 ? (variance / comp.extCost) * 100 : 0;
-                matched.push({
-                    item: ourItem.item || ourItem.name,
-                    category: ourItem.category,
-                    ourCost: ourItem.extCost,
-                    theirCost: comp.extCost,
-                    ourQty: ourItem.qty,
-                    theirQty: comp.qty,
-                    ourUnitCost: ourItem.unitCost,
-                    theirUnitCost: comp.unitCost,
-                    variance: this._round(variance),
-                    variancePct: Math.round(variancePct * 10) / 10,
-                });
-            } else {
-                ourOnly.push({ item: ourItem.item || ourItem.name, category: ourItem.category, cost: ourItem.extCost });
-            }
-        }
-
-        for (let ci = 0; ci < compItems.length; ci++) {
-            if (!usedCompIndices.has(ci)) {
-                theirOnly.push({ item: compItems[ci].item, category: compItems[ci].category, cost: compItems[ci].extCost });
-            }
-        }
-
-        matched.sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
-
-        const ourTotal = bom.grandTotal;
-        const theirTotal = competitorData.total;
-        const higherItems = matched.filter(m => m.variance > 0);
-        const lowerItems = matched.filter(m => m.variance < 0);
-        const higherTotal = this._round(higherItems.reduce((s, m) => s + m.variance, 0));
-        const lowerTotal = this._round(Math.abs(lowerItems.reduce((s, m) => s + m.variance, 0)));
-
-        return {
-            ourTotal,
-            theirTotal,
-            difference: this._round(ourTotal - theirTotal),
-            matched,
-            ourOnly,
-            theirOnly,
-            higherItems,
-            lowerItems,
-            higherTotal,
-            lowerTotal,
-            matchRate: matched.length,
-            totalItems: ourItems.length,
         };
     },
 };

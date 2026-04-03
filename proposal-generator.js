@@ -879,7 +879,14 @@ ${this._confBar()}
     }
 
     // Use the SAME breakdown as export-engine.js — single source of truth
-    const bd = SmartPlansExport._computeFullBreakdown(state, bom);
+    const bd = (typeof SmartPlansExport._computeFullBreakdown === 'function')
+        ? SmartPlansExport._computeFullBreakdown(state, bom)
+        : null;
+
+    if (!bd) {
+      console.warn('[ProposalGen] _computeFullBreakdown not available — skipping financial table');
+      return '';
+    }
 
     // Cache so all downstream consumers use the same number
     state._bomGrandTotal = bd.grandTotal;

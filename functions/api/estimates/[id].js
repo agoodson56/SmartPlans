@@ -4,6 +4,8 @@
 // DELETE /api/estimates/:id — Delete estimate
 // ═══════════════════════════════════════════════════════════════
 
+import { validateSession } from '../../_shared/cors.js';
+
 // CRIT-2 fix: shared ID validator — reject oversized or malformed IDs before DB lookup
 function isValidId(id) {
     return id && String(id).length <= 64 && /^[a-zA-Z0-9_-]+$/.test(String(id));
@@ -139,13 +141,24 @@ export async function onRequestPut(context) {
 
 
 export async function onRequestDelete(context) {
-    const { env, params } = context;
+    const { env, request, params } = context;
 
     if (!isValidId(params.id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
     }
 
     try {
+        // C1 fix: only the creator or an admin can delete an estimate
+        const sessionToken = request.headers.get('X-Session-Token') || '';
+        const user = await validateSession(env.DB, sessionToken);
+
+        const est = await env.DB.prepare('SELECT created_by FROM estimates WHERE id = ?').bind(params.id).first();
+        if (!est) return Response.json({ error: 'Estimate not found' }, { status: 404 });
+
+        if (est.created_by && user?.id !== est.created_by && !user?.is_admin) {
+            return Response.json({ error: 'Only the creator or an admin can delete this estimate' }, { status: 403 });
+        }
+
         // Delete all revisions for this estimate first
         await env.DB.prepare(`DELETE FROM estimate_revisions WHERE estimate_id = ?`).bind(params.id).run();
         await env.DB.prepare(`DELETE FROM estimates WHERE id = ?`).bind(params.id).run();

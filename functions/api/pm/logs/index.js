@@ -4,7 +4,7 @@
 // DELETE /api/pm/logs/:id handled in [id].js
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin, timingSafeCompare } from '../../../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare, validateSession } from '../../../_shared/cors.js';
 
 export async function onRequestGet(context) {
     const { env, request } = context;
@@ -37,17 +37,19 @@ export async function onRequestGet(context) {
 export async function onRequestPost(context) {
     const { env, request } = context;
 
-    // HIGH-2 fix: POST was completely unauthenticated — matched same security as GET
-    const origin = request.headers.get('Origin') || '';
-    if (origin && !isAllowedOrigin(origin)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    // H8 fix: dual-auth check — ALWAYS require authentication (no fail-open)
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    const appToken = request.headers.get('X-App-Token') || '';
+    let authenticated = false;
+    if (sessionToken) {
+        const user = await validateSession(env.DB, sessionToken);
+        if (user) authenticated = true;
     }
-    const envToken = env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(token, envToken)) {
-            return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
-        }
+    if (!authenticated && env.ESTIMATES_TOKEN && appToken) {
+        if (timingSafeCompare(appToken, env.ESTIMATES_TOKEN)) authenticated = true;
+    }
+    if (!authenticated) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
     try {

@@ -4,7 +4,7 @@
 // Admin can disable registration via pm_settings "registration_enabled".
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin } from '../../_shared/cors.js';
+import { isAllowedOrigin, checkRateLimit } from '../../_shared/cors.js';
 
 const ALLOWED_DOMAIN = '3dtsi.com';
 
@@ -23,6 +23,13 @@ async function hashPasswordPBKDF2(password) {
 
 export async function onRequestPost(context) {
     const { env, request } = context;
+
+    // H3 fix: IP-based rate limiting for registration
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const blocked = await checkRateLimit(env.DB, `reg:${ip}`, 5, 3600);
+    if (blocked) {
+        return Response.json({ error: 'Too many registration attempts. Try again later.' }, { status: 429 });
+    }
 
     // Origin validation
     const origin = request.headers.get('Origin') || '';
