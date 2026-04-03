@@ -1764,9 +1764,27 @@ Use the pricing database values directly with the regional multiplier. Do NOT ap
   return '';
 })()}
 
-═══ PRICING GUARDRAILS (max unit costs — clamp if exceeded) ═══
-Fixed dome indoor $350, outdoor $500 | PTZ $1800 | Panoramic $1800 | Multi-sensor $2200 | Fisheye $1000 | LPR $2000 | NVR 8ch $800, 16ch $1400, 32ch $2500, 64ch $4500 | PoE 8p $250, 24p $700, 48p $1100 | AC panel $1000 | Reader $250 | Strike $200 | Monitor 22" $350, 32" $600 | Pole $900 | Patch panel $120
-Use ACTUAL distributor pricing, not MSRP. Contractors buy from ADI/Anixter/Wesco at 40-60% off list. Example: Axis P3267-LME ~$730, P3268-LVE ~$780, P3738-PLE ~$1,400, P4708-PLVE ~$980 through distribution.
+═══ ABSOLUTE MAXIMUM UNIT COSTS — HARD LIMIT — ANY PRICE ABOVE THESE IS WRONG ═══
+These are the MAXIMUM allowed prices. If your unit cost exceeds ANY of these, REDUCE IT to the max:
+- Fixed dome camera (ANY): MAX $800 | Typical: $300-$780
+- PTZ camera: MAX $1,800 | Typical: $850-$1,200
+- Panoramic camera: MAX $1,800 | Typical: $900-$1,400
+- Multi-sensor camera: MAX $1,500 | Typical: $900-$1,400 (Axis P4708-PLVE = $980 at distributor)
+- Fisheye camera: MAX $1,000
+- LPR camera: MAX $2,000
+- NVR 8ch $800 | 16ch $1,400 | 32ch $2,500 | 64ch server $4,500
+- PoE switch 8p $250 | 24p $700 | 48p $1,100
+- AC panel $1,000 | Reader $250 | Strike $200
+- Monitor 22" $350 | 32" $600
+- Camera pole $900 | Patch panel $120
+
+CRITICAL: A camera that costs $8,750 is WRONG. No IP camera sold through distribution costs that much.
+Real distributor prices (ADI/Anixter/Wesco, 40-60% off MSRP):
+  Axis P3267-LME fixed dome = $730 | Axis P3268-LVE outdoor dome = $780
+  Axis P3738-PLE 4x4K panoramic = $1,400 | Axis P4708-PLVE multi-sensor = $980
+  Axis Q6315-LE PTZ = $1,200 | Hanwha PNM-9081VQ multi-sensor = $1,200-$1,500
+
+USE AXIS CAMERAS for transit/government projects unless spec says otherwise. Default manufacturer for CCTV is Axis.
 
 ═══ CRITICAL RULES ═══
 1. Create category for EVERY selected discipline — missing one is a FATAL ERROR
@@ -2302,9 +2320,30 @@ Break labor into phases. Use this EXACT table format:
 **Labor Subtotals Table:**
 | Phase | Hours | Labor Cost | Markup ${labMarkup}% | Sell Price |
 
-## 5. SPECIAL CONDITIONS & NOTES
-List any special conditions identified (permits, site access, safety requirements, railroad work, etc.)
-as informational notes. Do NOT include dollar amounts — these are handled separately by the estimator.
+## 5. CIVIL WORK, ELECTRICAL & SITE SCOPE (if applicable)
+If the construction documents include ANY of the following in YOUR contract scope, create priced tables for each:
+
+### Trenching & Sawcut
+| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
+(Include: sawcutting, trenching, conduit in trench, backfill, restoration, handholes. Price per LF all-in.)
+
+### Electrical Distribution
+| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
+(Include: RMC/PVC conduit runs, pull boxes, junction boxes, panelboards, circuit breakers, UPS systems, wire)
+
+### UPS & Power Equipment
+| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
+(Include station-sized UPS, batteries, inverters at ACTUAL spec'd kVA. A 50kVA station UPS = $50K-$135K, NOT $1,500)
+
+### Subcontractor Scopes
+| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${subMarkup}% | Sell Price |
+(Include: window film, bollards with foundations, concrete work, specialty trades. Use subcontractor markup ${subMarkup}%.)
+
+### General Conditions & Insurance
+| Item # | Description | Qty | Unit | Unit Cost | Ext Cost |
+(Include: bonds, RRPLI insurance for transit, permits, mobilization/demob. NO markup on insurance.)
+
+If NONE of these scopes are in the construction documents, write "Not applicable — ELV scope only."
 
 ## 6. SCHEDULE OF VALUES (SOV)
 Material + Labor only:

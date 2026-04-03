@@ -1155,6 +1155,33 @@ const SmartPlansExport = {
                             partNumber = cells[colMap.partNumber].replace(/\*+/g, '').trim();
                         }
 
+                        // ── Price guardrail enforcement (code-level clamp) ──
+                        // Prevents AI-hallucinated prices from inflating the BOM
+                        const nameLower = cleanName.toLowerCase();
+                        if (unitCost > 0 && (unit === 'ea' || unit === 'each')) {
+                            const isCam = /camera|dome|bullet|ptz|panoramic|multi.?sensor|fisheye|lpr|anpr/i.test(nameLower);
+                            if (isCam) {
+                                const camMax = /ptz/i.test(nameLower) ? 1800
+                                    : /multi.?sensor|panoramic|360/i.test(nameLower) ? 1500
+                                    : /fisheye/i.test(nameLower) ? 1000
+                                    : /lpr|anpr/i.test(nameLower) ? 2000
+                                    : 800; // fixed dome/bullet
+                                if (unitCost > camMax) {
+                                    console.log(`[SmartPlans] Price clamp: "${cleanName}" $${unitCost} → $${camMax} (max for type)`);
+                                    unitCost = camMax;
+                                    extCost = qty * unitCost;
+                                }
+                            }
+                            // NVR/server clamp
+                            if (/nvr|video.*server|recording/i.test(nameLower) && unitCost > 16250) {
+                                unitCost = 16250; extCost = qty * unitCost;
+                            }
+                            // Switch clamp
+                            if (/switch.*poe|poe.*switch/i.test(nameLower) && unitCost > 2400) {
+                                unitCost = 2400; extCost = qty * unitCost;
+                            }
+                        }
+
                         currentCategory.items.push({
                             item: cleanName,
                             qty: qty,
