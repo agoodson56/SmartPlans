@@ -177,75 +177,29 @@ const SmartPlansExport = {
             // Work Breakdown Structure — auto-generated from bid data
             // Produces a hierarchical task tree for PM tracking
             workBreakdown: this._buildWorkBreakdown(state),
-
-            // Travel & Incidentals configuration — MUST be saved per bid
-            travelConfig: {
-                enabled: state.travel?.enabled || false,
-                calcMode: state.travel?.calcMode || 'byTechs',
-                techCount: state.travel?.techCount || 4,
-                projectDays: state.travel?.projectDays || 30,
-                hoursPerDay: state.travel?.hoursPerDay || 8,
-                numTrips: state.travel?.numTrips || 1,
-                hotelPerNight: state.travel?.hotelPerNight || 175,
-                hotelNightsPerWeek: state.travel?.hotelNightsPerWeek || 4,
-                perDiemPerDay: state.travel?.perDiemPerDay || 79,
-                mileageRoundTrip: state.travel?.mileageRoundTrip || 0,
-                mileageRate: state.travel?.mileageRate || 0.70,
-                airfarePerPerson: state.travel?.airfarePerPerson || 0,
-                rentalCarPerDay: state.travel?.rentalCarPerDay || 85,
-                parkingPerDay: state.travel?.parkingPerDay || 25,
-                tollsPerTrip: state.travel?.tollsPerTrip || 0,
-            },
-            incidentalsConfig: {
-                permits: state.incidentals?.permits || 0,
-                insurance: state.incidentals?.insurance || 0,
-                bonding: state.incidentals?.bonding || 0,
-                equipmentRental: state.incidentals?.equipmentRental || 0,
-                fuelTransit: state.incidentals?.fuelTransit || 0,
-                unexpectedBufferPct: state.incidentals?.unexpectedBufferPct || 5,
-            },
-            travelAIRecommendations: {
-                aiRecommendedTechs: state.travel?.aiRecommendedTechs || null,
-                aiRecommendedDays: state.travel?.aiRecommendedDays || null,
-                aiCrewBreakdown: state.travel?.aiCrewBreakdown || null,
-                aiReasoning: state.travel?.aiReasoning || null,
-            },
         };
     },
 
     // ─── Classify BOM categories into material/equipment/subs ──
-    _classifyBOM(bom, _debugMode) {
-        let materials = 0, equipment = 0, subs = 0, travel = 0, generalConditions = 0;
+    _classifyBOM(bom) {
+        let materials = 0, equipment = 0, subs = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
-            let bucket = 'materials';
-            if (/travel|per\s*diem|lodging|hotel|mileage|incidental/.test(n)) {
-                travel += (cat.subtotal || 0);
-                bucket = 'TRAVEL';
-            } else if (/general\s*condition|bond|mobilization|demobilization|mob.*demob|rrpli|permits?\s*&?\s*fees/.test(n)) {
-                generalConditions += (cat.subtotal || 0);
-                bucket = 'GEN_CONDITIONS';
-            } else if (/trench|sawcut|saw.?cut|civil.*work|underground|excavat/i.test(n)) {
+            if (/subcontract|civil|traffic|safety|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
-                bucket = 'SUBS';
-            } else if (/subcontract|window.?film|bollard|masonry|glazing|traffic|safety|parking/i.test(n)) {
-                subs += (cat.subtotal || 0);
-                bucket = 'SUBS';
-            } else if (/equipment|condition|scissor|boom|tugger|drill|saw|scanner/.test(n)) {
+            } else if (/equipment|condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
-                bucket = 'EQUIP';
             } else {
                 materials += (cat.subtotal || 0);
             }
-            if (_debugMode) console.log(`[BOM Classify] "${cat.name}" ($${(cat.subtotal||0).toLocaleString()}) → ${bucket}`);
         }
-        return { materials, equipment, subs, travel, generalConditions };
+        return { materials, equipment, subs };
     },
 
     // ─── Compute full bid price breakdown with all markups ──
     // SINGLE SOURCE OF TRUTH: Every output reads from this.
     _computeFullBreakdown(state, bom) {
-        const { materials, equipment, subs, travel: bomTravel, generalConditions } = this._classifyBOM(bom, state?._debugMode);
+        const { materials, equipment, subs } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
         const matPct = (cfg.material ?? 50) / 100;
         const labPct = (cfg.labor ?? 50) / 100;
@@ -255,43 +209,26 @@ const SmartPlansExport = {
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         const contingencyPct = 0.10;
 
-        // Labor: use actual Labor Calculator output when available
-        const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
-        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
-        let laborBase = 0;
-        if (laborCalc?.total_base_cost > 0) {
-            laborBase = this._round(laborCalc.total_base_cost);
-        } else if (finEngine?.project_summary?.total_labor > 0) {
-            laborBase = this._round(finEngine.project_summary.total_labor);
-        } else {
-            laborBase = this._round(materials * 0.40);  // ELV labor ~ 35-45% of material cost
-        }
+        // Labor estimate: based on loaded crew rates and material cost
+        // ELV labor typically runs 80-120% of material cost
+        const laborBase = this._round(materials * 1.0);
 
         const matSell = this._round(materials * (1 + matPct));
         const labSell = this._round(laborBase * (1 + labPct));
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
         const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
+        const travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
+            ? this._round(computeTravelIncidentals().grandTotal || 0) : 0;
 
-        // General Conditions are at-cost (no markup — bonds/insurance are already final pricing)
-        const gcTotal = this._round(generalConditions);
-
-        // Travel: use BOM travel if present, else Stage 6 user config. NEVER double-count.
-        let travel = 0;
-        if (bomTravel > 0) {
-            travel = this._round(bomTravel);
-        } else if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
-            travel = this._round(computeTravelIncidentals().grandTotal || 0);
-        }
-
-        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel + gcTotal);
+        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
         const contingency = this._round(subtotal * contingencyPct);
         const grandTotal = this._round(subtotal + contingency);
 
         return {
-            materials, equipment, subs, generalConditions: gcTotal, laborBase,
+            materials, equipment, subs, laborBase,
             matPct, labPct, eqPct, subPct,
-            matSell, labSell, eqSell, subSell, gcTotal,
+            matSell, labSell, eqSell, subSell,
             burden, burdenRate: includeBurden ? burdenRate : 0,
             travel, subtotal, contingency, contingencyPct, grandTotal
         };
@@ -940,10 +877,9 @@ const SmartPlansExport = {
 
                 if (heading) {
                     // Check if this heading looks like a material/cost category
-                    const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|breakdown|bill|bom|civil|trench|sawcut|saw.?cut|bollard|ups\b|power|electrical|window.?film|glazing|fiber|masonry|signage|survey|spare|consumable|waste/i.test(heading);
-                    // Exclude summary/rollup sections and commentary that re-state subtotals (causes double-counting)
-                    // Only exclude INFORMATIONAL sections, NOT priced scope categories
-                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary|travel|per diem|hotel|lodging|special equipment.*condition|equipment.*rental|rental.*equipment/i.test(heading);
+                    const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|breakdown|bill|bom/i.test(heading);
+                    // Exclude summary/rollup sections that re-state subtotals (causes double-counting)
+                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary/i.test(heading);
 
                     if (isCategory && !isNonCategory) {
                         // Save previous category if it has items
@@ -1205,7 +1141,7 @@ const SmartPlansExport = {
 
     // Patterns for categories that are ALWAYS included regardless of discipline selection
     // (infrastructure, equipment, general conditions, subcontractors, etc.)
-    _ALWAYS_INCLUDE_PATTERN: /equipment|subcontract|special\s*condition|general\s*condition|network\s*room|telecom\s*closet|mdf|idf|mpoe|tunnel|mobiliz|bond|insurance|permit|overhead|profit|contingency|travel|per\s*diem|lift|rental|tool|safety|incidental|civil|trench|sawcut|saw.?cut|ups\b|power\s*distribution|electrical|bollard|window.?film|glazing|masonry|spare|consumable|waste|handhole|pull.?box|survey/i,
+    _ALWAYS_INCLUDE_PATTERN: /equipment|subcontract|special\s*condition|general\s*condition|network\s*room|telecom\s*closet|mdf|idf|mpoe|tunnel|mobiliz|bond|insurance|permit|overhead|profit|contingency|travel|per\s*diem|lift|rental|tool|safety|incidental/i,
 
     // ─── Filter BOM categories by selected disciplines ───────────
     // Removes categories for disciplines the user did NOT select.
