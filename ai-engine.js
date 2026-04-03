@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   SMARTPLANS — TRIPLE-READ CONSENSUS ENGINE v5.0
+   SMARTPLANS — TRIPLE-READ CONSENSUS ENGINE v4.0
    ═══════════════════════════════════════════════════════════════
    Powered by Gemini 3.1 Pro — 2× reasoning improvement
    27 Specialized AI Brains × 12 Processing Waves
@@ -37,29 +37,9 @@
    └─────────────────────────────────────────────────────────┘
    ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Sanitize a user-supplied string before interpolating into an AI prompt.
- * 1. Converts to string
- * 2. Strips control characters (keeps \n and \t)
- * 3. Truncates to maxLen (default 500)
- */
-function _sanitizeForPrompt(str, maxLen = 500) {
-  const s = String(str ?? '');
-  // Strip control chars except newline (0x0A) and tab (0x09)
-  const cleaned = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-  return cleaned.length > maxLen ? cleaned.slice(0, maxLen) : cleaned;
-}
-
 const SmartBrains = {
 
   VERSION: '5.0.0',
-
-  // Debug logging — set to true to see key names, model details, retry info
-  _debug: false,
-  _log(...args) { if (this._debug) console.log(...args); },
-
-  // Expose sanitizer as a static method for external callers
-  _sanitizeForPrompt,
 
   // ═══════════════════════════════════════════════════════════
   // CONFIGURATION
@@ -78,11 +58,6 @@ const SmartBrains = {
     retryBaseDelay: 1500,
     timeout: 150000,                         // 2.5 min for standard brains
     proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
-    keySlots: 18,                            // Number of API key slots (GEMINI_KEY_0 … GEMINI_KEY_17)
-    sseTimeoutMs: 60000,                     // SSE stream idle timeout
-    jpegQuality: 0.85,                       // JPEG compression quality for drawing chunks
-    inlineThresholdBytes: 15 * 1024 * 1024,  // 15 MB — above this, use File API upload
-    chunkThresholdBytes: 45 * 1024 * 1024,   // Split PDFs over 45MB into chunks
   },
 
 
@@ -146,7 +121,7 @@ const SmartBrains = {
 
   async _encodeAllFiles(state, progressCallback) {
     const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB per file (Gemini File API)
-    const INLINE_THRESHOLD = this.config.inlineThresholdBytes;
+    const INLINE_THRESHOLD = 15 * 1024 * 1024; // 15 MB — above this, use File API upload
 
     const fileGroups = {
       legends: state.legendFiles || [],
@@ -200,18 +175,18 @@ const SmartBrains = {
 
             // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
-              const CHUNK_THRESHOLD = this.config.chunkThresholdBytes;
+              const CHUNK_THRESHOLD = 45 * 1024 * 1024; // Split PDFs over 45MB into chunks (smaller files upload fine as single)
               const PAGES_PER_CHUNK = 30;
               const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
 
               // Try chunking large PDFs using PDF.js
               if (finalMime === 'application/pdf' && entry.rawFile.size > CHUNK_THRESHOLD && typeof pdfjsLib !== 'undefined') {
                 progressCallback(pct, `Splitting large PDF: ${entry.name} (${fileSizeMB} MB)…`, null);
-                this._log(`[SmartBrains] Splitting ${entry.name} (${fileSizeMB} MB) into ${PAGES_PER_CHUNK}-page chunks…`);
+                console.log(`[SmartBrains] Splitting ${entry.name} (${fileSizeMB} MB) into ${PAGES_PER_CHUNK}-page chunks…`);
 
                 try {
                   const chunks = await this._splitPDFIntoChunks(entry.rawFile, PAGES_PER_CHUNK);
-                  this._log(`[SmartBrains] Split ${entry.name} into ${chunks.length} chunks`);
+                  console.log(`[SmartBrains] Split ${entry.name} into ${chunks.length} chunks`);
 
                   let chunkIdx = 0;
                   for (const chunk of chunks) {
@@ -237,16 +212,10 @@ const SmartBrains = {
                         let cleanUri = uploadResult.fileUri;
                         const proxyMatch = cleanUri.match(/___(\s*https?:\/\/[^_]+)___/);
                         if (proxyMatch) { cleanUri = proxyMatch[1].trim(); }
-                        if (!/^https:\/\//.test(cleanUri)) {
-                          console.warn(`[SmartBrains] Rejecting non-https File URI for chunk: ${cleanUri}`);
-                          const chunkB64 = await this._fileToBase64(chunk);
-                          chunkData.base64 = chunkB64.base64;
-                        } else {
-                          chunkData.fileUri = cleanUri;
-                          chunkData.uploadedName = uploadResult.name;
-                          chunkData._usedKeyName = uploadResult._usedKeyName;
-                          this._log(`[SmartBrains] ✓ Uploaded chunk ${chunkIdx}/${chunks.length}: ${chunkName} → ${cleanUri}`);
-                        }
+                        chunkData.fileUri = cleanUri;
+                        chunkData.uploadedName = uploadResult.name;
+                        chunkData._usedKeyName = uploadResult._usedKeyName;
+                        console.log(`[SmartBrains] ✓ Uploaded chunk ${chunkIdx}/${chunks.length}: ${chunkName} → ${cleanUri}`);
                       } else {
                         // Fallback: send chunk as inline base64
                         const chunkB64 = await this._fileToBase64(chunk);
@@ -262,7 +231,7 @@ const SmartBrains = {
                   }
                   // DON'T include the full PDF as inline — it's too large (57MB = 77MB base64)
                   // The chunks cover all pages. Skip adding the parent fileData entry.
-                  this._log(`[SmartBrains] ✓ All ${chunks.length} chunks uploaded. Skipping full-file inline (${fileSizeMB} MB too large).`);
+                  console.log(`[SmartBrains] ✓ All ${chunks.length} chunks uploaded. Skipping full-file inline (${fileSizeMB} MB too large).`);
                   continue; // Skip the normal upload path — chunks are sufficient
                 } catch (splitErr) {
                   console.warn(`[SmartBrains] PDF splitting failed for ${entry.name}, using single upload:`, splitErr.message);
@@ -274,7 +243,7 @@ const SmartBrains = {
               progressCallback(pct, `Uploading large file: ${entry.name} (${fileSizeMB} MB)…`, null);
               const uploadContainer = document.getElementById('upload-progress-container');
               if (uploadContainer) uploadContainer.style.display = 'block';
-              this._log(`[SmartBrains] Uploading ${entry.name} (${fileSizeMB} MB) via File API…`);
+              console.log(`[SmartBrains] Uploading ${entry.name} (${fileSizeMB} MB) via File API…`);
 
               try {
                 const uploadResult = await this._uploadToFileAPI(entry.rawFile, finalMime, entry.name);
@@ -285,16 +254,10 @@ const SmartBrains = {
                     cleanUri = proxyMatch[1].trim();
                     console.warn(`[SmartBrains] Fixed proxy-mangled File URI → ${cleanUri}`);
                   }
-                  if (!/^https:\/\//.test(cleanUri)) {
-                    console.warn(`[SmartBrains] Rejecting non-https File URI: ${cleanUri}`);
-                    const fb64 = await this._fileToBase64(entry.rawFile);
-                    fileData.base64 = fb64.base64;
-                  } else {
-                    fileData.fileUri = cleanUri;
-                    fileData.uploadedName = uploadResult.name;
-                    fileData._usedKeyName = uploadResult._usedKeyName;
-                  }
-                  this._log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${cleanUri} (key: ${uploadResult._usedKeyName})`);
+                  fileData.fileUri = cleanUri;
+                  fileData.uploadedName = uploadResult.name;
+                  fileData._usedKeyName = uploadResult._usedKeyName;
+                  console.log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${cleanUri} (key: ${uploadResult._usedKeyName})`);
                 } else {
                   console.warn(`[SmartBrains] File API upload returned no URI, falling back to inline for ${entry.name}`);
                   fileData.base64 = base64;
@@ -343,9 +306,6 @@ const SmartBrains = {
     const result = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/ai/upload');
-      // SEC: Include auth headers for AI proxy authentication
-      if (typeof _sessionToken !== 'undefined' && _sessionToken) xhr.setRequestHeader('X-Session-Token', _sessionToken);
-      if (typeof _appToken !== 'undefined' && _appToken) xhr.setRequestHeader('X-App-Token', _appToken);
 
       // Track upload progress
       if (rawFile.size > 5 * 1024 * 1024) {
@@ -382,7 +342,7 @@ const SmartBrains = {
     // Gemini returns 400 INVALID_ARGUMENT if you use a file that's still PROCESSING
     // IMPORTANT: Check for ANY state that isn't 'ACTIVE' — including undefined/null
     if (result.state !== 'ACTIVE' && result.name) {
-      this._log(`[SmartBrains] File ${fileName} state is "${result.state || 'unknown'}" — polling until ACTIVE…`);
+      console.log(`[SmartBrains] File ${fileName} state is "${result.state || 'unknown'}" — polling until ACTIVE…`);
       const maxWaitMs = 120000; // 2 minutes max
       const pollIntervalMs = 3000; // Check every 3 seconds
       const startTime = Date.now();
@@ -390,18 +350,15 @@ const SmartBrains = {
       while (Date.now() - startTime < maxWaitMs) {
         await new Promise(r => setTimeout(r, pollIntervalMs));
         try {
-          const _authHdrs = {};
-          if (typeof _sessionToken !== 'undefined' && _sessionToken) _authHdrs['X-Session-Token'] = _sessionToken;
-          if (typeof _appToken !== 'undefined' && _appToken) _authHdrs['X-App-Token'] = _appToken;
-          const checkResponse = await fetch(`/api/ai/file-status?name=${encodeURIComponent(result.name)}&key=${encodeURIComponent(result._usedKeyName || '')}`, { headers: _authHdrs });
+          const checkResponse = await fetch(`/api/ai/file-status?name=${encodeURIComponent(result.name)}&key=${encodeURIComponent(result._usedKeyName || '')}`);
           if (checkResponse.ok) {
             const status = await checkResponse.json();
             if (status.state === 'ACTIVE') {
-              this._log(`[SmartBrains] ✓ File ${fileName} is now ACTIVE (waited ${Math.round((Date.now() - startTime) / 1000)}s)`);
+              console.log(`[SmartBrains] ✓ File ${fileName} is now ACTIVE (waited ${Math.round((Date.now() - startTime) / 1000)}s)`);
               result.state = 'ACTIVE';
               break;
             }
-            this._log(`[SmartBrains] File ${fileName} still ${status.state || 'unknown'}… (${Math.round((Date.now() - startTime) / 1000)}s)`);
+            console.log(`[SmartBrains] File ${fileName} still ${status.state || 'unknown'}… (${Math.round((Date.now() - startTime) / 1000)}s)`);
           }
         } catch (e) {
           console.warn(`[SmartBrains] File status check failed:`, e.message);
@@ -412,7 +369,7 @@ const SmartBrains = {
         console.warn(`[SmartBrains] File ${fileName} did not become ACTIVE within ${maxWaitMs / 1000}s — proceeding anyway`);
       }
     } else if (result.state === 'ACTIVE') {
-      this._log(`[SmartBrains] File ${fileName} is immediately ACTIVE — no wait needed`);
+      console.log(`[SmartBrains] File ${fileName} is immediately ACTIVE — no wait needed`);
     }
 
     return result;
@@ -442,7 +399,7 @@ const SmartBrains = {
     // Since PDF.js can't create PDFs, we split the raw bytes by uploading page ranges
     // Alternative: create image-based chunks from rendered pages
     const chunkCount = Math.ceil(totalPages / pagesPerChunk);
-    this._log(`[SmartBrains] PDF has ${totalPages} pages → ${chunkCount} chunks of ~${pagesPerChunk} pages`);
+    console.log(`[SmartBrains] PDF has ${totalPages} pages → ${chunkCount} chunks of ~${pagesPerChunk} pages`);
 
     // Strategy: slice the original file into byte-range chunks
     // This won't create valid standalone PDFs, so instead we render pages to canvas → PNG → blob
@@ -485,12 +442,12 @@ const SmartBrains = {
       }
 
       // Convert to JPEG blob (much smaller than PNG for drawings)
-      const blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', this.config.jpegQuality));
+      const blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.85));
       if (blob) {
         // Create a File object so it works with _uploadToFileAPI
         const chunkFile = new File([blob], `chunk_${c + 1}.jpg`, { type: 'image/jpeg' });
         chunks.push(chunkFile);
-        this._log(`[SmartBrains] Chunk ${c + 1}: pages ${startPage}-${endPage} → ${Math.round(blob.size / 1024)} KB JPEG`);
+        console.log(`[SmartBrains] Chunk ${c + 1}: pages ${startPage}-${endPage} → ${Math.round(blob.size / 1024)} KB JPEG`);
       }
     }
 
@@ -548,114 +505,6 @@ const SmartBrains = {
   },
 
   // ═══════════════════════════════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
-  // SSE STREAM READER — Shared implementation for all SSE reading
-  // ═══════════════════════════════════════════════════════════
-
-  async _readSSEStream(response, brainName, { timeoutMs = 60000, onProxyError = null, trackUsage = false } = {}) {
-    const contentType = response.headers.get('content-type') || '';
-    let text = '';
-    let thoughtText = '';
-
-    if (contentType.includes('text/event-stream')) {
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await Promise.race([
-          reader.read(),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('SSE_IDLE_TIMEOUT')), timeoutMs)
-          ),
-        ]).catch(err => {
-          if (err.message === 'SSE_IDLE_TIMEOUT') {
-            reader.cancel();
-            throw Object.assign(new Error(`SSE stream idle timeout — no data received for ${timeoutMs / 1000}s`), { _retryable: true, status: 504 });
-          }
-          throw err;
-        });
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        if (buffer.length > 10_000_000) {
-            throw new Error('SSE response exceeded 10MB buffer limit');
-        }
-
-        const lines = buffer.split('\n');
-        buffer = lines.pop(); // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          // SSE comments (keepalive) start with ':' — skip silently
-          if (line.startsWith(':')) continue;
-
-          if (line.startsWith('data: ')) {
-            const jsonStr = line.slice(6).trim();
-            if (!jsonStr || jsonStr === '[DONE]') continue;
-            try {
-              const chunk = JSON.parse(jsonStr);
-
-              // Check for proxy error events
-              if (chunk._proxyError) {
-                if (onProxyError) {
-                  onProxyError(chunk); // Let caller handle specific proxy error logic
-                } else {
-                  // Default: break on 500+, skip others
-                  if ((chunk.status || 500) >= 500) break;
-                  continue;
-                }
-              }
-
-              // Track token usage if requested
-              if (trackUsage && chunk.usageMetadata) {
-                const um = chunk.usageMetadata;
-                const cached = um.cachedContentTokenCount || 0;
-                const prompt = um.promptTokenCount || 0;
-                const output = um.candidatesTokenCount || 0;
-                const fresh = prompt - cached;
-                const cost = (cached * 0.00025 + fresh * 0.0025 + output * 0.01) / 1000;
-                const savings = cached > 0 ? ((cached * (0.0025 - 0.00025)) / 1000) : 0;
-                if (!this._sessionCost) this._sessionCost = { totalCost: 0, totalSavings: 0, totalCached: 0, totalFresh: 0, totalOutput: 0, brainCalls: 0 };
-                this._sessionCost.totalCost += cost;
-                this._sessionCost.totalSavings += savings;
-                this._sessionCost.totalCached += cached;
-                this._sessionCost.totalFresh += fresh;
-                this._sessionCost.totalOutput += output;
-                this._sessionCost.brainCalls++;
-                if (cached > 0) {
-                  this._log(`[Brain:${brainName}] Tokens: ${prompt} prompt (${cached} CACHED/${fresh} fresh) + ${output} output = $${cost.toFixed(4)} (saved $${savings.toFixed(4)})`);
-                }
-              }
-
-              const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
-              for (const p of chunkParts) {
-                if (p.text && p.thought) {
-                  thoughtText += p.text;
-                } else if (p.text) {
-                  text += p.text;
-                }
-              }
-            } catch (e) {
-              if (e._retryable) throw e;
-              if (e instanceof Error && e.message?.startsWith('Proxy error')) throw e;
-              // Otherwise skip malformed SSE chunks
-            }
-          }
-        }
-      }
-    } else {
-      // Non-streaming fallback (plain JSON response)
-      const data = await response.json();
-      const allParts = data?.candidates?.[0]?.content?.parts || [];
-      text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
-      if (!text) {
-        thoughtText = allParts.filter(p => p.text && p.thought).map(p => p.text).join('\n') || '';
-      }
-    }
-
-    return { text, thoughtText };
-  },
-
   // BRAIN INVOCATION — Call Gemini with retry & key rotation
   // ═══════════════════════════════════════════════════════════
 
@@ -673,7 +522,7 @@ const SmartBrains = {
     // ── Model compatibility: gemini-3.1-pro-preview does NOT support fileData (File API) ──
     // Auto-downgrade to gemini-2.5-pro for brains that reference uploaded files
     if (hasUploadedFiles && modelName.includes('3.1-pro-preview')) {
-      this._log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (3.1 preview doesn't support File API references)`);
+      console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (3.1 preview doesn't support File API references)`);
       modelName = 'gemini-2.5-pro';
     }
 
@@ -709,10 +558,9 @@ const SmartBrains = {
       }
       const hasFileData = activeParts.some(p => p.fileData);
       const parts = [{ text: promptText }, ...activeParts];
-      // Temperature: 0 for ALL brains — consistency is critical for a bidding tool.
-      // Every re-run should produce the same BOM, change orders, and proposal text.
+      // Low temperature for deterministic construction analysis
       const genConfig = {
-        temperature: 0,
+        temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
         maxOutputTokens: brainDef.maxTokens,
       };
       if (useJsonMode) {
@@ -729,7 +577,7 @@ const SmartBrains = {
         keySlot = 0;
       } else {
         // No uploaded files — safe to rotate across all keys
-        keySlot = (brainDef.id + attempt) % this.config.keySlots;
+        keySlot = (brainDef.id + attempt) % 18;
       }
 
       // If context cache is available, use it instead of sending files
@@ -757,22 +605,19 @@ const SmartBrains = {
           if (p.inlineData) return `  [${i}] inlineData (mime: ${p.inlineData.mimeType}, ${Math.round((p.inlineData.data?.length || 0) / 1024)}KB b64)`;
           return `  [${i}] UNKNOWN: ${JSON.stringify(Object.keys(p))}`;
         });
-        this._log(`[Brain:${brainDef.name}] Request parts (${parts.length}):\n${partSummary.join('\n')}`);
-        this._log(`[Brain:${brainDef.name}] JSON mode: ${useJsonMode}, model: ${modelName}, uploadKey: ${uploadKeyName || 'none'}`);
+        console.log(`[Brain:${brainDef.name}] Request parts (${parts.length}):\n${partSummary.join('\n')}`);
+        console.log(`[Brain:${brainDef.name}] JSON mode: ${useJsonMode}, model: ${modelName}, uploadKey: ${uploadKeyName || 'none'}`);
       }
 
-      const controller = new AbortController();
-      // Increase timeout for streaming — data arrives in chunks, so we need more wall-clock time
-      const timeoutMs = brainDef.useProModel ? (this.config.proTimeout || this.config.timeout) * 2 : this.config.timeout * 2;
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-
       try {
-        const _invokeHeaders = { 'Content-Type': 'application/json' };
-        if (typeof _sessionToken !== 'undefined' && _sessionToken) _invokeHeaders['X-Session-Token'] = _sessionToken;
-        if (typeof _appToken !== 'undefined' && _appToken) _invokeHeaders['X-App-Token'] = _appToken;
+        const controller = new AbortController();
+        // Increase timeout for streaming — data arrives in chunks, so we need more wall-clock time
+        const timeoutMs = brainDef.useProModel ? (this.config.proTimeout || this.config.timeout) * 2 : this.config.timeout * 2;
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+
         const response = await fetch(url, {
           method: 'POST',
-          headers: _invokeHeaders,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
           signal: controller.signal,
         });
@@ -782,7 +627,7 @@ const SmartBrains = {
         // Errors come through as _proxyError events in the stream.
         // Non-proxy responses (direct API) may still return error codes.
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
-          const nextSlot = (brainDef.id + attempt + 1) % this.config.keySlots;
+          const nextSlot = (brainDef.id + attempt + 1) % 18;
           const delay = this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500;
           console.warn(`[Brain:${brainDef.name}] API ${response.status}, rotating to key slot ${nextSlot}, retrying in ${Math.round(delay)}ms`);
           await new Promise(r => setTimeout(r, delay));
@@ -795,21 +640,110 @@ const SmartBrains = {
         }
 
         // ── Read SSE stream and assemble response ──
-        const { text, thoughtText } = await this._readSSEStream(response, brainDef.name, {
-          timeoutMs: this.config.sseTimeoutMs,
-          trackUsage: true,
-          onProxyError: (chunk) => {
-            const errStatus = chunk.status || 500;
-            if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
-              throw Object.assign(new Error(chunk.message || `API ${errStatus}`), { _retryable: true, status: errStatus });
+        const contentType = response.headers.get('content-type') || '';
+        let text = '';
+        let thoughtText = ''; // Track thinking-only responses from Gemini 3.1 Pro
+
+        if (contentType.includes('text/event-stream')) {
+          // Streaming response — read SSE chunks
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          const SSE_IDLE_TIMEOUT = 60000; // 60 seconds per-read idle timeout
+          while (true) {
+            const { done, value } = await Promise.race([
+              reader.read(),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('SSE_IDLE_TIMEOUT')), SSE_IDLE_TIMEOUT)
+              ),
+            ]).catch(err => {
+              if (err.message === 'SSE_IDLE_TIMEOUT') {
+                reader.cancel();
+                throw { _retryable: true, status: 504, message: 'SSE stream idle timeout — no data received for 60s' };
+              }
+              throw err;
+            });
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete SSE lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+
+            for (const line of lines) {
+              // SSE comments (keepalive) start with ':' — skip silently
+              if (line.startsWith(':')) continue;
+
+              if (line.startsWith('data: ')) {
+                const jsonStr = line.slice(6).trim();
+                if (!jsonStr || jsonStr === '[DONE]') continue;
+                try {
+                  const chunk = JSON.parse(jsonStr);
+
+                  // Check for proxy error events from the zero-timeout proxy
+                  if (chunk._proxyError) {
+                    const errStatus = chunk.status || 500;
+                    // Throw retryable errors so the retry loop handles them
+                    if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
+                      throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
+                    }
+                    if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google 400 detail: ${chunk._debug}`);
+                    // 400 with fileData = file reference rejected. Mark for inline-only retry
+                    if (errStatus === 400 && hasFileData) {
+                      throw { _retryable: true, _stripFileData: true, status: 400, message: 'fileData rejected — will retry with inline_data only' };
+                    }
+                    throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
+                  }
+
+                  // Capture token usage from final chunk
+                  if (chunk.usageMetadata) {
+                    const um = chunk.usageMetadata;
+                    const cached = um.cachedContentTokenCount || 0;
+                    const prompt = um.promptTokenCount || 0;
+                    const output = um.candidatesTokenCount || 0;
+                    const fresh = prompt - cached;
+                    // Gemini pricing: $0.00025/1K cached, $0.0025/1K fresh input, $0.01/1K output
+                    const cost = (cached * 0.00025 + fresh * 0.0025 + output * 0.01) / 1000;
+                    const savings = cached > 0 ? ((cached * (0.0025 - 0.00025)) / 1000) : 0;
+                    if (!this._sessionCost) this._sessionCost = { totalCost: 0, totalSavings: 0, totalCached: 0, totalFresh: 0, totalOutput: 0, brainCalls: 0 };
+                    this._sessionCost.totalCost += cost;
+                    this._sessionCost.totalSavings += savings;
+                    this._sessionCost.totalCached += cached;
+                    this._sessionCost.totalFresh += fresh;
+                    this._sessionCost.totalOutput += output;
+                    this._sessionCost.brainCalls++;
+                    if (cached > 0) {
+                      console.log(`[Brain:${brainDef.name}] Tokens: ${prompt} prompt (${cached} CACHED/${fresh} fresh) + ${output} output = $${cost.toFixed(4)} (saved $${savings.toFixed(4)})`);
+                    }
+                  }
+                  const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
+                  for (const p of chunkParts) {
+                    if (p.text && p.thought) {
+                      thoughtText += p.text; // Gemini 3.1 Pro thinking content
+                    } else if (p.text) {
+                      text += p.text;
+                    }
+                  }
+                } catch (e) {
+                  // If it's a retryable error from proxy, rethrow it
+                  if (e._retryable) throw e;
+                  // If it's a real Error (e.g. proxy 400), rethrow — don't silently swallow
+                  if (e instanceof Error && e.message?.startsWith('Proxy error')) throw e;
+                  // Otherwise skip malformed SSE chunks
+                }
+              }
             }
-            if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google 400 detail: ${chunk._debug}`);
-            if (errStatus === 400 && hasFileData) {
-              throw Object.assign(new Error('fileData rejected — will retry with inline_data only'), { _retryable: true, _stripFileData: true, status: 400 });
-            }
-            throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
-          },
-        });
+          }
+        } else {
+          // Non-streaming fallback (plain JSON response)
+          const data = await response.json();
+          const allParts = data?.candidates?.[0]?.content?.parts || [];
+          text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+          if (!text) {
+            thoughtText = allParts.filter(p => p.text && p.thought).map(p => p.text).join('\n') || '';
+          }
+        }
 
         // If regular text is empty but we got thinking content, use that
         if ((!text || text.length < 20) && thoughtText.length >= 20) {
@@ -822,11 +756,10 @@ const SmartBrains = {
           throw new Error('Empty response from AI');
         }
 
-        this._log(`[Brain:${brainDef.name}] ✓ Complete (${text.length} chars, attempt ${attempt + 1})`);
+        console.log(`[Brain:${brainDef.name}] ✓ Complete (${text.length} chars, attempt ${attempt + 1})`);
         return text;
 
       } catch (err) {
-        clearTimeout(timer);
         lastError = err;
         if (err._retryable) {
           if (err._stripFileData && !_fileDataStripped) {
@@ -834,7 +767,7 @@ const SmartBrains = {
             console.warn(`[Brain:${brainDef.name}] fileData rejected by Google — will retry with inline_data only`);
           }
           // Error from zero-timeout proxy — retryable (429/403/500+)
-          const nextSlot = (brainDef.id + attempt + 1) % this.config.keySlots;
+          const nextSlot = (brainDef.id + attempt + 1) % 18;
           console.warn(`[Brain:${brainDef.name}] Proxy reported API ${err.status}, rotating to key slot ${nextSlot}, retrying…`);
         } else if (err.name === 'AbortError') {
           console.warn(`[Brain:${brainDef.name}] Timeout, attempt ${attempt + 1}`);
@@ -851,30 +784,147 @@ const SmartBrains = {
     for (const fbModel of fallbackModels) {
       if (fbModel === triedModel) continue; // skip the one that already failed
       console.warn(`[Brain:${brainDef.name}] ${triedModel} failed — falling back to ${fbModel}`);
-      const ctrl = new AbortController();
-      const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
-        const fbGenConfig = { temperature: 0, maxOutputTokens: 16384 };
+        const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
         if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
-        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % this.config.keySlots };
+        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % 18 };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
-        const _fbHeaders = { 'Content-Type': 'application/json' };
-        if (typeof _sessionToken !== 'undefined' && _sessionToken) _fbHeaders['X-Session-Token'] = _sessionToken;
-        if (typeof _appToken !== 'undefined' && _appToken) _fbHeaders['X-App-Token'] = _appToken;
-        const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: _fbHeaders, body: JSON.stringify(fbBody), signal: ctrl.signal });
+        const ctrl = new AbortController();
+        const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
+        const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fbBody), signal: ctrl.signal });
         clearTimeout(tmr);
-        const { text: fbText, thoughtText: fbThought } = await this._readSSEStream(fbResp, brainDef.name, {
-          timeoutMs: this.config.sseTimeoutMs,
-        });
-                if (fbText && fbText.length >= 20) {
-          this._log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
+        let fbText = '', fbThought = '';
+        const fbReader = fbResp.body.getReader();
+        const fbDec = new TextDecoder();
+        while (true) {
+          const { done, value } = await fbReader.read();
+          if (done) break;
+          for (const line of fbDec.decode(value, { stream: true }).split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const ch = JSON.parse(line.substring(6));
+              if (ch._proxyError) { if (ch.status === 503 || ch.status >= 500) break; continue; }
+              for (const p of (ch?.candidates?.[0]?.content?.parts || [])) {
+                if (p.text && p.thought) fbThought += p.text;
+                else if (p.text) fbText += p.text;
+              }
+            } catch (e) { console.warn('[Brain] parse skip:', e.message); }
+          }
+        }
+        if (fbText && fbText.length >= 20) {
+          console.log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
           return fbText;
         }
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty`);
       } catch (fbErr) {
-        clearTimeout(tmr);
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} failed: ${fbErr.message}`);
+      }
+    }
+
+    // ── Legacy fallback path (kept for backward compat) ──
+    if (brainDef.useProModel && modelName !== this.config.model) {
+      console.warn(`[Brain:${brainDef.name}] All fallbacks failed — last attempt with ${this.config.model}`);
+      try {
+        const fbParts = [{ text: promptText }, ...cleanFileParts];
+        const fbGenConfig = {
+          temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
+          maxOutputTokens: brainDef.maxTokens,
+        };
+        if (useJsonMode) {
+          fbGenConfig.responseMimeType = 'application/json';
+        }
+        // No thinkingConfig for Flash model
+
+        const fbBody = {
+          contents: [{ parts: fbParts }],
+          generationConfig: fbGenConfig,
+          _model: this.config.model,
+          _brainSlot: hasUploadedFiles ? 0 : brainDef.id,
+          // Pass upload key name if available (same key that uploaded the file)
+          ...(uploadKeyName ? { _uploadKeyName: uploadKeyName } : {}),
+        };
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.config.timeout);
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fbBody),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+
+        if (response.ok) {
+          // Handle SSE streaming in fallback too
+          const ct = response.headers.get('content-type') || '';
+          let text = '';
+          let fbThoughtText = '';
+          if (ct.includes('text/event-stream')) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            const FB_SSE_IDLE_TIMEOUT = 60000; // 60 seconds per-read idle timeout
+            while (true) {
+              const { done, value } = await Promise.race([
+                reader.read(),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error('SSE_IDLE_TIMEOUT')), FB_SSE_IDLE_TIMEOUT)
+                ),
+              ]).catch(err => {
+                if (err.message === 'SSE_IDLE_TIMEOUT') {
+                  reader.cancel();
+                  throw { _retryable: true, status: 504, message: 'Fallback SSE stream idle timeout — no data received for 60s' };
+                }
+                throw err;
+              });
+              if (done) break;
+              buf += decoder.decode(value, { stream: true });
+              const lines = buf.split('\n');
+              buf = lines.pop();
+              for (const line of lines) {
+                if (line.startsWith(':')) continue; // Skip keepalive comments
+                if (line.startsWith('data: ')) {
+                  const js = line.slice(6).trim();
+                  if (!js || js === '[DONE]') continue;
+                  try {
+                    const chunk = JSON.parse(js);
+                    // Handle proxy errors in fallback too
+                    if (chunk._proxyError) {
+                      console.warn(`[Brain:${brainDef.name}] Fallback proxy error: ${chunk.status} ${chunk.message}`);
+                      if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google says: ${chunk._debug}`);
+                      break;
+                    }
+                    const cp = chunk?.candidates?.[0]?.content?.parts || [];
+                    for (const p of cp) {
+                      if (p.text && p.thought) { fbThoughtText += p.text; }
+                      else if (p.text) { text += p.text; }
+                    }
+                  } catch (e) { if (e._retryable) throw e; /* skip malformed SSE chunk */ }
+                }
+              }
+            }
+          } else {
+            const data = await response.json();
+            const allParts = data?.candidates?.[0]?.content?.parts || [];
+            text = allParts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+            if (!text) fbThoughtText = allParts.filter(p => p.text && p.thought).map(p => p.text).join('\n') || '';
+          }
+          // Use thought content if regular text is empty
+          if ((!text || text.length < 20) && fbThoughtText.length >= 20) {
+            console.warn(`[Brain:${brainDef.name}] Fallback was thought-only (${fbThoughtText.length} chars) — using thinking content`);
+            text = fbThoughtText;
+          }
+          if (text && text.length >= 20) {
+            console.log(`[Brain:${brainDef.name}] ✓ Fallback complete (${text.length} chars)`);
+            return text;
+          }
+          console.warn(`[Brain:${brainDef.name}] Fallback returned empty — text: ${text.length} chars, thought: ${fbThoughtText.length} chars`);
+        } else {
+          console.warn(`[Brain:${brainDef.name}] Fallback HTTP ${response.status}`);
+        }
+      } catch (fbErr) {
+        console.warn(`[Brain:${brainDef.name}] Fallback also failed:`, fbErr.message);
       }
     }
 
@@ -904,14 +954,14 @@ const SmartBrains = {
     try { return JSON.parse(cleaned); } catch { /* fall through */ }
     
     // Strategy 2: Trailing comma fix
-    try { const r = JSON.parse(fixTrailingCommas(cleaned)); r._recoveryUsed = 2; return r; } catch { /* fall through */ }
+    try { return JSON.parse(fixTrailingCommas(cleaned)); } catch { /* fall through */ }
     
     // Strategy 3: Markdown code block extraction
     const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (match) {
       const inner = match[1].trim();
-      try { const r = JSON.parse(inner); r._recoveryUsed = 3; return r; } catch { /* fall through */ }
-      try { const r = JSON.parse(fixTrailingCommas(inner)); r._recoveryUsed = 3; return r; } catch { /* fall through */ }
+      try { return JSON.parse(inner); } catch { /* fall through */ }
+      try { return JSON.parse(fixTrailingCommas(inner)); } catch { /* fall through */ }
     }
     
     // Strategy 4: First { to last } extraction
@@ -919,15 +969,15 @@ const SmartBrains = {
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) {
       const extracted = cleaned.substring(start, end + 1);
-      try { const r = JSON.parse(extracted); r._recoveryUsed = 4; return r; } catch { /* fall through */ }
-      try { const r = JSON.parse(fixTrailingCommas(extracted)); r._recoveryUsed = 4; return r; } catch { /* fall through */ }
+      try { return JSON.parse(extracted); } catch { /* fall through */ }
+      try { return JSON.parse(fixTrailingCommas(extracted)); } catch { /* fall through */ }
       
       // Strategy 5: Sanitize control characters + retry
-      try { const r = JSON.parse(sanitizeJSON(extracted)); r._recoveryUsed = 5; return r; } catch { /* fall through */ }
-      try { const r = JSON.parse(fixTrailingCommas(sanitizeJSON(extracted))); r._recoveryUsed = 5; return r; } catch { /* fall through */ }
+      try { return JSON.parse(sanitizeJSON(extracted)); } catch { /* fall through */ }
+      try { return JSON.parse(fixTrailingCommas(sanitizeJSON(extracted))); } catch { /* fall through */ }
       
       // Strategy 6: Fix unquoted keys + retry
-      try { const r = JSON.parse(fixUnquotedKeys(fixTrailingCommas(sanitizeJSON(extracted)))); r._recoveryUsed = 6; return r; } catch { /* fall through */ }
+      try { return JSON.parse(fixUnquotedKeys(fixTrailingCommas(sanitizeJSON(extracted)))); } catch { /* fall through */ }
     }
     
     // Strategy 7: Line-by-line brace matching (handles truncated responses)
@@ -950,8 +1000,8 @@ const SmartBrains = {
       }
       if (startIdx >= 0 && endIdx >= startIdx) {
         const block = lines.slice(startIdx, endIdx + 1).join('\n');
-        try { const r = JSON.parse(block); r._recoveryUsed = 7; return r; } catch { /* fall through */ }
-        try { const r = JSON.parse(fixTrailingCommas(block)); r._recoveryUsed = 7; return r; } catch { /* fall through */ }
+        try { return JSON.parse(block); } catch { /* fall through */ }
+        try { return JSON.parse(fixTrailingCommas(block)); } catch { /* fall through */ }
       }
     } catch { /* fall through */ }
     
@@ -998,13 +1048,11 @@ const SmartBrains = {
           try {
             const result = JSON.parse(recovered);
             console.warn(`[SmartBrains] JSON recovered via truncation repair (closed ${openBraces} braces, ${openBrackets} brackets)`);
-            result._recoveryUsed = 8;
             return result;
           } catch { /* fall through */ }
           try {
             const result = JSON.parse(fixTrailingCommas(recovered));
             console.warn(`[SmartBrains] JSON recovered via truncation repair + comma fix`);
-            result._recoveryUsed = 8;
             return result;
           } catch { /* fall through */ }
         }
@@ -1023,8 +1071,7 @@ const SmartBrains = {
     LEGEND_DECODER: ['symbols', 'legend_quality'],
     SPATIAL_LAYOUT: ['building_dimensions', 'floors'],
     SYMBOL_SCANNER: ['sheets', 'totals'],
-    // CODE_COMPLIANCE: schema validation disabled — informational brain, not pricing-critical
-    // AI frequently wraps output differently; retries waste time without improving results
+    CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
     SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits'],
@@ -1059,49 +1106,13 @@ const SmartBrains = {
       return { valid: false, reason: 'JSON parse failed or empty response' };
     }
 
-    // Cost-critical brains must not rely on aggressive JSON recovery
-    const COST_CRITICAL = ['MATERIAL_PRICER', 'FINANCIAL_ENGINE', 'LABOR_CALCULATOR'];
-    if (COST_CRITICAL.includes(brainKey) && parsed._recoveryUsed && parsed._recoveryUsed > 2) {
-      return { valid: false, reason: `Cost-critical brain required JSON recovery strategy ${parsed._recoveryUsed} — forcing retry for cleaner output` };
-    }
-
     const schema = this._SCHEMAS[brainKey];
     if (!schema) return { valid: true };
 
-    // Check required fields exist — also try unwrapping if AI nested the response
-    let missing = schema.filter(field => !(field in parsed));
-    if (missing.length > 0) {
-      // AI sometimes wraps output in an extra object layer — try to unwrap
-      const innerKeys = Object.keys(parsed).filter(k => !k.startsWith('_'));
-      if (innerKeys.length === 1 && typeof parsed[innerKeys[0]] === 'object' && parsed[innerKeys[0]] !== null) {
-        const inner = parsed[innerKeys[0]];
-        const innerMissing = schema.filter(field => !(field in inner));
-        if (innerMissing.length < missing.length) {
-          // Inner object is a better match — promote its fields
-          for (const [k, v] of Object.entries(inner)) { parsed[k] = v; }
-          missing = schema.filter(field => !(field in parsed));
-        }
-      }
-      // AI sometimes returns array directly when object with array field expected
-      if (Array.isArray(parsed) && missing.length === 1 && Array.isArray(schema) && schema.length > 0) {
-        const promoted = { [schema[0]]: parsed };
-        for (const [k, v] of Object.entries(promoted)) { parsed[k] = v; }
-        missing = schema.filter(field => !(field in parsed));
-      }
-    }
+    // Check required fields exist
+    const missing = schema.filter(field => !(field in parsed));
     if (missing.length > 0) {
       return { valid: false, reason: `Missing required fields: ${missing.join(', ')}` };
-    }
-
-    // ── Labor Calculator: ensure overhead phase exists with hours ──
-    if (brainKey === 'LABOR_CALCULATOR' && Array.isArray(parsed.phases)) {
-      const phaseNames = parsed.phases.map(p => (p.name || '').toLowerCase());
-      const hasOverhead = phaseNames.some(pn =>
-        pn.includes('overhead') || pn.includes('project management') || pn.includes('engineering')
-      );
-      if (!hasOverhead) {
-        return { valid: false, reason: 'Missing project overhead phase. Include a "Project Overhead" phase for PM, submittals, and coordination.' };
-      }
     }
 
     // ── Confidence-based check for Symbol Scanner ──
@@ -1131,7 +1142,7 @@ const SmartBrains = {
       // ── BRAIN 1: Symbol Scanner ──────────────────────────────
       SYMBOL_SCANNER: () => `You are a CONSTRUCTION DOCUMENT SYMBOL SCANNER — the #1 expert at finding and counting symbols on ELV floor plans.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Scan EVERY sheet and count EVERY device symbol. Be exhaustive.
@@ -1186,8 +1197,8 @@ Return ONLY valid JSON:
       // ── BRAIN 2: Code Compliance ─────────────────────────────
       CODE_COMPLIANCE: () => `You are a CONSTRUCTION CODE COMPLIANCE EXPERT specializing in ELV/low voltage systems.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
-JURISDICTION: ${_sanitizeForPrompt(context.codeJurisdiction || 'General — apply national codes', 200)}
+PROJECT: ${context.projectName} | Type: ${context.projectType}
+JURISDICTION: ${context.codeJurisdiction || 'General — apply national codes'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Review these construction documents for code violations, warnings, and compliance issues.
@@ -1206,7 +1217,7 @@ For EACH issue found, classify severity:
 🟡 WARNING — Potential non-compliance, needs verification
 🔵 INFO — Best practice recommendation
 
-Return ONLY a valid JSON object. The top-level keys MUST be "issues", "summary", "permits_required", and "inspections_required" — no wrapper object, no array, no markdown:
+Return ONLY valid JSON:
 {
   "issues": [
     {
@@ -1221,13 +1232,12 @@ Return ONLY a valid JSON object. The top-level keys MUST be "issues", "summary",
   "summary": { "critical": 0, "warning": 0, "info": 0 },
   "permits_required": ["Fire alarm permit","Low voltage permit"],
   "inspections_required": ["AHJ fire alarm inspection"]
-}
-If no code issues are found, return: {"issues":[],"summary":{"critical":0,"warning":0,"info":0},"permits_required":[],"inspections_required":[]}`,
+}`,
 
       // ── BRAIN 3: MDF/IDF Analyzer ────────────────────────────
       MDF_IDF_ANALYZER: () => `You are a TELECOM INFRASTRUCTURE SPECIALIST analyzing MDF/IDF/TR rooms.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
+PROJECT: ${context.projectName} | Type: ${context.projectType}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Identify and detail EVERY telecom room (MDF, IDF, TR, Server Room, Head-End) on the drawings.
@@ -1266,22 +1276,22 @@ Return ONLY valid JSON:
       // ── BRAIN 4: Cable & Pathway ─────────────────────────────
       CABLE_PATHWAY: () => `You are a CABLE & PATHWAY ENGINEER analyzing cable runs, conduit systems, and pathway infrastructure for ELV construction.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
+PROJECT: ${context.projectName} | Type: ${context.projectType}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 SPATIAL LAYOUT DATA (from floor plan analysis — use this to calculate zone-based run lengths):
 ${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 3000)}
 
-BUILDING HEIGHTS: Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
+USER-PROVIDED BUILDING DIMENSIONS: Width=${context.floorPlateWidth || 0}ft, Depth=${context.floorPlateDepth || 0}ft, Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
 
 YOUR MISSION: Analyze ALL cable pathways, conduit (every type and size), cable tray, underground routes, and estimate cable/conduit quantities WITH PER-ZONE RUN LENGTHS.
 
 ═══ CABLE RUN LENGTH CALCULATION — CRITICAL ═══
 For each cable type, break the run estimate down by ZONE (floor area served by one IDF):
-- Use the Spatial Layout data above — it includes PER-SHEET scale and dimensions
-- Each zone has a "sheet_id" linking it to the correct sheet's scale and dimensions
+- Use the Spatial Layout data above to know where each IDF is and which zones it serves
 - For each zone, calculate: horizontal distance from zone centroid to IDF + ceiling height + 15ft slack
-- Manhattan distance formula: |zone_x - IDF_x| + |zone_y - IDF_y| (in feet, using that sheet's dimensions)
+- Manhattan distance formula: |zone_x - IDF_x| + |zone_y - IDF_y| (in feet)
+- If user provided floor plate dimensions, use those. Otherwise estimate from plan scale.
 - Add ceiling height for the vertical stub-up (default 10ft)
 - Add 15ft for termination, dressing, and slack loops
 - DO NOT use a flat 150ft average — calculate each zone separately
@@ -1352,7 +1362,7 @@ Return ONLY valid JSON:
     }
   ],
   "backbone_cables": [
-    { "type": "fiber_sm_os2", "strand_count": 12, "runs": 3, "avg_length_ft": 300, "total_length_ft": 900 }
+    { "type": "fiber_sm_os2", "strand_count": 12, "runs": 3, "avg_length_ft": 300 }
   ],
   "pathways": [
     { "type": "cable_tray", "size": "12x4", "length_ft": 500, "location": "Above ceiling corridors" },
@@ -1380,10 +1390,10 @@ Return ONLY valid JSON:
       // ── BRAIN 5: Special Conditions ──────────────────────────
       SPECIAL_CONDITIONS: () => `You are a CONSTRUCTION SPECIAL CONDITIONS ANALYST for ELV (Extra Low Voltage) projects. You must identify EVERY item that requires subcontracting, renting, purchasing, or coordinating beyond standard ELV technician labor.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
-LOCATION: ${_sanitizeForPrompt(context.projectLocation || 'Not specified', 200)}
-PREVAILING WAGE: ${_sanitizeForPrompt(context.prevailingWage || 'Not specified', 100)}
-WORK SHIFT: ${_sanitizeForPrompt(context.workShift || 'Standard', 100)}
+PROJECT: ${context.projectName} | Type: ${context.projectType}
+LOCATION: ${context.projectLocation || 'Not specified'}
+PREVAILING WAGE: ${context.prevailingWage || 'Not specified'}
+WORK SHIFT: ${context.workShift || 'Standard'}
 
 YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment rental, civil work, traffic control, site preparation, and specialty item needed to COMPLETE this installation from start to finish.
 
@@ -1532,9 +1542,16 @@ YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment r
     - Generator rental (if no permanent power available)
     - Portable restroom (remote locations)
 
-15. TRAVEL & PER DIEM:
-    NOTE: Travel costs are handled separately by the user in the Travel & Costs step.
-    Just note whether the project appears to be local or out-of-town. Do NOT calculate travel costs.
+15. TRAVEL & PER DIEM (if project location is NOT local — over 60 miles from Rancho Cordova, CA):
+    - Hotel/lodging: estimate $150-$250/night per worker (use GSA rates for location)
+    - Per diem meals: $60-$79/day per worker (GSA M&IE rate)
+    - Vehicle mileage or rental: truck rental + fuel for crew and materials
+    - Airfare (if 500+ miles) for crew rotation
+    - Number of workers × number of project days = TOTAL TRAVEL COST
+    - Weekend trips home (if project > 2 weeks, budget 1 round-trip/worker/2 weeks)
+    - Parking, tolls, and incidental expenses
+    - CALCULATE: (hotel + per_diem) × workers × project_days = travel subtotal
+    - This is often 15-25% OF TOTAL PROJECT COST on out-of-town work
 
 16. TRANSIT / RAILROAD / INFRASTRUCTURE-SPECIFIC (for Amtrak, BNSF, UP, light rail, metro, airport, DOT):
     - Railroad flagmen/RWIC (Railroad Worker in Charge): $1,000-$1,500/DAY — MANDATORY for any track-side work
@@ -1559,41 +1576,11 @@ YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment r
     - Builder's risk insurance
     - Umbrella/excess liability (if project requires higher limits)
 
-═══ CIVIL WORK COST REFERENCE (USE THESE — DO NOT GUESS LOWER) ═══
-DIRECTIONAL BORING:
-- 2" conduit: $25-$60 per linear foot (+ $2,500-$6,000 mobilization per rig)
-- 3" conduit: $35-$80 per linear foot
-- 4" conduit: $45-$100 per linear foot
-- PVC Sch 80 under railroad/highway: use HIGH end ($60-$100/LF) due to depth and safety requirements
-- Minimum bore job: $5,000 (even for short runs — mobilization dominates)
+CRITICAL: Be EXHAUSTIVE. If you see ANY exterior conduit runs, underground pathways, parking lot crossings, road crossings, or rooftop equipment on the plans, you MUST include the associated civil work, trenching, boring, traffic control, and restoration. Missing these items leads to MASSIVE cost overruns.
 
-TRENCHING:
-- 24" deep in landscape: $8-$22 per linear foot
-- 24" deep through asphalt: $18-$42 per linear foot
-- 36" deep in landscape: $12-$30 per linear foot
-- Backfill + compaction: add $3-$10 per linear foot
-- Sand bedding required for all conduit: add $3-$6 per linear foot
+CRITICAL — OUT-OF-TOWN PROJECTS: If the project location is NOT within 60 miles of Rancho Cordova, CA, travel & per diem is MANDATORY. Calculate: crew_size × daily_rate × project_duration_days. This is typically $150K-$400K+ on large out-of-town projects and is the #1 reason estimates come in too low.
 
-SURFACE RESTORATION (often forgotten — MAJOR cost):
-- Asphalt sawcut + remove + repave: $8-$22 per square foot (trench width × length)
-- Concrete sawcut + remove + repour: $12-$32 per square foot
-- Landscape/sod restoration: $4-$15 per linear foot
-
-CORE DRILLING:
-- 2" hole: $75-$200 per hole
-- 4" hole: $150-$400 per hole
-- 6" hole: $250-$600 per hole
-- Mobilization: $500-$1,200 per trip
-
-═══ IMPORTANT: COST ESTIMATES ARE FOR REFERENCE ONLY ═══
-Your cost estimates for subcontractors, civil work, and equipment rentals are INFORMATIONAL.
-They help the estimator understand the scope. Do NOT inflate costs with mandatory minimums.
-Provide realistic cost ranges based on what you see in the plans and specs.
-
-Travel & per diem costs are handled separately by the user — do NOT calculate travel totals.
-
-For transit/railroad projects: identify RWIC/flagman requirements, RPL insurance needs, and safety requirements,
-but let the estimator determine actual costs based on their subcontractor quotes.
+CRITICAL — TRANSIT/RAILROAD PROJECTS: If the project is for Amtrak, BNSF, a transit authority, or any railroad, you MUST include RWIC/flagman costs, RPL insurance, safety training, and work window restrictions. Railroad flagmen alone can cost $30,000-$80,000+ on a multi-week project.
 
 Return ONLY valid JSON:
 {
@@ -1605,20 +1592,18 @@ Return ONLY valid JSON:
     { "type": "PVC Schedule 40 2-inch", "quantity_ft": 200, "location": "Underground parking lot to building", "install_method": "direct burial 24-inch depth" }
   ],
   "civil_work": [
-    { "scope": "Directional boring", "distance_ft": 500, "diameter": "2-inch", "surface": "Under parking lot/railroad ROW", "est_cost_range": "$20000-$35000", "rate_per_ft": "$40-$60" },
-    { "scope": "Open-cut trenching", "distance_ft": 300, "depth_in": 24, "surface": "Grass/landscape", "est_cost_range": "$4200-$9000", "rate_per_ft": "$14-$30" }
+    { "scope": "Directional boring", "distance_ft": 150, "diameter": "2-inch", "surface": "Under parking lot", "est_cost_range": "$3000-$5000" },
+    { "scope": "Open-cut trenching", "distance_ft": 300, "depth_in": 24, "surface": "Grass/landscape", "est_cost_range": "$2000-$3500" }
   ],
   "traffic_control": [
-    { "item": "Certified Flaggers", "duration_days": 15, "daily_rate": 650, "reason": "Road crossing boring operation and track-side work" },
-    { "item": "Traffic Control Plan", "est_cost": 2500, "reason": "Required by city/railroad for lane/track closure" },
-    { "item": "Cones/barricades/arrow board", "duration_days": 15, "daily_rate": 350, "reason": "Parking lot and roadway work zone safety" }
+    { "item": "Certified Flaggers", "duration_days": 3, "daily_rate": 450, "reason": "Road crossing boring operation" },
+    { "item": "Traffic Control Plan", "est_cost": 1500, "reason": "Required by city for lane closure" },
+    { "item": "Cones/barricades/arrow board", "duration_days": 3, "daily_rate": 200, "reason": "Parking lot work zone safety" }
   ],
   "subcontractors": [
     { "trade": "Core Drilling", "scope": "12 penetrations through concrete floors", "est_cost_range": "$3000-$5000" },
-    { "trade": "Directional Boring", "scope": "500ft bore under parking/railroad ROW for 2-inch PVC Sch 80", "est_cost_range": "$20000-$35000" },
-    { "trade": "Electrical Contractor", "scope": "Dedicated 20A circuits to each IDF, new sub-panel, grounding", "est_cost_range": "$80000-$150000" },
-    { "trade": "Asphalt/Concrete Patching", "scope": "Restore sawcuts and boring entry/exit pits", "est_cost_range": "$5000-$12000" },
-    { "trade": "Landscape Restoration", "scope": "Sod replacement, irrigation repair after trenching", "est_cost_range": "$3000-$8000" }
+    { "trade": "Directional Boring", "scope": "150ft bore under parking lot for 2-inch conduit", "est_cost_range": "$4500-$7000" },
+    { "trade": "Asphalt Patching", "scope": "Restore 2 saw cuts in parking lot", "est_cost_range": "$800-$1500" }
   ],
   "setup_teardown": [
     { "item": "Mobilization", "est_cost": 2500, "details": "Initial delivery of tools, lifts, materials" },
@@ -1663,15 +1648,8 @@ Return ONLY valid JSON:
   },
   "risks": [
     { "risk": "Pre-1980 building — potential asbestos", "mitigation": "Environmental survey before penetrations", "severity": "high" }
-  ],
-  "true_change_orders": [
-    { "description": "Scope item NOT in plans or specs that may arise during construction", "severity": "medium", "estimated_impact": "$5,000-$10,000", "justification": "Not shown on plans, not called out in specifications — only discoverable during construction or site walk" }
   ]
-}
-
-═══ CRITICAL: BID vs. CHANGE ORDER DISTINCTION ═══
-Everything you identify above (equipment rentals, subcontractors, permits, civil work, etc.) that IS shown on the plans or called out in the specifications MUST be included in the bid — these are NOT change orders.
-The "true_change_orders" field is ONLY for items that are NOT in the plans AND NOT in the specs but could reasonably arise during construction. Examples: hidden site conditions, ambiguous scope boundaries, code requirements not addressed in contract documents.`,
+}`,
 
       // ── BRAIN 6: Material Pricer ─────────────────────────────
       MATERIAL_PRICER: () => {
@@ -1711,7 +1689,7 @@ The "true_change_orders" field is ONLY for items that are NOT in the plans AND N
 
         return `You are a CONSTRUCTION MATERIAL PRICING SPECIALIST. Calculate exact material costs.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName, 200)}
+PROJECT: ${context.projectName}
 PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}× multiplier)
 MATERIAL MARKUP: ${context.markup?.material || 50}%
 
@@ -1719,163 +1697,180 @@ MATERIAL MARKUP: ${context.markup?.material || 50}%
 ${disciplineChecklist}
 
 ═══ VERIFIED DEVICE COUNTS (from Triple-Read Consensus — USE THESE EXACT QUANTITIES) ═══
-${JSON.stringify(consensusCounts, null, 2).substring(0, 3000)}
+${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
 
-═══ EQUIPMENT SCHEDULE (AUTHORITATIVE — overrides symbol counts) ═══
+═══ EQUIPMENT SCHEDULE DATA (AUTHORITATIVE — overrides symbol counts if present) ═══
 ${(() => {
   const schedData = context.wave1?.ANNOTATION_READER?.schedule_data;
   if (schedData && Object.keys(schedData).length > 0) {
-    return `Architect's definitive quantities. Schedule counts ALWAYS win over symbol counts. Do NOT add symbol-counted devices on top — they are the SAME devices.
-${JSON.stringify(schedData, null, 2).substring(0, 2500)}`;
+    return `The following equipment schedule was extracted from the drawings. These are the ARCHITECT'S DEFINITIVE quantities.
+If the schedule says 56 cameras, that is the correct count — even if symbol counting found a different number.
+SCHEDULE DATA:
+${JSON.stringify(schedData, null, 2).substring(0, 4000)}
+
+RULES FOR SCHEDULE vs. SYMBOL CONFLICTS:
+- Schedule counts ALWAYS win over symbol counts
+- Do NOT add symbol-counted devices ON TOP of schedule devices — they are the SAME devices
+- If the schedule specifies model numbers, use those to determine the correct pricing category`;
   }
-  return 'No equipment schedule — use consensus counts as primary source.';
+  return 'No equipment schedule found — use consensus counts above as primary source.';
 })()}
 
+DETAILED SYMBOL DATA (for reference — schedule and consensus quantities take priority):
+${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.sheets || context.wave1?.SYMBOL_SCANNER || {}, null, 2).substring(0, 5000)}
+
+ANNOTATION NOTES (check for OFCI items — Owner Furnished Contractor Installed):
 ${(() => {
   const annotations = context.wave1?.ANNOTATION_READER?.annotations || [];
-  const ofci = annotations.filter(a => /furnished|ofci|owner furnished|by others/i.test(a.text || ''));
-  return ofci.length > 0 ? `⚠️ OFCI ITEMS (labor only, do NOT price materials):\n${ofci.map(a => `- ${a.text}`).join('\n')}` : '';
-})()}
-
-MDF/IDF ROOMS: ${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 2000)}
-
-CABLE PATHWAYS: ${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 2000)}
-
-PRICING DATABASE (use EXACT prices — do NOT deviate):
-${(context.pricingContext || 'Use industry standard pricing').substring(0, 8000)}
-
-═══ PRICING RULES ═══
-Use ONLY ${tier.toUpperCase()} tier × ${regionMult} region × project type multiplier (if any). Do NOT invent prices — use closest DB match. Use exact DB key prices (e.g. fixed_indoor_dome), not interpolated values.
-${(() => {
-  const isTransit = (context.projectType || '').toLowerCase().includes('transit') ||
-                    (context.projectType || '').toLowerCase().includes('railroad') ||
-                    (context.projectName || '').toLowerCase().includes('amtrak') ||
-                    (context.projectName || '').toLowerCase().includes('rail');
-  if (isTransit) {
-    const ptm = typeof PRICING_DB !== 'undefined' && PRICING_DB.projectTypeMultipliers?.transit_railroad;
-    return `
-═══ TRANSIT/RAILROAD EQUIPMENT PRICING ═══
-This is a TRANSIT/RAILROAD project. Use commercial/industrial grade but at REAL distributor prices:
-- Cameras: Use MID or PREMIUM tier from DB. Axis vandal-rated (IK10, IP67) cameras cost $500-$1,500 each through distribution (ADI/Anixter). Example: Axis P3265-LVE ~$380, P3268-LV ~$780, Q6315-LE PTZ ~$1,200.
-- NVRs/Servers: $650-$4,500 depending on channel count. Most station NVRs are 16-32ch.
-- Switches: Managed PoE switches $180-$950 each. Cisco IE series at distributor cost.
-Use the pricing database values directly with the regional multiplier. Do NOT apply a separate transit equipment multiplier.`;
+  const ofci = annotations.filter(a => 
+    (a.text || '').toLowerCase().includes('furnished') || 
+    (a.text || '').toLowerCase().includes('ofci') ||
+    (a.text || '').toLowerCase().includes('owner furnished') ||
+    (a.text || '').toLowerCase().includes('by others')
+  );
+  if (ofci.length > 0) {
+    return `⚠️ OFCI ITEMS FOUND — Do NOT price these as materials (labor only):
+${ofci.map(a => `- ${a.text}`).join('\n')}`;
   }
-  return '';
+  return 'No OFCI annotations found.';
 })()}
 
-═══ ABSOLUTE MAXIMUM UNIT COSTS — HARD LIMIT — ANY PRICE ABOVE THESE IS WRONG ═══
-These are the MAXIMUM allowed prices. If your unit cost exceeds ANY of these, REDUCE IT to the max:
-- Fixed dome camera (ANY): MAX $800 | Typical: $300-$780
-- PTZ camera: MAX $1,800 | Typical: $850-$1,200
-- Panoramic camera: MAX $1,800 | Typical: $900-$1,400
-- Multi-sensor camera: MAX $1,500 | Typical: $900-$1,400 (Axis P4708-PLVE = $980 at distributor)
-- Fisheye camera: MAX $1,000
-- LPR camera: MAX $2,000
-- NVR 8ch $800 | 16ch $1,400 | 32ch $2,500 | 64ch server $4,500
-- PoE switch 8p $250 | 24p $700 | 48p $1,100
-- AC panel $1,000 | Reader $250 | Strike $200
-- Monitor 22" $350 | 32" $600
-- Camera pole $900 | Patch panel $120
+MDF/IDF ROOMS & EQUIPMENT:
+${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 4000)}
 
-CRITICAL: A camera that costs $8,750 is WRONG. No IP camera sold through distribution costs that much.
-Real distributor prices (ADI/Anixter/Wesco, 40-60% off MSRP):
-  Axis P3267-LME fixed dome = $730 | Axis P3268-LVE outdoor dome = $780
-  Axis P3738-PLE 4x4K panoramic = $1,400 | Axis P4708-PLVE multi-sensor = $980
-  Axis Q6315-LE PTZ = $1,200 | Hanwha PNM-9081VQ multi-sensor = $1,200-$1,500
+CABLE QUANTITIES & PATHWAYS:
+${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)}
 
-USE AXIS CAMERAS for transit/government projects unless spec says otherwise. Default manufacturer for CCTV is Axis.
+PRICING DATABASE (use these exact prices):
+${context.pricingContext || 'Use industry standard pricing'}
 
-═══ CRITICAL RULES ═══
-1. Create category for EVERY selected discipline — missing one is a FATAL ERROR
-2. Schedule quantities override symbol counts (same devices, not additive)
-3. Use EXACT prices from pricing database × ${regionMult} regional multiplier. Verify: Qty × Unit Cost × ${regionMult} = Extended
-4. Access Control: include panels, readers, contacts, REX, strikes/maglocks, DPS, cabling, power supplies
-5. Each camera/access point: include mount hardware, cable, connectors, head-end (NVR, switch, license)
-6. Include MDF/IDF: racks, patch panels, UPS, grounding (TMGB/TGB), cable management
-7. Include backbone/riser cables, ~150ft/drop for station cable
-8. Do NOT price OFCI items as materials — labor only
-9. Include UPS, inverters, ATS, battery backup, PDUs, surge protectors from all sources
-10. EVERY item MUST have non-empty "mfg" and "partNumber" fields
+═══ PRICING GUARDRAILS (HARD LIMITS — violations will be rejected) ═══
+These are maximum allowable unit costs. If your calculated cost exceeds these, use the maximum listed.
+Even for transit-rated, ruggedized, or specialty items, the multiplier must not exceed 2.5× the premium tier.
 
-═══ GENERAL CONDITIONS (MANDATORY — every project has these) ═══
-11. ALWAYS create a "General Conditions" category with:
-    - Performance & Payment Bonds: typically 1.5-2.5% of total contract value
-    - General Liability Insurance: typically 1% of contract
-    - Mobilization/Demobilization: typically 1-2% of contract (trailers, temp power, setup/teardown)
-    - Permits & Fees: building permits, inspection fees
-    For TRANSIT/RAILROAD: ALSO include Railroad Protective Liability Insurance (RRPLI) at $25,000-$65,000
-    For GOVERNMENT: Include prevailing wage compliance costs
-    General Conditions typically total 8-15% of direct costs. If yours is below 5%, you are UNDERESTIMATING.
+| Equipment Type | Max Unit Cost |
+|---------------|---------------|
+| Fixed Dome Camera (indoor) | $1,300 |
+| Fixed Dome Camera (outdoor) | $1,800 |
+| PTZ Camera (outdoor) | $8,750 |
+| Multi-sensor Panoramic 180° | $7,000 |
+| Multi-sensor Fisheye 360° | $8,750 |
+| LPR/ANPR Camera | $8,000 |
+| NVR/VMS Server | $16,250 |
+| PoE Switch 8-port | $950 |
+| PoE Switch 24-port | $2,375 |
+| PoE Switch 48-port | $3,750 |
+| Access Control Panel 2-door | $2,125 |
+| Card Reader | $1,200 |
+| Electric Strike | $700 |
+| Surveillance Monitor 22" | $1,125 |
+| Surveillance Monitor 32" | $1,875 |
+| Camera Pole 20ft | $3,000 |
+| Patch Panel 48-port | $650 |
 
-═══ TRENCHING & CIVIL WORK (CRITICAL — #1 CAUSE OF UNDERESTIMATION) ═══
-12. Sawcutting and trenching MUST be priced as SCOPE OF WORK per linear foot, NOT as equipment rental.
-    When drawings show "sawcut and trench for conduit" with a linear footage quantity, price the WORK:
-    - ALL-IN rate includes: sawcutting pavement, excavating trench, installing conduit in trench, sand bedding, backfill, compaction, surface restoration (repave/repour)
-    - Concrete ALL-IN: MINIMUM $85/LF, typical $120-$290/LF depending on depth and tier
-    - Asphalt ALL-IN: MINIMUM $65/LF, typical $90-$225/LF depending on depth and tier
-    - Railroad/transit heavy: MINIMUM $160/LF, typical $200-$420/LF (includes RWIC overhead, multiple conduits)
-    - A concrete saw is a TOOL (~$150/day rental). The WORK of sawcutting 2000 LF of concrete is $10,000-$16,000 for the sawcutting ALONE, plus trenching, plus conduit, plus restoration.
-    - EXAMPLE: 2100 LF of sawcut+trench through concrete at a railroad station = 2100 × $280/LF = $588,000 (not $1,500 for a saw rental)
-    ⚠️ CHECK: If your sawcut+trench rate is below $85/LF, you are WRONG. $30-$50/LF is the cost to SAW only, not the all-in work.
-    Also include: underground conduit ($7-$15/LF), handholes ($650-$1,500 each, typical 20-30 on a station project), pull boxes ($350-$800 each)
-    DO NOT confuse equipment rental costs with scope-of-work costs. This error causes $200K-$500K underestimates.
+Formula: Max = PRICING_DB premium price × 2.5 (accounts for transit-rated/ruggedized)
+If your unit cost exceeds the max, CLAMP it to the max value.
 
-═══ UPS SIZING — THIS IS THE #2 CAUSE OF UNDERESTIMATION ═══
-13. ⚠️ CRITICAL: For transit/railroad/government station projects, the UPS is ALWAYS station-sized (10kVA+).
-    DO NOT use a $725 or $3,000 rack-mount UPS for a transit station. THAT IS WRONG.
-    MANDATORY pricing for transit station UPS:
-    - 50kVA station UPS unit: $50,000-$65,000
-    - UPS battery bank (sealed lead acid, 4-string minimum): $60,000-$100,000
-    - Battery cabinet/rack: $3,000-$8,000
-    - TOTAL UPS SYSTEM for a transit station: $110,000-$175,000
-    - 100kVA station UPS: $85,000-$220,000 (plus batteries $80K-$150K)
-    - Station inverter/charger: $60,000-$190,000
-    If the project is Amtrak, BART, Metro, railroad, or any transit station → the UPS MUST be station-sized.
-    A $3,000 UPS in a transit station bid is a $130,000 MISTAKE. The batteries ALONE cost $60K-$100K.
-    CHECK: If your UPS line item is under $25,000, you are WRONG. Go back and fix it.
+CRITICAL RULES:
+1. You MUST create a category for EVERY discipline listed above — do NOT skip any discipline that has devices in the consensus counts or symbol data
+2. If the EQUIPMENT SCHEDULE exists, use its quantities as the DEFINITIVE source. Do NOT add symbol-counted devices on top of schedule quantities — they are the SAME devices seen from different sources
+3. If NO schedule exists, use consensus counts: if consensus says 24 cameras, price EXACTLY 24 cameras
+4. For Access Control: include controllers, card readers, door contacts, REX devices, electric strikes/maglocks, door position switches, cabling, and power supplies
+5. For each camera or access point, include mounting hardware, cable, connectors, and associated head-end equipment (NVR, switches, license)
+6. Use the EXACT prices from the pricing database. Apply the ${regionMult}× regional multiplier to all unit costs
+7. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost (VERIFY YOUR MATH on every single row)
+8. Include ALL MDF/IDF equipment: racks, patch panels, UPS, grounding busbars (TMGB/TGB), cable management
+9. Include backbone/riser cables from CABLE QUANTITIES section — do NOT omit fiber or copper backbone
+10. Cable quantities: use ~150ft average per data drop, verify against CABLE_PATHWAY data
+11. Do NOT price OFCI (Owner Furnished) items as materials — include labor only for installation
+12. NEVER exceed the pricing guardrail maximums listed above — clamp to the max if your calculation is higher
 
-═══ ELECTRICAL DISTRIBUTION (include if in scope) ═══
-14. Include dedicated power circuits if drawings show them:
-    - 20A circuit all-in: $1,500-$4,000/circuit
-    - 30A circuit all-in: $2,500-$6,500/circuit
-    - New panelboards: $800-$9,000 depending on amperage
-    - New poles with foundations: $8,000-$38,000/pole
-    - Handholes/pull boxes: $650-$3,000 each (minimum $650 per handhole — includes lid, frame, and installation)
-    If electrical is subcontracted, ensure the sub amount covers ALL circuits, panels, and site electrical.
+═══ UPS, INVERTERS & POWER EQUIPMENT (MANDATORY) ═══
+You MUST check ALL sources (schedules, plans, specs) for power equipment and price them:
+- UPS units — price based on kVA rating and form factor (rack-mount, tower)
+- Inverters — power inverters, solar inverters, frequency inverters
+- Transfer switches (ATS/STS) — automatic or manual
+- Battery backup systems (standalone or integrated)
+- Power supplies for access control, fire alarm, intrusion (Altronix, LifeSafety Power)
+- PDUs — basic, metered, switched, per-outlet monitoring
+- Surge protectors / SPDs (Surge Protective Devices)
+These are HIGH-VALUE items. Missing a $5,000 UPS or $3,000 transfer switch destroys your margin.
 
-═══ BOLLARDS (include if shown on drawings) ═══
-14b. Security bollards with foundations:
-    - Fixed steel bollard with concrete foundation: $750-$1,200/each installed
-    - Removable bollard: $900-$1,500/each
-    - Bollard with lighting: $1,200-$2,500/each
-    - Typical transit station: 15-40 bollards at perimeter/platform areas
-    If drawings show bollards, create a line item. This is often $15,000-$40,000 that gets missed.
+═══ DOCUMENT-SPECIFIED MANUFACTURERS & PART NUMBERS ═══
+Check the Spec Cross-Reference data below for SPECIFIED PRODUCTS:
+${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.specified_products || [], null, 2).substring(0, 3000)}
 
-═══ NON-ELV SCOPES (include ONLY if in our contract scope) ═══
-15. If construction documents show non-ELV scopes that WE are responsible for, create categories for:
-    - Glazing/window film: blast film $200-$550/window, glazing replacement $120-$320/SF
-    - Masonry: infill openings $800-$2,200/SF
-    - HVAC: mini-split for IDF/MDF $6,000-$18,000 each
-    - Finishes: paint touchup, ceiling repair, drywall patch (use allowances)
-    - Signage: $400-$1,500/sign
-    - Survey: $5,000-$22,000 (construction survey + utility locating)
-    These are REAL costs that add up to $50K-$150K on security/station projects.
+SPECIFIED POWER EQUIPMENT:
+${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.power_equipment_found || [], null, 2).substring(0, 2000)}
 
-═══ SPECIFIED PRODUCTS ═══
-${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.specified_products || [], null, 2).substring(0, 1500)}
-${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.power_equipment_found || [], null, 2).substring(0, 1000)}
+SCHEDULE DATA (may include manufacturer and model):
+${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || [], null, 2).substring(0, 3000)}
 
-DEFAULT MANUFACTURERS (when not specified): Cabling: Panduit/CommScope/Corning | CCTV: Axis/Hanwha/Bosch/Genetec | Access: HID/Lenel/Mercury/Assa Abloy | Fire: Notifier/EST/Simplex | AV: Crestron/Extron/QSC | Network: Cisco/Aruba | Power: APC/Eaton/Altronix
+RULES FOR PART NUMBERS (MANDATORY — items without these are REJECTED):
+- If the specs or plans SPECIFY a manufacturer and part number, USE THEM EXACTLY
+- If specs say "or approved equal", use the specified product as primary
+- If NO manufacturer is specified, use standard industry products:
+  * Structured Cabling: Panduit, CommScope/Systimax, Corning (fiber), Belden
+  * CCTV: Axis Communications, Hanwha/Samsung, Bosch, Genetec (VMS)
+  * Access Control: HID (readers), Lenel/LenelS2, Mercury (panels), Assa Abloy (locks)
+  * Fire Alarm: Notifier/Honeywell, EST/Edwards, Simplex, Bosch
+  * Audio Visual: Crestron, Extron, QSC, Samsung (displays), Biamp
+  * Network: Cisco, Aruba, Juniper
+  * Power: APC/Schneider (UPS), Eaton, Altronix (power supplies), LifeSafety Power
+- EVERY item in the "items" array MUST have non-empty "mfg" and "partNumber" fields
+- If you don't know the exact part number, use the manufacturer's common model series (e.g., "P3245-V" for Axis dome, "iCLASS SE R10" for HID reader)
+- BLANK mfg or partNumber is a FATAL ERROR — the system will REJECT your output
 
-═══ WASTE & SPARES (MANDATORY) ═══
-Cable waste +12%, conduit +8%, spare parts/attic stock 5% of each device qty (rounded up), consumables 2.5% of total material cost, connector overage 15%
+═══ MANDATORY SELF-CHECK (do this before returning) ═══
+Before responding, verify:
+1. Your output includes a category for EACH selected discipline listed above
+2. EVERY item has a non-empty "mfg" field (manufacturer name)
+3. EVERY item has a non-empty "partNumber" field (model or part number)
+If ANY item is missing mfg or partNumber, FIX IT NOW before returning.
+If ANY selected discipline is missing from your categories array, ADD IT NOW with all required materials.
+Missing an entire discipline is a FATAL ERROR that will cause catastrophic underestimation.
 
-═══ SELF-CHECK ═══
-Verify before returning: every discipline has a category, every item has mfg + partNumber, math is correct.
+═══ WASTE FACTOR, SPARE PARTS & CONSUMABLES ═══
+You MUST add these to your output — they are REAL costs that every project incurs:
+1. CABLE WASTE FACTOR: Add 12% to all cable quantities. Cable gets cut, pulled wrong, rejected, damaged. Price the waste.
+2. CONDUIT WASTE: Add 8% to all conduit quantities. Mis-cuts, damaged sticks, offcuts.
+3. SPARE PARTS / ATTIC STOCK: Add a category called "Spare Parts & Attic Stock" with 5% of each device type quantity (cameras, readers, detectors, outlets, etc.) rounded up. Most specs REQUIRE attic stock delivery to owner.
+4. SMALL TOOLS & CONSUMABLES: Add a line item "Small Tools & Consumables" = 2.5% of total material cost. This covers drill bits, saw blades, anchors, screws, bolts, zip ties, tape, markers, velcro, cable lube, etc.
+5. CONNECTOR & TERMINATION SUPPLIES: Ensure you have enough RJ45 connectors, splice cassettes, heat shrink, crimp connectors, wire nuts, etc. (at least 15% overage on connectors).
 
 Return ONLY valid JSON:
-{"categories":[{"name":"Structured Cabling","items":[{"item":"Cat 6A Plenum Cable","qty":30000,"unit":"ft","unit_cost":0.32,"ext_cost":9600.00,"mfg":"Panduit","partNumber":"PUP6AV04BU-CEG"}],"subtotal":45200.00},{"name":"Spare Parts & Attic Stock","items":[{"item":"Spare cameras (5%)","qty":2,"unit":"ea","unit_cost":380,"ext_cost":760}],"subtotal":760},{"name":"Small Tools & Consumables","items":[{"item":"Consumables","qty":1,"unit":"lot","unit_cost":0,"ext_cost":0}],"subtotal":0}],"grand_total":125000,"waste_factor_total":0,"spare_parts_total":0,"consumables_total":0,"markup_pct":${context.markup?.material || 50},"total_with_markup":156250}`;
+{
+  "categories": [
+    {
+      "name": "Structured Cabling",
+      "items": [
+        { "item": "Cat 6A Plenum Cable", "qty": 30000, "unit": "ft", "unit_cost": 0.32, "ext_cost": 9600.00, "mfg": "Panduit", "partNumber": "PUP6AV04BU-CEG" },
+        { "item": "Cat 6A Cable — Waste Factor (12%)", "qty": 3600, "unit": "ft", "unit_cost": 0.32, "ext_cost": 1152.00, "mfg": "Panduit", "partNumber": "PUP6AV04BU-CEG" }
+      ],
+      "subtotal": 45200.00
+    },
+    {
+      "name": "Spare Parts & Attic Stock",
+      "items": [
+        { "item": "Spare cameras (5%)", "qty": 2, "unit": "ea", "unit_cost": 380.00, "ext_cost": 760.00 }
+      ],
+      "subtotal": 0
+    },
+    {
+      "name": "Small Tools & Consumables",
+      "items": [
+        { "item": "Misc consumables (drill bits, anchors, screws, ties, tape, markers)", "qty": 1, "unit": "lot", "unit_cost": 0, "ext_cost": 0 }
+      ],
+      "subtotal": 0
+    }
+  ],
+  "grand_total": 125000.00,
+  "waste_factor_total": 0,
+  "spare_parts_total": 0,
+  "consumables_total": 0,
+  "markup_pct": ${context.markup?.material || 50},
+  "total_with_markup": 156250.00
+}`;
       },
 
       // ── BRAIN 7: Labor Calculator ────────────────────────────
@@ -1889,11 +1884,11 @@ Return ONLY valid JSON:
 
         return `You are a CONSTRUCTION LABOR ESTIMATOR using NECA labor standards.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Type: ${_sanitizeForPrompt(context.projectType, 100)}
+PROJECT: ${context.projectName} | Type: ${context.projectType}
 LABOR MARKUP: ${context.markup?.labor || 50}%
 BURDEN RATE: ${context.includeBurden ? context.burdenRate + '%' : 'Not applied'}
-PREVAILING WAGE: ${_sanitizeForPrompt(context.prevailingWage || 'No', 100)}
-WORK SHIFT: ${_sanitizeForPrompt(context.workShift || 'Standard', 100)}
+PREVAILING WAGE: ${context.prevailingWage || 'No'}
+WORK SHIFT: ${context.workShift || 'Standard'}
 
 LABOR RATES:
 ${Object.entries(context.laborRates || {}).map(([k, v]) =>
@@ -1926,15 +1921,6 @@ CONDUIT LABOR UNITS (do NOT skip conduit labor — it is a major cost driver):
 - Pull boxes/junction boxes: 1.0-2.0 hrs each
 - Cable pulling through conduit: 0.03-0.08 hrs/ft depending on fill
 
-TRENCHING / SAWCUTTING LABOR (if NOT subcontracted):
-- Concrete sawcutting: 0.15-0.25 hrs/LF (walk-behind saw through concrete/asphalt)
-- Trench excavation: 0.20-0.40 hrs/LF (mini-excavator + hand work)
-- Conduit installation in trench: 0.10-0.15 hrs/LF
-- Backfill and compaction: 0.08-0.12 hrs/LF
-- Surface restoration: 0.15-0.30 hrs/LF (concrete repour or asphalt patch)
-- TOTAL all-in trenching labor: 0.70-1.20 hrs/LF through concrete
-NOTE: If trenching is subcontracted (civil contractor), include ONLY coordination/supervision labor, not the trench labor itself. The sub's cost covers their labor.
-
 SHIFT DIFFERENTIALS (apply if work shift is not Standard):
 - Night shift: add 15% to base labor rates
 - Weekend shift: add 25% to base labor rates
@@ -1954,19 +1940,8 @@ CRITICAL RULES:
 6. If consensus shows 0 fire alarm devices, do NOT add fire alarm labor
 7. You MUST include conduit installation labor if Special Conditions or Cable Pathway shows conduit runs
 8. Apply shift differential if work shift is not Standard
-9. If project is transit/railroad, apply 10-15% productivity loss factor for restricted work windows (experienced transit contractors account for this efficiently)
-10. Include the Project Overhead phase below — but keep it lean (8-12% of field labor)
-
-═══ LABOR HOUR SANITY BOUNDS (MANDATORY CHECK) ═══
-Before returning, verify your total_hours against these REAL-WORLD benchmarks from experienced ELV contractors:
-- Under 25 devices: 80-400 total hours (1-2 tech-weeks)
-- 25-50 devices: 300-800 total hours (2-4 tech-weeks)
-- 50-100 devices: 600-1,800 total hours (3-9 tech-weeks)
-- 100-200 devices: 1,200-3,500 total hours (6-18 tech-weeks)
-- 200-500 devices: 2,500-7,000 total hours (12-35 tech-weeks)
-- Over 500 devices: 5,000-15,000 total hours (max realistic scope)
-If your total_hours exceeds the upper bound, you are OVERESTIMATING. Experienced contractors do this work efficiently.
-crew_recommendation.duration_weeks should be 2-40. If above 40, reduce weeks and increase crew.
+9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
+10. You MUST include all NON-INSTALLATION phases below — these are real labor costs
 
 Calculate labor by PROJECT PHASE:
 1. Rough-In (35-40% of field labor) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
@@ -1974,61 +1949,85 @@ Calculate labor by PROJECT PHASE:
 3. Programming (8-12%) — system programming, configuration, database entry
 4. Testing/Commissioning (8-12%) — cable certification, device verification, punch list
 5. Commissioning & Owner Training (3-5%) — AHJ walkthroughs, camera aiming sessions with owner, access control enrollment, system integration testing with existing infrastructure, owner staff training (2-4 sessions)
-6. As-Built Drawings & Closeout (2-3%) — red-line markups, as-builts, O&M manual compilation, warranty documentation, closeout binder assembly.
+6. As-Built Drawings & Closeout (2-3%) — red-line markups, CAD/Revit as-builts, O&M manual compilation, warranty documentation, closeout binder assembly. Typically 40-80 hours for a large project.
 
-NON-INSTALLATION LABOR — include as a SINGLE "Project Overhead" phase.
-Most ELV contractors bundle PM, submittals, as-builts, and coordination into company overhead.
-The foreman IS the on-site lead tech — do NOT add a separate full-time superintendent on top of the crew.
-DO NOT pad labor with full-time PM or superintendent hours — these are covered by the labor markup.
+NON-INSTALLATION LABOR (you MUST include these as separate phases — they are NOT optional):
+7. Engineering & Submittals (3-5% of total labor cost):
+   - Submittal preparation: product data, shop drawings, cut sheets
+   - Engineer review coordination and resubmittals
+   - Riser diagram and pathway design
+   - Typically 60-200 hours on a large project ($50K-$200K+)
+   - Use PM rate ($65-$85/hr) for this work
 
-7. Project Overhead (8-12% of total field labor hours):
-   Combines: engineering/submittals, PM coordination, safety briefings, as-built documentation, closeout.
-   - Small projects (<50 devices): 40-80 hours
-   - Medium projects (50-150 devices): 60-120 hours
-   - Large projects (150+ devices): 100-200 hours
-   Use PM or lead rate for this phase.
-   NOTE: The foreman/lead tech IS counted in field phases — do NOT double-count supervision.
+8. Project Management (dedicated PM for duration):
+   - 1 PM at $65-$85/hr × 40 hrs/wk × project duration in weeks
+   - Includes: scheduling, procurement, RFIs, change orders, meetings, daily reports
+   - For an 8-12 week project: $20,800-$40,800
+   - This is NOT included in field labor — it is additional
 
-Return ONLY valid JSON. Each phase MUST have non-zero hours and cost:
+9. Coordination & Idle Time (10-15% of total field labor hours):
+   - Waiting for other trades (electrician, drywall, ceiling grid)
+   - GC schedule delays and re-sequencing
+   - Elevator/lift access wait times
+   - Material delivery delays
+   - Safety stand-downs and orientation time
+   - This is REAL cost — crews get paid whether working or waiting
+
+Return ONLY valid JSON:
 {
   "phases": [
-    {"name":"Rough-In","pct_of_total":38,"tasks":[
-      {"description":"Install EMT conduit — 800 LF","classification":"journeyman","hours":96,"rate":65.00,"cost":6240},
-      {"description":"Pull cable — 18000 ft","classification":"journeyman","hours":72,"rate":65.00,"cost":4680},
-      {"description":"Install cable tray — 200 LF","classification":"journeyman","hours":40,"rate":65.00,"cost":2600}
-    ],"phase_hours":208,"phase_cost":13520},
-    {"name":"Trim & Termination","pct_of_total":25,"tasks":[
-      {"description":"Mount & wire 24 cameras","classification":"journeyman","hours":72,"rate":65.00,"cost":4680},
-      {"description":"Terminate 60 data drops","classification":"journeyman","hours":30,"rate":65.00,"cost":1950}
-    ],"phase_hours":102,"phase_cost":6630},
-    {"name":"Programming & Configuration","pct_of_total":12,"tasks":[
-      {"description":"VMS programming, camera config","classification":"programmer","hours":40,"rate":55.00,"cost":2200}
-    ],"phase_hours":40,"phase_cost":2200},
-    {"name":"Testing & Commissioning","pct_of_total":10,"tasks":[
-      {"description":"Cable certification, device verification","classification":"lead","hours":48,"rate":72.00,"cost":3456}
-    ],"phase_hours":48,"phase_cost":3456},
-    {"name":"Owner Training & Closeout","pct_of_total":5,"tasks":[
-      {"description":"Owner training sessions, closeout docs","classification":"pm","hours":24,"rate":75.00,"cost":1800}
-    ],"phase_hours":24,"phase_cost":1800},
-    {"name":"Project Overhead","pct_of_total":10,"tasks":[
-      {"description":"Submittals, PM coordination, as-builts, safety","classification":"pm","hours":60,"rate":75.00,"cost":4500}
-    ],"phase_hours":60,"phase_cost":4500}
+    {
+      "name": "Rough-In",
+      "pct_of_total": 37,
+      "tasks": [
+        { "description": "Install cable tray — 500 LF", "classification": "journeyman", "hours": 100, "rate": 65.00, "cost": 6500.00 }
+      ],
+      "phase_hours": 500,
+      "phase_cost": 32500.00
+    },
+    {
+      "name": "Engineering & Submittals",
+      "pct_of_total": 4,
+      "tasks": [
+        { "description": "Submittal preparation and coordination", "classification": "pm", "hours": 80, "rate": 75.00, "cost": 6000.00 }
+      ],
+      "phase_hours": 80,
+      "phase_cost": 6000.00
+    },
+    {
+      "name": "Project Management",
+      "pct_of_total": 0,
+      "tasks": [
+        { "description": "Dedicated PM for project duration", "classification": "pm", "hours": 0, "rate": 75.00, "cost": 0 }
+      ],
+      "phase_hours": 0,
+      "phase_cost": 0
+    },
+    {
+      "name": "Coordination & Idle Time",
+      "pct_of_total": 12,
+      "tasks": [
+        { "description": "Trade coordination, GC delays, access waits", "classification": "journeyman", "hours": 0, "rate": 65.00, "cost": 0 }
+      ],
+      "phase_hours": 0,
+      "phase_cost": 0
+    }
   ],
-  "total_field_hours": 422,
-  "total_non_field_hours": 60,
-  "total_hours": 482,
-  "total_base_cost": 32106,
+  "total_field_hours": 0,
+  "total_non_field_hours": 0,
+  "total_hours": 1200,
+  "total_base_cost": 78000.00,
   "markup_pct": ${context.markup?.labor || 50},
-  "total_with_markup": 48159,
-  "crew_recommendation": {"journeyman":2,"apprentice":1,"foreman":1,"pm":0,"superintendent":0,"duration_weeks":6}
+  "total_with_markup": 101400.00,
+  "crew_recommendation": { "journeyman": 3, "apprentice": 2, "foreman": 1, "pm": 1, "duration_weeks": 8 }
 }`;
       },
 
       // ── BRAIN 8: Financial Engine ────────────────────────────
       FINANCIAL_ENGINE: () => `You are a CONSTRUCTION FINANCIAL ANALYST producing SOV and final pricing.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName, 200)} | Location: ${_sanitizeForPrompt(context.projectLocation || 'Not specified', 200)}
-PREVAILING WAGE: ${_sanitizeForPrompt(context.prevailingWage || 'No', 100)}
+PROJECT: ${context.projectName} | Location: ${context.projectLocation || 'Not specified'}
+PREVAILING WAGE: ${context.prevailingWage || 'No'}
 MARKUP: Material ${context.markup?.material || 50}% | Labor ${context.markup?.labor || 50}% | Equipment ${context.markup?.equipment || 15}% | Subcontractor ${context.markup?.subcontractor || 10}%
 
 ═══ MATERIAL PRICER OUTPUT (USE THESE EXACT TOTALS) ═══
@@ -2048,27 +2047,56 @@ NOTE: Travel costs are now configured by the user on Stage 7 (Travel & Costs) AF
 Set total_travel to $0 in your project_summary. The system will inject the correct deterministic travel amount.
 Do NOT estimate or guess travel costs — they will be overridden by user-configured values.
 
-CRITICAL RULES (VIOLATING ANY OF THESE IS A FATAL ERROR):
-1. Your total_materials MUST EXACTLY EQUAL the Material Pricer's "total_with_markup" value (NOT "grand_total" — that is the base cost before markup). The sell price is what goes into the SOV and project summary. Copy the EXACT number — do not round, recalculate, or adjust it.
-2. Your total_labor MUST EXACTLY EQUAL the Labor Calculator's "total_with_markup" value (NOT the base cost). Copy the EXACT number.
+CRITICAL RULES:
+1. Your total_materials MUST EXACTLY EQUAL the Material Pricer's "total_with_markup" value (NOT "grand_total" — that is the base cost before markup). The sell price is what goes into the SOV and project summary.
+2. Your total_labor MUST EXACTLY EQUAL the Labor Calculator's "total_with_markup" value (NOT the base cost)
 3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total — all values must be SELL PRICES (with markup applied)
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total
-6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + general_conditions + G&A + profit + warranty + contingency
-7. Do NOT include subcontractor costs, travel costs, equipment rental, or insurance in the SOV or project summary.
-   These are handled separately by the estimator outside of this analysis.
-   The SOV should contain ONLY material and labor costs for the ELV scope of work.
-8. SOV line items should cover: materials by discipline, labor by phase, and mobilization/demobilization.
-9. Do NOT add G&A overhead, profit margin, warranty reserve, or contingency — the app calculates markup separately.
+6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + G&A + profit + warranty + contingency
+7. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
+8. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
+9. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
+10. Include a separate SOV line item for "Civil Work & Site Restoration" if underground/exterior work exists
+11. G&A OVERHEAD is MANDATORY: Apply 15% to (materials + labor + equipment + subcontractors) subtotal. This covers company overhead (office, trucks, insurance, admin staff). This is separate from markup.
+12. PROFIT MARGIN is MANDATORY: Apply 10% to the subtotal after G&A. This is the company's profit. Without this, you are bidding at cost.
+13. WARRANTY RESERVE: Add 1.5% of total project cost for warranty callback labor during the 1-year warranty period.
 
-═══ COST BUILD-UP (MATERIALS + LABOR ONLY) ═══
-The SOV should contain ONLY:
-1. Material costs by discipline (from Material Pricer)
-2. Labor costs by phase (from Labor Calculator)
-3. Mobilization/Demobilization
+═══ COST BUILD-UP ORDER (follow this EXACTLY) ═══
+1. Direct Costs: total_materials + total_labor + total_equipment + total_subcontractors
+2. Add: total_travel + total_transit_costs + total_insurance
+3. = PROJECT DIRECT COST SUBTOTAL
+4. Add: G&A Overhead (15% of direct costs) → this covers company operating expenses
+5. = TOTAL COST WITH OVERHEAD
+6. Add: Profit (10% of cost with overhead) → this is the company's earnings
+7. Add: Warranty Reserve (1.5% of total)
+8. Add: Contingency (10% of total) → for unknowns and scope changes
+9. = GRAND TOTAL (this is the BID PRICE)
 
-Do NOT include: subcontractors, travel, equipment rental, insurance, G&A, profit, contingency, or general conditions.
-These are handled separately by the estimator. Your job is to produce accurate material and labor numbers only.
+GENERATE:
+1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
+2. Travel & Per Diem calculation — MANDATORY if project is 60+ miles from Rancho Cordova, CA
+3. Transit/Railroad costs — MANDATORY if project involves Amtrak, BNSF, transit authority, railroad, airport, or DOT
+4. Prevailing wage determination (if applicable)
+5. Complete project cost summary with G&A, profit, warranty, and contingency
+
+═══ TRAVEL & PER DIEM CALCULATION RULES ═══
+If the project location is 60+ miles from Rancho Cordova, CA (Sacramento area):
+- Crew size: use the Labor Calculator's crew_recommendation
+- Project duration: use the Labor Calculator's duration_weeks × 5 working days
+- Hotel: use GSA rate for the city (typically $150-$250/night)
+- Per diem: use GSA M&IE rate for the city (typically $60-$79/day)
+- Vehicle: $2,000-$3,500/month for truck rental + fuel
+- Weekend trips home: 1 round-trip per worker per 2 weeks if project > 2 weeks
+- FORMULA: travel_total = (hotel_rate + per_diem_rate) × crew_size × working_days + vehicle_costs + weekend_trips
+- Travel is typically 15-25% of total project cost on out-of-town work — if your travel is less than 10%, you are probably UNDERESTIMATING
+
+═══ TRANSIT / RAILROAD COST RULES ═══
+If Special Conditions flagged transit/railroad work:
+- RWIC/Flagman costs: $1,000-$1,500/day × number of track-side work days → add to Subcontractor column
+- RPL Insurance: $15,000-$50,000+ → add to project_summary
+- Safety training: $200-$500/worker → add to Labor column
+- Work window premium: 20-30% increase to labor hours (reduced productivity) → should already be in Labor Calculator
 
 Return ONLY valid JSON:
 {
@@ -2112,7 +2140,6 @@ Return ONLY valid JSON:
     "total_labor": 0,
     "total_equipment": 0,
     "total_subcontractors": 0,
-    "total_general_conditions": 0,
     "total_travel": 0,
     "total_transit_costs": 0,
     "total_insurance": 0,
@@ -2267,9 +2294,9 @@ This is a REAL BID that will be submitted to win a construction project. It MUST
 - Markup columns so the estimator can adjust pricing
 - A complete Schedule of Values with real dollar amounts
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Project', 200)}
-TYPE: ${_sanitizeForPrompt(context.projectType || 'Low Voltage', 100)}
-LOCATION: ${_sanitizeForPrompt(context.projectLocation || 'TBD', 200)}
+PROJECT: ${context.projectName || 'Project'}
+TYPE: ${context.projectType || 'Low Voltage'}
+LOCATION: ${context.projectLocation || 'TBD'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 MARKUP CONFIG: Material ${matMarkup}% | Labor ${labMarkup}% | Equipment ${eqMarkup}% | Subcontractor ${subMarkup}%
 
@@ -2337,53 +2364,40 @@ Break labor into phases. Use this EXACT table format:
 **Labor Subtotals Table:**
 | Phase | Hours | Labor Cost | Markup ${labMarkup}% | Sell Price |
 
-## 5. CIVIL WORK, ELECTRICAL & SITE SCOPE (if applicable)
-If the construction documents include ANY of the following in YOUR contract scope, create priced tables for each:
+## 5. SPECIAL EQUIPMENT & CONDITIONS
+| Item | Duration | Daily/Unit Cost | Total Cost | Markup ${eqMarkup}% | Sell Price |
+Include: lifts, scaffolding, tools, certifiers, splicers
 
-### Trenching & Sawcut
-| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
-(Include: sawcutting, trenching, conduit in trench, backfill, restoration, handholes. Price per LF all-in.)
+## 6. SUBCONTRACTOR COSTS
+| Trade | Scope | Cost | Markup ${subMarkup}% | Sell Price |
+Include: core drilling, trenching, firestopping, electrical
 
-### Electrical Distribution
-| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
-(Include: RMC/PVC conduit runs, pull boxes, junction boxes, panelboards, circuit breakers, UPS systems, wire)
+## 7. TRAVEL & PER DIEM
+If project is distant from Rancho Cordova, CA. Otherwise state "Local Project — No Travel Required"
 
-### UPS & Power Equipment
-| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
-(MANDATORY for transit: Station-sized UPS $50K-$65K + Battery Bank $60K-$100K + Battery Cabinet $3K-$8K = $110K-$175K TOTAL.
- A $3,000 UPS in a transit station is WRONG. The batteries ALONE cost $60K-$100K. Include BOTH UPS unit AND battery bank as separate line items.)
+## 8. SCHEDULE OF VALUES (SOV)
+AIA G703 format:
+| SOV # | Description | Material | Labor | Equipment | Subcontractor | Total |
 
-### Subcontractor Scopes
-| Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${subMarkup}% | Sell Price |
-(Include: window film, bollards with foundations, concrete work, specialty trades. Use subcontractor markup ${subMarkup}%.)
-
-### General Conditions & Insurance
-| Item # | Description | Qty | Unit | Unit Cost | Ext Cost |
-(Include: bonds, RRPLI insurance for transit, permits, mobilization/demob. NO markup on insurance.)
-
-If NONE of these scopes are in the construction documents, write "Not applicable — ELV scope only."
-
-## 6. SCHEDULE OF VALUES (SOV)
-Material + Labor only:
-| SOV # | Description | Material | Labor | Total |
-
-## 7. PROJECT COST SUMMARY
+## 9. PROJECT COST SUMMARY
 | Category | Base Cost | Markup | Sell Price |
 |----------|-----------|--------|------------|
 | Materials | $XXX | ${matMarkup}% | $XXX |
 | Labor | $XXX | ${labMarkup}% | $XXX |
+| Equipment | $XXX | ${eqMarkup}% | $XXX |
+| Subcontractors | $XXX | ${subMarkup}% | $XXX |
+| Travel | $XXX | — | $XXX |
 | **SUBTOTAL** | | | **$XXX** |
+| Contingency 10% | | | $XXX |
+| **GRAND TOTAL** | | | **$XXX** |
 
-NOTE: Subcontractor costs, travel, equipment rental, insurance, contingency, and G&A are
-handled separately by the estimator and are NOT included in this summary.
-
-## 8. PREVAILING WAGE DETERMINATION
+## 10. PREVAILING WAGE DETERMINATION
 If applicable, list wage classifications. Otherwise "Not Applicable"
 
-## 9. OBSERVATIONS & RECOMMENDATIONS
+## 11. OBSERVATIONS & RECOMMENDATIONS
 Key findings from the analysis
 
-## 10. RECOMMENDED RFIs
+## 12. RECOMMENDED RFIs
 Gaps that need architect/engineer clarification
 
 CRITICAL RULES:
@@ -2489,7 +2503,7 @@ Generate the COMPLETE BID REPORT now. Every section must have real data with rea
       // ── BRAIN 0: Legend Decoder (Wave 0 — Pre-Processing) ─────
       LEGEND_DECODER: () => `You are a CONSTRUCTION SYMBOL LEGEND EXPERT. Your ONLY job is to decode the symbol legend and build a structured dictionary BEFORE any counting begins.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
+PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 INSTRUCTIONS:
@@ -2515,81 +2529,33 @@ Return ONLY valid JSON:
       // ── BRAIN 0.5: Spatial Layout (Wave 0 — parallel with Legend Decoder) ──
       SPATIAL_LAYOUT: () => `You are a BUILDING SPATIAL ANALYST. Your job is to extract floor plan geometry, IDF/MDF room positions, and device zone positions so cable run lengths can be precisely calculated.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+USER-PROVIDED DIMENSIONS: Width=${context.floorPlateWidth || 0}ft, Depth=${context.floorPlateDepth || 0}ft, Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
 
-═══ CRITICAL: PER-SHEET SCALE DETECTION ═══
-Different sheets in a plan set often use DIFFERENT SCALES. A warehouse floor plan might be 1/16"=1'-0" while an office detail is 1/4"=1'-0". You MUST determine the scale for EACH SHEET independently.
-
-YOUR MISSION — For each floor plan sheet:
-1. FIND THE SCALE — check these sources IN ORDER:
-   a. Title block scale notation (e.g., "SCALE: 1/8" = 1'-0"" or "1:96")
-   b. Scale bar graphic (measure labeled increments)
-   c. Dimension lines on the drawing (if a dimension reads "30'-0"" between two walls, use that to calibrate)
-   d. DOOR FALLBACK: If no scale bar, no title block scale, and no dimension lines — find a standard door on the plan. A standard single door opening is 3 ft (36 inches) wide by 6'-8" to 7'-0" tall. Measure the door width in the drawing and calculate: scale = 3 ft ÷ measured_door_width_on_page. This gives you feet-per-inch for that sheet.
-   e. If NOTHING works, note "scale_method": "unable" and estimate conservatively.
-
-2. SHEET DIMENSIONS: Using the detected scale, calculate the real-world width and depth (in feet) of the area shown on that sheet. NOT the paper size — the actual building area the sheet covers.
-
-3. CEILING HEIGHT: Look for ceiling height notes, section cuts, or room finish schedules. Default 10 ft if not found.
-4. FLOOR-TO-FLOOR HEIGHT: Look for section drawings or structural notes. Default 14 ft if not found.
-
-5. FOR EACH FLOOR — map IDF/MDF/TR positions and device zones as percentage positions (0%=left/top, 100%=right/bottom).
+YOUR MISSION — Extract from the floor plans:
+1. SCALE BAR: Find the scale bar or title block scale notation (e.g., "1/8 inch = 1 ft" or "1:96"). Record the labeled scale.
+2. BUILDING DIMENSIONS: Measure or read the overall floor plate width and depth in feet. If dimension lines are shown on the plans, use those. Otherwise estimate from the scale bar.
+3. CEILING HEIGHT: Look for ceiling height notes, section cuts, or room finish schedules. Record typical finished ceiling height.
+4. FLOOR-TO-FLOOR HEIGHT: Look for section drawings or structural notes. Record slab-to-slab height.
+5. FOR EACH FLOOR — map out the following:
+   a. IDF/MDF/TR room locations: Record each telecom room name and its approximate position as a percentage of the floor plan (0% = left/top edge, 100% = right/bottom edge).
+   b. Device zones: Group areas of the floor plan into logical zones (e.g., "East Wing", "North Corridor", "Server Area") and record each zone's approximate centroid as a percentage.
+   c. Note which IDF serves each zone (by proximity).
 
 POSITION ESTIMATION RULES:
-- Use each floor plan as its own coordinate grid
-- ±10% accuracy is acceptable for zone centroid positions
-- If a building has irregular shape, estimate from the main occupied area
-- If multiple buildings, treat each as a separate floor entry
+- Use the floor plan as a coordinate grid: 0% left edge → 100% right edge (x), 0% top edge → 100% bottom edge (y)
+- Be as accurate as you can from visual inspection — ±10% is acceptable
+- If a building has an irregular shape, estimate based on the main occupied area
+- If multiple buildings, treat each as a separate floor with its own grid
 
 Return ONLY valid JSON:
 {
-  "sheets": [
-    {
-      "sheet_id": "E1.01",
-      "sheet_name": "First Floor Electrical Plan",
-      "scale": {
-        "labeled": "1/8 inch = 1 ft",
-        "scale_method": "title_block",
-        "confidence": "high",
-        "ft_per_inch": 8
-      },
-      "sheet_area_width_ft": 220,
-      "sheet_area_depth_ft": 180,
-      "notes": ""
-    },
-    {
-      "sheet_id": "E2.01",
-      "sheet_name": "Warehouse Plan",
-      "scale": {
-        "labeled": "1/16 inch = 1 ft",
-        "scale_method": "scale_bar",
-        "confidence": "high",
-        "ft_per_inch": 16
-      },
-      "sheet_area_width_ft": 450,
-      "sheet_area_depth_ft": 300,
-      "notes": "Warehouse uses smaller scale than office sheets"
-    },
-    {
-      "sheet_id": "E3.01",
-      "sheet_name": "Office Detail",
-      "scale": {
-        "labeled": null,
-        "scale_method": "door_reference",
-        "confidence": "medium",
-        "ft_per_inch": 4,
-        "reference_object": "Single door opening measured at 0.75 inches on plan = 3 ft real"
-      },
-      "sheet_area_width_ft": 80,
-      "sheet_area_depth_ft": 60,
-      "notes": "No scale bar — derived from 36-inch door opening"
-    }
-  ],
+  "scale_bar": { "found": true, "labeled_scale": "1/8 inch = 1 ft", "confidence": "high" },
   "building_dimensions": {
-    "overall_width_ft": 450,
-    "overall_depth_ft": 300,
+    "overall_width_ft": 220,
+    "overall_depth_ft": 180,
     "confidence": "high",
-    "source": "Largest sheet extent (Warehouse Plan E2.01)"
+    "source": "Dimension lines on Sheet A1.01"
   },
   "ceiling_height_ft": 10,
   "floor_to_floor_ft": 14,
@@ -2598,32 +2564,24 @@ Return ONLY valid JSON:
       "floor": 1,
       "floor_label": "Level 1",
       "floor_area_sf": 18500,
-      "sheet_id": "E1.01",
       "idf_locations": [
         { "label": "IDF-1A", "room_name": "Telecom Room 105", "approx_x_pct": 85, "approx_y_pct": 15, "description": "Northeast corner of floor" }
       ],
       "device_zones": [
-        { "zone": "Lobby / Entry", "approx_x_pct": 50, "approx_y_pct": 80, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 120, "floor": 1, "sheet_id": "E1.01" },
-        { "zone": "Warehouse", "approx_x_pct": 30, "approx_y_pct": 50, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 250, "floor": 1, "sheet_id": "E2.01" },
-        { "zone": "East Corridor", "approx_x_pct": 80, "approx_y_pct": 50, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 60, "floor": 1, "sheet_id": "E1.01" }
+        { "zone": "Lobby / Entry", "approx_x_pct": 50, "approx_y_pct": 80, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 120, "floor": 1 },
+        { "zone": "West Office Wing", "approx_x_pct": 10, "approx_y_pct": 40, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 200, "floor": 1 },
+        { "zone": "East Corridor", "approx_x_pct": 80, "approx_y_pct": 50, "nearest_idf": "IDF-1A", "est_distance_to_idf_ft": 60, "floor": 1 }
       ]
     }
   ],
   "multi_building": false,
   "notes": []
-}
-
-RULES:
-- "scale_method" MUST be one of: "title_block", "scale_bar", "dimension_line", "door_reference", "unable"
-- "ft_per_inch" is how many real-world feet each inch on the plan represents
-- Each device_zone SHOULD include "sheet_id" to link it to the correct sheet scale
-- The "building_dimensions" is the OVERALL envelope (largest extents across all sheets)
-- If a zone spans multiple sheets at different scales, use the sheet where its centroid falls`,
+}`,
 
       // ── BRAIN 6: Shadow Scanner (Wave 1.5 — Second Read) ──────
       SHADOW_SCANNER: () => `You are an INDEPENDENT VERIFICATION SCANNER performing a SECOND COUNT of all ELV device symbols. You must use a COMPLETELY DIFFERENT methodology than a standard left-to-right scan.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
+PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 LEGEND DICTIONARY (from Legend Decoder):
@@ -2661,7 +2619,7 @@ Return ONLY valid JSON (same schema as Symbol Scanner):
         const primary = (context.disciplines || [])[0] || 'Structured Cabling';
         return `You are a SPECIALIST COUNTER focused EXCLUSIVELY on ${primary} symbols. Ignore all other disciplines entirely.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
+PROJECT: ${context.projectName || 'Unknown'}
 YOUR DISCIPLINE: ${primary} — count ONLY these symbols
 
 LEGEND DICTIONARY:
@@ -2693,7 +2651,7 @@ Return ONLY valid JSON:
       // ── BRAIN 8: Quadrant Scanner (Wave 1.5) ──────────────────
       QUADRANT_SCANNER: () => `You are a ZONE-BASED VERIFICATION SCANNER. Instead of scanning by room, you divide each sheet into QUADRANTS and count devices per zone.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
+PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR METHODOLOGY — QUADRANT DIVISION:
@@ -2881,22 +2839,6 @@ ATTACK VECTORS — Challenge the estimate on:
 6. DOUBLE COUNTING? Same device counted in multiple categories
 7. PHANTOM ITEMS? Materials listed that don't match any symbol on plans
 
-═══ CRITICAL DISTINCTION: BID ERRORS vs. CHANGE ORDERS ═══
-If something IS on the plans or specs and we missed it — that is a BID ERROR, NOT a change order.
-Put bid errors in "challenges" and "missed_items" — these get corrected in our bid.
-
-A TRUE CHANGE ORDER is ONLY for scope that is NOT in the plans AND NOT in the specs.
-Examples of TRUE change orders:
-- Owner verbally mentioned adding cameras to the parking garage but it's not in the drawings or spec
-- The spec says "coordinate with GC for power" but no electrical scope is shown — who pays for the electrician?
-- Building conditions that can't be known until site visit (e.g., asbestos, hidden obstacles)
-- Ambiguous spec language that could be interpreted as additional scope beyond what's drawn
-- Items referenced in specs as "future" or "owner-furnished" that may change
-- Code-required items that are neither drawn nor specified (e.g., fire stopping not called out)
-
-DO NOT put items in true_change_orders if they are shown on the plans or called out in the specifications.
-If it's on the plans or in the specs, it belongs in our bid — period.
-
 Return ONLY valid JSON:
 {
   "challenges": [
@@ -2906,10 +2848,7 @@ Return ONLY valid JSON:
   "risk_level": "low|medium|high|critical",
   "missed_items": [],
   "pricing_flags": [],
-  "overall_assessment": "string",
-  "true_change_orders": [
-    { "severity": "high", "description": "Spec references 'future card readers at gates' — not drawn or spec'd but owner may add during construction", "estimated_impact": "$5,000-$12,000", "justification": "Not in plans or specs — referenced only as future scope in general notes" }
-  ]
+  "overall_assessment": "string"
 }`,
 
       // ── BRAIN 18: Detail Verifier (Wave 3.5 — 4th Read) ──────
@@ -2919,7 +2858,7 @@ Return ONLY valid JSON:
         const devilItems = context.wave3?.DEVILS_ADVOCATE?.missed_items || [];
         return `You are a DETAIL VERIFICATION SPECIALIST performing a FOURTH READ of the construction plans. Your job is to ZOOM INTO specific areas and provide PRECISE COUNTS.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
+PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 PREVIOUS CONSENSUS COUNTS (from 3 prior reads):
@@ -2964,7 +2903,7 @@ Return ONLY valid JSON:
         const quadData = context.wave1_5?.QUADRANT_SCANNER?.quadrants || [];
         return `You are a CROSS-SHEET CONSISTENCY ANALYZER performing a FIFTH READ. Your job is to compare different sheets AGAINST EACH OTHER to find inconsistencies, overlaps, and missing coverage.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
+PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 SHEET DATA FROM FIRST READ:
@@ -3013,7 +2952,7 @@ Return ONLY valid JSON:
         const devil = context.wave3?.DEVILS_ADVOCATE || {};
         return `You are the FINAL RECONCILIATION ENGINE performing the SIXTH AND FINAL READ of the construction plans. You have access to ALL previous data from 5 prior reads. Your job is to produce the AUTHORITATIVE, DEFINITIVE device counts.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
+PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 ═══ DATA FROM ALL 5 PRIOR READS ═══
@@ -3065,7 +3004,7 @@ Return ONLY valid JSON:
       // ── BRAIN 21: Spec Cross-Reference (Wave 1) ─────────────────
       SPEC_CROSS_REF: () => `You are a SPECIFICATION CROSS-REFERENCE EXPERT for ELV/low voltage construction projects.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Cross-reference the written specifications against the plan drawings to find discrepancies.
@@ -3099,9 +3038,7 @@ Look specifically for:
 - Surge protectors / SPDs
 These are HIGH-VALUE items that are often specified in the specs but easy to miss.
 
-CRITICAL CHECK: Look for scope items in the spec that have NO corresponding symbol on any drawing. These MUST be included in the bid — they are NOT change orders. If the spec calls for it, we bid it, even if it's not drawn.
-
-TRUE CHANGE ORDERS: Items that are NOT in the specs AND NOT on the drawings but could arise during construction (ambiguous scope boundaries, owner-furnished items that may change, code requirements not addressed in either document). Put these in "true_change_orders" in your output.
+CRITICAL CHECK: Look for scope items in the spec that have NO corresponding symbol on any drawing. These are commonly missed and result in change orders.
 
 Return ONLY valid JSON:
 {
@@ -3124,16 +3061,13 @@ Return ONLY valid JSON:
     { "item": "IP Camera", "spec_model": "Axis P3245-V", "drawing_symbol": "C1", "match": true }
   ],
   "spec_sections_reviewed": ["27 10 00", "28 13 00", "28 23 00"],
-  "overall_spec_drawing_alignment": 85,
-  "true_change_orders": [
-    { "description": "Spec references 'future intercom stations' in general notes but no qty, location, or model specified — owner may add during construction", "severity": "medium", "estimated_impact": "$3,000-$8,000", "justification": "Not specified with enough detail to bid — referenced only as future scope" }
-  ]
+  "overall_spec_drawing_alignment": 85
 }`,
 
       // ── BRAIN 22: Annotation Reader (Wave 1) ────────────────────
       ANNOTATION_READER: () => `You are a CONSTRUCTION ANNOTATION & CALLOUT EXPERT. Your job is to read EVERY text annotation, note, callout bubble, detail reference, and schedule on the ELV plan drawings.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Capture every piece of text information on the drawings that describes equipment, quantities, or installation requirements.
@@ -3221,7 +3155,7 @@ Return ONLY valid JSON:
       // ── BRAIN 23: Riser Diagram Analyzer (Wave 1) ───────────────
       RISER_DIAGRAM_ANALYZER: () => `You are a RISER DIAGRAM & ONE-LINE DIAGRAM EXPERT for ELV/low voltage construction projects.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Analyze all riser diagrams, one-line diagrams, block diagrams, and system architecture drawings to extract backbone infrastructure details.
@@ -3243,8 +3177,8 @@ Return ONLY valid JSON:
     { "system": "Structured Cabling", "description": "Main fiber backbone", "from": "MDF-1F", "to": "IDF-3F", "cable_type": "12-strand SM fiber", "quantity": 2, "pathway": "4\" conduit" }
   ],
   "backbone_cables": [
-    { "type": "fiber_sm", "strand_count": 12, "runs": 6, "avg_length_ft": 200, "total_length_ft": 1200, "termination": "LC connectors" },
-    { "type": "cat6a_25pair", "pairs": 25, "runs": 4, "avg_length_ft": 200, "total_length_ft": 800 }
+    { "type": "fiber_sm", "strand_count": 12, "runs": 6, "total_length_ft": 1200, "termination": "LC connectors" },
+    { "type": "cat6a_25pair", "pairs": 25, "runs": 4, "total_length_ft": 800 }
   ],
   "vertical_pathways": [
     { "from_floor": "1F", "to_floor": "2F", "pathway_type": "4-inch conduit", "quantity": 3, "fill_pct": 40 }
@@ -3259,7 +3193,7 @@ Return ONLY valid JSON:
       // ── BRAIN 24: Zoom Scanner (Wave 1.5) ───────────────────────
       ZOOM_SCANNER: () => `You are a HIGH-MAGNIFICATION ZOOM SCANNER for ELV device symbols. Divide each sheet into 4 quadrants and count with extreme precision.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)}
+PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 LEGEND (key symbols only):
@@ -3293,7 +3227,7 @@ Return ONLY valid JSON:
       // ── BRAIN 25: Per-Floor Analyzer (Wave 1.5) ─────────────────
       PER_FLOOR_ANALYZER: () => `You are a PER-FLOOR INDEPENDENT ANALYZER for ELV construction documents. You analyze each floor as a SEPARATE ENTITY and compare results to find floor-specific anomalies.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 LEGEND DICTIONARY:
@@ -3335,7 +3269,7 @@ Return ONLY valid JSON:
         const wave15Counts = context.wave1_5?.SHADOW_SCANNER?.totals || {};
         return `You are an OVERLAP & DUPLICATION DETECTION EXPERT for multi-sheet ELV construction drawings.
 
-PROJECT: ${_sanitizeForPrompt(context.projectName || 'Unknown', 200)} | Type: ${_sanitizeForPrompt(context.projectType || 'Unknown', 100)}
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 CURRENT CONSENSUS COUNTS:
@@ -3407,14 +3341,16 @@ Return ONLY valid JSON:
     const ptMult = PRICING_DB.projectTypeMultipliers?.[projectTypeKey];
     if (ptMult && projectTypeKey !== 'commercial_standard') {
       ctx += `⚠️ PROJECT TYPE: ${ptMult.label}\n`;
-      ctx += `  Use premium-tier pricing from the database for this project type.\n`;
+      ctx += `  EQUIPMENT MULTIPLIER: ${ptMult.equipment_multiplier}× — apply to ALL cameras, NVRs, switches, panels, readers\n`;
+      ctx += `  LABOR MULTIPLIER: ${ptMult.labor_multiplier}× — apply to ALL labor hours and rates\n`;
+      ctx += `  MINIMUM CAMERA COST: $${ptMult.min_camera_cost}/each (do NOT price cameras below this)\n`;
+      ctx += `  MINIMUM NVR COST: $${ptMult.min_nvr_cost}/each (do NOT price NVRs below this)\n`;
+      ctx += `  MINIMUM SWITCH COST: $${ptMult.min_switch_cost}/each (do NOT price switches below this)\n`;
       ctx += `  NOTE: ${ptMult.notes}\n`;
-      ctx += `  Use actual distributor pricing — do not apply arbitrary multipliers to list prices.\n\n`;
+      ctx += `  THIS IS MANDATORY — prices BELOW these minimums will result in a losing bid.\n\n`;
     }
 
-    // Only include pricing categories relevant to selected disciplines
-    const disciplines = (state.disciplines || []).map(d => d.toLowerCase());
-    const allCategories = {
+    const categories = {
       'Structured Cabling': PRICING_DB.structuredCabling,
       'CCTV': PRICING_DB.cctv,
       'Access Control': PRICING_DB.accessControl,
@@ -3422,166 +3358,33 @@ Return ONLY valid JSON:
       'Intrusion Detection': PRICING_DB.intrusionDetection,
       'Audio Visual': PRICING_DB.audioVisual,
     };
-    const disciplineMap = {
-      'Structured Cabling': ['cabling', 'structured', 'data', 'network'],
-      'CCTV': ['cctv', 'camera', 'surveillance', 'video'],
-      'Access Control': ['access', 'door', 'entry'],
-      'Fire Alarm': ['fire', 'alarm', 'life safety'],
-      'Intrusion Detection': ['intrusion', 'burglar', 'security'],
-      'Audio Visual': ['audio', 'av', 'visual', 'display'],
-    };
 
-    for (const [catName, catData] of Object.entries(allCategories)) {
+    for (const [catName, catData] of Object.entries(categories)) {
       if (!catData) continue;
-      // Filter: include if no disciplines selected or if discipline matches
-      const keywords = disciplineMap[catName] || [];
-      const relevant = disciplines.length === 0 || disciplines.some(d => keywords.some(k => d.includes(k)));
-      if (!relevant) continue;
-
       ctx += `\n${catName}:\n`;
       for (const [subCat, items] of Object.entries(catData)) {
         for (const [key, item] of Object.entries(items)) {
           if (typeof item === 'object' && item[tier] !== undefined) {
             let adjusted = +(item[tier] * regionMult).toFixed(2);
-            if (ptMult && ptMult.equipment_multiplier > 1.0 &&
-                /camera|ptz|multisensor|nvr|lpr|thermal|reader|panel|poe_switch|monitor|dome|bullet/.test(key)) {
+            // Apply project type equipment multiplier to device prices
+            if (ptMult && ptMult.equipment_multiplier > 1.0 && 
+                (key.includes('camera') || key.includes('ptz') || key.includes('multisensor') || 
+                 key.includes('nvr') || key.includes('lpr') || key.includes('thermal') ||
+                 key.includes('reader') || key.includes('panel') || key.includes('poe_switch') ||
+                 key.includes('monitor') || key.includes('dome') || key.includes('bullet'))) {
               adjusted = +(adjusted * ptMult.equipment_multiplier).toFixed(2);
-              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'} [${ptMult.equipment_multiplier}× transit]\n`;
+              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'} (${item.description || ''}) [${ptMult.equipment_multiplier}× transit-rated]\n`;
             } else {
-              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'}\n`;
+              ctx += `  ${key}: $${adjusted}/${item.unit || 'ea'} (${item.description || ''})\n`;
             }
           }
         }
       }
     }
 
-    // ── Add General Conditions reference ──
-    if (PRICING_DB.generalConditions) {
-      ctx += `\n\nGENERAL CONDITIONS (MANDATORY on every project):\n`;
-      ctx += `Bonds:\n`;
-      for (const [k, v] of Object.entries(PRICING_DB.generalConditions.bonds || {})) {
-        if (typeof v === 'object' && v[tier] !== undefined) ctx += `  ${k}: ${v[tier]}% of contract (${v.description})\n`;
-      }
-      ctx += `Insurance:\n`;
-      for (const [k, v] of Object.entries(PRICING_DB.generalConditions.insurance || {})) {
-        if (typeof v === 'object' && v[tier] !== undefined) {
-          if (v.unit === 'lump sum') ctx += `  ${k}: $${(v[tier] * regionMult).toFixed(0)} lump sum (${v.description})\n`;
-          else ctx += `  ${k}: ${v[tier]}% of contract (${v.description})\n`;
-        }
-      }
-      ctx += `Mobilization:\n`;
-      for (const [k, v] of Object.entries(PRICING_DB.generalConditions.mobilization || {})) {
-        if (typeof v === 'object' && v[tier] !== undefined) {
-          if (v.unit === 'lump sum') ctx += `  ${k}: $${(v[tier] * regionMult).toFixed(0)} (${v.description})\n`;
-          else ctx += `  ${k}: ${v[tier]}% of contract (${v.description})\n`;
-        }
-      }
-    }
-
-    // ── Add Electrical Distribution reference ──
-    if (PRICING_DB.electricalDistribution) {
-      ctx += `\n\nELECTRICAL DISTRIBUTION (UPS, panels, circuits, site electrical):\n`;
-      for (const [subCat, items] of Object.entries(PRICING_DB.electricalDistribution)) {
-        ctx += `  ${subCat}:\n`;
-        for (const [k, v] of Object.entries(items)) {
-          if (typeof v === 'object' && v[tier] !== undefined) {
-            ctx += `    ${k}: $${(v[tier] * regionMult).toFixed(0)}/${v.unit || 'ea'} (${v.description})\n`;
-          }
-        }
-      }
-    }
-
-    // ── Add Equipment Rental reference ──
-    if (PRICING_DB.equipmentRental) {
-      ctx += `\n\nEQUIPMENT RENTAL (per-day rates — multiply by rental days):\n`;
-      for (const [subCat, items] of Object.entries(PRICING_DB.equipmentRental)) {
-        for (const [k, v] of Object.entries(items)) {
-          if (typeof v === 'object' && v[tier] !== undefined) {
-            ctx += `  ${k}: $${(v[tier] * regionMult).toFixed(0)}/day (${v.description})\n`;
-          }
-        }
-      }
-    }
-
-    // ── Add Non-ELV Scopes reference ──
-    if (PRICING_DB.nonELVScopes) {
-      ctx += `\n\nNON-ELV SCOPES (include if in contract — glazing, masonry, HVAC, finishes):\n`;
-      for (const [subCat, items] of Object.entries(PRICING_DB.nonELVScopes)) {
-        for (const [k, v] of Object.entries(items)) {
-          if (typeof v === 'object' && v[tier] !== undefined) {
-            ctx += `  ${k}: $${(v[tier] * regionMult).toFixed(0)}/${v.unit || 'ea'} (${v.description})\n`;
-          }
-        }
-      }
-    }
-
-    // ── Add civil work cost references ──
-    if (PRICING_DB.civilWork) {
-      ctx += `\n\nCIVIL WORK COST REFERENCE (use these for subcontractor pricing):\n`;
-      ctx += `Directional Boring:\n`;
-      for (const [k, v] of Object.entries(PRICING_DB.civilWork.directional_boring || {})) {
-        if (typeof v === 'object' && v.mid !== undefined) {
-          ctx += `  ${k}: $${v.low}-$${v.high} ${v.unit} (${v.description})\n`;
-        }
-      }
-      ctx += `Trenching:\n`;
-      for (const [k, v] of Object.entries(PRICING_DB.civilWork.trenching || {})) {
-        if (typeof v === 'object' && v.mid !== undefined) {
-          ctx += `  ${k}: $${v.low}-$${v.high} ${v.unit} (${v.description})\n`;
-        }
-      }
-      ctx += `Surface Restoration:\n`;
-      for (const [k, v] of Object.entries(PRICING_DB.civilWork.surface_restoration || {})) {
-        if (typeof v === 'object' && v.mid !== undefined) {
-          ctx += `  ${k}: $${v.low}-$${v.high} ${v.unit} (${v.description})\n`;
-        }
-      }
-      ctx += `Core Drilling:\n`;
-      for (const [k, v] of Object.entries(PRICING_DB.civilWork.core_drilling || {})) {
-        if (typeof v === 'object' && v.mid !== undefined) {
-          ctx += `  ${k}: $${v.low}-$${v.high} ${v.unit} (${v.description})\n`;
-        }
-      }
-    }
-
-    // ── Add subcontractor benchmarks ──
-    if (PRICING_DB.subcontractorBenchmarks) {
-      const isTransit = /amtrak|bnsf|transit|railroad|rail/i.test(projectText);
-      const bench = isTransit ? PRICING_DB.subcontractorBenchmarks.transit_railroad : PRICING_DB.subcontractorBenchmarks.standard;
-      if (bench) {
-        ctx += `\nSUBCONTRACTOR BENCHMARKS (${isTransit ? 'TRANSIT' : 'STANDARD'}):\n`;
-        for (const [k, v] of Object.entries(bench)) {
-          ctx += `  ${k}: $${v.toLocaleString()}\n`;
-        }
-      }
-    }
-
-    return ctx.substring(0, 8000);
+    return ctx.substring(0, 12000);
   },
 
-
-  // ═══════════════════════════════════════════════════════════
-  // BRAIN OUTPUT SANITIZATION — Defense-in-depth against prompt injection chains
-  // ═══════════════════════════════════════════════════════════
-
-  _sanitizeBrainOutput(obj) {
-    if (!obj || typeof obj !== 'object') return;
-    for (const key of Object.keys(obj)) {
-      if (typeof obj[key] === 'string') {
-        // Truncate excessively long strings
-        if (obj[key].length > 5000) obj[key] = obj[key].substring(0, 5000);
-        // Strip instruction-like patterns (defense-in-depth)
-        obj[key] = obj[key].replace(/(?:ignore|disregard)\s+(?:all\s+)?(?:previous|above|prior)\s+(?:instructions?|prompts?|rules?)/gi, '[removed]');
-        obj[key] = obj[key].replace(/you\s+are\s+now\s+/gi, '[removed] ');
-        obj[key] = obj[key].replace(/^system:\s*/gmi, '');
-        obj[key] = obj[key].replace(/^IMPORTANT:\s*/gmi, '');
-      } else if (Array.isArray(obj[key])) {
-        obj[key].forEach(item => this._sanitizeBrainOutput(item));
-      } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-        this._sanitizeBrainOutput(obj[key]);
-      }
-    }
-  },
 
   // ═══════════════════════════════════════════════════════════
   // SINGLE BRAIN EXECUTION — Extracted for batched orchestration
@@ -3600,7 +3403,7 @@ Return ONLY valid JSON:
       
       // Guard: if prompt is empty, skip brain cleanly (e.g., TARGETED_RESCANNER with no disputes)
       if (!prompt || prompt.trim().length === 0) {
-        this._log(`[Brain:${brain.name}] Prompt is empty — skipping (no work required)`);
+        console.log(`[Brain:${brain.name}] Prompt is empty — skipping (no work required)`);
         this._brainStatus[key] = { status: 'done', progress: 100, result: { _skipped: true, reason: 'No input data' }, error: null };
         results[key] = { _skipped: true, reason: 'No input data' };
         const completed = incrementCompleted();
@@ -3653,7 +3456,7 @@ Return ONLY valid JSON:
                 const retryValidation = this._validateBrainOutput(key, retryParsed);
                 if (retryValidation.valid) {
                   parsed = retryParsed;
-                  this._log(`[Brain:${brain.name}] ✓ Retry ${retryNum} succeeded — validation passed`);
+                  console.log(`[Brain:${brain.name}] ✓ Retry ${retryNum} succeeded — validation passed`);
                   retrySucceeded = true;
                   break;
                 } else {
@@ -3672,17 +3475,8 @@ Return ONLY valid JSON:
         }
       }
 
-      // Strip any instruction-like content from brain outputs before downstream use
-      if (parsed && typeof parsed === 'object' && !parsed._failed) {
-        const sanitized = JSON.parse(JSON.stringify(parsed));
-        // Remove any string values that look like prompt injections
-        // (This is defense-in-depth — the main protection is input sanitization)
-        this._sanitizeBrainOutput(sanitized);
-        results[key] = sanitized;
-      }
-
       this._brainStatus[key] = { status: 'done', progress: 100, result: parsed, error: null };
-      if (!results[key]) results[key] = parsed; // fallback if sanitization guard didn't apply
+      results[key] = parsed;
       const completed = incrementCompleted();
 
       const pct = baseProgress + (completed / totalBrains) * (endProgress - baseProgress);
@@ -3732,7 +3526,7 @@ Return ONLY valid JSON:
       // Large wave — stagger in batches of 2 to avoid rate limits
       for (let i = 0; i < brainKeys.length; i += BATCH_SIZE) {
         const batch = brainKeys.slice(i, i + BATCH_SIZE);
-        this._log(`[SmartBrains] Wave ${waveNum}: Starting batch ${Math.floor(i/BATCH_SIZE) + 1} — ${batch.map(k => this.BRAINS[k].name).join(', ')}`);
+        console.log(`[SmartBrains] Wave ${waveNum}: Starting batch ${Math.floor(i/BATCH_SIZE) + 1} — ${batch.map(k => this.BRAINS[k].name).join(', ')}`);
 
         const batchPromises = batch.map(async (key) => {
           await this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, brainKeys.length, results, () => ++completed, progressCallback);
@@ -3741,7 +3535,7 @@ Return ONLY valid JSON:
 
         // Stagger delay between batches (not after the last batch)
         if (i + BATCH_SIZE < brainKeys.length) {
-          this._log(`[SmartBrains] Wave ${waveNum}: Stagger delay ${STAGGER_DELAY_MS}ms before next batch…`);
+          console.log(`[SmartBrains] Wave ${waveNum}: Stagger delay ${STAGGER_DELAY_MS}ms before next batch…`);
           await new Promise(r => setTimeout(r, STAGGER_DELAY_MS));
         }
       }
@@ -3768,44 +3562,9 @@ Return ONLY valid JSON:
   // ═══════════════════════════════════════════════════════════
 
   async runFullAnalysis(state, progressCallback) {
-    // Rate limiting: prevent concurrent analyses and enforce cooldown
-    if (this._analysisRunning) {
-      throw new Error('Analysis already in progress. Please wait for the current analysis to complete.');
-    }
-    if (this._lastAnalysisTime && (Date.now() - this._lastAnalysisTime) < 30000) {
-      throw new Error('Please wait at least 30 seconds between analyses.');
-    }
-    this._analysisRunning = true;
-
-    try {
-    // Validate required state fields
-    if (!state || typeof state !== 'object') throw new Error('Invalid state object');
-    if (typeof state.projectName !== 'string' || !state.projectName.trim()) throw new Error('Project name is required');
-    if (!state.markup || typeof state.markup !== 'object') {
-      state.markup = { material: 50, labor: 50, equipment: 15, subcontractor: 10 };
-    }
-    // Ensure markup values are numbers
-    for (const k of ['material', 'labor', 'equipment', 'subcontractor']) {
-      if (typeof state.markup[k] !== 'number' || isNaN(state.markup[k])) {
-        state.markup[k] = k === 'material' || k === 'labor' ? 50 : k === 'equipment' ? 15 : 10;
-      }
-    }
-    if (state.laborRates && typeof state.laborRates === 'object') {
-      for (const [k, v] of Object.entries(state.laborRates)) {
-        if (typeof v !== 'number' || isNaN(v) || v < 0) state.laborRates[k] = 0;
-      }
-    }
-
-    // Validate PRICING_DB structure if available
-    if (typeof PRICING_DB !== 'undefined') {
-      const required = ['structuredCabling', 'cctv', 'accessControl'];
-      const missing = required.filter(k => !PRICING_DB[k]);
-      if (missing.length > 0) console.warn('[SmartBrains] PRICING_DB missing categories:', missing.join(', '));
-    }
-
-    this._log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
-    this._log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
-    this._log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
+    console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
+    console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
+    console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
 
     // Reset brain status
     this._brainStatus = {};
@@ -3817,7 +3576,7 @@ Return ONLY valid JSON:
     progressCallback(2, '📁 Encoding documents…', this._brainStatus);
     const encodedFiles = await this._encodeAllFiles(state, progressCallback);
     const totalFiles = Object.values(encodedFiles).reduce((s, arr) => s + arr.length, 0);
-    this._log(`[SmartBrains] Encoded ${totalFiles} files`);
+    console.log(`[SmartBrains] Encoded ${totalFiles} files`);
 
     // ═══ CONTEXT CACHING — Upload files once, all brains reference the cache ═══
     // Saves ~90% on API costs by avoiding re-processing files for each brain
@@ -3834,12 +3593,9 @@ Return ONLY valid JSON:
       }
       if (fileUris.length > 0) {
         progressCallback(4, '🧠 Creating context cache (saves 90% on API costs)…', this._brainStatus);
-        const _cacheHeaders = { 'Content-Type': 'application/json' };
-        if (typeof _sessionToken !== 'undefined' && _sessionToken) _cacheHeaders['X-Session-Token'] = _sessionToken;
-        if (typeof _appToken !== 'undefined' && _appToken) _cacheHeaders['X-App-Token'] = _appToken;
         const cacheResp = await fetch('/api/ai/cache', {
           method: 'POST',
-          headers: _cacheHeaders,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             fileUris,
             model: 'models/gemini-2.5-pro',
@@ -3851,7 +3607,7 @@ Return ONLY valid JSON:
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
           _contextCache = { name: cacheData.cacheName, model: 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
-          this._log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
+          console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
           console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error || cacheData._debug);
         }
@@ -3897,7 +3653,7 @@ Return ONLY valid JSON:
     let wave0Results = {};
     try {
       wave0Results = await this._runWave(0, ['LEGEND_DECODER', 'SPATIAL_LAYOUT'], encodedFiles, state, context, progressCallback);
-      this._log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded + Spatial layout mapped ═══');
+      console.log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded + Spatial layout mapped ═══');
     } catch (wave0Err) {
       console.warn('[SmartBrains] ⚠️ Wave 0 failed — continuing without legend/spatial context:', wave0Err.message);
       this._brainStatus['LEGEND_DECODER'] = { status: 'failed', progress: 0, result: null, error: wave0Err.message };
@@ -3911,14 +3667,14 @@ Return ONLY valid JSON:
     const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER'];
     const wave1Results = await this._runWave(1, wave1Keys, encodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
-    this._log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
+    console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
 
     // ═══ WAVE 1.5: Second Read — Independent Verification (5 parallel brains, Pro model) ═══
     progressCallback(35, '👁️ Wave 1.5: Second Read — 5 independent verifiers…', this._brainStatus);
     const wave15Keys = ['SHADOW_SCANNER', 'DISCIPLINE_DEEP_DIVE', 'QUADRANT_SCANNER', 'ZOOM_SCANNER', 'PER_FLOOR_ANALYZER'];
     const wave15Results = await this._runWave(1.5, wave15Keys, encodedFiles, state, context, progressCallback);
     context.wave1_5 = wave15Results;
-    this._log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (5 brains) ═══');
+    console.log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (5 brains) ═══');
 
     // ═══ WAVE 1.75: Consensus Resolution ═══
     progressCallback(50, '⚖️ Wave 1.75: Building consensus from 3 reads…', this._brainStatus);
@@ -3968,10 +3724,10 @@ Return ONLY valid JSON:
       const skipReason = allDisputes.length === 0 ? 'No disputes' : `${allDisputes.length} minor dispute(s) below threshold — consensus values sufficient`;
       this._brainStatus['TARGETED_RESCANNER'] = { status: 'done', progress: 100, result: { _skipped: true, reason: skipReason }, error: null };
       if (allDisputes.length > 0) {
-        this._log(`[SmartBrains] ℹ️ ${allDisputes.length} dispute(s) found but all below re-scan threshold (variance ≤15% or qty <3). Using consensus values.`);
+        console.log(`[SmartBrains] ℹ️ ${allDisputes.length} dispute(s) found but all below re-scan threshold (variance ≤15% or qty <3). Using consensus values.`);
       }
     }
-    this._log(`[SmartBrains] ═══ Wave 1.75 Complete — ${allDisputes.length} dispute(s) total, ${disputes.length} required re-scan ═══`);
+    console.log(`[SmartBrains] ═══ Wave 1.75 Complete — ${allDisputes.length} dispute(s) total, ${disputes.length} required re-scan ═══`);
 
     // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
     progressCallback(56, '💰 Wave 2: Material Pricer — computing material costs…', this._brainStatus);
@@ -4001,31 +3757,31 @@ Return ONLY valid JSON:
       console.warn('[SmartBrains] Report Writer will be instructed to add missing scope');
       context._missingDisciplines = missingDisciplines;
     }
-    this._log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
+    console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
 
     // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
     progressCallback(62, '👷 Wave 2.25: Labor Calculator — computing labor hours…', this._brainStatus);
     const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], encodedFiles, state, context, progressCallback);
     context.wave2_25 = wave225Results;
-    this._log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
+    console.log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
 
     // ═══ WAVE 2.5: Financial Engine (runs AFTER both to sum their outputs) ═══
     progressCallback(68, '📊 Wave 2.5: Financial Engine — building SOV…', this._brainStatus);
     const wave25FinResults = await this._runWave(2.5, ['FINANCIAL_ENGINE'], encodedFiles, state, context, progressCallback);
     context.wave2_5_fin = wave25FinResults;
-    this._log('[SmartBrains] ═══ Wave 2.5 Complete — Financials computed ═══');
+    console.log('[SmartBrains] ═══ Wave 2.5 Complete — Financials computed ═══');
 
     // ═══ WAVE 2.75: Reverse Verification (1 brain, Pro model) ═══
     progressCallback(72, '🔄 Wave 2.75: Reverse-verifying BOQ against plans…', this._brainStatus);
     const wave275Results = await this._runWave(2.75, ['REVERSE_VERIFIER'], encodedFiles, state, context, progressCallback);
     context.wave2_75 = wave275Results;
-    this._log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
+    console.log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
 
     // ═══ WAVE 3: Adversarial Audit (2 parallel brains, Pro model) ═══
     progressCallback(78, '😈 Wave 3: Adversarial Audit — cross-validator + devil\'s advocate…', this._brainStatus);
     const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], encodedFiles, state, context, progressCallback);
     context.wave3 = wave3Results;
-    this._log('[SmartBrains] ═══ Wave 3 Complete ═══');
+    console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
 
     // ═══ WAVE 3.5: Deep Accuracy Pass (3 parallel brains, Pro) ═══
     try {
@@ -4033,7 +3789,7 @@ Return ONLY valid JSON:
       const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER', 'OVERLAP_DETECTOR'];
       const wave35Results = await this._runWave(3.5, wave35Keys, encodedFiles, state, context, progressCallback);
       context.wave3_5 = wave35Results;
-      this._log('[SmartBrains] ═══ Wave 3.5 Complete — Deep Accuracy done (3 brains) ═══');
+      console.log('[SmartBrains] ═══ Wave 3.5 Complete — Deep Accuracy done (3 brains) ═══');
     } catch (e) {
       console.warn('[SmartBrains] Wave 3.5 failed (non-fatal, continuing):', e.message);
       context.wave3_5 = {};
@@ -4044,7 +3800,7 @@ Return ONLY valid JSON:
       progressCallback(86, '🏁 Wave 3.75: 6th Read — Final Reconciliation sweep…', this._brainStatus);
       const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], encodedFiles, state, context, progressCallback);
       context.wave3_75 = wave375Results;
-      this._log('[SmartBrains] ═══ Wave 3.75 Complete — 6th Read done ═══');
+      console.log('[SmartBrains] ═══ Wave 3.75 Complete — 6th Read done ═══');
     } catch (e) {
       console.warn('[SmartBrains] Wave 3.75 failed (non-fatal, continuing):', e.message);
       context.wave3_75 = {};
@@ -4060,12 +3816,12 @@ Return ONLY valid JSON:
       const corrector = wave385Results.ESTIMATE_CORRECTOR;
       if (corrector && !corrector._failed && !corrector._parseFailed && corrector.corrected_categories) {
         const log = corrector.correction_log || [];
-        this._log(`[SmartBrains] ═══ Wave 3.85 Complete — ${log.length} correction(s) applied ═══`);
+        console.log(`[SmartBrains] ═══ Wave 3.85 Complete — ${log.length} correction(s) applied ═══`);
         for (const entry of log) {
-          this._log(`[SmartBrains]   🔧 ${entry.action}: ${entry.item} — ${entry.reason} (${entry.cost_impact >= 0 ? '+' : ''}$${entry.cost_impact?.toLocaleString()})`);
+          console.log(`[SmartBrains]   🔧 ${entry.action}: ${entry.item} — ${entry.reason} (${entry.cost_impact >= 0 ? '+' : ''}$${entry.cost_impact?.toLocaleString()})`);
         }
         if (corrector.total_adjustment) {
-          this._log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
+          console.log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
         }
         // Inject corrected data so Report Writer uses it
         context._correctedPricer = corrector;
@@ -4080,20 +3836,20 @@ Return ONLY valid JSON:
     // ═══ WAVE 4: Report Synthesis (1 brain) ═══
     progressCallback(92, '📝 Wave 4: Writing final report…', this._brainStatus);
     const wave4Results = await this._runWave(4, ['REPORT_WRITER'], encodedFiles, state, context, progressCallback);
-    this._log('[SmartBrains] ═══ Wave 4 Complete ═══');
+    console.log('[SmartBrains] ═══ Wave 4 Complete ═══');
 
     // Log session cost summary
     if (this._sessionCost) {
       const sc = this._sessionCost;
-      this._log(`[SmartBrains] ═══ API COST SUMMARY ═══`);
-      this._log(`[SmartBrains]   Brain calls: ${sc.brainCalls}`);
-      this._log(`[SmartBrains]   Tokens: ${sc.totalCached.toLocaleString()} cached + ${sc.totalFresh.toLocaleString()} fresh + ${sc.totalOutput.toLocaleString()} output`);
-      this._log(`[SmartBrains]   Total cost: $${sc.totalCost.toFixed(4)}`);
-      this._log(`[SmartBrains]   Cache savings: $${sc.totalSavings.toFixed(4)}`);
-      this._log(`[SmartBrains]   Effective rate: $${(sc.totalCost / Math.max(sc.brainCalls, 1)).toFixed(4)} per brain`);
+      console.log(`[SmartBrains] ═══ API COST SUMMARY ═══`);
+      console.log(`[SmartBrains]   Brain calls: ${sc.brainCalls}`);
+      console.log(`[SmartBrains]   Tokens: ${sc.totalCached.toLocaleString()} cached + ${sc.totalFresh.toLocaleString()} fresh + ${sc.totalOutput.toLocaleString()} output`);
+      console.log(`[SmartBrains]   Total cost: $${sc.totalCost.toFixed(4)}`);
+      console.log(`[SmartBrains]   Cache savings: $${sc.totalSavings.toFixed(4)}`);
+      console.log(`[SmartBrains]   Effective rate: $${(sc.totalCost / Math.max(sc.brainCalls, 1)).toFixed(4)} per brain`);
       if (sc.totalCached > 0) {
         const pctCached = ((sc.totalCached / (sc.totalCached + sc.totalFresh)) * 100).toFixed(1);
-        this._log(`[SmartBrains]   Cache hit rate: ${pctCached}%`);
+        console.log(`[SmartBrains]   Cache hit rate: ${pctCached}%`);
       }
     }
 
@@ -4186,17 +3942,11 @@ Return ONLY valid JSON:
         reverseVerificationScore: reverseV?.verification_score || null,
       },
     };
-    } finally {
-      this._analysisRunning = false;
-      this._lastAnalysisTime = Date.now();
-    }
   },
 };
 
 
 // Make available globally
-// Prevent external mutation of the engine API
-Object.freeze(SmartBrains.config);
 if (typeof window !== 'undefined') {
   window.SmartBrains = SmartBrains;
 }

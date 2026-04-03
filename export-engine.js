@@ -8,17 +8,6 @@ const SmartPlansExport = {
 
     _round(val) { return Math.round((val || 0) * 100) / 100; },
 
-    _recalculateBOMTotals(bom) {
-        bom.grandTotal = 0;
-        for (const cat of bom.categories) {
-            cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
-            cat.subtotal = this._round(cat.subtotal);
-            bom.grandTotal += cat.subtotal;
-        }
-        bom.grandTotal = this._round(bom.grandTotal);
-        return bom;
-    },
-
     // ─── Build structured data package ─────────────────────────
     buildExportPackage(state) {
         const now = new Date();
@@ -28,7 +17,6 @@ const SmartPlansExport = {
 
         // Pre-extract BOM for financials section
         const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
-        this._applyTransitAdjustments(bom, state); // enforce station-grade pricing for transit
         const bomWarning = bom._warning || null;
 
         // Apply supplier price overrides if present
@@ -36,21 +24,6 @@ const SmartPlansExport = {
         if (Object.keys(overrides).length > 0) {
             for (const [key, override] of Object.entries(overrides)) {
                 const [catIdx, itemIdx] = key.split('-').map(Number);
-                // Validate parsed indices are non-negative integers
-                if (!Number.isInteger(catIdx) || catIdx < 0 || !Number.isInteger(itemIdx) || itemIdx < 0) {
-                    console.warn(`SmartPlans: skipping invalid override key "${key}" — indices must be non-negative integers`);
-                    continue;
-                }
-                // Validate indices are within bounds
-                if (catIdx >= bom.categories.length || !bom.categories[catIdx].items || itemIdx >= bom.categories[catIdx].items.length) {
-                    console.warn(`SmartPlans: skipping out-of-bounds override key "${key}" — catIdx=${catIdx}, itemIdx=${itemIdx}`);
-                    continue;
-                }
-                // Validate unitCost is a positive finite number
-                if (typeof override.unitCost !== 'number' || !Number.isFinite(override.unitCost) || override.unitCost <= 0) {
-                    console.warn(`SmartPlans: skipping override key "${key}" — unitCost must be a positive finite number, got ${override.unitCost}`);
-                    continue;
-                }
                 if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
                     const item = bom.categories[catIdx].items[itemIdx];
                     if (override.qty != null) item.qty = override.qty;
@@ -62,7 +35,13 @@ const SmartPlansExport = {
                 }
             }
             // Recalculate category subtotals and grand total
-            this._recalculateBOMTotals(bom);
+            bom.grandTotal = 0;
+            for (const cat of bom.categories) {
+                cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
+                cat.subtotal = this._round(cat.subtotal);
+                bom.grandTotal += cat.subtotal;
+            }
+            bom.grandTotal = this._round(bom.grandTotal);
         }
 
         // Filter BOM to only include categories for selected disciplines
@@ -71,11 +50,10 @@ const SmartPlansExport = {
         return {
             _meta: {
                 format: "smartplans-export",
-                version: "5.0",
+                version: "3.0",
                 generatedAt: now.toISOString(),
                 generatedBy: "SmartPlans — AI-Powered ELV Estimation",
                 appVersion: PRICING_DB.version,
-                classification: "3D CONFIDENTIAL — 3D Technology Services Inc.",
             },
 
             project: {
@@ -160,105 +138,11 @@ const SmartPlansExport = {
                 })),
                 totalLineItems: filteredBom.categories.reduce((s, c) => s + c.items.length, 0),
                 supplierOverrides: state.supplierPriceOverrides || {},
-                manualBomItems: state.manualBomItems || [],
-                deletedBomItems: state.deletedBomItems || {},
                 // Phase assignment per category for SmartPM SOV
                 phaseAssignments: this._buildPhaseAssignments(state, filteredBom),
             },
 
-            // Brain Results — AI analysis outputs from all 27 brains
-            // Persisted so reloading a saved estimate preserves labor hours,
-            // financial engine data, special conditions, consensus counts, etc.
-            brainResults: (() => {
-                const br = state.brainResults;
-                if (!br) return null;
-                try {
-                    // Save the key brain outputs needed for display and calculations
-                    return {
-                        wave0: br.wave0 || null,
-                        wave1: br.wave1 || null,
-                        wave1_5: br.wave1_5 || null,
-                        wave1_75: br.wave1_75 || null,
-                        wave2: br.wave2 || null,
-                        wave2_25: br.wave2_25 || null,
-                        wave2_5_fin: br.wave2_5_fin || null,
-                        wave3: br.wave3 || null,
-                        wave3_5: br.wave3_5 || null,
-                        wave3_85_corrected: br.wave3_85_corrected || null,
-                        wave4: br.wave4 || null,
-                    };
-                } catch (e) {
-                    console.warn('[SmartPlans Export] Failed to serialize brainResults:', e);
-                    return null;
-                }
-            })(),
-
-            // Travel & Incidentals configuration (Stage 7)
-            // Persisted so reloading a saved estimate preserves the full bid total
-            travelConfig: {
-                enabled: state.travel?.enabled || false,
-                calcMode: state.travel?.calcMode || 'byTechs',
-                techCount: state.travel?.techCount || 4,
-                projectDays: state.travel?.projectDays || 30,
-                hoursPerDay: state.travel?.hoursPerDay || 8,
-                numTrips: state.travel?.numTrips || 1,
-                hotelPerNight: state.travel?.hotelPerNight || 175,
-                hotelNightsPerWeek: state.travel?.hotelNightsPerWeek || 4,
-                perDiemPerDay: state.travel?.perDiemPerDay || 79,
-                mileageRoundTrip: state.travel?.mileageRoundTrip || 0,
-                mileageRate: state.travel?.mileageRate || 0.70,
-                airfarePerPerson: state.travel?.airfarePerPerson || 0,
-                rentalCarPerDay: state.travel?.rentalCarPerDay || 85,
-                parkingPerDay: state.travel?.parkingPerDay || 25,
-                tollsPerTrip: state.travel?.tollsPerTrip || 0,
-            },
-            incidentalsConfig: {
-                permits: state.incidentals?.permits || 0,
-                insurance: state.incidentals?.insurance || 0,
-                bonding: state.incidentals?.bonding || 0,
-                equipmentRental: state.incidentals?.equipmentRental || 0,
-                fuelTransit: state.incidentals?.fuelTransit || 0,
-                unexpectedBufferPct: state.incidentals?.unexpectedBufferPct || 5,
-            },
-
-            // AI Travel recommendations (from Labor Calculator brain)
-            travelAIRecommendations: {
-                aiRecommendedTechs: state.travel?.aiRecommendedTechs || null,
-                aiRecommendedDays: state.travel?.aiRecommendedDays || null,
-                aiCrewBreakdown: state.travel?.aiCrewBreakdown || null,
-                aiReasoning: state.travel?.aiReasoning || null,
-            },
-
-            // Bid Strategy — per-category markup overrides (CRITICAL for bid total)
-            bidStrategy: state.bidStrategy ? { ...state.bidStrategy } : null,
-
-            // Excluded Change Orders — user's CO exclusion choices
-            excludedChangeOrders: state._excludedCOs ? [...state._excludedCOs] : [],
-
-            // Selected RFIs — user's RFI selections for proposals
-            selectedRFIs: state.selectedRFIs ? [...state.selectedRFIs] : [],
-
-            // Raw Bid Phases — user-created phases/alternates with category assignments
-            bidPhasesRaw: state.bidPhases ? state.bidPhases.map(p => ({
-                id: p.id, name: p.name, type: p.type,
-                categoryIndices: p.categoryIndices || [],
-                includeInProposal: p.includeInProposal !== false,
-            })) : null,
-            _bidPhaseCounter: state._bidPhaseCounter || 1,
-
-            // Exclusions/Assumptions/Clarifications — full array with IDs and sort order
-            exclusionsRaw: (state.exclusions || []).map(e => ({
-                id: e.id, type: e.type, text: e.text,
-                category: e.category || '', sort_order: e.sort_order || 0,
-            })),
-
-            // Quality assurance data
-            mathValidation: state.mathValidation || null,
-            sectionCompleteness: state.sectionCompleteness || null,
-            failedBrains: state.failedBrains || [],
-            brainStats: state.brainStats || null,
-
-            // Bid Phases / Alternates for multi-phase option pricing (computed export)
+            // Bid Phases / Alternates for multi-phase option pricing
             bidPhases: this._buildBidPhasesExport(state, filteredBom),
 
             // Symbol Inventory Audit — per-sheet/per-location device breakdown for count verification
@@ -296,47 +180,25 @@ const SmartPlansExport = {
     },
 
     // ─── Classify BOM categories into material/equipment/subs ──
-    _classifyBOM(bom, _debugMode) {
-        let materials = 0, equipment = 0, subs = 0, travel = 0, generalConditions = 0;
+    _classifyBOM(bom) {
+        let materials = 0, equipment = 0, subs = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
-            let bucket = 'materials';
-            if (/travel|per\s*diem|lodging|hotel|mileage|incidental/.test(n)) {
-                travel += (cat.subtotal || 0);
-                bucket = 'TRAVEL';
-            } else if (/general\s*condition|bond|mobilization|demobilization|mob.*demob|rrpli|permits?\s*&?\s*fees/.test(n)) {
-                generalConditions += (cat.subtotal || 0);
-                bucket = 'GEN_CONDITIONS';
-            } else if (/insurance/i.test(n) && !/general/i.test(n)) {
-                // Insurance as standalone category → general conditions (no markup)
-                generalConditions += (cat.subtotal || 0);
-                bucket = 'GEN_CONDITIONS';
-            } else if (/trench|sawcut|saw.?cut|civil.*work|underground|excavat/i.test(n)) {
-                // Trenching/civil work → subcontractor bucket (gets sub markup, not material markup)
+            if (/subcontract|civil|traffic|safety|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
-                bucket = 'SUBS';
-            } else if (/subcontract|window.?film|bollard|masonry|glazing|traffic|safety|parking/i.test(n)) {
-                subs += (cat.subtotal || 0);
-                bucket = 'SUBS';
-            } else if (/ups\b|uninterrupt|battery.*bank|inverter|power.*condition/i.test(n)) {
-                // Station-sized UPS/batteries → equipment bucket
+            } else if (/equipment|condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
-                bucket = 'EQUIP';
-            } else if (/equipment|condition|scissor|boom|tugger|drill|saw|scanner/i.test(n)) {
-                equipment += (cat.subtotal || 0);
-                bucket = 'EQUIP';
             } else {
                 materials += (cat.subtotal || 0);
             }
-            if (_debugMode) console.log(`[BOM Classify] "${cat.name}" ($${(cat.subtotal||0).toLocaleString()}) → ${bucket}`);
         }
-        return { materials, equipment, subs, travel, generalConditions };
+        return { materials, equipment, subs };
     },
 
     // ─── Compute full bid price breakdown with all markups ──
     // SINGLE SOURCE OF TRUTH: Every output reads from this.
     _computeFullBreakdown(state, bom) {
-        const { materials, equipment, subs, travel: bomTravel, generalConditions } = this._classifyBOM(bom, state?._debugMode);
+        const { materials, equipment, subs } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
         const matPct = (cfg.material ?? 50) / 100;
         const labPct = (cfg.labor ?? 50) / 100;
@@ -346,56 +208,26 @@ const SmartPlansExport = {
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         const contingencyPct = 0.10;
 
-        // Labor: use actual Labor Calculator output when available
-        // Fallback chain: Labor Calculator brain → Financial Engine labor → materials × 0.40
-        const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
-        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
-        let laborSource = 'fallback';
-        let laborBase = 0;
-        if (laborCalc?.total_base_cost > 0) {
-            laborBase = this._round(laborCalc.total_base_cost);
-            laborSource = 'Labor Calculator brain';
-        } else if (finEngine?.project_summary?.total_labor > 0) {
-            laborBase = this._round(finEngine.project_summary.total_labor);
-            laborSource = 'Financial Engine labor';
-        } else {
-            laborBase = this._round(materials * 0.40);  // ELV labor ~ 35-45% of material cost
-            laborSource = 'materials × 0.40 estimate';
-        }
-
-        // ── Diagnostic logging — trace every value in the calculation ──
-        if (state?._debugMode) console.log(`[BOM Classify] materials=$${materials.toLocaleString()} equipment=$${equipment.toLocaleString()} subs=$${subs.toLocaleString()} bomTravel=$${bomTravel.toLocaleString()}`);
-        if (state?._debugMode) console.log(`[BOM Labor] source="${laborSource}" laborBase=$${laborBase.toLocaleString()} | LC=${laborCalc?.total_base_cost || 'N/A'} | FE=${finEngine?.project_summary?.total_labor || 'N/A'}`);
-        if (state?._debugMode) console.log(`[BOM Markup] mat=${matPct*100}% lab=${labPct*100}% eq=${eqPct*100}% sub=${subPct*100}% burden=${includeBurden ? burdenRate*100+'%' : 'off'} contingency=${contingencyPct*100}%`);
+        // Labor estimate: based on loaded crew rates and material cost
+        // ELV labor typically runs 80-120% of material cost
+        const laborBase = this._round(materials * 1.0);
 
         const matSell = this._round(materials * (1 + matPct));
         const labSell = this._round(laborBase * (1 + labPct));
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
         const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
+        const travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
+            ? this._round(computeTravelIncidentals().grandTotal || 0) : 0;
 
-        // Travel: use BOM travel if present, else Stage 6 user config. NEVER double-count.
-        let travel = 0;
-        if (bomTravel > 0) {
-            travel = this._round(bomTravel);  // already in BOM — no markup on travel
-        } else if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
-            travel = this._round(computeTravelIncidentals().grandTotal || 0);
-        }
-
-        // General Conditions are at-cost (no markup — bonds/insurance are already final pricing)
-        const gcTotal = this._round(generalConditions);
-
-        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel + gcTotal);
+        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
         const contingency = this._round(subtotal * contingencyPct);
         const grandTotal = this._round(subtotal + contingency);
 
-        if (state?._debugMode) console.log(`[BOM Sell] matSell=$${matSell.toLocaleString()} labSell=$${labSell.toLocaleString()} eqSell=$${eqSell.toLocaleString()} subSell=$${subSell.toLocaleString()} gcTotal=$${gcTotal.toLocaleString()} burden=$${burden.toLocaleString()} travel=$${travel.toLocaleString()}`);
-        if (state?._debugMode) console.log(`[BOM Total] subtotal=$${subtotal.toLocaleString()} + contingency=$${contingency.toLocaleString()} = grandTotal=$${grandTotal.toLocaleString()}`);
-
         return {
-            materials, equipment, subs, generalConditions: gcTotal, laborBase, laborSource,
+            materials, equipment, subs, laborBase,
             matPct, labPct, eqPct, subPct,
-            matSell, labSell, eqSell, subSell, gcTotal,
+            matSell, labSell, eqSell, subSell,
             burden, burdenRate: includeBurden ? burdenRate : 0,
             travel, subtotal, contingency, contingencyPct, grandTotal
         };
@@ -404,8 +236,8 @@ const SmartPlansExport = {
     // ─── Get fully loaded bid total ──
     _getFullyLoadedTotal(state, bom) {
         // DEBUG: Log what brain results we have
-        if (state?._debugMode) console.log(`[Export] brainResults available: ${!!state.brainResults}`);
-        if (state?._debugMode && state.brainResults) {
+        console.log(`[Export] brainResults available: ${!!state.brainResults}`);
+        if (state.brainResults) {
             console.log(`[Export] wave3_85_corrected: ${!!state.brainResults.wave3_85_corrected}, corrected_grand_total: ${state.brainResults.wave3_85_corrected?.corrected_grand_total}`);
             console.log(`[Export] wave2_5_fin: ${!!state.brainResults.wave2_5_fin}, FINANCIAL_ENGINE: ${!!state.brainResults.wave2_5_fin?.FINANCIAL_ENGINE}`);
             if (state.brainResults.wave2_5_fin?.FINANCIAL_ENGINE) {
@@ -419,33 +251,10 @@ const SmartPlansExport = {
         if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
             const tCosts = computeTravelIncidentals();
             stage6Travel = this._round(tCosts.grandTotal || 0);
-            if (state?._debugMode) console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
+            console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
         }
 
-        // Priority 1: Deterministic BOM computation (materials + markups + labor + burden + travel + contingency)
-        // This uses the ACTUAL BOM data with user-configured markup percentages — single source of truth.
-        // The Financial Engine AI brain calculates its own totals which often DON'T match the
-        // deterministic markup formula, causing proposal/export number mismatches.
-        if (bom?.categories?.length > 0) {
-            const breakdown = this._computeFullBreakdown(state, bom);
-            if (breakdown.grandTotal > 1000) {
-                if (state?._debugMode) console.log(`[Export] ✅ Grand total from deterministic BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
-                state._bomGrandTotal = breakdown.grandTotal;
-                state._bomBreakdown = breakdown;
-                return breakdown.grandTotal;
-            }
-        }
-
-        // Priority 2: Bid strategy if user applied one
-        if (state.bidStrategy?.applied) {
-            const result = this.applyBidStrategy?.(state);
-            if (result?.grandTotalWithStrategy > 1000) {
-                if (state?._debugMode) console.log(`[Export] Grand total from Bid Strategy: $${result.grandTotalWithStrategy.toLocaleString()}`);
-                return this._round(result.grandTotalWithStrategy);
-            }
-        }
-
-        // Priority 3: Financial Engine brain (fallback when BOM computation not available)
+        // Priority 1: Financial Engine brain (fully-loaded bid price with labor, overhead, profit, contingency)
         const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
         if (finEngine?.project_summary?.grand_total > 1000) {
             let val = this._round(finEngine.project_summary.grand_total);
@@ -453,23 +262,52 @@ const SmartPlansExport = {
             if (stage6Travel > 0) {
                 const aiTravel = this._round(finEngine.project_summary.total_travel || 0);
                 val = this._round(val - aiTravel + stage6Travel);
-                if (state?._debugMode) console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()})`);
+                console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()})`);
             }
-            if (state?._debugMode) console.log(`[Export] ⚠️ Grand total from Financial Engine AI (fallback): $${val.toLocaleString()}`);
+            console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
         }
 
-        // Priority 4: Estimate Corrector's corrected grand total (raw BOM only — last resort)
+        // Priority 2: Estimate Corrector's corrected grand total (raw BOM only — fallback)
         const corrector = state.brainResults?.wave3_85_corrected;
         if (corrector?.corrected_grand_total > 1000) {
             const val = this._round(corrector.corrected_grand_total);
-            if (state?._debugMode) console.log(`[Export] ⚠️ Using Estimate Corrector total (raw BOM, no markups): $${val.toLocaleString()}`);
+            console.log(`[Export] ⚠️ Using Estimate Corrector total (raw BOM, no markups): $${val.toLocaleString()}`);
             state._bomGrandTotal = val;
             return val;
         }
 
-        // Priority 5: Raw BOM + 10% contingency (emergency fallback)
+        // Priority 3: Compute from BOM + markups (last resort)
+        const finEngineAlt = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+        if (finEngineAlt?.project_summary?.grand_total > 1000) {
+            const val = this._round(finEngineAlt.project_summary.grand_total);
+            console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
+            state._bomGrandTotal = val;
+            return val;
+        }
+
+        // Priority 3: Bid strategy if user applied one
+        if (state.bidStrategy?.applied) {
+            const result = this.applyBidStrategy?.(state);
+            if (result?.grandTotalWithStrategy > 1000) {
+                console.log(`[Export] Grand total from Bid Strategy: $${result.grandTotalWithStrategy.toLocaleString()}`);
+                return this._round(result.grandTotalWithStrategy);
+            }
+        }
+
+        // Priority 4: Compute with full markups from BOM (fallback)
+        if (bom?.categories?.length > 0) {
+            const breakdown = this._computeFullBreakdown(state, bom);
+            if (breakdown.grandTotal > 1000) {
+                console.log(`[Export] Grand total from BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
+                state._bomGrandTotal = breakdown.grandTotal;
+                state._bomBreakdown = breakdown;
+                return breakdown.grandTotal;
+            }
+        }
+
+        // Priority 5: Raw BOM + 10% contingency (last resort)
         const rawTotal = bom?.grandTotal || 0;
         console.warn(`[Export] Grand total fallback: raw BOM $${rawTotal} + 10%`);
         return this._round(rawTotal * 1.1);
@@ -1038,10 +876,9 @@ const SmartPlansExport = {
 
                 if (heading) {
                     // Check if this heading looks like a material/cost category
-                    const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|breakdown|bill|bom|civil|trench|sawcut|saw.?cut|bollard|ups\b|power|electrical|window.?film|glazing|fiber|masonry|signage|survey|spare|consumable|waste/i.test(heading);
-                    // Exclude summary/rollup sections and commentary that re-state subtotals (causes double-counting)
-                    // Only exclude INFORMATIONAL sections, NOT priced scope categories
-                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary|travel|per diem|hotel|lodging|special equipment.*condition|equipment.*rental|rental.*equipment/i.test(heading);
+                    const isCategory = /material|cost|pricing|equipment|cabling|cctv|camera|access|fire|alarm|intrusion|audio|visual|av\b|structured|backbone|infrastructure|mdf|idf|misc|general|conduit|pathway|rack|panel|device|breakdown|bill|bom/i.test(heading);
+                    // Exclude summary/rollup sections that re-state subtotals (causes double-counting)
+                    const isNonCategory = /confidence|methodology|timeline|schedule|rfi|risk|note|assumption|disclaimer|verification|validation|labor|phase|rough|trim|programming|testing|commissioning|what to do|next step|project cost summary|cost summary|investment summary|financial summary|budget summary/i.test(heading);
 
                     if (isCategory && !isNonCategory) {
                         // Save previous category if it has items
@@ -1168,74 +1005,6 @@ const SmartPlansExport = {
                             partNumber = cells[colMap.partNumber].replace(/\*+/g, '').trim();
                         }
 
-                        // ── Price guardrail enforcement (code-level clamp) ──
-                        // Prevents AI-hallucinated prices from inflating OR deflating the BOM
-                        const nameLower = cleanName.toLowerCase();
-                        const unitLower = (unit || '').toLowerCase();
-
-                        // ═══ PRICE CEILINGS (prevent over-pricing) ═══
-                        if (unitCost > 0 && (unit === 'ea' || unit === 'each')) {
-                            const isCam = /camera|dome|bullet|ptz|panoramic|multi.?sensor|fisheye|lpr|anpr/i.test(nameLower);
-                            if (isCam) {
-                                const camMax = /ptz/i.test(nameLower) ? 1800
-                                    : /multi.?sensor|panoramic|360/i.test(nameLower) ? 1500
-                                    : /fisheye/i.test(nameLower) ? 1000
-                                    : /lpr|anpr/i.test(nameLower) ? 2000
-                                    : 800; // fixed dome/bullet
-                                if (unitCost > camMax) {
-                                    console.log(`[SmartPlans] Price clamp ↓: "${cleanName}" $${unitCost} → $${camMax} (max for type)`);
-                                    unitCost = camMax;
-                                    extCost = qty * unitCost;
-                                }
-                            }
-                            // NVR/server clamp
-                            if (/nvr|video.*server|recording/i.test(nameLower) && unitCost > 16250) {
-                                unitCost = 16250; extCost = qty * unitCost;
-                            }
-                            // Switch clamp
-                            if (/switch.*poe|poe.*switch/i.test(nameLower) && unitCost > 2400) {
-                                unitCost = 2400; extCost = qty * unitCost;
-                            }
-                        }
-
-                        // ═══ PRICE FLOORS (prevent under-pricing) ═══
-                        // Trenching/sawcut per LF — minimum $85/LF for concrete (AI often prices at $30-$50)
-                        if (/sawcut|saw.?cut|trench|trenching/i.test(nameLower) && /lf|l\.f\.|linear/i.test(unitLower)) {
-                            const trenchMin = 85; // Concrete all-in minimum $/LF
-                            if (unitCost > 0 && unitCost < trenchMin) {
-                                console.log(`[SmartPlans] Price floor ↑: "${cleanName}" $${unitCost}/LF → $${trenchMin}/LF (min for concrete sawcut+trench)`);
-                                unitCost = trenchMin;
-                                extCost = qty * unitCost;
-                            }
-                        }
-                        // Underground conduit per LF — minimum $7/LF
-                        if (/underground.*conduit|conduit.*underground|direct.*burial|duct.*bank/i.test(nameLower) && /lf|l\.f\.|linear/i.test(unitLower)) {
-                            const conduitMin = 7;
-                            if (unitCost > 0 && unitCost < conduitMin) {
-                                console.log(`[SmartPlans] Price floor ↑: "${cleanName}" $${unitCost}/LF → $${conduitMin}/LF (min for underground conduit)`);
-                                unitCost = conduitMin;
-                                extCost = qty * unitCost;
-                            }
-                        }
-                        // Handholes — minimum $650/ea
-                        if (/handhole|hand.?hole|pull.?box|junction.?box.*underground/i.test(nameLower) && /ea|each|ls/i.test(unitLower)) {
-                            const handholeMin = 650;
-                            if (unitCost > 0 && unitCost < handholeMin) {
-                                console.log(`[SmartPlans] Price floor ↑: "${cleanName}" $${unitCost} → $${handholeMin} (min for handhole/pullbox)`);
-                                unitCost = handholeMin;
-                                extCost = qty * unitCost;
-                            }
-                        }
-                        // Bollards — minimum $750/ea installed
-                        if (/bollard/i.test(nameLower) && /ea|each/i.test(unitLower)) {
-                            const bollardMin = 750;
-                            if (unitCost > 0 && unitCost < bollardMin) {
-                                console.log(`[SmartPlans] Price floor ↑: "${cleanName}" $${unitCost} → $${bollardMin} (min for bollard installed)`);
-                                unitCost = bollardMin;
-                                extCost = qty * unitCost;
-                            }
-                        }
-
                         currentCategory.items.push({
                             item: cleanName,
                             qty: qty,
@@ -1312,22 +1081,13 @@ const SmartPlansExport = {
             const summaryPatterns = /subtotal|summary|recap|rollup|total.*table/i;
             const realCategories = categories.filter(cat => {
                 if (summaryPatterns.test(cat.name)) {
-                    // Only log once per category name to avoid console spam on re-renders
-                    const warnKey = `_bomWarn_${cat.name}`;
-                    if (!this[warnKey]) {
-                        this[warnKey] = true;
-                        console.warn(`[SmartPlans Export] REMOVED duplicate summary category: "${cat.name}" ($${cat.items.reduce((s, i) => s + (i.extCost || 0), 0).toFixed(2)}) — this was double-counting real items`);
-                    }
+                    console.warn(`[SmartPlans Export] REMOVED duplicate summary category: "${cat.name}" ($${cat.items.reduce((s, i) => s + (i.extCost || 0), 0).toFixed(2)}) — this was double-counting real items`);
                     return false;
                 }
                 // Also remove categories where item names are just dollar amounts (e.g., "$15,373.52")
                 const dollarNameItems = cat.items.filter(i => /^\$[\d,]+\.?\d*$/.test((i.item || i.name || '').trim()));
                 if (dollarNameItems.length > 0 && dollarNameItems.length === cat.items.length) {
-                    const warnKey2 = `_bomWarn_dollar_${cat.name}`;
-                    if (!this[warnKey2]) {
-                        this[warnKey2] = true;
-                        console.warn(`[SmartPlans Export] REMOVED dollar-amount category: "${cat.name}" — all items are summary values, not real materials`);
-                    }
+                    console.warn(`[SmartPlans Export] REMOVED dollar-amount category: "${cat.name}" — all items are summary values, not real materials`);
                     return false;
                 }
                 return true;
@@ -1336,44 +1096,11 @@ const SmartPlansExport = {
             // Also remove "Not in Scope" placeholder categories with $0 totals
             const activeCategories = realCategories.filter(cat => {
                 const hasRealItems = cat.items.some(i => (i.extCost || 0) > 0 || (i.qty || 0) > 0);
-                if (!hasRealItems && this._debugMode) {
+                if (!hasRealItems) {
                     console.log(`[SmartPlans Export] Skipped empty/not-in-scope category: "${cat.name}"`);
                 }
                 return hasRealItems;
             });
-
-            // ═══ DEDUPLICATION: Remove duplicate items between MDF/head-end and Network categories ═══
-            // AI often generates both a location-based "MDF" category AND a "Network & Headend" category
-            // with the SAME items (racks, switches, UPS, PDU). Keep the larger category, remove dupes from smaller.
-            const mdfCat = activeCategories.find(c => /mdf|head.?end|main.*closet|telecom.*room/i.test(c.name));
-            const netCat = activeCategories.find(c => /network.*head|head.*network|network.*material|network.*equipment/i.test(c.name));
-            if (mdfCat && netCat && mdfCat !== netCat) {
-                // Build fingerprint set from MDF items (the typically larger/more detailed category)
-                const mdfFingerprints = new Set();
-                for (const item of mdfCat.items) {
-                    // Normalize: lowercase, strip quantities, create a generic fingerprint
-                    const fp = (item.item || '').toLowerCase()
-                        .replace(/\d+/g, '#')
-                        .replace(/[^a-z#]/g, '')
-                        .substring(0, 30);
-                    mdfFingerprints.add(fp);
-                }
-                const beforeCount = netCat.items.length;
-                netCat.items = netCat.items.filter(item => {
-                    const fp = (item.item || '').toLowerCase()
-                        .replace(/\d+/g, '#')
-                        .replace(/[^a-z#]/g, '')
-                        .substring(0, 30);
-                    if (mdfFingerprints.has(fp)) {
-                        console.log(`[SmartPlans] Dedup: removing "${item.item}" ($${item.extCost}) from "${netCat.name}" — already in "${mdfCat.name}"`);
-                        return false;
-                    }
-                    return true;
-                });
-                if (netCat.items.length < beforeCount) {
-                    console.log(`[SmartPlans] Dedup: removed ${beforeCount - netCat.items.length} duplicate items from "${netCat.name}"`);
-                }
-            }
 
             // Calculate subtotals & grand total from REAL categories only
             // FIX: ALWAYS compute subtotals from actual line item extCosts.
@@ -1390,160 +1117,13 @@ const SmartPlansExport = {
                 return emptyResult;
             }
 
-            if (this._debugMode) console.log(`[SmartPlans Export] BOM: ${activeCategories.length} categories, ${totalItems} items, $${this._round(grandTotal)} raw total`);
+            console.log(`[SmartPlans Export] BOM: ${activeCategories.length} categories, ${totalItems} items, $${this._round(grandTotal)} raw total`);
             return { categories: activeCategories, grandTotal: this._round(grandTotal) };
 
         } catch (err) {
             console.error('[SmartPlans Export] BOM extraction failed:', err);
             return emptyResult;
         }
-    },
-
-    // ─── Transit/Railroad BOM adjustments ─────────────────────────
-    // After BOM extraction, enforce minimum pricing for items the AI chronically under-prices
-    // in transit projects: station-sized UPS, RRPLI insurance, and travel reasonableness.
-    _applyTransitAdjustments(bom, state) {
-        if (!bom?.categories?.length) return bom;
-
-        // Detect transit project
-        const pType = (state?.projectType || state?.pricingConfig?.projectType || '').toLowerCase();
-        const pName = (state?.projectName || state?.pricingConfig?.projectName || '').toLowerCase();
-        const isTransit = /transit|railroad|amtrak|rail|metro|bart|caltrain|commuter/i.test(pType + ' ' + pName);
-        if (!isTransit) return bom; // only apply to transit projects
-
-        console.log('[SmartPlans] Transit project detected — applying station-grade pricing adjustments');
-
-        // ── UPS/Battery adjustment ──
-        // AI routinely prices a $3K rack-mount UPS when transit stations need $50K-$135K station UPS + $60K-$100K batteries
-        let upsTotal = 0;
-        let upsItems = [];
-        let batteryTotal = 0;
-        let batteryItems = [];
-        for (const cat of bom.categories) {
-            for (const item of cat.items) {
-                const n = (item.item || '').toLowerCase();
-                if (/ups|uninterruptible|inverter|power\s*conditioning/i.test(n) && !/surge|strip|pdu/i.test(n)) {
-                    upsTotal += (item.extCost || 0);
-                    upsItems.push(item);
-                }
-                if (/battery|batter/i.test(n)) {
-                    batteryTotal += (item.extCost || 0);
-                    batteryItems.push(item);
-                }
-            }
-        }
-
-        // If UPS items exist but total < $25K, this is a rack-mount UPS — reprice to station-grade
-        if (upsItems.length > 0 && upsTotal < 25000) {
-            const mainUps = upsItems[0];
-            const stationUpsPrice = 65000;
-            console.log(`[SmartPlans] Transit UPS floor ↑: "${mainUps.item}" $${mainUps.unitCost} → $${stationUpsPrice} (station-sized UPS for transit)`);
-            mainUps.unitCost = stationUpsPrice;
-            mainUps.extCost = (mainUps.qty || 1) * stationUpsPrice;
-            mainUps.item = mainUps.item.replace(/\d+\s*kVA/i, '50kVA').replace(/rack.?mount/i, 'Station-Sized');
-            if (!/station/i.test(mainUps.item)) mainUps.item = mainUps.item + ' (Station-Sized)';
-        }
-
-        // Battery bank check: transit station batteries cost $60K-$100K.
-        // If battery total is under $20K (rack battery shelf ≠ station battery bank), inject real battery bank.
-        if (upsItems.length > 0 && batteryTotal < 20000) {
-            // Find the category that contains the UPS item
-            for (const cat of bom.categories) {
-                if (cat.items.some(i => upsItems.includes(i))) {
-                    const batteryItem = {
-                        item: 'UPS Battery Bank — Station-Sized (Sealed Lead Acid, 4-string)',
-                        qty: 1,
-                        unit: 'ls',
-                        unitCost: 98000,
-                        extCost: 98000,
-                        mfg: 'Eaton/C&D',
-                        partNumber: 'SBS-TRANSIT-BAT',
-                        category: 'equipment',
-                    };
-                    cat.items.push(batteryItem);
-                    console.log(`[SmartPlans] Transit battery bank injected: $98,000 (existing battery items total only $${batteryTotal.toLocaleString()} — station needs $60K-$100K)`);
-                    break;
-                }
-            }
-        }
-
-        // ── Insurance/RRPLI adjustment ──
-        // Transit projects need RRPLI ($25K-$65K) plus GL. If total insurance < $15K, adjust.
-        let insuranceTotal = 0;
-        let insuranceItems = [];
-        for (const cat of bom.categories) {
-            const cn = (cat.name || '').toLowerCase();
-            for (const item of cat.items) {
-                const n = (item.item || '').toLowerCase();
-                if (/insurance|rrpli|liability|indemnity/i.test(n) || (/bond|insurance/i.test(cn) && /insurance|rrpli/i.test(n))) {
-                    insuranceTotal += (item.extCost || 0);
-                    insuranceItems.push(item);
-                }
-            }
-        }
-
-        if (insuranceTotal < 15000) {
-            // Find General Conditions category or create one
-            let gcCat = bom.categories.find(c => /general\s*condition|bond|insurance|mobiliz/i.test(c.name));
-            if (!gcCat) {
-                gcCat = { name: 'General Conditions & Insurance', items: [], subtotal: 0 };
-                bom.categories.push(gcCat);
-            }
-
-            if (insuranceItems.length > 0) {
-                // Adjust existing insurance item
-                const mainIns = insuranceItems[0];
-                const insFloor = 20000;
-                console.log(`[SmartPlans] Transit insurance floor ↑: "${mainIns.item}" $${mainIns.extCost} → $${insFloor} (RRPLI + GL minimum)`);
-                mainIns.unitCost = insFloor;
-                mainIns.extCost = insFloor;
-                mainIns.qty = 1;
-                if (!/rrpli/i.test(mainIns.item)) mainIns.item = 'Railroad Protective Liability Insurance (RRPLI) + GL';
-            } else {
-                // Inject RRPLI if completely missing
-                gcCat.items.push({
-                    item: 'Railroad Protective Liability Insurance (RRPLI)',
-                    qty: 1, unit: 'ls', unitCost: 28000, extCost: 28000,
-                    mfg: '', partNumber: '', category: 'insurance',
-                });
-                console.log(`[SmartPlans] Transit RRPLI injected: $28,000`);
-            }
-        }
-
-        // ── Travel cap ──
-        // AI often generates $80K-$100K travel for 30-day projects. Real transit travel ~ $15K-$30K.
-        // Cap AI-generated travel categories at $35K unless user configured Stage 6.
-        if (!state?.travel?.enabled) {
-            for (const cat of bom.categories) {
-                const cn = (cat.name || '').toLowerCase();
-                if (/travel|per\s*diem|lodging|hotel/i.test(cn)) {
-                    const catTotal = cat.items.reduce((s, i) => s + (i.extCost || 0), 0);
-                    if (catTotal > 35000) {
-                        const scaleFactor = 25000 / catTotal; // target ~$25K
-                        for (const item of cat.items) {
-                            const oldCost = item.extCost;
-                            item.unitCost = this._round(item.unitCost * scaleFactor);
-                            item.extCost = this._round(item.extCost * scaleFactor);
-                            if (item.extCost !== oldCost) {
-                                console.log(`[SmartPlans] Travel cap: "${item.item}" $${oldCost} → $${item.extCost}`);
-                            }
-                        }
-                        console.log(`[SmartPlans] Transit travel capped: $${catTotal.toLocaleString()} → ~$25,000 (AI over-estimated)`);
-                    }
-                }
-            }
-        }
-
-        // ── Recalculate subtotals after adjustments ──
-        let newGrand = 0;
-        for (const cat of bom.categories) {
-            cat.subtotal = cat.items.reduce((s, i) => s + (i.extCost || 0), 0);
-            newGrand += cat.subtotal;
-        }
-        bom.grandTotal = this._round(newGrand);
-        console.log(`[SmartPlans] Post-transit-adjustment BOM total: $${bom.grandTotal.toLocaleString()}`);
-
-        return bom;
     },
 
     // ─── Discipline-to-BOM category mapping ──────────────────────
@@ -1560,7 +1140,7 @@ const SmartPlansExport = {
 
     // Patterns for categories that are ALWAYS included regardless of discipline selection
     // (infrastructure, equipment, general conditions, subcontractors, etc.)
-    _ALWAYS_INCLUDE_PATTERN: /equipment|subcontract|special\s*condition|general\s*condition|network\s*room|telecom\s*closet|mdf|idf|mpoe|tunnel|mobiliz|bond|insurance|permit|overhead|profit|contingency|travel|per\s*diem|lift|rental|tool|safety|incidental|civil|trench|sawcut|saw.?cut|ups\b|power\s*distribution|electrical|bollard|window.?film|glazing|masonry|spare|consumable|waste|handhole|pull.?box|survey/i,
+    _ALWAYS_INCLUDE_PATTERN: /equipment|subcontract|special\s*condition|general\s*condition|network\s*room|telecom\s*closet|mdf|idf|mpoe|tunnel|mobiliz|bond|insurance|permit|overhead|profit|contingency|travel|per\s*diem|lift|rental|tool|safety|incidental/i,
 
     // ─── Filter BOM categories by selected disciplines ───────────
     // Removes categories for disciplines the user did NOT select.
@@ -1609,7 +1189,7 @@ const SmartPlansExport = {
             if (!matchesAnyDiscipline) return true;
 
             // Category matches an unselected discipline — filter it out
-            if (this._debugMode) console.log(`[SmartPlans Export] Skipped unselected discipline category: "${name}" (discipline not in selection: ${disciplines.join(', ')})`);
+            console.log(`[SmartPlans Export] Skipped unselected discipline category: "${name}" (discipline not in selection: ${disciplines.join(', ')})`);
             return false;
         });
 
@@ -1662,7 +1242,6 @@ const SmartPlansExport = {
      */
     exportBOM(state) {
         let bom = this._extractBOMFromAnalysis(state.aiAnalysis);
-        this._applyTransitAdjustments(bom, state); // enforce station-grade pricing for transit
 
         if (bom.categories.length === 0) {
             // Fallback: try infrastructure data
@@ -1693,8 +1272,7 @@ const SmartPlansExport = {
         bom = this._filterBOMByDisciplines(bom, state.disciplines);
 
         if (bom.categories.length === 0) {
-            console.warn('[SmartPlans] No material data found in the AI analysis. Please run the analysis first.');
-            if (typeof spToast === 'function') spToast('No material data found in the AI analysis. Please run the analysis first.', 'error');
+            alert('No material data found in the AI analysis. Please run the analysis first.');
             return;
         }
 
@@ -1817,16 +1395,6 @@ const SmartPlansExport = {
             ws3["!cols"] = [{ wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 12 }];
             XLSX.utils.book_append_sheet(wb, ws3, "Category Summary");
 
-            // Add confidential footer row to each sheet
-            for (const sheetName of wb.SheetNames) {
-                const ws = wb.Sheets[sheetName];
-                const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-                const footerRow = range.e.r + 2;
-                ws[XLSX.utils.encode_cell({ r: footerRow, c: 0 })] = { v: '3D CONFIDENTIAL — 3D Technology Services Inc.', t: 's' };
-                range.e.r = footerRow;
-                ws['!ref'] = XLSX.utils.encode_range(range);
-            }
-
             // Write and download
             const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
             const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -1858,15 +1426,12 @@ const SmartPlansExport = {
                 rows.push([]);
             }
             rows.push(['', 'GRAND TOTAL', '', '', '', bom.grandTotal]);
-            rows.push([]);
-            rows.push(['3D CONFIDENTIAL — 3D Technology Services Inc.']);
 
             const csv = rows.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
             this._download(csv, `SmartPlans_BOM_${this._safeName(state)}.csv`, 'text/csv');
         } catch (err) {
             console.error('[SmartPlans] BOM CSV fallback failed:', err);
-            console.warn('[SmartPlans] BOM export failed. Please try the Excel or JSON export instead.');
-            if (typeof spToast === 'function') spToast('BOM export failed. Please try the Excel or JSON export instead.', 'error');
+            alert('BOM export failed. Please try the Excel or JSON export instead.');
         }
     },
 
@@ -2021,16 +1586,6 @@ const SmartPlansExport = {
             ws5["!cols"] = [{ wch: 18 }, { wch: 50 }, { wch: 12 }, { wch: 30 }];
             XLSX.utils.book_append_sheet(wb, ws5, "Documents");
 
-            // Add confidential footer row to each sheet
-            for (const sheetName of wb.SheetNames) {
-                const ws = wb.Sheets[sheetName];
-                const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-                const footerRow = range.e.r + 2;
-                ws[XLSX.utils.encode_cell({ r: footerRow, c: 0 })] = { v: '3D CONFIDENTIAL — 3D Technology Services Inc.', t: 's' };
-                range.e.r = footerRow;
-                ws['!ref'] = XLSX.utils.encode_range(range);
-            }
-
             // Write and download
             const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
             const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -2058,14 +1613,11 @@ const SmartPlansExport = {
                 rows.push(['AI ANALYSIS']);
                 state.aiAnalysis.split('\n').forEach(line => rows.push([line]));
             }
-            rows.push([]);
-            rows.push(['3D CONFIDENTIAL — 3D Technology Services Inc.']);
             const csv = rows.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
             this._download(csv, `SmartPlans_${this._safeName(state)}.csv`, 'text/csv');
         } catch (csvErr) {
             console.error('[SmartPlans] CSV fallback also failed:', csvErr);
-            console.warn('[SmartPlans] Export failed. Please try the JSON or Markdown option instead.');
-            if (typeof spToast === 'function') spToast('Export failed. Please try the JSON or Markdown option instead.', 'error');
+            alert('Export failed. Please try the JSON or Markdown option instead.');
         }
     },
 
@@ -2206,8 +1758,7 @@ const SmartPlansExport = {
 
         md += `\n\n---\n\n`;
         md += `*Generated by SmartPlans — AI-Powered ELV Document Analysis & Estimation*\n`;
-        md += `*${now.toISOString()}*\n\n`;
-        md += `**3D CONFIDENTIAL — 3D Technology Services Inc.**\n`;
+        md += `*${now.toISOString()}*\n`;
 
         this._download(md, `SmartPlans_${this._safeName(state)}_Report.md`, "text/markdown");
     },
@@ -2297,8 +1848,7 @@ const SmartPlansExport = {
         const estimateId = state.estimateId || state.projectId || '';
 
         if (bom.categories.length === 0) {
-            console.warn('[SmartPlans] No material data found in the AI analysis. Please run the analysis first.');
-            if (typeof spToast === 'function') spToast('No material data found in the AI analysis. Please run the analysis first.', 'error');
+            alert('No material data found in the AI analysis. Please run the analysis first.');
             return;
         }
 
@@ -2342,9 +1892,6 @@ const SmartPlansExport = {
             dataRows.push([]);
         }
 
-        // Compute grandTotal from category subtotals
-        grandTotal = bom.categories.reduce((sum, cat) => sum + (cat.subtotal || 0), 0);
-
         // Grand total row (no pricing — supplier calculates their own)
         dataRows.push([]);
         dataRows.push(['', '', '', '', 'TOTAL', '', '', '', '']);
@@ -2353,8 +1900,6 @@ const SmartPlansExport = {
 
         if (format === 'csv' || typeof XLSX === 'undefined') {
             // CSV export
-            allRows.push([]);
-            allRows.push(['3D CONFIDENTIAL — 3D Technology Services Inc.']);
             const csv = allRows.map(r =>
                 r.map(c => `"${String(c != null ? c : '').replace(/"/g, '""')}"`).join(',')
             ).join('\n');
@@ -2377,21 +1922,12 @@ const SmartPlansExport = {
                 ];
                 XLSX.utils.book_append_sheet(wb, ws, 'Supplier BOM');
 
-                // Add 3D CONFIDENTIAL footer to sheet
-                const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-                const footerRow = range.e.r + 2;
-                ws[XLSX.utils.encode_cell({ r: footerRow, c: 0 })] = { v: '3D CONFIDENTIAL — 3D Technology Services Inc.', t: 's' };
-                range.e.r = footerRow;
-                ws['!ref'] = XLSX.utils.encode_range(range);
-
                 const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
                 const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
                 this._download(blob, `SmartPlans_SupplierBOM_${this._safeName(state)}.xlsx`);
             } catch (err) {
                 console.error('[SmartPlans] Supplier BOM Excel export failed:', err);
                 // Fallback to CSV
-                allRows.push([]);
-                allRows.push(['3D CONFIDENTIAL — 3D Technology Services Inc.']);
                 const csv = allRows.map(r =>
                     r.map(c => `"${String(c != null ? c : '').replace(/"/g, '""')}"`).join(',')
                 ).join('\n');
@@ -2466,68 +2002,38 @@ const SmartPlansExport = {
                         return;
                     }
 
-                    // Find header row — try SmartPlans format first, then any common pricing format
+                    // Find header row by scanning for row containing "Row" and "Supplier" (case-insensitive)
                     let headerRowIdx = -1;
                     let colRowNum = -1;
                     let colSupplierCost = -1;
                     let colPartNumber = -1;
                     let colName = -1;
-                    let colMfg = -1;
-                    let colQty = -1;
 
-                    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+                    for (let i = 0; i < rows.length; i++) {
                         const row = rows[i];
                         if (!row || !Array.isArray(row)) continue;
 
-                        const cellTexts = row.map(c => String(c || '').toLowerCase().trim());
-                        // Need at least 3 non-empty cells to be a header
-                        if (cellTexts.filter(c => c.length > 0).length < 3) continue;
+                        const cellTexts = row.map(c => String(c || '').toLowerCase());
+                        const hasRow = cellTexts.some(c => c.includes('row'));
+                        const hasSupplier = cellTexts.some(c => c.includes('supplier'));
 
-                        // Detect price-like column (the key column we need)
-                        let priceCol = -1, priceScore = 0;
-                        cellTexts.forEach((c, idx) => {
-                            // Best: "supplier unit cost"
-                            if (c.includes('supplier') && c.includes('unit') && c.includes('cost')) { if (priceScore < 10) { priceCol = idx; priceScore = 10; } }
-                            // Good: "supplier cost" (not extended)
-                            else if (c.includes('supplier') && c.includes('cost') && !c.includes('extend')) { if (priceScore < 9) { priceCol = idx; priceScore = 9; } }
-                            // Good: "unit cost" or "unit price"
-                            else if ((c.includes('unit cost') || c.includes('unit price') || c.includes('unit$')) && !c.includes('extend')) { if (priceScore < 8) { priceCol = idx; priceScore = 8; } }
-                            // OK: "cost" or "price" or "rate" (standalone-ish, not "ext cost")
-                            else if (/^(cost|price|rate|cost\s*each|price\s*each|ea\s*cost|ea\s*price)$/.test(c)) { if (priceScore < 7) { priceCol = idx; priceScore = 7; } }
-                            // OK: contains "cost" but not "ext" or "total" or "extended"
-                            else if (c.includes('cost') && !c.includes('ext') && !c.includes('total') && !c.includes('amount') && !c.includes('extended')) { if (priceScore < 5) { priceCol = idx; priceScore = 5; } }
-                        });
-
-                        // Detect description/part/item columns
-                        let hasDescOrPart = cellTexts.some(c =>
-                            c.includes('description') || c.includes('item') || c.includes('part') ||
-                            c.includes('product') || c.includes('material') || c.includes('component') ||
-                            c.includes('model') || c.includes('mfg') || c.includes('manufacturer')
-                        );
-
-                        if (priceCol !== -1 && hasDescOrPart) {
+                        if (hasRow && hasSupplier) {
                             headerRowIdx = i;
-                            colSupplierCost = priceCol;
-                            // Map all other columns
+                            // Map columns
                             cellTexts.forEach((c, idx) => {
-                                if (idx === priceCol) return; // skip the price column we already found
-                                // Row number
-                                if (colRowNum === -1 && (c.match(/^row\s*#?$/) || c === '#' || c === 'no' || c === 'no.' || c === 'line')) colRowNum = idx;
-                                // Part number
-                                if (colPartNumber === -1 && (c.includes('part') && (c.includes('number') || c.includes('#') || c.includes('no'))) || c === 'p/n' || c === 'sku' || c.includes('model')) colPartNumber = idx;
-                                // Manufacturer
-                                if (colMfg === -1 && (c.includes('mfg') || c.includes('manufacturer') || c.includes('brand') || c.includes('vendor') || c.includes('make'))) colMfg = idx;
-                                // Description
-                                if (colName === -1 && (c.includes('description') || c.includes('item desc') || c.includes('item name') || c === 'item' || c === 'product' || c === 'material' || c === 'component')) colName = idx;
-                                // Quantity
-                                if (colQty === -1 && (c === 'qty' || c === 'quantity' || c.includes('qty'))) colQty = idx;
+                                if (c.includes('row') && c.match(/row\s*#?$/i)) colRowNum = idx;
+                                else if (c.includes('row')) colRowNum = colRowNum === -1 ? idx : colRowNum;
+                                if (c.includes('supplier') && c.includes('cost')) colSupplierCost = idx;
+                                else if (c.includes('supplier') && c.includes('unit')) colSupplierCost = colSupplierCost === -1 ? idx : colSupplierCost;
+                                if (c.includes('part') && (c.includes('number') || c.includes('#'))) colPartNumber = idx;
+                                if (c.includes('description') || c.includes('item desc')) colName = idx;
                             });
                             break;
                         }
                     }
 
                     if (headerRowIdx === -1 || colSupplierCost === -1) {
-                        reject(new Error('Could not find a pricing column. The spreadsheet needs a header row with a cost/price column and item descriptions. Common headers: "Unit Cost", "Price", "Cost Each", "Supplier Unit Cost".'));
+                        reject(new Error('Could not find header row with "Row" and "Supplier" columns. Ensure the spreadsheet has the expected column headers.'));
                         return;
                     }
 
@@ -2549,34 +2055,19 @@ const SmartPlansExport = {
                     // Generate current row map for matching
                     const rowMap = this.generateSupplierRowMap(state);
 
-                    // Build multiple lookup maps for flexible matching
+                    // Build lookup maps for fallback matching
                     const rowNumToEntry = {};
                     const partNameToEntry = {};
-                    const partNumToEntry = {};    // part number only
-                    const nameToEntry = {};        // description only (normalized)
                     for (const entry of rowMap) {
                         rowNumToEntry[entry.rowNum] = entry;
                         const key = (entry.partNumber + '||' + entry.name).toLowerCase();
                         partNameToEntry[key] = entry;
-                        // Part number alone (for vendor quotes with different descriptions)
-                        if (entry.partNumber) {
-                            const pnKey = entry.partNumber.toLowerCase().replace(/[-\s]/g, '');
-                            if (!partNumToEntry[pnKey]) partNumToEntry[pnKey] = entry;
-                        }
-                        // Normalized name (strip common noise words)
-                        const nameKey = entry.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                        if (nameKey.length > 5 && !nameToEntry[nameKey]) nameToEntry[nameKey] = entry;
                     }
-
-                    console.log(`[SmartPlans] Supplier import: header at row ${headerRowIdx}, priceCol=${colSupplierCost}, partCol=${colPartNumber}, nameCol=${colName}, mfgCol=${colMfg}, rowCol=${colRowNum}`);
-                    console.log(`[SmartPlans] BOM has ${rowMap.length} items to match against`);
 
                     // Extract supplier prices from data rows
                     const overrides = {};
-                    const matchDetails = [];
                     let itemsUpdated = 0;
                     let itemsUnchanged = 0;
-                    let itemsSkipped = 0;
 
                     for (let i = headerRowIdx + 1; i < rows.length; i++) {
                         const row = rows[i];
@@ -2589,19 +2080,17 @@ const SmartPlansExport = {
                         const supplierPrice = parseFloat(costStr);
                         if (isNaN(supplierPrice) || supplierPrice <= 0) continue;
 
-                        // Try Row# match first (SmartPlans exported format)
+                        // Try Row# match first
                         let matched = null;
-                        let matchConfidence = '';
                         if (colRowNum !== -1) {
                             const rawRowNum = row[colRowNum];
                             const rowNum = parseInt(String(rawRowNum).replace(/[^\d]/g, ''));
                             if (!isNaN(rowNum) && rowNumToEntry[rowNum]) {
                                 matched = rowNumToEntry[rowNum];
-                                matchConfidence = 'row#';
                             }
                         }
 
-                        // Fallback 1: exact partNumber + name
+                        // Fallback: partNumber + name matching
                         if (!matched) {
                             const pn = colPartNumber !== -1 ? String(row[colPartNumber] || '').trim() : '';
                             const nm = colName !== -1 ? String(row[colName] || '').trim() : '';
@@ -2609,46 +2098,6 @@ const SmartPlansExport = {
                                 const key = (pn + '||' + nm).toLowerCase();
                                 if (partNameToEntry[key]) {
                                     matched = partNameToEntry[key];
-                                    matchConfidence = 'part+name';
-                                }
-                            }
-                        }
-
-                        // Fallback 2: part number alone (vendor quotes often have different descriptions)
-                        if (!matched) {
-                            const pn = colPartNumber !== -1 ? String(row[colPartNumber] || '').trim() : '';
-                            if (pn) {
-                                const pnKey = pn.toLowerCase().replace(/[-\s]/g, '');
-                                if (pnKey.length > 2 && partNumToEntry[pnKey]) {
-                                    matched = partNumToEntry[pnKey];
-                                    matchConfidence = 'part#';
-                                }
-                            }
-                        }
-
-                        // Fallback 3: scan ALL text cells in the row for a part number match
-                        if (!matched) {
-                            for (let ci = 0; ci < row.length; ci++) {
-                                if (ci === colSupplierCost) continue;
-                                const cellVal = String(row[ci] || '').trim();
-                                if (cellVal.length < 3 || cellVal.length > 60) continue;
-                                const pnKey = cellVal.toLowerCase().replace(/[-\s]/g, '');
-                                if (partNumToEntry[pnKey]) {
-                                    matched = partNumToEntry[pnKey];
-                                    matchConfidence = 'cell-scan';
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Fallback 4: normalized name matching (fuzzy)
-                        if (!matched && colName !== -1) {
-                            const nm = String(row[colName] || '').trim();
-                            if (nm.length > 5) {
-                                const nameKey = nm.toLowerCase().replace(/[^a-z0-9]/g, '');
-                                if (nameToEntry[nameKey]) {
-                                    matched = nameToEntry[nameKey];
-                                    matchConfidence = 'name';
                                 }
                             }
                         }
@@ -2659,15 +2108,8 @@ const SmartPlansExport = {
                                 unitCost: supplierPrice,
                                 supplierName: supplierName,
                             };
-                            matchDetails.push({
-                                ourItem: matched.name,
-                                oldCost: matched.unitCost,
-                                newCost: supplierPrice,
-                                confidence: matchConfidence,
-                            });
                             itemsUpdated++;
                         } else {
-                            itemsSkipped++;
                             itemsUnchanged++;
                         }
                     }
@@ -2697,12 +2139,9 @@ const SmartPlansExport = {
                     const delta = this._round(newTotal - oldTotal);
                     const deltaPercent = oldTotal > 0 ? Math.round((delta / oldTotal) * 10000) / 100 : 0;
 
-                    console.log(`[SmartPlans] Supplier import: ${itemsUpdated} matched, ${itemsSkipped} skipped, ${rowMap.length} BOM items total`);
-
                     resolve({
                         itemsUpdated: itemsUpdated,
                         itemsUnchanged: itemsUnchanged,
-                        itemsSkipped: itemsSkipped,
                         itemsTotal: rowMap.length,
                         oldTotal: oldTotal,
                         newTotal: newTotal,
@@ -2710,7 +2149,6 @@ const SmartPlansExport = {
                         deltaPercent: deltaPercent,
                         overrides: overrides,
                         supplierName: supplierName,
-                        matchDetails: matchDetails,
                     });
 
                 } catch (err) {
@@ -2835,7 +2273,7 @@ Return ONLY the JSON array. No other text.`;
                     for (const p of parts) {
                         if (p.text && !p.thought) fullText += p.text;
                     }
-                } catch (e) { if (state?._debugMode) console.warn('[SmartPlans] SSE line parse skip:', e.message); }
+                } catch (e) { /* skip unparseable lines */ }
             }
         }
 
@@ -2849,14 +2287,6 @@ Return ONLY the JSON array. No other text.`;
         } catch (e) {
             throw new Error('AI returned malformed pricing data. Try again or use an Excel file.');
         }
-
-        matches = matches.filter(m => {
-            if (typeof m !== 'object' || m === null) return false;
-            if (typeof m.bomIndex !== 'number' || !Number.isInteger(m.bomIndex) || m.bomIndex < 0) return false;
-            if (typeof m.supplierUnitCost !== 'number' || !isFinite(m.supplierUnitCost) || m.supplierUnitCost < 0) return false;
-            return true;
-        });
-        if (matches.length === 0) throw new Error('AI returned no valid pricing matches. Try a different file format.');
 
         // Step 7: Build overrides from AI matches
         const overrides = {};
@@ -3094,16 +2524,12 @@ Return ONLY the JSON array. No other text.`;
                         if (isNaN(extCost) && !isNaN(qty) && !isNaN(unitCost)) {
                             extCost = this._round(qty * unitCost);
                         }
-                        // Fallback: if ext cost is still zero but we have a unit cost, use it
-                        if ((isNaN(extCost) || extCost === 0) && !isNaN(unitCost) && unitCost > 0) {
-                            extCost = this._round((!isNaN(qty) && qty > 0 ? qty : 1) * unitCost);
-                        }
 
                         // Must have at least a name and some cost data
                         if (isNaN(extCost) && isNaN(unitCost)) continue;
 
                         items.push({
-                            item: name,
+                            name: name,
                             qty: isNaN(qty) ? 0 : qty,
                             unitCost: isNaN(unitCost) ? 0 : unitCost,
                             extCost: isNaN(extCost) ? 0 : extCost,
@@ -3115,16 +2541,10 @@ Return ONLY the JSON array. No other text.`;
 
                     grandTotal = this._round(grandTotal);
 
-                    if (items.length === 0) {
-                        reject(new Error('No priced line items found in the file.'));
-                        return;
-                    }
-
                     resolve({
                         competitorName: competitorName,
                         items: items,
                         grandTotal: grandTotal,
-                        total: grandTotal,
                         lineItemCount: items.length,
                     });
 
@@ -3136,6 +2556,154 @@ Return ONLY the JSON array. No other text.`;
 
             reader.readAsArrayBuffer(file);
         });
+    },
+
+    /**
+     * Compare our BOM against an imported competitor bid.
+     * Uses flexible name matching (exact, substring, word overlap).
+     * Returns { matched, onlyOurs, onlyTheirs, summary }.
+     */
+    compareWithCompetitorBid(state, competitorData) {
+        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
+
+        // Flatten our BOM into items
+        const ourItems = [];
+        for (let catIndex = 0; catIndex < bom.categories.length; catIndex++) {
+            const cat = bom.categories[catIndex];
+            for (let itemIndex = 0; itemIndex < cat.items.length; itemIndex++) {
+                const item = cat.items[itemIndex];
+                ourItems.push({
+                    catIndex: catIndex,
+                    itemIndex: itemIndex,
+                    name: (item.item || item.name || '').trim(),
+                    qty: item.qty || 0,
+                    unitCost: item.unitCost || 0,
+                    extCost: item.extCost || 0,
+                    category: cat.name || '',
+                });
+            }
+        }
+
+        // Word-overlap scoring helper
+        const getWords = (str) => str.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 1);
+
+        const wordOverlapScore = (a, b) => {
+            const wordsA = getWords(a);
+            const wordsB = getWords(b);
+            if (wordsA.length === 0 || wordsB.length === 0) return 0;
+            const setB = new Set(wordsB);
+            const shared = wordsA.filter(w => setB.has(w)).length;
+            const maxLen = Math.max(wordsA.length, wordsB.length);
+            return shared / maxLen;
+        };
+
+        // Track which of our items have been matched
+        const ourMatched = new Set();
+        const matched = [];
+
+        // For each competitor item, find the best match in our BOM
+        const theirUnmatched = [];
+
+        for (const theirItem of competitorData.items) {
+            const theirNameLower = (theirItem.name || '').toLowerCase().trim();
+            let bestIdx = -1;
+            let bestScore = 0; // 3 = exact, 2 = substring, 1+ = word overlap > 0.5
+
+            for (let oi = 0; oi < ourItems.length; oi++) {
+                if (ourMatched.has(oi)) continue;
+                const ourNameLower = ourItems[oi].name.toLowerCase().trim();
+
+                // Exact match
+                if (theirNameLower === ourNameLower) {
+                    bestIdx = oi;
+                    bestScore = 3;
+                    break; // Can't do better than exact
+                }
+
+                // Substring match
+                if (theirNameLower.includes(ourNameLower) || ourNameLower.includes(theirNameLower)) {
+                    if (2 > bestScore) {
+                        bestIdx = oi;
+                        bestScore = 2;
+                    }
+                    continue;
+                }
+
+                // Word overlap
+                const overlap = wordOverlapScore(theirItem.name, ourItems[oi].name);
+                if (overlap > 0.5 && (1 + overlap) > bestScore) {
+                    bestIdx = oi;
+                    bestScore = 1 + overlap;
+                }
+            }
+
+            if (bestIdx !== -1) {
+                ourMatched.add(bestIdx);
+                const ours = ourItems[bestIdx];
+                const qtyDelta = theirItem.qty - ours.qty;
+                const costDelta = theirItem.unitCost - ours.unitCost;
+                const extDelta = theirItem.extCost - ours.extCost;
+                const pctDelta = ours.extCost !== 0
+                    ? ((theirItem.extCost - ours.extCost) / ours.extCost * 100).toFixed(1)
+                    : '0.0';
+
+                matched.push({
+                    ourItem: ours,
+                    theirItem: theirItem,
+                    qtyDelta: qtyDelta,
+                    costDelta: costDelta,
+                    extDelta: extDelta,
+                    pctDelta: pctDelta,
+                });
+            } else {
+                theirUnmatched.push(theirItem);
+            }
+        }
+
+        // Collect our unmatched items
+        const onlyOurs = ourItems.filter((_, idx) => !ourMatched.has(idx));
+
+        // Calculate summary
+        const ourTotal = ourItems.reduce((sum, item) => sum + item.extCost, 0);
+        const theirTotal = competitorData.grandTotal || competitorData.items.reduce((sum, item) => sum + item.extCost, 0);
+        const delta = theirTotal - ourTotal;
+        const deltaPercent = ourTotal !== 0 ? (delta / ourTotal * 100).toFixed(1) : '0.0';
+
+        let weAreHigherCount = 0;
+        let weAreLowerCount = 0;
+        let weAreHigherTotal = 0;
+        let weAreLowerTotal = 0;
+
+        for (const m of matched) {
+            if (m.extDelta < 0) {
+                // Their ext is less than ours — we are higher
+                weAreHigherCount++;
+                weAreHigherTotal += m.extDelta; // negative value
+            } else if (m.extDelta > 0) {
+                // Their ext is more than ours — we are lower
+                weAreLowerCount++;
+                weAreLowerTotal += m.extDelta; // positive value
+            }
+        }
+
+        weAreHigherTotal = this._round(weAreHigherTotal);
+        weAreLowerTotal = this._round(weAreLowerTotal);
+
+        return {
+            matched: matched,
+            onlyOurs: onlyOurs,
+            onlyTheirs: theirUnmatched,
+            summary: {
+                ourTotal: this._round(ourTotal),
+                theirTotal: this._round(theirTotal),
+                delta: this._round(delta),
+                deltaPercent: deltaPercent,
+                weAreHigherCount: weAreHigherCount,
+                weAreLowerCount: weAreLowerCount,
+                weAreHigherTotal: weAreHigherTotal,
+                weAreLowerTotal: weAreLowerTotal,
+            },
+        };
     },
 
     // ─── Rate Library Integration ─────────────────────────────
@@ -3223,7 +2791,7 @@ Return ONLY the JSON array. No other text.`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
 
     // ─── Apply Bid Strategy — per-category markups & contingency ───
@@ -3291,6 +2859,127 @@ Return ONLY the JSON array. No other text.`;
         };
     },
 
+    // ─── Import a competitor bid file (xlsx/csv) ─────────────────
+    importCompetitorBid(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('Failed to read file: ' + (reader.error || 'Unknown error')));
+            reader.onload = () => {
+                try {
+                    const data = new Uint8Array(reader.result);
+                    let rows;
+                    const ext = (file.name || '').split('.').pop().toLowerCase();
+
+                    if (ext === 'csv') {
+                        if (typeof XLSX !== 'undefined') {
+                            const wb = XLSX.read(data, { type: 'array' });
+                            const ws = wb.Sheets[wb.SheetNames[0]];
+                            rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                        } else {
+                            const text = new TextDecoder().decode(data);
+                            rows = text.split('\n').map(line => {
+                                const cells = [];
+                                let current = '';
+                                let inQuotes = false;
+                                for (let i = 0; i < line.length; i++) {
+                                    const ch = line[i];
+                                    if (ch === '"') { inQuotes = !inQuotes; continue; }
+                                    if (ch === ',' && !inQuotes) { cells.push(current.trim()); current = ''; continue; }
+                                    current += ch;
+                                }
+                                cells.push(current.trim());
+                                return cells;
+                            });
+                        }
+                    } else {
+                        if (typeof XLSX === 'undefined') {
+                            reject(new Error('SheetJS (XLSX) library is required to read Excel files.'));
+                            return;
+                        }
+                        const wb = XLSX.read(data, { type: 'array' });
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    }
+
+                    if (!rows || rows.length < 2) {
+                        reject(new Error('File appears to be empty or has no data rows.'));
+                        return;
+                    }
+
+                    // Find header row
+                    let headerIdx = -1;
+                    let colItem = -1, colQty = -1, colUnitCost = -1, colExtCost = -1, colCategory = -1;
+
+                    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+                        const row = rows[i];
+                        if (!row || !Array.isArray(row)) continue;
+                        const cellTexts = row.map(c => String(c || '').toLowerCase());
+                        const hasItem = cellTexts.some(c => /item|description|material|component|product/i.test(c));
+                        const hasCost = cellTexts.some(c => /cost|price|amount|total|rate|\$/i.test(c));
+                        if (hasItem && hasCost) {
+                            headerIdx = i;
+                            cellTexts.forEach((c, idx) => {
+                                if (/item|description|material|component|product/i.test(c) && colItem === -1) colItem = idx;
+                                if (/^qty$|quantity|^qty/i.test(c)) colQty = idx;
+                                if (/unit\s*(cost|price|\$)|rate/i.test(c)) colUnitCost = idx;
+                                if (/ext|total|amount|^cost$/i.test(c) && colExtCost === -1) colExtCost = idx;
+                                if (/category|section|division|group/i.test(c)) colCategory = idx;
+                            });
+                            break;
+                        }
+                    }
+
+                    if (headerIdx === -1 || colItem === -1) {
+                        reject(new Error('Could not find header row with item description and cost columns.'));
+                        return;
+                    }
+
+                    // Try to derive competitor name from file name
+                    let competitorName = '';
+                    const fnameMatch = (file.name || '').replace(/\.(xlsx|csv)$/i, '').replace(/[-_]/g, ' ');
+                    if (fnameMatch) competitorName = fnameMatch;
+
+                    const parseCurrency = (v) => {
+                        if (v == null || v === '') return 0;
+                        const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
+                        return isNaN(n) ? 0 : n;
+                    };
+
+                    // Parse data rows
+                    const items = [];
+                    for (let i = headerIdx + 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row || !Array.isArray(row)) continue;
+                        const itemName = String(row[colItem] || '').trim();
+                        if (!itemName) continue;
+
+                        const qty = colQty !== -1 ? (parseFloat(String(row[colQty] || '0').replace(/,/g, '')) || 0) : 0;
+                        const unitCost = colUnitCost !== -1 ? parseCurrency(row[colUnitCost]) : 0;
+                        let extCost = colExtCost !== -1 ? parseCurrency(row[colExtCost]) : 0;
+                        if (extCost === 0 && qty > 0 && unitCost > 0) extCost = this._round(qty * unitCost);
+                        if (extCost === 0 && unitCost > 0) extCost = unitCost;
+                        const category = colCategory !== -1 ? String(row[colCategory] || '').trim() : '';
+
+                        if (extCost > 0 || unitCost > 0) {
+                            items.push({ item: itemName, qty, unitCost, extCost, category });
+                        }
+                    }
+
+                    if (items.length === 0) {
+                        reject(new Error('No priced line items found in the file.'));
+                        return;
+                    }
+
+                    const total = this._round(items.reduce((s, it) => s + it.extCost, 0));
+                    resolve({ competitorName, items, total });
+                } catch (err) {
+                    reject(new Error('Failed to parse competitor bid: ' + err.message));
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    },
+
     // ─── Compare our BOM with competitor bid data ──────────────
     compareWithCompetitorBid(state, competitorData) {
         const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
@@ -3310,7 +2999,13 @@ Return ONLY the JSON array. No other text.`;
                     if (override.isSubstitute) item._isSubstitute = true;
                 }
             }
-            this._recalculateBOMTotals(bom);
+            bom.grandTotal = 0;
+            for (const cat of bom.categories) {
+                cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
+                cat.subtotal = this._round(cat.subtotal);
+                bom.grandTotal += cat.subtotal;
+            }
+            bom.grandTotal = this._round(bom.grandTotal);
         }
 
         // Flatten our items
