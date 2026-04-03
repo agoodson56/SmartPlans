@@ -572,6 +572,7 @@ const state = {
   prevailingWage: "",
   workShift: "",
   priorEstimate: "",
+  isTransitRailroad: false,  // Explicit toggle — triggers higher markups, RWIC, RPL, etc.
 
   // Travel & Per Diem (configured on Stage 6 after analysis)
   travel: {
@@ -726,6 +727,7 @@ function startNewBid() {
   state.prevailingWage = '';
   state.workShift = '';
   state.priorEstimate = '';
+  state.isTransitRailroad = false;
 
   // Reset files
   state.legendFiles = [];
@@ -2396,12 +2398,27 @@ function generateMasterReport() {
     // Transit / Railroad
     if (specialConditions.transit_railroad && specialConditions.transit_railroad.applicable) {
       const tr = specialConditions.transit_railroad;
-      html += `<h3>Transit / Railroad Requirements</h3>`;
-      html += `<div class="callout" style="border-left-color:#DC2626;background:#fef2f2;"><strong>Railroad/Transit work adds significant cost.</strong> RWIC flagmen, RPL insurance, safety training, and restricted work windows typically add 20-30% to productivity.</div>`;
+      html += `<h3>🚂 Transit / Railroad Requirements</h3>`;
+      html += `<div class="callout" style="border-left-color:#DC2626;background:#fef2f2;"><strong>Railroad/Transit work adds significant cost.</strong> RWIC flagmen, RPL insurance, safety training, restricted work windows, and compliance requirements typically add 25-40% to project budget.</div>`;
       html += `<table><tr><th style="width:65%;">Item</th><th style="text-align:right;">Cost</th></tr>`;
-      if (tr.rwic_flagman_days) html += `<tr><td>RWIC Flagman (${tr.rwic_flagman_days} days × ${fmt(tr.rwic_daily_rate || 1200)}/day)</td><td style="text-align:right;font-weight:600;">${fmt(tr.rwic_flagman_days * (tr.rwic_daily_rate || 1200))}</td></tr>`;
-      if (tr.safety_training_cost) html += `<tr><td>Safety Training & Certification</td><td style="text-align:right;font-weight:600;">${fmt(tr.safety_training_cost)}</td></tr>`;
+      if (tr.rwic_flagman_days) html += `<tr><td>RWIC Flagman (${tr.rwic_flagman_days} days × ${fmt(tr.rwic_daily_rate || 1200)}/day)</td><td style="text-align:right;font-weight:600;">${fmt(tr.rwic_total || tr.rwic_flagman_days * (tr.rwic_daily_rate || 1200))}</td></tr>`;
       if (tr.rpl_insurance) html += `<tr><td>Railroad Protective Liability (RPL) Insurance</td><td style="text-align:right;font-weight:600;">${fmt(tr.rpl_insurance)}</td></tr>`;
+      if (tr.safety_training_cost) html += `<tr><td>Safety Training & Certification (TSA/TWIC + Railroad Orientation)</td><td style="text-align:right;font-weight:600;">${fmt(tr.safety_training_cost)}</td></tr>`;
+      if (tr.twic_tsa_cost) html += `<tr><td>TWIC/TSA Background Checks</td><td style="text-align:right;font-weight:600;">${fmt(tr.twic_tsa_cost)}</td></tr>`;
+      if (tr.railroad_escort_days) html += `<tr><td>Railroad Escort (${tr.railroad_escort_days} days × ${fmt(tr.railroad_escort_daily_rate || 1000)}/day)</td><td style="text-align:right;font-weight:600;">${fmt(tr.railroad_escort_total || tr.railroad_escort_days * (tr.railroad_escort_daily_rate || 1000))}</td></tr>`;
+      if (tr.track_rated_ppe_cost) html += `<tr><td>Track-Rated PPE & Safety Equipment</td><td style="text-align:right;font-weight:600;">${fmt(tr.track_rated_ppe_cost)}</td></tr>`;
+      if (tr.fra_approval_fee) html += `<tr><td>FRA / Transit Authority Approval</td><td style="text-align:right;font-weight:600;">${fmt(tr.fra_approval_fee)}</td></tr>`;
+      if (tr.row_permit_cost) html += `<tr><td>Right-of-Way Access Permit</td><td style="text-align:right;font-weight:600;">${fmt(tr.row_permit_cost)}</td></tr>`;
+      if (tr.station_coordination_fee) html += `<tr><td>Station Coordination / Platform Closure Fee</td><td style="text-align:right;font-weight:600;">${fmt(tr.station_coordination_fee)}</td></tr>`;
+      if (tr.specialty_tools_total) html += `<tr><td>Specialty Railroad Tools Rental</td><td style="text-align:right;font-weight:600;">${fmt(tr.specialty_tools_total)}</td></tr>`;
+      if (tr.work_window_premium_pct) html += `<tr><td>Restricted Work Window Premium (${tr.work_window_premium_pct}% labor increase)</td><td style="text-align:right;font-weight:600;color:#DC2626;">Included in labor</td></tr>`;
+      // Calculate and show transit total
+      const transitTotal = (tr.rwic_total || (tr.rwic_flagman_days || 0) * (tr.rwic_daily_rate || 1200))
+        + (tr.rpl_insurance || 0) + (tr.safety_training_cost || 0) + (tr.twic_tsa_cost || 0)
+        + (tr.railroad_escort_total || (tr.railroad_escort_days || 0) * (tr.railroad_escort_daily_rate || 1000))
+        + (tr.track_rated_ppe_cost || 0) + (tr.fra_approval_fee || 0)
+        + (tr.row_permit_cost || 0) + (tr.station_coordination_fee || 0) + (tr.specialty_tools_total || 0);
+      if (transitTotal > 0) html += `<tr style="background:#fef2f2;font-weight:700;"><td>TRANSIT/RAILROAD SUBTOTAL</td><td style="text-align:right;color:#DC2626;">${fmt(transitTotal)}</td></tr>`;
       html += `</table>`;
     }
     // Safety requirements
@@ -3033,6 +3050,47 @@ function renderStep0(container) {
     </div>
     ` : ""}
 
+    <div class="form-group" style="margin-top:12px;">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px 16px;background:${state.isTransitRailroad ? 'rgba(220,38,38,0.08)' : 'rgba(255,255,255,0.03)'};border:1px solid ${state.isTransitRailroad ? 'rgba(220,38,38,0.3)' : 'rgba(255,255,255,0.08)'};border-radius:10px;transition:all 0.2s;">
+        <input type="checkbox" id="transit-railroad-toggle" ${state.isTransitRailroad ? 'checked' : ''} style="width:18px;height:18px;accent-color:#DC2626;cursor:pointer;">
+        <div>
+          <div style="font-weight:700;font-size:14px;color:${state.isTransitRailroad ? '#DC2626' : 'var(--text-primary)'};">🚂 Transit / Railroad Project</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Amtrak, BNSF, Union Pacific, BART, Metro, light rail, commuter rail, train stations</div>
+        </div>
+      </label>
+    </div>
+    ${state.isTransitRailroad ? `
+    <div class="info-card info-card--rose" style="margin-bottom:16px;">
+      <div class="info-card-title">🚂 Railroad / Transit Mode Active</div>
+      <div class="info-card-body">
+        The following adjustments are automatically applied:
+        <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;">
+          <div>• <strong>Material markup: 65%</strong> (was 50%)</div>
+          <div>• <strong>Labor markup: 65%</strong> (was 50%)</div>
+          <div>• <strong>Equipment markup: 25%</strong> (was 15%)</div>
+          <div>• <strong>Subcontractor markup: 15%</strong> (was 10%)</div>
+          <div>• Equipment multiplier: <strong>2.5×</strong> (transit-rated)</div>
+          <div>• Labor multiplier: <strong>1.8×</strong> (restricted windows)</div>
+          <div>• Duration multiplier: <strong>1.75×</strong> (work windows)</div>
+          <div>• Mobilization: <strong>2×</strong> (access constraints)</div>
+        </div>
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(220,38,38,0.15);font-size:12px;">
+          <strong>Mandatory cost items added:</strong>
+          <div style="margin-top:4px;">• RWIC Flagman ($1,200/day × 25+ days = $30,000+ minimum)</div>
+          <div>• RPL Insurance ($25,000–$65,000)</div>
+          <div>• TWIC/TSA Background Checks ($150/worker)</div>
+          <div>• Safety Training ($350/worker)</div>
+          <div>• Railroad Escort ($1,000/day)</div>
+          <div>• Track-Rated PPE ($125/worker)</div>
+          <div>• FRA/Transit Authority Approval ($5,000)</div>
+          <div>• Right-of-Way Permits ($8,000)</div>
+          <div>• Station Coordination Fee ($3,500)</div>
+          <div>• Specialty Tools Rental ($350/day)</div>
+        </div>
+      </div>
+    </div>
+    ` : ''}
+
     <div class="form-group">
       <label class="form-label" for="prior-estimate">Prior estimate or bid to compare against <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
       <p class="form-hint">Describe it briefly. I can investigate discrepancies between my analysis and prior counts.</p>
@@ -3304,6 +3362,32 @@ function renderStep0(container) {
   const shiftSelect = document.getElementById("work-shift");
   shiftSelect.value = state.workShift;
   shiftSelect.addEventListener("change", () => { state.workShift = shiftSelect.value; renderStep0(container); renderFooter(); });
+
+  // Transit / Railroad toggle
+  const transitToggle = document.getElementById("transit-railroad-toggle");
+  if (transitToggle) {
+    transitToggle.addEventListener("change", () => {
+      state.isTransitRailroad = transitToggle.checked;
+      if (state.isTransitRailroad) {
+        // Auto-apply transit markup overrides from pricing database
+        const transitConfig = PRICING_DB.projectTypeMultipliers?.transit_railroad;
+        if (transitConfig?.markup_overrides) {
+          state.markup.material = transitConfig.markup_overrides.material;
+          state.markup.labor = transitConfig.markup_overrides.labor;
+          state.markup.equipment = transitConfig.markup_overrides.equipment;
+          state.markup.subcontractor = transitConfig.markup_overrides.subcontractor;
+        }
+      } else {
+        // Revert to standard markups
+        state.markup.material = 50;
+        state.markup.labor = 50;
+        state.markup.equipment = 15;
+        state.markup.subcontractor = 10;
+      }
+      renderStep0(container);
+      renderFooter();
+    });
+  }
 
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
 
@@ -8631,6 +8715,7 @@ function _restoreStateFromPayload(id, pkg, est) {
   state.codeJurisdiction = pkg?.project?.codeJurisdiction || pkg?.project?.jurisdiction || '';
   state.prevailingWage = pkg?.project?.prevailingWage || '';
   state.workShift = pkg?.project?.workShift || '';
+  state.isTransitRailroad = pkg?.project?.isTransitRailroad || false;
   state.floorPlateWidth = pkg?.project?.floorPlateWidth || 0;
   state.floorPlateDepth = pkg?.project?.floorPlateDepth || 0;
   state.ceilingHeight = pkg?.project?.ceilingHeight || 10;

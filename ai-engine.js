@@ -1397,6 +1397,7 @@ PROJECT: ${context.projectName} | Type: ${context.projectType}
 LOCATION: ${context.projectLocation || 'Not specified'}
 PREVAILING WAGE: ${context.prevailingWage || 'Not specified'}
 WORK SHIFT: ${context.workShift || 'Standard'}
+${context.isTransitRailroad ? `⚠️ TRANSIT/RAILROAD PROJECT — MANDATORY: Include ALL transit-specific costs (RWIC flagman, RPL insurance, TWIC/TSA, safety training, railroad escort, track-rated PPE, FRA approval, ROW permits, station coordination, specialty tools). Do NOT skip these — they are REAL costs that add 20-40% to project budget.` : ''}
 
 YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment rental, civil work, traffic control, site preparation, and specialty item needed to COMPLETE this installation from start to finish.
 
@@ -1634,13 +1635,22 @@ Return ONLY valid JSON:
     "note": "5 crew × 40 days out of town"
   },
   "transit_railroad": {
-    "applicable": false,
+    "applicable": ${context.isTransitRailroad ? 'true' : 'false'},
     "rwic_flagman_days": 0,
     "rwic_daily_rate": 1200,
     "rwic_total": 0,
     "safety_training_cost": 0,
     "rpl_insurance": 0,
     "work_window_premium_pct": 0,
+    "twic_tsa_cost": 0,
+    "railroad_escort_days": 0,
+    "railroad_escort_daily_rate": 1000,
+    "railroad_escort_total": 0,
+    "track_rated_ppe_cost": 0,
+    "fra_approval_fee": 0,
+    "row_permit_cost": 0,
+    "station_coordination_fee": 0,
+    "specialty_tools_total": 0,
     "note": ""
   },
   "specialty_insurance": {
@@ -3384,8 +3394,8 @@ Return ONLY valid JSON:
     // ── Detect project type and apply multiplier ──
     const projectText = `${state.projectName || ''} ${state.projectType || ''}`.toLowerCase();
     let projectTypeKey = 'commercial_standard';
-    
-    if (/amtrak|bnsf|union pacific|transit|railroad|railway|metro|bart|caltrain|light rail|commuter rail|rail station|train station/.test(projectText)) {
+
+    if (state.isTransitRailroad || /amtrak|bnsf|union pacific|transit|railroad|railway|metro|bart|caltrain|light rail|commuter rail|rail station|train station/.test(projectText)) {
       projectTypeKey = 'transit_railroad';
     } else if (/government|federal|state|county|municipal|courthouse|city hall|military|dod|va hospital|gsa/.test(projectText)) {
       projectTypeKey = 'government_institutional';
@@ -3693,6 +3703,7 @@ Return ONLY valid JSON:
       burdenRate: state.burdenRate,
       prevailingWage: state.prevailingWage,
       workShift: state.workShift,
+      isTransitRailroad: state.isTransitRailroad || false,
       specificItems: state.specificItems,
       knownQuantities: state.knownQuantities,
       travel: state.travel,

@@ -73,6 +73,7 @@ const SmartPlansExport = {
                 fileFormat: state.fileFormat || "",
                 prevailingWage: state.prevailingWage || "",
                 workShift: state.workShift || "",
+                isTransitRailroad: state.isTransitRailroad || false,
                 floorPlateWidth: state.floorPlateWidth || 0,
                 floorPlateDepth: state.floorPlateDepth || 0,
                 ceilingHeight: state.ceilingHeight || 10,

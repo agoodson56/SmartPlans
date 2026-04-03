@@ -427,6 +427,17 @@ const PRICING_DB = {
             min_camera_cost: 1500,       // Minimum cost per camera (transit-rated IK10 dome minimum)
             min_nvr_cost: 3000,          // Minimum cost per NVR (enterprise-grade with RAID)
             min_switch_cost: 800,        // Minimum cost per managed switch
+            // Transit projects have higher markups due to complexity, insurance, and compliance
+            markup_overrides: {
+                material: 65,        // 65% — transit-rated equipment costs more to source, handle, store
+                labor: 65,           // 65% — restricted windows, RWIC waits, safety protocols
+                equipment: 25,       // 25% — specialized rental (track-rated lifts, generators)
+                subcontractor: 15,   // 15% — railroad subs command premium pricing
+            },
+            // Duration multiplier for restricted work windows (2-4 hr windows = ~2× duration)
+            duration_multiplier: 1.75,
+            // Mobilization multiplier (rail sites have severe access constraints)
+            mob_demob_multiplier: 2.0,
             notes: "All equipment must be transit-rated. Labor includes RWIC wait time, safety briefings, restricted access."
         },
         "government_institutional": {
@@ -657,6 +668,15 @@ const PRICING_DB = {
             safety_training_per_worker: 350,   // TSA/TWIC + railroad safety orientation
             traffic_control_daily: 1500,       // Flaggers + cones + arrow board per day
             traffic_control_min_days: 15,      // Minimum days needing traffic control
+            // ── New transit cost fields ──
+            twic_tsa_per_worker: 150,          // TWIC card + TSA background check per worker
+            railroad_escort_daily: 1000,       // Railroad escort required for right-of-way access
+            railroad_escort_min_days: 20,      // Minimum escort days for multi-week project
+            track_rated_ppe_per_worker: 125,   // Hi-vis, hard hat, steel-toe, safety glasses, radio
+            fra_approval_fee: 5000,            // FRA/transit authority review and approval (lump sum)
+            row_permit_cost: 8000,             // Right-of-way access permit (lump sum)
+            station_coordination_fee: 3500,    // Platform closure/station coordination (lump sum)
+            specialty_tools_daily: 350,        // Rail-specific tools rental (flagging equip, bonding tools)
         },
         standard: {
             civil_contractor_min: 15000,
