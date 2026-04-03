@@ -189,7 +189,7 @@ textarea:focus {
 #app-shell {
   position: relative;
   z-index: 1;
-  max-width: 880px;
+  max-width: 95vw;
   margin: 0 auto;
   min-height: 100vh;
   display: flex;
