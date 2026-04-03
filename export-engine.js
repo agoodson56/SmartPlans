@@ -1747,7 +1747,9 @@ const SmartPlansExport = {
         md += `---\n\n`;
         md += `## AI Analysis & Estimate\n\n`;
         if (state.aiAnalysis) {
-            md += state.aiAnalysis;
+            // Strip potential markdown-based XSS (javascript: links, data: links)
+            const safeAnalysis = (state.aiAnalysis || '').replace(/\[([^\]]*)\]\((javascript|vbscript|data):[^)]*\)/gi, '[$1](removed)');
+            md += safeAnalysis;
         } else {
             md += `*No AI analysis has been generated yet.*\n`;
         }

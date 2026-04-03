@@ -90,10 +90,13 @@
                 pLine.appendChild(document.createTextNode(line + ', Col: ' + col));
                 wrapper.appendChild(pLine);
                 if (err && err.stack) {
-                    var pre = document.createElement('pre');
-                    pre.style.cssText = 'white-space:pre-wrap;margin-top:12px;font-size:12px;color:#f59e0b;';
-                    pre.textContent = err.stack;
-                    wrapper.appendChild(pre);
+                    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+                        var pre = document.createElement('pre');
+                        pre.textContent = err.stack;
+                        pre.style.cssText = 'margin-top:10px;font-size:11px;white-space:pre-wrap;max-height:200px;overflow:auto;padding:8px;background:rgba(0,0,0,0.04);border-radius:4px;';
+                        wrapper.appendChild(pre);
+                    }
+                    console.error('[SmartPlans] Stack:', err.stack);
                 }
                 el.appendChild(wrapper);
             }

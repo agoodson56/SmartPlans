@@ -136,11 +136,11 @@ const QuotaMonitor = {
         <div style="font-size:13px;color:rgba(255,255,255,0.7);margin-top:2px;line-height:1.5;">${esc(status.message)}</div>
         ${detailLine}
       </div>
-      <button onclick="QuotaMonitor.dismissBanner()" style="
+      <button data-action="dismiss-quota-banner" style="
         background:none;border:none;color:rgba(255,255,255,0.4);cursor:pointer;
         font-size:18px;padding:0 4px;flex-shrink:0;line-height:1;
       " title="Dismiss">✕</button>
-      <button onclick="QuotaMonitor.check()" style="
+      <button data-action="recheck-quota" style="
         background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);
         color:rgba(255,255,255,0.6);cursor:pointer;font-size:11px;padding:4px 10px;
         border-radius:6px;flex-shrink:0;transition:all 0.2s;
@@ -897,7 +897,7 @@ const Auth = {
     fetch('/api/auth/session', {
       method: 'DELETE',
       headers: { 'X-Session-Token': _sessionToken },
-    }).catch(() => {});
+    }).catch(err => console.warn('[SmartPlans] Logout request failed:', err.message));
     _sessionToken = '';
     _currentUser = null;
     sessionStorage.removeItem('sp_session_token');
@@ -937,7 +937,7 @@ const Auth = {
     userBtn.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:8px;';
     userBtn.innerHTML = `
       <span style="font-size:12px;color:var(--text-muted,#94a3b8);">${esc(_currentUser.name || _currentUser.email)}</span>
-      <button onclick="Auth.logout()" class="header-btn" title="Sign Out" style="padding:4px 10px;font-size:12px;">
+      <button data-action="auth-logout" class="header-btn" title="Sign Out" style="padding:4px 10px;font-size:12px;">
         <i data-lucide="log-out" style="width:14px;height:14px;"></i> <span class="header-btn-label">Out</span>
       </button>`;
     actions.appendChild(userBtn);
@@ -995,7 +995,7 @@ const SecurityDashboard = {
     panel.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
         <h2 style="font-size:18px;font-weight:700;margin:0;">Security Dashboard</h2>
-        <button onclick="SecurityDashboard.close()" style="background:none;border:1px solid rgba(148,163,184,0.2);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:4px 10px;font-size:14px;">✕</button>
+        <button data-action="close-security-dash" style="background:none;border:1px solid rgba(148,163,184,0.2);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:4px 10px;font-size:14px;">✕</button>
       </div>
       <div id="sec-dash-content" style="color:#cbd5e1;">Loading security data...</div>`;
     document.body.appendChild(panel);
@@ -2588,7 +2588,7 @@ function renderContent() {
     main.innerHTML = `<div style="padding:40px;color:#f43f5e;">
       <h3>Something went wrong</h3>
       <p>${esc(err.message)}</p>
-      <button onclick="render()" style="margin-top:12px;padding:8px 16px;border-radius:6px;border:1px solid #f43f5e;background:rgba(244,63,94,0.1);color:#f43f5e;cursor:pointer;">Try Again</button>
+      <button data-action="retry-render" style="margin-top:12px;padding:8px 16px;border-radius:6px;border:1px solid #f43f5e;background:rgba(244,63,94,0.1);color:#f43f5e;cursor:pointer;">Try Again</button>
     </div>`;
   }
 }
@@ -3796,7 +3796,7 @@ function renderBidComparison(comparison, competitorName) {
   // Unmatched sections
   if (comparison.ourOnly.length > 0) {
     html += `<div style="margin-bottom:12px;">
-      <div style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;padding:6px 0;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';">
+      <div style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;padding:6px 0;" data-action="toggle-next">
         &#9654; ITEMS ONLY IN OUR BID (${comparison.ourOnly.length})
       </div>
       <div style="display:none;padding-left:12px;">
@@ -3807,7 +3807,7 @@ function renderBidComparison(comparison, competitorName) {
 
   if (comparison.theirOnly.length > 0) {
     html += `<div style="margin-bottom:12px;">
-      <div style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;padding:6px 0;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';">
+      <div style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:600;padding:6px 0;" data-action="toggle-next">
         &#9654; ITEMS ONLY IN ${esc(competitorName.toUpperCase())}'S BID (${comparison.theirOnly.length})
       </div>
       <div style="display:none;padding-left:12px;">
@@ -6068,8 +6068,8 @@ function renderStep7(container) {
                 ${costStr ? '<span style="font-size:12px;color:var(--accent-indigo);margin-left:8px;font-weight:600;">' + costStr + '</span>' : ''}
               </div>
               <div style="display:flex;gap:6px;">
-                <button onclick="compareRevision('${esc(state.estimateId)}','${esc(rev.id)}')" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(56,189,248,0.25);background:rgba(56,189,248,0.06);color:var(--accent-sky);cursor:pointer;font-size:11px;font-weight:600;">Compare</button>
-                <button onclick="restoreRevision('${esc(state.estimateId)}','${esc(rev.id)}',${rev.revision_number})" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);color:#10b981;cursor:pointer;font-size:11px;font-weight:600;">Restore</button>
+                <button data-action="inline-compare" data-est-id="${esc(state.estimateId)}" data-rev-id="${esc(rev.id)}" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(56,189,248,0.25);background:rgba(56,189,248,0.06);color:var(--accent-sky);cursor:pointer;font-size:11px;font-weight:600;">Compare</button>
+                <button data-action="inline-restore" data-est-id="${esc(state.estimateId)}" data-rev-id="${esc(rev.id)}" data-rev-num="${rev.revision_number}" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);color:#10b981;cursor:pointer;font-size:11px;font-weight:600;">Restore</button>
               </div>
             </div>`;
           }).join('');
@@ -8399,6 +8399,12 @@ function removeLocalEstimate(id) {
 }
 
 async function saveEstimate(showToast = true) {
+  if (window._savingEstimate) {
+    console.log('[SmartPlans] Save already in progress, skipping');
+    return;
+  }
+  window._savingEstimate = true;
+  try {
   let exportPkg;
   try {
     exportPkg = SmartPlansExport.buildExportPackage(state);
@@ -8487,6 +8493,9 @@ async function saveEstimate(showToast = true) {
       if (localOk) spToast('Saved offline — will sync when connection restores', 'info');
       else { console.error('[SmartPlans]', err); spToast('Failed to save. Please try again.', 'error'); }
     }
+  }
+  } finally {
+    window._savingEstimate = false;
   }
 }
 
@@ -8762,7 +8771,7 @@ async function showSavedEstimates() {
   panel.innerHTML = `
     <div class="saved-panel-header">
       <h2><i data-lucide="folder-open" style="width:20px;height:20px;"></i> Saved Estimates</h2>
-      <button class="saved-panel-close" onclick="closeSavedPanel()">✕</button>
+      <button class="saved-panel-close" data-action="close-saved-panel">✕</button>
     </div>
     <div class="saved-panel-body" id="saved-list">
       <div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);">Loading...</div>
@@ -8931,7 +8940,7 @@ async function showRevisionHistory(estimateId, projectName) {
   panel.innerHTML = `
     <div class="saved-panel-header">
       <h2>🕐 Version History — ${esc(projectName || 'Untitled')}</h2>
-      <button class="saved-panel-close" onclick="closeRevisionPanel()">✕</button>
+      <button class="saved-panel-close" data-action="close-revision-panel">✕</button>
     </div>
     <div class="saved-panel-body" id="revision-list">
       <div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);">Loading revisions...</div>
@@ -9020,7 +9029,7 @@ async function compareRevision(estimateId, revId) {
   compPanel.innerHTML = `
     <div class="saved-panel-header">
       <h2>🔍 Comparing Versions</h2>
-      <button class="saved-panel-close" onclick="this.closest('.saved-panel').remove();document.querySelector('.saved-panel-backdrop')?.remove();">✕</button>
+      <button class="saved-panel-close" data-action="close-panel">✕</button>
     </div>
     <div class="saved-panel-body">
       <div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);">Loading comparison...</div>
@@ -9124,8 +9133,8 @@ async function compareRevision(estimateId, revId) {
       </table>
 
       <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end;">
-        <button onclick="restoreRevision('${esc(estimateId)}','${esc(revId)}',${rev.revision_number})" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.08);color:#10b981;cursor:pointer;font-size:13px;font-weight:600;">↩ Restore This Version</button>
-        <button onclick="this.closest('.saved-panel').remove();document.querySelector('.saved-panel-backdrop')?.remove();" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:var(--text-muted);cursor:pointer;font-size:13px;">Close</button>
+        <button data-action="inline-restore" data-est-id="${esc(estimateId)}" data-rev-id="${esc(revId)}" data-rev-num="${rev.revision_number}" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.08);color:#10b981;cursor:pointer;font-size:13px;font-weight:600;">↩ Restore This Version</button>
+        <button data-action="close-panel" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:var(--text-muted);cursor:pointer;font-size:13px;">Close</button>
       </div>
     `;
   } catch (err) {
@@ -9228,7 +9237,7 @@ async function showActualsPanel(estimateId, projectName) {
   panel.className = 'saved-panel';
   panel.id = 'actuals-panel';
   panel.style.maxWidth = '900px';
-  panel.innerHTML = `<div class="saved-panel-header"><h2>📊 Record Actuals — ${esc(projectName || 'Untitled')}</h2><button class="saved-panel-close" onclick="closeActualsPanel()">✕</button></div><div class="saved-panel-body" id="actuals-body"><div style="text-align:center;padding:40px;color:var(--text-muted);">Loading estimate data...</div></div>`;
+  panel.innerHTML = `<div class="saved-panel-header"><h2>📊 Record Actuals — ${esc(projectName || 'Untitled')}</h2><button class="saved-panel-close" data-action="close-actuals-panel">✕</button></div><div class="saved-panel-body" id="actuals-body"><div style="text-align:center;padding:40px;color:var(--text-muted);">Loading estimate data...</div></div>`;
   document.body.appendChild(panel);
   try {
     const [estRes, actualsRes] = await Promise.all([
@@ -10729,7 +10738,7 @@ function _showMapPopup(x, y, html) {
 
   const popup = document.createElement('div');
   popup.style.cssText = `position:absolute;left:${x + 20}px;top:${y - 10}px;background:rgba(20,20,30,0.95);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:12px 16px;font-size:12px;color:#fff;pointer-events:auto;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.6);min-width:180px;max-width:280px;`;
-  popup.innerHTML = html + `<div style="margin-top:8px;text-align:right;"><button onclick="this.closest('div[style]').remove()" style="padding:2px 10px;border:1px solid rgba(255,255,255,0.2);border-radius:4px;background:transparent;color:rgba(255,255,255,0.5);font-size:10px;cursor:pointer;">Close</button></div>`;
+  popup.innerHTML = html + `<div style="margin-top:8px;text-align:right;"><button data-action="close-map-popup" style="padding:2px 10px;border:1px solid rgba(255,255,255,0.2);border-radius:4px;background:transparent;color:rgba(255,255,255,0.5);font-size:10px;cursor:pointer;">Close</button></div>`;
 
   const markersEl = document.getElementById('smap-markers');
   if (markersEl) markersEl.appendChild(popup);
@@ -11172,6 +11181,65 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.addEventListener('online', () => {
       spToast('Back online!', 'success');
       document.body.classList.remove('is-offline');
+    });
+
+    // Global event delegation for data-action buttons (replaces inline onclick handlers)
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-action');
+      switch (action) {
+        case 'dismiss-quota-banner':
+          QuotaMonitor.dismissBanner();
+          break;
+        case 'recheck-quota':
+          QuotaMonitor.check();
+          break;
+        case 'auth-logout':
+          Auth.logout();
+          break;
+        case 'close-security-dash':
+          SecurityDashboard.close();
+          break;
+        case 'retry-render':
+          render();
+          break;
+        case 'toggle-next':
+          // Toggle visibility of the next sibling element
+          { const next = btn.nextElementSibling;
+            if (next) next.style.display = next.style.display === 'none' ? 'block' : 'none'; }
+          break;
+        case 'close-saved-panel':
+          closeSavedPanel();
+          break;
+        case 'close-revision-panel':
+          closeRevisionPanel();
+          break;
+        case 'close-actuals-panel':
+          closeActualsPanel();
+          break;
+        case 'close-panel':
+          // Generic: remove closest .saved-panel and its backdrop
+          { const panel = btn.closest('.saved-panel');
+            if (panel) panel.remove();
+            document.querySelector('.saved-panel-backdrop')?.remove(); }
+          break;
+        case 'close-map-popup':
+          // Remove the popup container (closest positioned div)
+          { const popup = btn.closest('div[style]');
+            if (popup) popup.remove(); }
+          break;
+        case 'inline-compare':
+          compareRevision(btn.getAttribute('data-est-id'), btn.getAttribute('data-rev-id'));
+          break;
+        case 'inline-restore':
+          restoreRevision(
+            btn.getAttribute('data-est-id'),
+            btn.getAttribute('data-rev-id'),
+            parseInt(btn.getAttribute('data-rev-num'), 10)
+          );
+          break;
+      }
     });
 
     // Unsaved changes warning — prevent accidental navigation loss
