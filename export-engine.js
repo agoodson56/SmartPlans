@@ -28,6 +28,7 @@ const SmartPlansExport = {
 
         // Pre-extract BOM for financials section
         const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+        this._applyTransitAdjustments(bom, state); // enforce station-grade pricing for transit
         const bomWarning = bom._warning || null;
 
         // Apply supplier price overrides if present
@@ -306,10 +307,22 @@ const SmartPlansExport = {
             } else if (/general\s*condition|bond|mobilization|demobilization|mob.*demob|rrpli|permits?\s*&?\s*fees/.test(n)) {
                 generalConditions += (cat.subtotal || 0);
                 bucket = 'GEN_CONDITIONS';
-            } else if (/subcontract|civil|traffic|safety|insurance|parking/.test(n)) {
+            } else if (/insurance/i.test(n) && !/general/i.test(n)) {
+                // Insurance as standalone category → general conditions (no markup)
+                generalConditions += (cat.subtotal || 0);
+                bucket = 'GEN_CONDITIONS';
+            } else if (/trench|sawcut|saw.?cut|civil.*work|underground|excavat/i.test(n)) {
+                // Trenching/civil work → subcontractor bucket (gets sub markup, not material markup)
                 subs += (cat.subtotal || 0);
                 bucket = 'SUBS';
-            } else if (/equipment|condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
+            } else if (/subcontract|window.?film|bollard|masonry|glazing|traffic|safety|parking/i.test(n)) {
+                subs += (cat.subtotal || 0);
+                bucket = 'SUBS';
+            } else if (/ups\b|uninterrupt|battery.*bank|inverter|power.*condition/i.test(n)) {
+                // Station-sized UPS/batteries → equipment bucket
+                equipment += (cat.subtotal || 0);
+                bucket = 'EQUIP';
+            } else if (/equipment|condition|scissor|boom|tugger|drill|saw|scanner/i.test(n)) {
                 equipment += (cat.subtotal || 0);
                 bucket = 'EQUIP';
             } else {
@@ -1156,8 +1169,11 @@ const SmartPlansExport = {
                         }
 
                         // ── Price guardrail enforcement (code-level clamp) ──
-                        // Prevents AI-hallucinated prices from inflating the BOM
+                        // Prevents AI-hallucinated prices from inflating OR deflating the BOM
                         const nameLower = cleanName.toLowerCase();
+                        const unitLower = (unit || '').toLowerCase();
+
+                        // ═══ PRICE CEILINGS (prevent over-pricing) ═══
                         if (unitCost > 0 && (unit === 'ea' || unit === 'each')) {
                             const isCam = /camera|dome|bullet|ptz|panoramic|multi.?sensor|fisheye|lpr|anpr/i.test(nameLower);
                             if (isCam) {
@@ -1167,7 +1183,7 @@ const SmartPlansExport = {
                                     : /lpr|anpr/i.test(nameLower) ? 2000
                                     : 800; // fixed dome/bullet
                                 if (unitCost > camMax) {
-                                    console.log(`[SmartPlans] Price clamp: "${cleanName}" $${unitCost} → $${camMax} (max for type)`);
+                                    console.log(`[SmartPlans] Price clamp ↓: "${cleanName}" $${unitCost} → $${camMax} (max for type)`);
                                     unitCost = camMax;
                                     extCost = qty * unitCost;
                                 }
@@ -1179,6 +1195,44 @@ const SmartPlansExport = {
                             // Switch clamp
                             if (/switch.*poe|poe.*switch/i.test(nameLower) && unitCost > 2400) {
                                 unitCost = 2400; extCost = qty * unitCost;
+                            }
+                        }
+
+                        // ═══ PRICE FLOORS (prevent under-pricing) ═══
+                        // Trenching/sawcut per LF — minimum $85/LF for concrete (AI often prices at $30-$50)
+                        if (/sawcut|saw.?cut|trench|trenching/i.test(nameLower) && /lf|l\.f\.|linear/i.test(unitLower)) {
+                            const trenchMin = 85; // Concrete all-in minimum $/LF
+                            if (unitCost > 0 && unitCost < trenchMin) {
+                                console.log(`[SmartPlans] Price floor ↑: "${cleanName}" $${unitCost}/LF → $${trenchMin}/LF (min for concrete sawcut+trench)`);
+                                unitCost = trenchMin;
+                                extCost = qty * unitCost;
+                            }
+                        }
+                        // Underground conduit per LF — minimum $7/LF
+                        if (/underground.*conduit|conduit.*underground|direct.*burial|duct.*bank/i.test(nameLower) && /lf|l\.f\.|linear/i.test(unitLower)) {
+                            const conduitMin = 7;
+                            if (unitCost > 0 && unitCost < conduitMin) {
+                                console.log(`[SmartPlans] Price floor ↑: "${cleanName}" $${unitCost}/LF → $${conduitMin}/LF (min for underground conduit)`);
+                                unitCost = conduitMin;
+                                extCost = qty * unitCost;
+                            }
+                        }
+                        // Handholes — minimum $650/ea
+                        if (/handhole|hand.?hole|pull.?box|junction.?box.*underground/i.test(nameLower) && /ea|each|ls/i.test(unitLower)) {
+                            const handholeMin = 650;
+                            if (unitCost > 0 && unitCost < handholeMin) {
+                                console.log(`[SmartPlans] Price floor ↑: "${cleanName}" $${unitCost} → $${handholeMin} (min for handhole/pullbox)`);
+                                unitCost = handholeMin;
+                                extCost = qty * unitCost;
+                            }
+                        }
+                        // Bollards — minimum $750/ea installed
+                        if (/bollard/i.test(nameLower) && /ea|each/i.test(unitLower)) {
+                            const bollardMin = 750;
+                            if (unitCost > 0 && unitCost < bollardMin) {
+                                console.log(`[SmartPlans] Price floor ↑: "${cleanName}" $${unitCost} → $${bollardMin} (min for bollard installed)`);
+                                unitCost = bollardMin;
+                                extCost = qty * unitCost;
                             }
                         }
 
@@ -1312,6 +1366,150 @@ const SmartPlansExport = {
         }
     },
 
+    // ─── Transit/Railroad BOM adjustments ─────────────────────────
+    // After BOM extraction, enforce minimum pricing for items the AI chronically under-prices
+    // in transit projects: station-sized UPS, RRPLI insurance, and travel reasonableness.
+    _applyTransitAdjustments(bom, state) {
+        if (!bom?.categories?.length) return bom;
+
+        // Detect transit project
+        const pType = (state?.projectType || state?.pricingConfig?.projectType || '').toLowerCase();
+        const pName = (state?.projectName || state?.pricingConfig?.projectName || '').toLowerCase();
+        const isTransit = /transit|railroad|amtrak|rail|metro|bart|caltrain|commuter/i.test(pType + ' ' + pName);
+        if (!isTransit) return bom; // only apply to transit projects
+
+        console.log('[SmartPlans] Transit project detected — applying station-grade pricing adjustments');
+
+        // ── UPS/Battery adjustment ──
+        // AI routinely prices a $3K rack-mount UPS when transit stations need $50K-$135K station UPS + $60K-$100K batteries
+        let upsTotal = 0;
+        let upsItems = [];
+        let batteryFound = false;
+        for (const cat of bom.categories) {
+            for (const item of cat.items) {
+                const n = (item.item || '').toLowerCase();
+                if (/ups|uninterruptible|inverter|power\s*conditioning/i.test(n) && !/surge|strip|pdu/i.test(n)) {
+                    upsTotal += (item.extCost || 0);
+                    upsItems.push(item);
+                }
+                if (/battery|batter/i.test(n) && /bank|system|station|cabinet|string/i.test(n)) {
+                    batteryFound = true;
+                }
+            }
+        }
+
+        // If UPS items exist but total < $25K, this is a rack-mount UPS — reprice to station-grade
+        if (upsItems.length > 0 && upsTotal < 25000) {
+            const mainUps = upsItems[0]; // adjust the primary UPS item
+            const stationUpsPrice = 65000; // midpoint of $50K-$135K range
+            console.log(`[SmartPlans] Transit UPS floor ↑: "${mainUps.item}" $${mainUps.unitCost} → $${stationUpsPrice} (station-sized UPS for transit)`);
+            mainUps.unitCost = stationUpsPrice;
+            mainUps.extCost = (mainUps.qty || 1) * stationUpsPrice;
+            mainUps.item = mainUps.item.replace(/\d+\s*kVA/i, '50kVA').replace(/rack.?mount/i, 'Station-Sized');
+            if (!/station/i.test(mainUps.item)) mainUps.item = mainUps.item + ' (Station-Sized)';
+        }
+
+        // If no battery bank found and UPS exists, inject one
+        if (upsItems.length > 0 && !batteryFound) {
+            // Find the category that contains the UPS item
+            for (const cat of bom.categories) {
+                if (cat.items.some(i => upsItems.includes(i))) {
+                    const batteryItem = {
+                        item: 'UPS Battery Bank — Station-Sized (Sealed Lead Acid, 4-string)',
+                        qty: 1,
+                        unit: 'ls',
+                        unitCost: 98000,
+                        extCost: 98000,
+                        mfg: 'Eaton/C&D',
+                        partNumber: 'SBS-TRANSIT-BAT',
+                        category: 'equipment',
+                    };
+                    cat.items.push(batteryItem);
+                    console.log(`[SmartPlans] Transit battery bank injected: $98,000 (station-sized battery system)`);
+                    break;
+                }
+            }
+        }
+
+        // ── Insurance/RRPLI adjustment ──
+        // Transit projects need RRPLI ($25K-$65K) plus GL. If total insurance < $15K, adjust.
+        let insuranceTotal = 0;
+        let insuranceItems = [];
+        for (const cat of bom.categories) {
+            const cn = (cat.name || '').toLowerCase();
+            for (const item of cat.items) {
+                const n = (item.item || '').toLowerCase();
+                if (/insurance|rrpli|liability|indemnity/i.test(n) || (/bond|insurance/i.test(cn) && /insurance|rrpli/i.test(n))) {
+                    insuranceTotal += (item.extCost || 0);
+                    insuranceItems.push(item);
+                }
+            }
+        }
+
+        if (insuranceTotal < 15000) {
+            // Find General Conditions category or create one
+            let gcCat = bom.categories.find(c => /general\s*condition|bond|insurance|mobiliz/i.test(c.name));
+            if (!gcCat) {
+                gcCat = { name: 'General Conditions & Insurance', items: [], subtotal: 0 };
+                bom.categories.push(gcCat);
+            }
+
+            if (insuranceItems.length > 0) {
+                // Adjust existing insurance item
+                const mainIns = insuranceItems[0];
+                const insFloor = 20000;
+                console.log(`[SmartPlans] Transit insurance floor ↑: "${mainIns.item}" $${mainIns.extCost} → $${insFloor} (RRPLI + GL minimum)`);
+                mainIns.unitCost = insFloor;
+                mainIns.extCost = insFloor;
+                mainIns.qty = 1;
+                if (!/rrpli/i.test(mainIns.item)) mainIns.item = 'Railroad Protective Liability Insurance (RRPLI) + GL';
+            } else {
+                // Inject RRPLI if completely missing
+                gcCat.items.push({
+                    item: 'Railroad Protective Liability Insurance (RRPLI)',
+                    qty: 1, unit: 'ls', unitCost: 28000, extCost: 28000,
+                    mfg: '', partNumber: '', category: 'insurance',
+                });
+                console.log(`[SmartPlans] Transit RRPLI injected: $28,000`);
+            }
+        }
+
+        // ── Travel cap ──
+        // AI often generates $80K-$100K travel for 30-day projects. Real transit travel ~ $15K-$30K.
+        // Cap AI-generated travel categories at $35K unless user configured Stage 6.
+        if (!state?.travel?.enabled) {
+            for (const cat of bom.categories) {
+                const cn = (cat.name || '').toLowerCase();
+                if (/travel|per\s*diem|lodging|hotel/i.test(cn)) {
+                    const catTotal = cat.items.reduce((s, i) => s + (i.extCost || 0), 0);
+                    if (catTotal > 35000) {
+                        const scaleFactor = 25000 / catTotal; // target ~$25K
+                        for (const item of cat.items) {
+                            const oldCost = item.extCost;
+                            item.unitCost = this._round(item.unitCost * scaleFactor);
+                            item.extCost = this._round(item.extCost * scaleFactor);
+                            if (item.extCost !== oldCost) {
+                                console.log(`[SmartPlans] Travel cap: "${item.item}" $${oldCost} → $${item.extCost}`);
+                            }
+                        }
+                        console.log(`[SmartPlans] Transit travel capped: $${catTotal.toLocaleString()} → ~$25,000 (AI over-estimated)`);
+                    }
+                }
+            }
+        }
+
+        // ── Recalculate subtotals after adjustments ──
+        let newGrand = 0;
+        for (const cat of bom.categories) {
+            cat.subtotal = cat.items.reduce((s, i) => s + (i.extCost || 0), 0);
+            newGrand += cat.subtotal;
+        }
+        bom.grandTotal = this._round(newGrand);
+        console.log(`[SmartPlans] Post-transit-adjustment BOM total: $${bom.grandTotal.toLocaleString()}`);
+
+        return bom;
+    },
+
     // ─── Discipline-to-BOM category mapping ──────────────────────
     // Maps each user-facing discipline name to regex patterns that match
     // BOM category names generated by the AI analysis.
@@ -1428,6 +1626,7 @@ const SmartPlansExport = {
      */
     exportBOM(state) {
         let bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+        this._applyTransitAdjustments(bom, state); // enforce station-grade pricing for transit
 
         if (bom.categories.length === 0) {
             // Fallback: try infrastructure data

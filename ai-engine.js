@@ -1812,19 +1812,28 @@ USE AXIS CAMERAS for transit/government projects unless spec says otherwise. Def
 12. Sawcutting and trenching MUST be priced as SCOPE OF WORK per linear foot, NOT as equipment rental.
     When drawings show "sawcut and trench for conduit" with a linear footage quantity, price the WORK:
     - ALL-IN rate includes: sawcutting pavement, excavating trench, installing conduit in trench, sand bedding, backfill, compaction, surface restoration (repave/repour)
-    - Concrete ALL-IN: $85-$290/LF depending on depth and tier
-    - Asphalt ALL-IN: $65-$225/LF depending on depth and tier
-    - Railroad/transit heavy: $160-$420/LF (includes RWIC overhead, multiple conduits)
+    - Concrete ALL-IN: MINIMUM $85/LF, typical $120-$290/LF depending on depth and tier
+    - Asphalt ALL-IN: MINIMUM $65/LF, typical $90-$225/LF depending on depth and tier
+    - Railroad/transit heavy: MINIMUM $160/LF, typical $200-$420/LF (includes RWIC overhead, multiple conduits)
     - A concrete saw is a TOOL (~$150/day rental). The WORK of sawcutting 2000 LF of concrete is $10,000-$16,000 for the sawcutting ALONE, plus trenching, plus conduit, plus restoration.
     - EXAMPLE: 2100 LF of sawcut+trench through concrete at a railroad station = 2100 × $280/LF = $588,000 (not $1,500 for a saw rental)
+    ⚠️ CHECK: If your sawcut+trench rate is below $85/LF, you are WRONG. $30-$50/LF is the cost to SAW only, not the all-in work.
+    Also include: underground conduit ($7-$15/LF), handholes ($650-$1,500 each, typical 20-30 on a station project), pull boxes ($350-$800 each)
     DO NOT confuse equipment rental costs with scope-of-work costs. This error causes $200K-$500K underestimates.
 
-═══ UPS SIZING (MATCH THE SPEC — DO NOT DOWNSIZE) ═══
-13. If drawings or equipment schedules show a station-sized UPS/inverter (10kVA+), price the ACTUAL specified size:
-    - 50kVA station UPS: $50,000-$135,000 (not a $725 rack-mount unit)
-    - 100kVA station UPS: $85,000-$220,000
+═══ UPS SIZING — THIS IS THE #2 CAUSE OF UNDERESTIMATION ═══
+13. ⚠️ CRITICAL: For transit/railroad/government station projects, the UPS is ALWAYS station-sized (10kVA+).
+    DO NOT use a $725 or $3,000 rack-mount UPS for a transit station. THAT IS WRONG.
+    MANDATORY pricing for transit station UPS:
+    - 50kVA station UPS unit: $50,000-$65,000
+    - UPS battery bank (sealed lead acid, 4-string minimum): $60,000-$100,000
+    - Battery cabinet/rack: $3,000-$8,000
+    - TOTAL UPS SYSTEM for a transit station: $110,000-$175,000
+    - 100kVA station UPS: $85,000-$220,000 (plus batteries $80K-$150K)
     - Station inverter/charger: $60,000-$190,000
-    Check equipment schedules for kVA ratings. A "station sized UPS" is NOT a rack-mount UPS.
+    If the project is Amtrak, BART, Metro, railroad, or any transit station → the UPS MUST be station-sized.
+    A $3,000 UPS in a transit station bid is a $130,000 MISTAKE. The batteries ALONE cost $60K-$100K.
+    CHECK: If your UPS line item is under $25,000, you are WRONG. Go back and fix it.
 
 ═══ ELECTRICAL DISTRIBUTION (include if in scope) ═══
 14. Include dedicated power circuits if drawings show them:
@@ -1832,8 +1841,16 @@ USE AXIS CAMERAS for transit/government projects unless spec says otherwise. Def
     - 30A circuit all-in: $2,500-$6,500/circuit
     - New panelboards: $800-$9,000 depending on amperage
     - New poles with foundations: $8,000-$38,000/pole
-    - Handholes/pull boxes: $400-$3,000 each
+    - Handholes/pull boxes: $650-$3,000 each (minimum $650 per handhole — includes lid, frame, and installation)
     If electrical is subcontracted, ensure the sub amount covers ALL circuits, panels, and site electrical.
+
+═══ BOLLARDS (include if shown on drawings) ═══
+14b. Security bollards with foundations:
+    - Fixed steel bollard with concrete foundation: $750-$1,200/each installed
+    - Removable bollard: $900-$1,500/each
+    - Bollard with lighting: $1,200-$2,500/each
+    - Typical transit station: 15-40 bollards at perimeter/platform areas
+    If drawings show bollards, create a line item. This is often $15,000-$40,000 that gets missed.
 
 ═══ NON-ELV SCOPES (include ONLY if in our contract scope) ═══
 15. If construction documents show non-ELV scopes that WE are responsible for, create categories for:
@@ -2333,7 +2350,8 @@ If the construction documents include ANY of the following in YOUR contract scop
 
 ### UPS & Power Equipment
 | Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${matMarkup}% | Sell Price |
-(Include station-sized UPS, batteries, inverters at ACTUAL spec'd kVA. A 50kVA station UPS = $50K-$135K, NOT $1,500)
+(MANDATORY for transit: Station-sized UPS $50K-$65K + Battery Bank $60K-$100K + Battery Cabinet $3K-$8K = $110K-$175K TOTAL.
+ A $3,000 UPS in a transit station is WRONG. The batteries ALONE cost $60K-$100K. Include BOTH UPS unit AND battery bank as separate line items.)
 
 ### Subcontractor Scopes
 | Item # | Description | Qty | Unit | Unit Cost | Ext Cost | Markup ${subMarkup}% | Sell Price |
