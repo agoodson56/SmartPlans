@@ -4926,6 +4926,26 @@ function renderStep7(container) {
         <button class="export-pkg-btn" id="export-bom-pdf" style="display:flex;align-items:center;justify-content:center;padding:14px 16px;border-radius:10px;border:1px solid rgba(16,185,129,0.4);background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.04));color:#10b981;cursor:pointer;font-weight:700;font-size:13px;flex:0 0 auto;">📄 PDF</button>
       </div>
 
+      <!-- Bid Verification & Amtrak Export -->
+      <div style="margin-top:14px;display:flex;gap:8px;">
+        <button class="export-pkg-btn" id="verify-bid-btn" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(234,88,12,0.35);background:linear-gradient(135deg,rgba(234,88,12,0.10),rgba(220,38,38,0.06));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;flex:1;">
+          <span style="font-size:24px;">✅</span>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:14px;">Verify Bid</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Run automated pre-submit checklist — ${state.isTransitRailroad ? '14' : '5'} checks</div>
+          </div>
+        </button>
+        ${state.isTransitRailroad ? `
+        <button class="export-pkg-btn" id="export-amtrak-schedule" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(99,102,241,0.35);background:linear-gradient(135deg,rgba(99,102,241,0.10),rgba(79,70,229,0.06));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;flex:1;">
+          <span style="font-size:24px;">🚂</span>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:14px;">Amtrak Pricing Schedule</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">CSI division format Excel — ready to submit</div>
+          </div>
+          <span style="font-size:18px;color:rgba(99,102,241,0.7);">⬇</span>
+        </button>` : ''}
+      </div>
+
       <!-- Supplier Pricing Section -->
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
         <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;"><i data-lucide="send" style="width:16px;height:16px;"></i> Supplier Pricing</div>
@@ -5438,6 +5458,14 @@ function renderStep7(container) {
 
   const bomBtn = document.getElementById("export-bom");
   if (bomBtn) bomBtn.addEventListener("click", () => SmartPlansExport.exportBOM(state));
+
+  // ── Bid Verification ──
+  const verifyBtn = document.getElementById("verify-bid-btn");
+  if (verifyBtn) verifyBtn.addEventListener("click", () => verifyBid(state));
+
+  // ── Amtrak Pricing Schedule ──
+  const amtrakBtn = document.getElementById("export-amtrak-schedule");
+  if (amtrakBtn) amtrakBtn.addEventListener("click", () => SmartPlansExport.exportAmtrakPricingSchedule(state));
 
   // ── Supplier Pricing Handlers ──
   const supplierExcelBtn = document.getElementById("supplier-export-excel");
@@ -9943,6 +9971,231 @@ function bindCablePathwayEvents(container) {
       if (icon) icon.textContent = state._cablePathwayOpen ? '▼' : '▶';
     });
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BID VERIFICATION — Automated pre-submit checklist for Tony
+// Runs 14 checks (transit) or 5 checks (standard) and shows
+// traffic light results in a modal overlay
+// ═══════════════════════════════════════════════════════════════
+
+function verifyBid(st) {
+  const checks = [];
+  const bom = getFilteredBOM(st.aiAnalysis, st.disciplines);
+  const bd = (typeof SmartPlansExport !== 'undefined') ? SmartPlansExport._computeFullBreakdown(st, bom) : null;
+  const consensus = st.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
+    || st.brainResults?.wave1?.SYMBOL_SCANNER?.totals || {};
+  const laborCalc = st.brainResults?.wave2_25?.LABOR_CALCULATOR;
+  const travelCosts = st.travel?.enabled ? computeTravelIncidentals() : null;
+  const grandTotal = bd?.grandTotal || 0;
+
+  // Count cameras from consensus
+  let consensusCams = 0;
+  Object.entries(consensus).forEach(([k, v]) => {
+    if (/camera|cam|dome|bullet|ptz|turret|fisheye|panoram|multisensor/i.test(k)) {
+      consensusCams += (typeof v === 'object' ? v.consensus || v.count || 0 : v) || 0;
+    }
+  });
+
+  // Count cameras from BOM
+  let bomCams = 0;
+  (bom.categories || []).forEach(cat => {
+    (cat.items || []).forEach(item => {
+      if (/camera|cam|dome|bullet|ptz|fisheye|panoram/i.test(item.item || item.name || '')) {
+        bomCams += item.qty || 0;
+      }
+    });
+  });
+  const camCount = Math.max(consensusCams, bomCams) || 1;
+
+  // Helper: search BOM for keyword
+  const bomHas = (regex) => {
+    for (const cat of (bom.categories || [])) {
+      if (regex.test(cat.name || '')) return true;
+      for (const item of (cat.items || [])) {
+        if (regex.test(item.item || item.name || '')) return true;
+      }
+    }
+    return false;
+  };
+
+  // Helper: add check
+  const check = (label, status, detail) => checks.push({ label, status, detail });
+
+  const laborHrs = laborCalc?.total_hours || 0;
+  const hrsPerCam = camCount > 0 ? laborHrs / camCount : 0;
+  const matPerCam = bd ? bd.materials / camCount : 0;
+
+  if (st.isTransitRailroad) {
+    // ═══ TRANSIT CHECKLIST (14 checks) ═══
+
+    // 1. Camera count
+    const camDiff = consensusCams > 0 && bomCams > 0 ? Math.abs(consensusCams - bomCams) / Math.max(consensusCams, bomCams) : 0;
+    if (consensusCams === 0 && bomCams === 0) check('Camera Count', 'fail', 'No cameras found in consensus or BOM');
+    else if (camDiff <= 0.10) check('Camera Count', 'pass', `Consensus: ${consensusCams} | BOM: ${bomCams}`);
+    else if (camDiff <= 0.20) check('Camera Count', 'warn', `Consensus: ${consensusCams} vs BOM: ${bomCams} (${Math.round(camDiff*100)}% diff)`);
+    else check('Camera Count', 'fail', `Consensus: ${consensusCams} vs BOM: ${bomCams} (${Math.round(camDiff*100)}% mismatch)`);
+
+    // 2. Camera accessories
+    const hasMounts = bomHas(/mount|bracket|pendant|pole.*mount|wall.*mount/i);
+    const hasLicenses = bomHas(/license|omnicast|genetec|vms/i);
+    if (hasMounts && hasLicenses) check('Camera Accessories', 'pass', 'Mounts and licenses found in BOM');
+    else if (hasMounts || hasLicenses) check('Camera Accessories', 'warn', `${hasMounts ? 'Mounts' : 'Licenses'} found, ${!hasMounts ? 'mounts' : 'licenses'} not detected`);
+    else check('Camera Accessories', 'fail', 'No camera mounts or VMS licenses found in BOM');
+
+    // 3. Labor hrs/camera
+    if (hrsPerCam >= 25 && hrsPerCam <= 35) check('Labor Hours/Camera', 'pass', `${hrsPerCam.toFixed(1)} hrs/camera (${laborHrs.toLocaleString()} total hrs / ${camCount} cameras)`);
+    else if (hrsPerCam >= 20 && hrsPerCam < 25) check('Labor Hours/Camera', 'warn', `${hrsPerCam.toFixed(1)} hrs/camera — LOW (target: 25-35 for transit)`);
+    else if (hrsPerCam > 35 && hrsPerCam <= 45) check('Labor Hours/Camera', 'warn', `${hrsPerCam.toFixed(1)} hrs/camera — HIGH (target: 25-35 for transit)`);
+    else check('Labor Hours/Camera', 'fail', `${hrsPerCam.toFixed(1)} hrs/camera — OUT OF RANGE (target: 25-35 for transit)`);
+
+    // 4. Material $/camera
+    if (matPerCam >= 4000 && matPerCam <= 7000) check('Material $/Camera', 'pass', `$${Math.round(matPerCam).toLocaleString()}/camera (base cost before markup)`);
+    else if (matPerCam >= 3000 && matPerCam < 4000) check('Material $/Camera', 'warn', `$${Math.round(matPerCam).toLocaleString()}/camera — LOW (target: $4,000-$7,000)`);
+    else check('Material $/Camera', 'fail', `$${Math.round(matPerCam).toLocaleString()}/camera — OUT OF RANGE (target: $4,000-$7,000)`);
+
+    // 5-11: Required line items
+    const reqItems = [
+      { label: 'Trenching / Saw Cut', regex: /trench|saw\s*cut|sawcut|excavat/i },
+      { label: 'Station UPS/Inverter', regex: /ups|inverter|uninterrupt/i, minCost: 50000 },
+      { label: 'Power Circuits', regex: /power\s*circuit|dedicated\s*circuit|electrical\s*panel/i },
+      { label: 'Bonds', regex: /bond|performance.*payment|surety/i },
+      { label: 'RRPLI Insurance', regex: /rrpli|railroad.*protective|rpl\s*ins/i },
+      { label: 'General Insurance', regex: /insurance|liability|general\s*liab/i },
+      { label: 'Mob/Demob', regex: /mobiliz|demob|mob.*demob/i },
+    ];
+    reqItems.forEach(ri => {
+      const found = bomHas(ri.regex);
+      if (found) {
+        if (ri.minCost) {
+          // Check if the item value is above minimum
+          let itemCost = 0;
+          (bom.categories || []).forEach(cat => (cat.items || []).forEach(item => {
+            if (ri.regex.test(item.item || item.name || '')) itemCost += item.extCost || 0;
+          }));
+          if (itemCost >= ri.minCost) check(ri.label, 'pass', `Found — $${itemCost.toLocaleString()}`);
+          else check(ri.label, 'warn', `Found but only $${itemCost.toLocaleString()} (expected >$${ri.minCost.toLocaleString()})`);
+        } else {
+          check(ri.label, 'pass', 'Found in BOM');
+        }
+      } else {
+        check(ri.label, 'fail', 'NOT FOUND — required for transit/railroad projects');
+      }
+    });
+
+    // 12. Travel
+    const travelTotal = travelCosts?.grandTotal || 0;
+    if (travelTotal > 0) check('Travel & Per Diem', 'pass', `$${travelTotal.toLocaleString()} configured`);
+    else check('Travel & Per Diem', 'fail', 'Travel is $0 — enable on Stage 6/7 if project is out of town');
+
+    // 13. Grand total vs benchmark
+    const benchmarks = (typeof PRICING_DB !== 'undefined') ? PRICING_DB.amtrakBenchmarks?.actualBids : null;
+    if (benchmarks && grandTotal > 0) {
+      // Find closest comparable bid by camera count
+      let closest = null;
+      let closestDiff = Infinity;
+      Object.entries(benchmarks).forEach(([key, bid]) => {
+        const diff = Math.abs((bid.cameras || 0) - camCount);
+        if (diff < closestDiff) { closestDiff = diff; closest = { key, ...bid }; }
+      });
+      if (closest) {
+        const pctDiff = Math.abs(grandTotal - closest.total) / closest.total;
+        if (pctDiff <= 0.15) check('Benchmark Comparison', 'pass', `$${grandTotal.toLocaleString()} vs ${closest.key} ($${closest.total.toLocaleString()}) — ${Math.round(pctDiff*100)}% diff`);
+        else check('Benchmark Comparison', 'warn', `$${grandTotal.toLocaleString()} vs ${closest.key} ($${closest.total.toLocaleString()}) — ${Math.round(pctDiff*100)}% diff (target: <15%)`);
+      }
+    } else {
+      check('Benchmark Comparison', 'warn', 'No benchmark data available for comparison');
+    }
+
+    // 14. Div 1 percentage
+    let div1Total = 0;
+    (bom.categories || []).forEach(cat => {
+      if (/mobiliz|demob|insurance|bond|rrpli|rpl|general\s*condition/i.test(cat.name || '')) {
+        div1Total += cat.subtotal || 0;
+      }
+      (cat.items || []).forEach(item => {
+        if (/mobiliz|demob|insurance|bond|rrpli|rpl/i.test(item.item || item.name || '')) {
+          div1Total += item.extCost || 0;
+        }
+      });
+    });
+    const div1Pct = grandTotal > 0 ? (div1Total / grandTotal * 100) : 0;
+    if (div1Pct >= 4 && div1Pct <= 8) check('Div 1 (Gen Conditions)', 'pass', `${div1Pct.toFixed(1)}% of total (target: 4-8%)`);
+    else if (div1Pct > 0) check('Div 1 (Gen Conditions)', 'warn', `${div1Pct.toFixed(1)}% of total (target: 4-8%) — $${div1Total.toLocaleString()}`);
+    else check('Div 1 (Gen Conditions)', 'fail', 'No general conditions items detected');
+
+  } else {
+    // ═══ STANDARD CHECKLIST (5 checks) ═══
+    if (consensusCams > 0 || bomCams > 0) check('Camera Count', 'pass', `Consensus: ${consensusCams} | BOM: ${bomCams}`);
+    else check('Camera Count', 'warn', 'No cameras detected');
+
+    if (hrsPerCam >= 15 && hrsPerCam <= 25) check('Labor Hours/Camera', 'pass', `${hrsPerCam.toFixed(1)} hrs/camera`);
+    else if (hrsPerCam > 0) check('Labor Hours/Camera', 'warn', `${hrsPerCam.toFixed(1)} hrs/camera (typical: 15-25)`);
+    else check('Labor Hours/Camera', 'fail', 'No labor data');
+
+    if (bd && bd.materials > 0) check('Material Cost', 'pass', `$${bd.materials.toLocaleString()} total materials`);
+    else check('Material Cost', 'fail', 'No material costs');
+
+    const travelTotal = travelCosts?.grandTotal || 0;
+    if (travelTotal > 0 || !st.travel?.enabled) check('Travel', 'pass', travelTotal > 0 ? `$${travelTotal.toLocaleString()}` : 'Local project (travel disabled)');
+    else check('Travel', 'warn', 'Travel enabled but $0 — check Stage 6/7');
+
+    if (grandTotal > 1000) check('Grand Total', 'pass', `$${grandTotal.toLocaleString()}`);
+    else check('Grand Total', 'fail', `$${grandTotal.toLocaleString()} — too low`);
+  }
+
+  // Render modal
+  const passCount = checks.filter(c => c.status === 'pass').length;
+  const warnCount = checks.filter(c => c.status === 'warn').length;
+  const failCount = checks.filter(c => c.status === 'fail').length;
+  const icon = { pass: '\u{1F7E2}', warn: '\u{1F7E1}', fail: '\u{1F534}' };
+  const statusColor = { pass: '#22c55e', warn: '#eab308', fail: '#ef4444' };
+
+  const rows = checks.map(c => `
+    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(0,0,0,0.06);">
+      <div style="width:12px;height:12px;border-radius:50%;background:${statusColor[c.status]};flex-shrink:0;margin-top:3px;"></div>
+      <div style="flex:1;">
+        <div style="font-weight:700;font-size:13px;color:var(--text-primary);">${esc(c.label)}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${esc(c.detail)}</div>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:${statusColor[c.status]};text-transform:uppercase;">${c.status}</div>
+    </div>
+  `).join('');
+
+  const overlay = document.createElement('div');
+  overlay.id = 'verify-bid-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:16px;width:90%;max-width:680px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="padding:20px 24px;border-bottom:1px solid rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <h2 style="margin:0;font-size:18px;color:var(--text-primary);">${esc(st.isTransitRailroad ? 'Transit/Railroad' : 'Standard')} Bid Verification</h2>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${esc(st.projectName || 'Project')} | $${grandTotal.toLocaleString()}</div>
+        </div>
+        <button id="verify-close-btn" style="border:none;background:none;font-size:24px;cursor:pointer;color:var(--text-muted);padding:4px 8px;">&times;</button>
+      </div>
+      <div style="padding:16px 24px;display:flex;gap:16px;align-items:center;background:${failCount > 0 ? 'rgba(239,68,68,0.06)' : failCount === 0 && warnCount > 0 ? 'rgba(234,179,8,0.06)' : 'rgba(34,197,94,0.06)'};">
+        <div style="font-size:36px;font-weight:900;color:${failCount > 0 ? '#ef4444' : '#22c55e'};">${passCount}/${checks.length}</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">${failCount === 0 ? 'All Checks Passed' : failCount + ' Issue' + (failCount > 1 ? 's' : '') + ' Found'}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${icon.pass} ${passCount} passed | ${icon.warn} ${warnCount} warnings | ${icon.fail} ${failCount} failed</div>
+        </div>
+      </div>
+      <div style="overflow-y:auto;flex:1;">
+        ${rows}
+      </div>
+      <div style="padding:16px 24px;border-top:1px solid rgba(0,0,0,0.08);text-align:right;">
+        <button id="verify-close-btn-2" style="padding:10px 24px;border:none;border-radius:8px;background:#0D9488;color:white;font-weight:700;font-size:13px;cursor:pointer;">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  document.getElementById('verify-close-btn').addEventListener('click', close);
+  document.getElementById('verify-close-btn-2').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
 }
 
 // ═══════════════════════════════════════════════════════════════
