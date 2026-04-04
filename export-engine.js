@@ -1132,37 +1132,83 @@ const SmartPlansExport = {
                 return true;
             });
 
-            // ═══ DEDUPLICATION: Remove items that appear in multiple categories ═══
-            // The AI sometimes puts UPS in MDF AND Structured Cabling, or travel in Subs AND Travel
-            const seenItems = new Map(); // key -> { catIdx, itemIdx, extCost }
-            const highValueDupPatterns = /ups|inverter|video.*server|vms.*server|surveillance.*server|network.*enclosure|remote.*enclosure|idf.*enclosure|kvm|console.*kvm|pdu|managed.*pdu/i;
-            const travelDupPatterns = /hotel|per\s*diem|lodging|mileage|rental.*car|travel.*home|tolls.*parking/i;
+            // ═══ DEDUPLICATION & MISCLASSIFICATION FIX ═══
+            // The AI ignores prompt instructions and puts items in wrong categories.
+            // This code ENFORCES correct classification regardless of what the AI does.
+
+            // 1. HIGH-VALUE ITEMS — only keep first occurrence across all categories
+            const seenItems = new Map();
+            const highValueDupPatterns = /ups|inverter|video.*server|vms.*server|surveillance.*server|security\s*center|genetec.*server|bcd.*server|network.*enclosure|remote.*enclosure|idf.*enclosure|nema.*enclosure|kvm|console.*kvm|pdu|managed.*pdu|patch\s*panel|fiber\s*panel/i;
+
+            // 2. TRAVEL — remove from ANY non-travel category (catches all formats)
+            const travelDupPatterns = /hotel|per\s*diem|lodging|mileage|rental.*car|travel.*home|tolls.*parking|workers?\s*[x×]\s*\d+\s*days?\s*@|crew\s*[x×]\s*\d+\s*days?\s*@|\d+\s*night|\d+\s*day.*\$\d+/i;
+
+            // 3. MISCLASSIFIED ITEMS — items that should NOT be in certain categories
+            const notCCTV = /bollard|m30|window.*film|blast.*film|door|strike|latch|signage|paint|ceiling|masonry|concrete|hvac|mini.?split|trench|saw\s*cut|power\s*circuit|panel\s*board|conduit.*install|switch(?!.*camera)|rack(?!.*camera)|enclosure(?!.*camera)/i;
+            const notStructCabling = /ups|inverter|station.*power|battery.*bank|video.*server|surveillance.*server|security\s*center|bollard/i;
 
             realCategories.forEach((cat, ci) => {
+                const catName = (cat.name || '').toLowerCase();
+                const isCCTV = /cctv|camera|video|surveillance/i.test(cat.name);
+                const isCabling = /cabling|structured|cable\s*mat/i.test(cat.name);
+                const isTravel = /travel|per\s*diem|incidental/i.test(cat.name);
+                const isSub = /subcontract|sub\s*cost/i.test(cat.name);
+
                 cat.items = cat.items.filter((item, ii) => {
-                    const name = (item.item || item.name || '').toLowerCase().trim();
+                    const name = (item.item || item.name || '').trim();
+                    const nameLower = name.toLowerCase();
                     const ext = item.extCost || 0;
                     if (!name || ext <= 0) return true;
 
-                    // Check for travel items in non-travel categories
-                    if (travelDupPatterns.test(name) && !/travel|per\s*diem|incidental/i.test(cat.name)) {
-                        console.warn(`[SmartPlans Export] REMOVED travel item from non-travel category: "${item.item || item.name}" ($${ext.toLocaleString()}) in "${cat.name}" — travel is handled by Stage 6/7`);
+                    // Remove travel from non-travel categories
+                    if (travelDupPatterns.test(nameLower) && !isTravel) {
+                        console.warn(`[Dedup] REMOVED travel from "${cat.name}": "${name}" ($${ext.toLocaleString()})`);
                         return false;
                     }
 
-                    // Check for high-value duplicate items
-                    if (highValueDupPatterns.test(name) && ext >= 1000) {
-                        const key = name.replace(/[^a-z0-9]/g, '').substring(0, 30);
-                        if (seenItems.has(key)) {
-                            const prev = seenItems.get(key);
-                            console.warn(`[SmartPlans Export] REMOVED duplicate high-value item: "${item.item || item.name}" ($${ext.toLocaleString()}) in "${cat.name}" — already in category ${prev.catName}`);
+                    // Remove misclassified items from CCTV
+                    if (isCCTV && notCCTV.test(nameLower)) {
+                        console.warn(`[Dedup] REMOVED non-camera item from CCTV: "${name}" ($${ext.toLocaleString()})`);
+                        return false;
+                    }
+
+                    // Remove misclassified items from Structured Cabling
+                    if (isCabling && notStructCabling.test(nameLower)) {
+                        console.warn(`[Dedup] REMOVED misclassified item from Cabling: "${name}" ($${ext.toLocaleString()})`);
+                        return false;
+                    }
+
+                    // Deduplicate high-value items across categories (first occurrence wins)
+                    if (highValueDupPatterns.test(nameLower) && ext >= 1000) {
+                        // Normalize key: remove special chars, take first 30 chars
+                        const key = nameLower.replace(/[^a-z0-9]/g, '').substring(0, 30);
+                        // Also check by cost — same item at same price in different category = duplicate
+                        const costKey = `${key}_${Math.round(ext)}`;
+                        if (seenItems.has(key) || seenItems.has(costKey)) {
+                            const prev = seenItems.get(key) || seenItems.get(costKey);
+                            console.warn(`[Dedup] REMOVED duplicate: "${name}" ($${ext.toLocaleString()}) in "${cat.name}" — already in "${prev.catName}"`);
                             return false;
                         }
                         seenItems.set(key, { catIdx: ci, catName: cat.name, ext });
+                        seenItems.set(costKey, { catIdx: ci, catName: cat.name, ext });
                     }
+
+                    // Deduplicate by EXACT COST — if two items in different categories have
+                    // the exact same extCost > $10K, they're almost certainly the same item
+                    if (ext >= 10000) {
+                        const priceKey = `price_${Math.round(ext)}`;
+                        if (seenItems.has(priceKey)) {
+                            const prev = seenItems.get(priceKey);
+                            if (prev.catIdx !== ci) {
+                                console.warn(`[Dedup] REMOVED likely duplicate (same cost $${ext.toLocaleString()}): "${name}" in "${cat.name}" — matches "${prev.catName}"`);
+                                return false;
+                            }
+                        }
+                        seenItems.set(priceKey, { catIdx: ci, catName: cat.name, ext, itemName: name });
+                    }
+
                     return true;
                 });
-                // Recalculate category subtotal after dedup
                 cat.subtotal = cat.items.reduce((s, i) => s + (i.extCost || 0), 0);
             });
 
