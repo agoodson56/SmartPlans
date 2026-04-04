@@ -9997,25 +9997,32 @@ function verifyBid(st) {
     }
   });
 
-  // Count cameras from BOM
+  // Count cameras from BOM (exclude accessories: mounts, brackets, mics, SD cards, licenses, housings)
   let bomCams = 0;
+  const camAccessoryExclude = /mount|bracket|pendant|housing|enclosure|mic|microphone|sd\s*card|memory|license|vms|server|nvr|surge|power\s*supply|junction|back\s*box|conduit|cable\s*mgr|hardware|adapter|patch/i;
   (bom.categories || []).forEach(cat => {
     (cat.items || []).forEach(item => {
-      if (/camera|cam|dome|bullet|ptz|fisheye|panoram/i.test(item.item || item.name || '')) {
+      const name = item.item || item.name || '';
+      if (/camera|dome\s*cam|bullet\s*cam|ptz|fisheye|panoram|fixed\s*dome|varifocal/i.test(name) && !camAccessoryExclude.test(name)) {
         bomCams += item.qty || 0;
       }
     });
   });
   const camCount = Math.max(consensusCams, bomCams) || 1;
 
-  // Helper: search BOM for keyword
+  // Helper: search BOM for keyword (checks category names, item names, and subcontractor items)
   const bomHas = (regex) => {
     for (const cat of (bom.categories || [])) {
       if (regex.test(cat.name || '')) return true;
       for (const item of (cat.items || [])) {
         if (regex.test(item.item || item.name || '')) return true;
+        if (regex.test(item.description || '')) return true;
+        if (regex.test(item.mfg || '')) return true;
       }
     }
+    // Also check the raw AI analysis text for these items
+    const analysis = st.aiAnalysis || '';
+    if (regex.test(analysis)) return true;
     return false;
   };
 
@@ -10054,15 +10061,15 @@ function verifyBid(st) {
     else if (matPerCam >= 3000 && matPerCam < 4000) check('Material $/Camera', 'warn', `$${Math.round(matPerCam).toLocaleString()}/camera — LOW (target: $4,000-$7,000)`);
     else check('Material $/Camera', 'fail', `$${Math.round(matPerCam).toLocaleString()}/camera — OUT OF RANGE (target: $4,000-$7,000)`);
 
-    // 5-11: Required line items
+    // 5-11: Required line items (broad keyword matching to catch various AI naming)
     const reqItems = [
-      { label: 'Trenching / Saw Cut', regex: /trench|saw\s*cut|sawcut|excavat/i },
-      { label: 'Station UPS/Inverter', regex: /ups|inverter|uninterrupt/i, minCost: 50000 },
-      { label: 'Power Circuits', regex: /power\s*circuit|dedicated\s*circuit|electrical\s*panel/i },
-      { label: 'Bonds', regex: /bond|performance.*payment|surety/i },
-      { label: 'RRPLI Insurance', regex: /rrpli|railroad.*protective|rpl\s*ins/i },
-      { label: 'General Insurance', regex: /insurance|liability|general\s*liab/i },
-      { label: 'Mob/Demob', regex: /mobiliz|demob|mob.*demob/i },
+      { label: 'Trenching / Saw Cut', regex: /trench|saw\s*cut|sawcut|excavat|boring|civil.*contract|underground|conduit.*install/i },
+      { label: 'Station UPS/Inverter', regex: /ups|inverter|uninterrupt|battery.*bank|power.*backup|station.*power/i, minCost: 50000 },
+      { label: 'Power Circuits', regex: /power\s*circuit|dedicated\s*circuit|electrical\s*panel|panelboard|new.*panel|power.*cable|electrical.*contract/i },
+      { label: 'Bonds', regex: /bond|performance.*payment|surety|perf.*bond/i },
+      { label: 'RRPLI Insurance', regex: /rrpli|railroad.*protective|rpl|rail.*liab|railroad.*insurance/i },
+      { label: 'General Insurance', regex: /insurance|liability|general\s*liab|builders.*risk|umbrella/i },
+      { label: 'Mob/Demob', regex: /mobiliz|demob|mob.*demob|mob\/demob|site.*setup|general.*condition|div.*1.*req/i },
     ];
     reqItems.forEach(ri => {
       const found = bomHas(ri.regex);
