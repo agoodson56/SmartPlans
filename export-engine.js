@@ -2617,14 +2617,14 @@ Return ONLY the JSON array. No other text.`;
                     }
 
                     // Header detection keywords
-                    const headerKeywords = ['item', 'description', 'qty', 'quantity', 'unit cost', 'unit price', 'total', 'amount', 'extended', 'ext cost'];
+                    const headerKeywords = ['item', 'description', 'title', 'qty', 'quantity', 'unit cost', 'unit price', 'total', 'amount', 'extended', 'ext cost', 'ext price'];
 
                     // Column mapping keyword sets
-                    const nameKeys = ['item', 'description', 'desc', 'name', 'material', 'product'];
+                    const nameKeys = ['item', 'description', 'desc', 'title', 'name', 'material', 'product', 'scope'];
                     const qtyKeys = ['qty', 'quantity', 'count', 'units'];
                     const unitCostKeys = ['unit cost', 'unit price', 'price', 'rate', '$/unit', 'cost/ea'];
-                    const extKeys = ['total', 'amount', 'extended', 'ext cost', 'ext', 'line total', 'extended cost'];
-                    const categoryKeys = ['category', 'section', 'division', 'group', 'csi'];
+                    const extKeys = ['total', 'amount', 'extended', 'ext cost', 'ext price', 'ext', 'line total', 'extended cost', 'total cost'];
+                    const categoryKeys = ['category', 'section', 'division', 'group', 'csi', 'division title'];
 
                     // Auto-detect header row
                     let headerRowIdx = -1;
