@@ -2125,6 +2125,20 @@ If Special Conditions flagged transit/railroad work:
 - Safety training: $200-$500/worker → add to Labor column
 - Work window premium: 20-30% increase to labor hours (reduced productivity) → should already be in Labor Calculator
 
+═══ AMTRAK-SPECIFIC ESTIMATING RULES (from real winning bids) ═══
+If this is an Amtrak project, apply these REAL labor and overhead rules from 3D Technology's actual bids:
+- Tech labor: $80/hr | PM: $85/hr (8% of tech hrs) | Admin/Eng: $65/hr (4% of tech hrs)
+- NPT (Non-Productive Time): 8% of productive tech hours at $80/hr
+- Material Support: 2% of material extended cost | Shipping: 1% of material extended cost
+- 2-Year Warranty: 2% of bid item total | General Conditions: 3% of bid item total
+- Per Diem: $38/day per worker | Mileage: $0.65/mi (minus 40mi base commute)
+- Camera install labor: ~6.8 hours per camera average (cable pull + mount + terminate)
+- Overall Cost-to-Price markup: 48.5% (multiplier: 1.485x)
+- Per-camera all-in pricing: $4,700-$6,965 depending on type (includes camera+mount+conduit+CAT6+license+labor+markup)
+- Mob/Demob: $17,920-$22,400 | Bonds: ~2% of contract | RRPLI: $1,828-$61,479
+- Trenching/Sawcut: $95-$281/LF | Station UPS: $160K-$188K | Power Circuits: $2,400-$34K/ea
+SANITY CHECK: Emeryville (61 cam) = $1.3M | Sacramento (100 cam) = $1.7M | Martinez (69 cam) = $2.0M
+
 Return ONLY valid JSON:
 {
   "sov": [
@@ -3458,6 +3472,33 @@ Return ONLY valid JSON:
       ctx += `  MINIMUM SWITCH COST: $${ptMult.min_switch_cost}/each (do NOT price switches below this)\n`;
       ctx += `  NOTE: ${ptMult.notes}\n`;
       ctx += `  THIS IS MANDATORY — prices BELOW these minimums will result in a losing bid.\n\n`;
+
+      // ── Inject Amtrak benchmarks for transit/railroad projects ──
+      if (projectTypeKey === 'transit_railroad' && PRICING_DB.amtrakBenchmarks) {
+        const ab = PRICING_DB.amtrakBenchmarks;
+        ctx += `\n=== AMTRAK STATION SECURITY BENCHMARKS (from REAL winning bids) ===\n`;
+        ctx += `These are ACTUAL bid numbers from 3D Technology's Amtrak station projects (2025).\n`;
+        ctx += `USE THESE as sanity checks — if your estimate deviates more than 20%, explain why.\n\n`;
+        ctx += `LABOR RATES: Tech=$${ab.laborRates.technician}/hr | PM=$${ab.laborRates.projectManager}/hr (${ab.laborStructure.pm_pct}% of tech hrs) | Admin=$${ab.laborRates.adminEngineer}/hr (${ab.laborStructure.admin_eng_pct}% of tech hrs)\n`;
+        ctx += `NPT: ${ab.laborStructure.npt_pct}% of productive hours | Camera install: ${ab.laborStructure.camera_install_hrs} hrs/camera avg\n`;
+        ctx += `MATERIAL EXTRAS: ${ab.materialExtras.material_support_pct}% material support + ${ab.materialExtras.shipping_pct}% shipping\n`;
+        ctx += `OVERHEAD: ${ab.overhead.warranty_pct}% warranty + ${ab.overhead.gen_conditions_pct}% gen conditions\n`;
+        ctx += `OVERALL MARKUP: ${((ab.markup.cost_to_price_multiplier - 1) * 100).toFixed(1)}% (cost-to-sell multiplier: ${ab.markup.cost_to_price_multiplier}x)\n`;
+        ctx += `TRAVEL: Per diem $${ab.travel.per_diem_daily}/day | Mileage $${ab.travel.mileage_rate}/mi (minus ${ab.travel.mileage_base_mi}mi base)\n\n`;
+        ctx += `PER-CAMERA ALL-IN UNIT PRICES (includes camera+mount+conduit+CAT6+license+labor+markup):\n`;
+        for (const [k, v] of Object.entries(ab.cameraUnitPrices)) {
+          ctx += `  ${v.description}: $${v.low}-$${v.high} (mid: $${v.mid})\n`;
+        }
+        ctx += `\nACTUAL BID TOTALS (sanity check your estimate against these):\n`;
+        for (const [station, data] of Object.entries(ab.actualBids)) {
+          ctx += `  ${station}: ${data.cameras} cameras = $${data.total.toLocaleString()} total ($${data.avg_per_camera}/cam avg)\n`;
+        }
+        ctx += `\nKEY LINE ITEM BENCHMARKS:\n`;
+        for (const [k, v] of Object.entries(ab.lineItemBenchmarks)) {
+          ctx += `  ${v.description}: $${v.low.toLocaleString()}-$${v.high.toLocaleString()} (mid: $${v.mid.toLocaleString()})\n`;
+        }
+        ctx += `\n`;
+      }
     }
 
     const categories = {

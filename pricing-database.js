@@ -654,6 +654,116 @@ const PRICING_DB = {
     },
 
     // ═══════════════════════════════════════════════════════════
+    // AMTRAK STATION SECURITY BENCHMARKS
+    // Based on REAL 3D Technology bids: Emeryville ($1.3M, 61 cam),
+    // Sacramento ($1.7M, 100 cam), Martinez ($2.0M, 69 cam)
+    // These are ACTUAL winning bid numbers — use as sanity checks
+    // ═══════════════════════════════════════════════════════════
+    amtrakBenchmarks: {
+        // ── Labor Rates (prevailing wage, Northern California) ──
+        laborRates: {
+            technician:      80,    // Field tech — install, pull, terminate
+            projectManager:  85,    // PM — 8% of productive tech hours
+            adminEngineer:   65,    // Eng/coordination/as-builts — 4% of productive tech hours
+        },
+        // ── Labor Structure (% of productive tech hours) ──
+        laborStructure: {
+            npt_pct:            8,   // Non-Productive Time (travel to site, breaks, safety meetings)
+            pm_pct:             8,   // Project Manager hours as % of tech hours
+            admin_eng_pct:      4,   // Engineering/coordination/as-builts as % of tech hours
+            camera_install_hrs: 6.8, // Average hours per camera (pull cable + mount + terminate)
+            mdf_headend_hrs:    16,  // Head-end rack build per MDF
+            idf_install_hrs:    16,  // Per IDF enclosure (build, terminate, test)
+            testing_prog_hrs:   16,  // System testing and programming (per bid item)
+            training_hrs:       8,   // Owner/operator training (per bid item)
+            mobilization_hrs:   8,   // Per mobilization event
+        },
+        // ── Material Extras (added to every bid item) ──
+        materialExtras: {
+            material_support_pct: 2,  // Material support / consumables
+            shipping_pct:         1,  // Freight / shipping
+        },
+        // ── Overhead (added to every bid item) ──
+        overhead: {
+            warranty_pct:        2,   // 2-year performance warranty
+            gen_conditions_pct:  3,   // General conditions / commissioning
+        },
+        // ── Travel & Per Diem ──
+        travel: {
+            per_diem_daily:    38,    // Per worker per day (meals/incidentals)
+            mileage_rate:      0.65,  // Per mile (IRS rate)
+            mileage_base_mi:   40,    // Deduct first 40 miles (local commute)
+            home_base:         "Rancho Cordova, CA",
+        },
+        // ── Overall Markup (Cost → Sell Price) ──
+        markup: {
+            cost_to_price_multiplier: 1.485,  // 48.5% overall markup on cost
+            material_ext_to_price:    1.515,  // 51.5% markup on material extended cost
+        },
+        // ── Per-Camera ALL-IN Unit Prices (for pricing schedule) ──
+        // These include: camera + mount + conduit + CAT6 + license + labor + markup
+        cameraUnitPrices: {
+            indoor_fixed_8m_mic:     { low: 5050, mid: 6150, high: 6795, description: "Indoor Fixed 8MP w/mic" },
+            indoor_fixed_8m:         { low: 4700, mid: 5978, high: 6650, description: "Indoor Fixed 8MP" },
+            indoor_360_4lens:        { low: 5580, mid: 6080, high: 6965, description: "Indoor 360 4-lens" },
+            indoor_fisheye:          { low: 5580, mid: 5978, high: 6150, description: "Indoor Fisheye 360" },
+            indoor_2lens_8m:         { low: 5010, mid: 5978, high: 6150, description: "Indoor 2-lens 8MP" },
+            outdoor_fixed_8m:        { low: 5010, mid: 5978, high: 6650, description: "Outdoor Fixed 8MP" },
+            outdoor_2lens_8m:        { low: 4700, mid: 5978, high: 6200, description: "Outdoor 2-lens 8MP" },
+            outdoor_360_4lens:       { low: 5580, mid: 6080, high: 6965, description: "Outdoor 360 4-lens" },
+            pole_fixed_8m:           { low: 4700, mid: 5978, high: 6150, description: "Pole-mount Fixed 8MP" },
+            pole_2lens_8m:           { low: 4700, mid: 5978, high: 6200, description: "Pole-mount 2-lens 8MP" },
+            pole_360_4lens:          { low: 5010, mid: 6080, high: 6965, description: "Pole-mount 360 4-lens" },
+        },
+        // ── Amtrak-Specific Line Item Benchmarks ──
+        lineItemBenchmarks: {
+            cat6a_upgrade_per_camera: { low: 1045, mid: 1185, high: 1300, description: "CAT6A upgrade per camera (cable + jacks + testing)" },
+            access_control_per_door:  { low: 6270, mid: 7500, high: 8175, description: "Door with card reader + access control" },
+            access_control_panel:     { low: 8580, mid: 8775, high: 11478, description: "Lenel/access control panel" },
+            camera_server:            { low: 16920, mid: 17210, high: 23231, description: "Genetec/BCD video management server + storage" },
+            station_rack_mdf:         { low: 17500, mid: 18400, high: 19267, description: "Station network enclosure (rack + MDF equipment)" },
+            remote_enclosure_idf:     { low: 9387, mid: 9607, high: 13350, description: "Remote network enclosure (IDF)" },
+            remote_mini_rack_ups:     { low: 12150, mid: 12490, high: 13216, description: "Remote mini rack with UPS" },
+            managed_pdu:              { low: 350, mid: 1495, high: 1800, description: "Managed PDU" },
+            kvm_console:              { low: 3250, mid: 3500, high: 4800, description: "Network rack console KVM" },
+            patch_panels_per_rack:    { low: 350, mid: 1400, high: 2500, description: "Patch panels (copper/fiber/cords) per rack" },
+            viewing_station_50:       { low: 1489, mid: 1740, high: 3475, description: "Security viewing station 50+" },
+            fiber_backbone_per_ft:    { low: 30, mid: 37.59, high: 45, description: "New fiber backbone (12-strand SMFO) all-in per LF" },
+            misc_network:             { low: 6500, mid: 14780, high: 26812, description: "Misc network / systems interface" },
+            cisco_switch_labor:       { low: 448, mid: 725, high: 758, description: "Cisco switch install (provided by Amtrak — labor only)" },
+            // ── Electrical / Civil ──
+            trenching_sawcut_per_ft:  { low: 95, mid: 151, high: 281, description: "Saw cut / trench for conduit per LF" },
+            power_circuit_each:       { low: 2400, mid: 3500, high: 33989, description: "Power circuit (cable + panel + conduit)" },
+            station_ups_inverter:     { low: 160103, mid: 186320, high: 187550, description: "Station-sized UPS/Inverter system" },
+            new_panelboard:           { low: 3000, mid: 3000, high: 3000, description: "New electrical panelboard" },
+            new_pole_foundation:      { low: 25847, mid: 25847, high: 25847, description: "New pole and foundation" },
+            new_handhole:             { low: 1680, mid: 1680, high: 1680, description: "New handhole" },
+            enclosure_foundation:     { low: 3500, mid: 3500, high: 3500, description: "Foundation for remote network enclosure" },
+            // ── Other Divisions ──
+            bollard_m30_each:         { low: 3250, mid: 13650, high: 13717, description: "M30-rated vehicular bollard" },
+            window_film_each:         { low: 350, mid: 590, high: 5644, description: "Blast mitigation / hardening film per opening" },
+            door_hardware:            { low: 775, mid: 850, high: 13745, description: "Electric strike + position switch + latchset per door" },
+            signage_per_door:         { low: 1220, mid: 2145, high: 2192, description: "Signage at secured doors" },
+            mini_split_hvac:          { low: 16000, mid: 16000, high: 16000, description: "Mini-split HVAC unit for telecom room" },
+            // ── General Conditions ──
+            mob_demob:                { low: 17920, mid: 18282, high: 22400, description: "Mobilization / Demobilization" },
+            insurance_excl_rrpli:     { low: 9750, mid: 14746, high: 20493, description: "All insurance excluding RRPLI" },
+            rrpli:                    { low: 1828, mid: 36570, high: 61479, description: "Railroad Protective Liability Insurance" },
+            bonds_perf_payment:       { low: 21740, mid: 36570, high: 40986, description: "Performance & Payment Bonds" },
+            div1_other_requirements:  { low: 5000, mid: 18282, high: 20493, description: "All other Division 1 requirements" },
+            construction_survey:      { low: 20000, mid: 20000, high: 20000, description: "Construction Survey (allowance)" },
+            utility_location:         { low: 9999, mid: 10000, high: 10000, description: "Utility location (allowance)" },
+        },
+        // ── Actual Bid Totals (for AI sanity checking) ──
+        actualBids: {
+            emeryville:  { cameras: 61,  total: 1302128,  avg_per_camera: 6534,  year: 2025 },
+            sacramento:  { cameras: 100, total: 1734097,  avg_per_camera: 4890,  year: 2025 },
+            martinez:    { cameras: 69,  total: 2035277,  avg_per_camera: 6150,  year: 2025 },
+            martinez_bafo: { cameras: 69, total: 1966150, avg_per_camera: 5978,  year: 2025 },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
     // SUBCONTRACTOR COST BENCHMARKS
     // Minimum expected costs by trade for project validation
     // ═══════════════════════════════════════════════════════════
