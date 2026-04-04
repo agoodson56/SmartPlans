@@ -78,6 +78,7 @@ const SmartBrains = {
     SPEC_CROSS_REF: { id: 21, name: 'Spec Cross-Reference', wave: 1, emoji: '📑', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     ANNOTATION_READER: { id: 22, name: 'Annotation Reader', wave: 1, emoji: '💬', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     RISER_DIAGRAM_ANALYZER: { id: 23, name: 'Riser Diagram Analyzer', wave: 1, emoji: '📶', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
+    DEVICE_LOCATOR: { id: 28, name: 'Device Locator', wave: 1, emoji: '📍', needsFiles: ['plans', 'legends'], maxTokens: 65536, useProModel: true },
     // ── Wave 1.5: Second Read — Independent Verification (all Gemini 3.1 Pro) ──
     SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
@@ -1099,6 +1100,7 @@ const SmartBrains = {
     PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
     OVERLAP_DETECTOR: ['overlapping_areas', 'potential_duplicates'],
     ESTIMATE_CORRECTOR: ['corrected_categories', 'correction_log'],
+    DEVICE_LOCATOR: ['devices', 'sheet_device_map'],
     // REPORT_WRITER returns markdown, no JSON schema
   },
 
@@ -3314,6 +3316,87 @@ Return ONLY valid JSON:
   "total_backbone_cost_items": 0
 }`,
 
+      // ── BRAIN 28: Device Locator (Wave 1) ───────────────────────
+      DEVICE_LOCATOR: () => `You are a DEVICE POSITION MAPPER for ELV/low voltage construction plans. Your job is to identify the APPROXIMATE POSITION of every low-voltage device on each floor plan sheet.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+LEGEND (symbol identification):
+${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 3000)}
+
+SPATIAL LAYOUT (sheet scales and dimensions):
+${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 2000)}
+
+YOUR MISSION: For every low-voltage device symbol on each floor plan sheet, record its approximate position as a percentage of the sheet (0-100 from left edge for X, 0-100 from top edge for Y). This data will be used to calculate cable run lengths from each device back to its home-run IDF/MDF.
+
+DEVICE TYPES TO LOCATE:
+- CCTV: dome cameras, bullet cameras, PTZ cameras, panoramic cameras, LPR cameras
+- Access Control: card readers, keypads, REX buttons, door contacts, electric strikes/mag locks
+- Structured Cabling: data outlets, voice outlets, WAPs (wireless access points)
+- Fire Alarm: pull stations, smoke detectors, heat detectors, horn/strobes, speaker/strobes, NAC panels, FACP
+- AV/Paging: speakers, amplifiers, displays, projectors
+- Infrastructure: IDF closets, MDF rooms, telecom rooms (TR), head-end rooms, junction boxes, pull boxes
+
+CRITICAL RULES:
+1. Position accuracy: aim for +/- 5% of actual position on the sheet
+2. For CLUSTERS of identical devices (e.g., 6 data outlets in one office), record as ONE entry with qty > 1 and the centroid position
+3. Mark IDF, MDF, TR, head-end rooms, FACP, and access control panels as is_home_run: true
+4. Do NOT count devices — that is SYMBOL_SCANNER's job. Focus ONLY on positions.
+5. Include the room name, floor level, and sheet ID for each device
+6. If a device is near a sheet boundary, note it — it may appear on adjacent sheets
+
+Return ONLY valid JSON:
+{
+  "devices": [
+    {
+      "id": "DEV-001",
+      "type": "dome_camera",
+      "subtype": "indoor_fixed",
+      "sheet_id": "E4.01",
+      "floor": "1",
+      "room": "Main Lobby",
+      "x_pct": 45.2,
+      "y_pct": 23.8,
+      "qty": 1,
+      "is_home_run": false,
+      "notes": "Wall-mount above entrance door D-101"
+    },
+    {
+      "id": "DEV-002",
+      "type": "data_outlet",
+      "subtype": "cat6a",
+      "sheet_id": "E4.01",
+      "floor": "1",
+      "room": "Office 105",
+      "x_pct": 62.0,
+      "y_pct": 55.3,
+      "qty": 4,
+      "is_home_run": false,
+      "notes": "Cluster of 4 outlets in open office area"
+    },
+    {
+      "id": "DEV-003",
+      "type": "idf",
+      "subtype": "telecom_room",
+      "sheet_id": "E4.01",
+      "floor": "1",
+      "room": "TR-1",
+      "x_pct": 15.0,
+      "y_pct": 50.0,
+      "qty": 1,
+      "is_home_run": true,
+      "notes": "Main telecom room adjacent to elevator core"
+    }
+  ],
+  "sheet_device_map": {
+    "E4.01": { "device_count": 45, "has_positions": true, "home_run_points": ["DEV-003"] },
+    "E4.02": { "device_count": 38, "has_positions": true, "home_run_points": [] }
+  },
+  "position_confidence": "medium",
+  "notes": "Positions estimated from symbol locations on floor plan sheets. Dense areas may have +/-8% accuracy."
+}`,
+
       // ── BRAIN 24: Zoom Scanner (Wave 1.5) ───────────────────────
       ZOOM_SCANNER: () => `You are a HIGH-MAGNIFICATION ZOOM SCANNER for ELV device symbols. Divide each sheet into 4 quadrants and count with extreme precision.
 
@@ -3816,7 +3899,7 @@ Return ONLY valid JSON:
 
     // ═══ WAVE 1: First Read — Document Intelligence (8 parallel brains) ═══
     progressCallback(12, '🔍 Wave 1: First Read — 8 brains scanning…', this._brainStatus);
-    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER'];
+    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR'];
     const wave1Results = await this._runWave(1, wave1Keys, encodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
     console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');

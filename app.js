@@ -621,6 +621,10 @@ const state = {
   ceilingHeight: 10,        // ft, typical finished ceiling height
   floorToFloorHeight: 14,   // ft, slab-to-slab height
   _cablePathwayOpen: false,
+  _cableScheduleOpen: false,
+  _cableScheduleView: 'byIdf',      // 'byIdf', 'byCableType', 'allDevices'
+  _cableScheduleCache: null,
+  cableAssumptions: {},              // user overrides for CableAnalyzer.defaults
   _symbolInventoryOpen: false,
   _symbolInventorySort: 'sheet',     // 'sheet', 'type', 'room', 'floor'
   _symbolInventoryFilter: '',         // device type filter
@@ -5294,6 +5298,8 @@ function renderStep7(container) {
 
     ${buildCablePathwayCard(state)}
 
+    ${buildCableScheduleCard(state)}
+
     ${buildBidPhasesCard(state)}
 
     ${buildChangeOrderCard(state)}
@@ -5615,6 +5621,7 @@ function renderStep7(container) {
   initExclusionsPanel(container);
   bindBidStrategyEvents(container);
   bindCablePathwayEvents(container);
+  bindCableScheduleEvents(container);
   bindBidPhasesEvents(container);
   bindChangeOrderEvents(container);
   bindSymbolInventoryEvents(container);
@@ -9934,6 +9941,337 @@ function bindCablePathwayEvents(container) {
       const icon = document.getElementById('cable-pathway-toggle-icon');
       if (body) body.style.display = state._cablePathwayOpen ? 'block' : 'none';
       if (icon) icon.textContent = state._cablePathwayOpen ? '▼' : '▶';
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CABLE SCHEDULE — Per-device cable run assignment & calculation
+// Uses DEVICE_LOCATOR brain data (or falls back to zone-level)
+// to show every device's cable run to its home-run IDF/MDF
+// ═══════════════════════════════════════════════════════════════
+
+function buildCableScheduleCard(st) {
+  if (typeof CableAnalyzer === 'undefined' || !st.aiAnalysis) return '';
+
+  const schedule = CableAnalyzer.buildCableSchedule(st, st.cableAssumptions || {});
+  if (!schedule || schedule.assignments.length === 0) return '';
+  st._cableScheduleCache = schedule;
+
+  const open = st._cableScheduleOpen;
+  const view = st._cableScheduleView || 'byIdf';
+  const t = schedule.totals;
+  const fmt = CableAnalyzer.fmtFt;
+  const fmtC = CableAnalyzer.fmtCost;
+
+  const modeBadge = schedule.mode === 'device-level'
+    ? '<span style="padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;background:rgba(16,185,129,0.12);color:#10B981;">DEVICE-LEVEL</span>'
+    : '<span style="padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;background:rgba(245,158,11,0.12);color:#D97706;">ZONE-LEVEL</span>';
+
+  // Stats bar
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:16px;">
+      <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:var(--accent-indigo);">${fmt(t.totalDevices)}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Devices</div>
+      </div>
+      <div style="background:rgba(13,148,136,0.06);border:1px solid rgba(13,148,136,0.12);border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:var(--accent-teal);">${fmt(t.totalFt)}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Total Cable (ft)</div>
+      </div>
+      <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:var(--accent-indigo);">${fmt(t.avgRunFt)} ft</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Avg Run</div>
+      </div>
+      <div style="background:${t.tiaViolationCount > 0 ? 'rgba(220,38,38,0.06)' : 'rgba(16,185,129,0.06)'};border:1px solid ${t.tiaViolationCount > 0 ? 'rgba(220,38,38,0.12)' : 'rgba(16,185,129,0.12)'};border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:${t.tiaViolationCount > 0 ? '#DC2626' : '#10B981'};">${t.tiaViolationCount}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">TIA Violations</div>
+      </div>
+    </div>`;
+
+  // View tabs
+  const tabBtn = (key, label) =>
+    `<button class="cable-schedule-tab" data-cs-view="${key}" style="padding:5px 14px;font-size:10px;font-weight:${view === key ? '700' : '500'};border:1px solid ${view === key ? 'rgba(99,102,241,0.3)' : 'rgba(0,0,0,0.1)'};border-radius:4px;background:${view === key ? 'rgba(99,102,241,0.08)' : 'transparent'};color:${view === key ? 'var(--accent-indigo)' : 'var(--text-muted)'};cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">${label}</button>`;
+
+  const tabsHtml = `<div style="display:flex;gap:6px;margin-bottom:12px;">
+    ${tabBtn('byIdf', 'By IDF')}
+    ${tabBtn('byCableType', 'By Cable Type')}
+    ${tabBtn('allDevices', 'All Devices')}
+  </div>`;
+
+  // Table content based on current view
+  let tableHtml = '';
+  if (view === 'allDevices') {
+    tableHtml = _buildCableScheduleAllDevicesTable(schedule);
+  } else {
+    const groups = view === 'byIdf' ? schedule.byIdf : schedule.byCableType;
+    tableHtml = _buildCableScheduleGroupedTable(groups, view === 'byIdf' ? 'IDF' : 'Cable Type');
+  }
+
+  // Assumptions panel (Phase 4)
+  const assumptionsHtml = _buildCableAssumptionsPanel(schedule.config);
+
+  // Cable cost summary
+  const costSummary = Object.entries(schedule.byCableType).map(([type, data]) =>
+    `<span style="font-size:11px;color:var(--text-secondary);margin-right:12px;">${CableAnalyzer._cableLabel(type)}: <strong>${fmt(data.totalFt)} ft</strong> (${fmtC(data.totalCost)})</span>`
+  ).join('');
+
+  return `
+    <div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div>
+    <div class="info-card" id="cable-schedule-card" style="border-left:3px solid #6366F1;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="cable-schedule-toggle">
+        <h3 class="info-card-title" style="margin:0;">
+          <i data-lucide="cable" style="width:16px;height:16px;"></i>
+          CABLE SCHEDULE
+          ${modeBadge}
+          <span style="font-size:11px;font-weight:400;color:rgba(0,0,0,0.4);margin-left:8px;">(${fmt(t.totalDevices)} devices | ${fmt(t.totalFt)} ft | ${fmtC(t.totalCost)})</span>
+        </h3>
+        <span id="cable-schedule-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">${open ? '\u25BC' : '\u25B6'}</span>
+      </div>
+      <div id="cable-schedule-collapsible" style="display:${open ? 'block' : 'none'};margin-top:12px;">
+        <p style="color:rgba(0,0,0,0.5);font-size:12px;margin-bottom:16px;">
+          Every detected device assigned to its nearest IDF/MDF with calculated cable run length. ${schedule.mode === 'device-level' ? 'Device positions from AI plan analysis.' : 'Using zone-level estimates (run Device Locator for per-device accuracy).'}
+        </p>
+        ${statsHtml}
+        <div style="margin-bottom:8px;line-height:1.8;">${costSummary}</div>
+        ${tabsHtml}
+        <div id="cable-schedule-table-container" style="overflow-x:auto;">
+          ${tableHtml}
+        </div>
+        ${assumptionsHtml}
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
+          <button id="cable-schedule-export-btn" style="padding:8px 16px;border:1px solid rgba(99,102,241,0.3);background:rgba(99,102,241,0.06);color:#6366F1;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
+            EXPORT CABLE SCHEDULE
+          </button>
+          <button id="cable-schedule-copy-btn" style="padding:8px 16px;border:1px solid rgba(99,102,241,0.3);background:rgba(99,102,241,0.06);color:#6366F1;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
+            COPY TO CLIPBOARD
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _buildCableScheduleAllDevicesTable(schedule) {
+  const rows = schedule.assignments.map(a => {
+    const rowBg = a.tiaViolation ? 'background:rgba(220,38,38,0.04);' : '';
+    return `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);${rowBg}">
+      <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);white-space:nowrap;">${esc(a.deviceId)}</td>
+      <td style="padding:5px 8px;font-size:11px;text-transform:capitalize;">${esc(a.deviceType.replace(/_/g, ' '))}</td>
+      <td style="padding:5px 8px;font-size:11px;color:var(--text-secondary);">${esc(a.room)}</td>
+      <td style="padding:5px 8px;font-size:11px;text-align:center;">${esc(a.floor)}</td>
+      <td style="padding:5px 8px;font-size:11px;font-weight:600;color:var(--accent-indigo);">${esc(a.idfAssigned)}</td>
+      <td style="padding:5px 8px;font-size:11px;">${esc(a.cableTypeLabel)}</td>
+      <td style="padding:5px 8px;font-size:11px;text-align:right;font-weight:600;${a.tiaViolation ? 'color:#DC2626;' : ''}">${a.runFt}${a.tiaViolation ? ' \u26A0\uFE0F' : ''}</td>
+      <td style="padding:5px 8px;font-size:11px;text-align:center;">${a.qty}</td>
+      <td style="padding:5px 8px;font-size:11px;text-align:right;">${CableAnalyzer.fmtFt(a.totalFtWithWaste)}</td>
+      <td style="padding:5px 8px;font-size:11px;text-align:right;">${CableAnalyzer.fmtCost(a.totalCost)}</td>
+      <td style="padding:5px 8px;font-size:10px;color:var(--text-muted);">${esc(a.basis)}</td>
+    </tr>`;
+  }).join('');
+
+  return `<table style="width:100%;border-collapse:collapse;font-size:11px;">
+    <thead><tr style="background:rgba(99,102,241,0.06);">
+      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">ID</th>
+      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Type</th>
+      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Room</th>
+      <th style="padding:6px 8px;text-align:center;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Floor</th>
+      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">IDF</th>
+      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Cable</th>
+      <th style="padding:6px 8px;text-align:right;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Run (ft)</th>
+      <th style="padding:6px 8px;text-align:center;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Qty</th>
+      <th style="padding:6px 8px;text-align:right;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Total (ft)</th>
+      <th style="padding:6px 8px;text-align:right;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Cost</th>
+      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Basis</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function _buildCableScheduleGroupedTable(groups, groupLabel) {
+  const fmt = CableAnalyzer.fmtFt;
+  const fmtC = CableAnalyzer.fmtCost;
+  let html = '';
+  Object.entries(groups).forEach(([key, g]) => {
+    html += `<div style="margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1);border-radius:6px;margin-bottom:4px;">
+        <div>
+          <strong style="font-size:13px;color:var(--text-primary);">${esc(key)}</strong>
+          <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${g.deviceCount} devices</span>
+        </div>
+        <div style="font-size:12px;">
+          <span style="font-weight:600;color:var(--accent-indigo);">${fmt(g.totalFt)} ft</span>
+          <span style="color:var(--text-muted);margin-left:8px;">${fmtC(g.totalCost)}</span>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr style="background:rgba(0,0,0,0.02);">
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Type</th>
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Room</th>
+          <th style="padding:4px 8px;text-align:center;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Floor</th>
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Cable</th>
+          <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Run</th>
+          <th style="padding:4px 8px;text-align:center;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Qty</th>
+          <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Total ft</th>
+          <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Cost</th>
+        </tr></thead><tbody>`;
+    g.devices.forEach(a => {
+      const rowBg = a.tiaViolation ? 'background:rgba(220,38,38,0.04);' : '';
+      html += `<tr style="border-bottom:1px solid rgba(0,0,0,0.03);${rowBg}">
+        <td style="padding:4px 8px;text-transform:capitalize;">${esc(a.deviceType.replace(/_/g, ' '))}</td>
+        <td style="padding:4px 8px;color:var(--text-secondary);">${esc(a.room)}</td>
+        <td style="padding:4px 8px;text-align:center;">${esc(a.floor)}</td>
+        <td style="padding:4px 8px;">${esc(a.cableTypeLabel)}</td>
+        <td style="padding:4px 8px;text-align:right;font-weight:600;${a.tiaViolation ? 'color:#DC2626;' : ''}">${a.runFt}${a.tiaViolation ? ' \u26A0\uFE0F' : ''}</td>
+        <td style="padding:4px 8px;text-align:center;">${a.qty}</td>
+        <td style="padding:4px 8px;text-align:right;">${fmt(a.totalFtWithWaste)}</td>
+        <td style="padding:4px 8px;text-align:right;">${fmtC(a.totalCost)}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  });
+  return html;
+}
+
+function _buildCableAssumptionsPanel(config) {
+  if (typeof CableAnalyzer === 'undefined') return '';
+  const schema = CableAnalyzer.configSchema;
+  let inputs = '';
+  Object.entries(schema).forEach(([key, s]) => {
+    const val = config[key] ?? CableAnalyzer.defaults[key];
+    const displayVal = key === 'wastePct' ? val : val;
+    inputs += `<div style="display:flex;align-items:center;gap:8px;">
+      <label style="font-size:10px;color:var(--text-muted);min-width:140px;text-transform:uppercase;letter-spacing:0.5px;">${s.label}</label>
+      <input type="number" class="cable-assumption-input" data-ca-key="${key}" value="${displayVal}" min="${s.min}" max="${s.max}" step="${s.step}"
+        style="width:70px;padding:4px 6px;border:1px solid rgba(0,0,0,0.1);border-radius:4px;font-size:12px;font-family:var(--font-sans);text-align:right;">
+    </div>`;
+  });
+
+  return `<div style="margin-top:16px;border-top:1px solid rgba(0,0,0,0.06);padding-top:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="cable-assumptions-toggle">
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">ASSUMPTIONS</span>
+      <span style="font-size:10px;color:var(--text-muted);">\u25B6 adjust</span>
+    </div>
+    <div id="cable-assumptions-body" style="display:none;margin-top:8px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:6px;">
+        ${inputs}
+      </div>
+      <button id="cable-assumptions-reset" style="margin-top:8px;padding:4px 12px;border:1px solid rgba(0,0,0,0.1);background:transparent;color:var(--text-muted);cursor:pointer;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Reset to Defaults</button>
+    </div>
+  </div>`;
+}
+
+function _reRenderCableScheduleTable() {
+  const container = document.getElementById('cable-schedule-table-container');
+  if (!container) return;
+  state._cableScheduleCache = null;
+  const schedule = CableAnalyzer.buildCableSchedule(state, state.cableAssumptions || {});
+  if (!schedule) return;
+  state._cableScheduleCache = schedule;
+  const view = state._cableScheduleView || 'byIdf';
+  if (view === 'allDevices') {
+    container.innerHTML = _buildCableScheduleAllDevicesTable(schedule);
+  } else {
+    const groups = view === 'byIdf' ? schedule.byIdf : schedule.byCableType;
+    container.innerHTML = _buildCableScheduleGroupedTable(groups, view === 'byIdf' ? 'IDF' : 'Cable Type');
+  }
+}
+
+function bindCableScheduleEvents(container) {
+  // Toggle expand/collapse
+  const toggle = document.getElementById('cable-schedule-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      state._cableScheduleOpen = !state._cableScheduleOpen;
+      const body = document.getElementById('cable-schedule-collapsible');
+      const icon = document.getElementById('cable-schedule-toggle-icon');
+      if (body) body.style.display = state._cableScheduleOpen ? 'block' : 'none';
+      if (icon) icon.textContent = state._cableScheduleOpen ? '\u25BC' : '\u25B6';
+    });
+  }
+
+  // View tabs
+  container.querySelectorAll('.cable-schedule-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state._cableScheduleView = btn.dataset.csView;
+      // Update tab styling
+      container.querySelectorAll('.cable-schedule-tab').forEach(b => {
+        const active = b.dataset.csView === state._cableScheduleView;
+        b.style.fontWeight = active ? '700' : '500';
+        b.style.borderColor = active ? 'rgba(99,102,241,0.3)' : 'rgba(0,0,0,0.1)';
+        b.style.background = active ? 'rgba(99,102,241,0.08)' : 'transparent';
+        b.style.color = active ? 'var(--accent-indigo)' : 'var(--text-muted)';
+      });
+      _reRenderCableScheduleTable();
+    });
+  });
+
+  // Assumptions toggle
+  const assToggle = document.getElementById('cable-assumptions-toggle');
+  if (assToggle) {
+    assToggle.addEventListener('click', () => {
+      const body = document.getElementById('cable-assumptions-body');
+      if (body) body.style.display = body.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+
+  // Assumptions inputs (debounced)
+  let assTimer = null;
+  container.querySelectorAll('.cable-assumption-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      clearTimeout(assTimer);
+      assTimer = setTimeout(() => {
+        const key = inp.dataset.caKey;
+        const val = parseFloat(inp.value);
+        if (!isNaN(val)) {
+          state.cableAssumptions[key] = val;
+          state._cableScheduleCache = null;
+          _reRenderCableScheduleTable();
+        }
+      }, 300);
+    });
+  });
+
+  // Reset assumptions
+  const resetBtn = document.getElementById('cable-assumptions-reset');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      state.cableAssumptions = {};
+      state._cableScheduleCache = null;
+      // Reset input values to defaults
+      container.querySelectorAll('.cable-assumption-input').forEach(inp => {
+        const key = inp.dataset.caKey;
+        inp.value = CableAnalyzer.defaults[key];
+      });
+      _reRenderCableScheduleTable();
+    });
+  }
+
+  // Export button
+  const exportBtn = document.getElementById('cable-schedule-export-btn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport.exportCableSchedule) {
+        SmartPlansExport.exportCableSchedule(state);
+      } else {
+        alert('Cable schedule export not available yet.');
+      }
+    });
+  }
+
+  // Copy button
+  const copyBtn = document.getElementById('cable-schedule-copy-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const schedule = state._cableScheduleCache;
+      if (!schedule) return;
+      const lines = ['Device ID\tType\tRoom\tFloor\tIDF\tCable\tRun (ft)\tQty\tTotal (ft)\tCost'];
+      schedule.assignments.forEach(a => {
+        lines.push(`${a.deviceId}\t${a.deviceType}\t${a.room}\t${a.floor}\t${a.idfAssigned}\t${a.cableTypeLabel}\t${a.runFt}\t${a.qty}\t${a.totalFtWithWaste}\t${a.totalCost.toFixed(2)}`);
+      });
+      navigator.clipboard.writeText(lines.join('\n')).then(() => {
+        copyBtn.textContent = 'COPIED!';
+        setTimeout(() => { copyBtn.textContent = 'COPY TO CLIPBOARD'; }, 2000);
+      });
     });
   }
 }

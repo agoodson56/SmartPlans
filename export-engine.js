@@ -1504,6 +1504,113 @@ const SmartPlansExport = {
 
 
     // ═══════════════════════════════════════════════════════════
+    // CABLE SCHEDULE EXPORT
+    // ═══════════════════════════════════════════════════════════
+    exportCableSchedule(state) {
+        if (typeof CableAnalyzer === 'undefined') {
+            alert('Cable Analyzer not loaded.');
+            return;
+        }
+
+        const schedule = CableAnalyzer.buildCableSchedule(state, state.cableAssumptions || {});
+        if (!schedule || schedule.assignments.length === 0) {
+            alert('No cable schedule data available. Run an analysis first.');
+            return;
+        }
+
+        try {
+            if (typeof XLSX === 'undefined') {
+                // CSV fallback
+                const rows = [['Device ID','Type','Room','Floor','IDF','Cable Type','Run (ft)','Qty','Total w/ Waste (ft)','Cost/ft','Total Cost','TIA Flag','Basis']];
+                schedule.assignments.forEach(a => {
+                    rows.push([a.deviceId, a.deviceType, a.room, a.floor, a.idfAssigned, a.cableTypeLabel, a.runFt, a.qty, a.totalFtWithWaste, a.costPerFt, a.totalCost, a.tiaViolation ? 'YES' : '', a.basis]);
+                });
+                const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+                this._download(csv, `SmartPlans_Cable_Schedule_${this._safeName(state)}.csv`, 'text/csv');
+                return;
+            }
+
+            const wb = XLSX.utils.book_new();
+            const t = schedule.totals;
+            const cfg = schedule.config;
+
+            // ── Sheet 1: Summary ──
+            const summaryData = [
+                ['CABLE SCHEDULE SUMMARY'],
+                ['Project', state.projectName || 'Unknown'],
+                ['Generated', new Date().toLocaleString()],
+                ['Mode', schedule.mode],
+                [],
+                ['TOTALS'],
+                ['Total Devices', t.totalDevices],
+                ['Total Cable (ft)', t.totalFt],
+                ['Total Cable Cost', t.totalCost],
+                ['Average Run (ft)', t.avgRunFt],
+                ['Max Run (ft)', t.maxRunFt],
+                ['Min Run (ft)', t.minRunFt],
+                ['TIA Violations', t.tiaViolationCount],
+                ['IDF/MDF Count', schedule.idfCount],
+                [],
+                ['ASSUMPTIONS'],
+                ['Slack / Termination (ft)', cfg.slackFt],
+                ['Waste Factor (%)', cfg.wastePct],
+                ['Ceiling Height (ft)', cfg.ceilingHeightFt],
+                ['Floor-to-Floor (ft)', cfg.floorToFloorFt],
+                ['Stub-Up Height (ft)', cfg.stubUpFt],
+                ['TIA Max (ft)', cfg.tiaMaxFt],
+                [],
+                ['CABLE TOTALS BY TYPE'],
+            ];
+            Object.entries(schedule.byCableType).forEach(([type, data]) => {
+                summaryData.push([CableAnalyzer._cableLabel(type), `${data.totalFt} ft`, `${data.deviceCount} devices`, `$${data.totalCost.toFixed(2)}`]);
+            });
+            summaryData.push([], ['3D CONFIDENTIAL']);
+            const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
+            ws1['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 16 }];
+            XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
+
+            // ── Sheet 2: Full Cable Schedule ──
+            const schedData = [['Device ID', 'Type', 'Subtype', 'Room', 'Floor', 'Sheet', 'IDF Assigned', 'Cable Type', 'Run (ft)', 'Horizontal (ft)', 'Vertical (ft)', 'Slack (ft)', 'Qty', 'Total w/ Waste (ft)', 'Cost/ft', 'Total Cost', 'TIA Violation', 'Basis']];
+            schedule.assignments.forEach(a => {
+                schedData.push([a.deviceId, a.deviceType, a.deviceSubtype, a.room, a.floor, a.sheetId, a.idfAssigned, a.cableTypeLabel, a.runFt, a.horizontal, a.vertical, a.slack, a.qty, a.totalFtWithWaste, a.costPerFt, a.totalCost, a.tiaViolation ? 'YES' : '', a.basis]);
+            });
+            const ws2 = XLSX.utils.aoa_to_sheet(schedData);
+            ws2['!cols'] = [{ wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 6 }, { wch: 10 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 6 }, { wch: 14 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 20 }];
+            XLSX.utils.book_append_sheet(wb, ws2, 'Cable Schedule');
+
+            // ── Sheet 3: By IDF Summary ──
+            const idfData = [['IDF / MDF', 'Device Count', 'Total Cable (ft)', 'Total Cost']];
+            Object.entries(schedule.byIdf).forEach(([label, data]) => {
+                idfData.push([label, data.deviceCount, data.totalFt, data.totalCost]);
+            });
+            idfData.push([], ['TOTAL', t.totalDevices, t.totalFt, t.totalCost]);
+            const ws3 = XLSX.utils.aoa_to_sheet(idfData);
+            ws3['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 18 }, { wch: 14 }];
+            XLSX.utils.book_append_sheet(wb, ws3, 'By IDF');
+
+            // ── Sheet 4: TIA Violations ──
+            const tiaData = [['Device ID', 'Type', 'Room', 'Floor', 'IDF', 'Cable', 'Run (ft)', 'TIA Limit (ft)', 'Over By (ft)']];
+            schedule.tiaViolations.forEach(a => {
+                tiaData.push([a.deviceId, a.deviceType, a.room, a.floor, a.idfAssigned, a.cableTypeLabel, a.runFt, cfg.tiaMaxFt, a.runFt - cfg.tiaMaxFt]);
+            });
+            if (schedule.tiaViolations.length === 0) {
+                tiaData.push(['No TIA violations detected']);
+            }
+            const ws4 = XLSX.utils.aoa_to_sheet(tiaData);
+            ws4['!cols'] = [{ wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 6 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 14 }, { wch: 10 }];
+            XLSX.utils.book_append_sheet(wb, ws4, 'TIA Violations');
+
+            // Write and download
+            const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            this._download(blob, `SmartPlans_Cable_Schedule_${this._safeName(state)}.xlsx`);
+        } catch (err) {
+            console.error('[SmartPlans] Cable schedule export failed:', err);
+            alert('Cable schedule export failed: ' + err.message);
+        }
+    },
+
+    // ═══════════════════════════════════════════════════════════
     // JSON EXPORT
     // ═══════════════════════════════════════════════════════════
     exportJSON(state) {
