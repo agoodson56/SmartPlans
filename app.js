@@ -11916,20 +11916,20 @@ function bindChangeOrderEvents(container) {
           *{margin:0;padding:0;box-sizing:border-box}
           body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;padding:40px;max-width:800px;margin:0 auto}
           @media print{body{padding:20px}}
-          .field-label{font-size:9px;font-weight:700;color:#EA580C;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;}
+          .field-label{font-size:9px;font-weight:700;color:#0D9488;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;}
           .field-value{font-size:11px;line-height:1.6;padding:10px 14px;background:#FAFBFC;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:14px;min-height:40px;}
           .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
           .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
         </style></head><body>
         <!-- Header -->
-        <div style="border-bottom:3px solid #EA580C;padding-bottom:14px;margin-bottom:20px;">
+        <div style="border-bottom:3px solid #0D9488;padding-bottom:14px;margin-bottom:20px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div>
-              <h1 style="font-size:20px;color:#EA580C;margin-bottom:2px;">CHANGE ORDER REQUEST</h1>
-              <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:1px;">Potential Change Order — Pre-Construction Identification</div>
+              <h1 style="font-size:20px;color:#0D9488;margin-bottom:2px;">CHANGE ORDER REQUEST</h1>
+              <div style="font-size:10px;color:#0D9488;text-transform:uppercase;letter-spacing:1px;font-weight:700;">3D TECHNOLOGY SERVICES, INC. &mdash; Pre-Construction Identification</div>
             </div>
             <div style="text-align:right;">
-              <div style="font-size:22px;font-weight:800;color:#EA580C;">${esc(c.id)}</div>
+              <div style="font-size:22px;font-weight:800;color:#0D9488;">${esc(c.id)}</div>
               <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;color:white;background:${sevColors[c.severity] || '#D97706'};text-transform:uppercase;">${esc(c.severity)}</span>
             </div>
           </div>
@@ -11963,7 +11963,7 @@ function bindChangeOrderEvents(container) {
 
         <!-- Description of Change -->
         <div class="field-label">Description of Change</div>
-        <div class="field-value" style="font-size:12px;line-height:1.7;background:#FFF8F5;border-color:#FED7AA;">
+        <div class="field-value" style="font-size:12px;line-height:1.7;background:#F0FDFA;border-color:#99F6E4;">
           ${esc(c.description)}
         </div>
 
@@ -11983,7 +11983,7 @@ function bindChangeOrderEvents(container) {
         <div class="grid3" style="margin-bottom:16px;">
           <div>
             <div class="field-label">Estimated Cost Impact</div>
-            <div class="field-value" style="font-size:14px;font-weight:800;color:#EA580C;">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'To Be Determined'}</div>
+            <div class="field-value" style="font-size:14px;font-weight:800;color:#0D9488;">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'To Be Determined'}</div>
           </div>
           <div>
             <div class="field-label">Schedule Impact</div>
