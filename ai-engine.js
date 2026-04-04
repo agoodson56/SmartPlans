@@ -2082,32 +2082,34 @@ CRITICAL RULES:
 3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total — all values must be SELL PRICES (with markup applied)
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total
-6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + G&A + profit + warranty + contingency
-7. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
-8. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
-9. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
-10. Include a separate SOV line item for "Civil Work & Site Restoration" if underground/exterior work exists
-11. G&A OVERHEAD is MANDATORY: Apply 15% to (materials + labor + equipment + subcontractors) subtotal. This covers company overhead (office, trucks, insurance, admin staff). This is separate from markup.
-12. PROFIT MARGIN is MANDATORY: Apply 10% to the subtotal after G&A. This is the company's profit. Without this, you are bidding at cost.
-13. WARRANTY RESERVE: Add 1.5% of total project cost for warranty callback labor during the 1-year warranty period.
+6. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
+7. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
+8. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
+9. Include a separate SOV line item for "Civil Work & Site Restoration" if underground/exterior work exists
 
-═══ COST BUILD-UP ORDER (follow this EXACTLY) ═══
-1. Direct Costs: total_materials + total_labor + total_equipment + total_subcontractors
-2. Add: total_travel + total_transit_costs + total_insurance
-3. = PROJECT DIRECT COST SUBTOTAL
-4. Add: G&A Overhead (15% of direct costs) → this covers company operating expenses
-5. = TOTAL COST WITH OVERHEAD
-6. Add: Profit (10% of cost with overhead) → this is the company's earnings
-7. Add: Warranty Reserve (1.5% of total)
-8. Add: Contingency (10% of total) → for unknowns and scope changes
-9. = GRAND TOTAL (this is the BID PRICE)
+═══ IMPORTANT: DO NOT COMPUTE GRAND TOTAL ═══
+The system computes the final bid price deterministically using this formula:
+  Materials × (1 + material_markup%) + Labor × (1 + labor_markup%) +
+  Equipment × (1 + equipment_markup%) + Subs × (1 + sub_markup%) +
+  Burden (35% of labor base) + Travel (user-configured) + Contingency (10%)
+
+Your job is to provide ACCURATE RAW COST COMPONENTS only:
+- total_materials: from Material Pricer (BASE cost, before markup)
+- total_labor: from Labor Calculator (BASE cost, before markup)
+- total_equipment: rental equipment from Special Conditions
+- total_subcontractors: all subcontractor costs from Special Conditions
+- total_travel: set to 0 (user configures this separately)
+- total_transit_costs: railroad-specific costs (RWIC, RPL, safety training)
+- total_insurance: project insurance costs
+
+Set grand_total to 0 — the system calculates the final bid price. Do NOT apply G&A, profit, warranty, or contingency — those are handled by the deterministic markup engine.
 
 GENERATE:
 1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
-2. Travel & Per Diem calculation — MANDATORY if project is 60+ miles from Rancho Cordova, CA
+2. Travel & Per Diem identification — flag if project is 60+ miles from Rancho Cordova, CA (user configures amounts)
 3. Transit/Railroad costs — MANDATORY if project involves Amtrak, BNSF, transit authority, railroad, airport, or DOT
 4. Prevailing wage determination (if applicable)
-5. Complete project cost summary with G&A, profit, warranty, and contingency
+5. Raw cost component summary (materials, labor, equipment, subcontractors, transit, insurance)
 
 ═══ TRAVEL & PER DIEM CALCULATION RULES ═══
 If the project location is 60+ miles from Rancho Cordova, CA (Sacramento area):
@@ -2214,15 +2216,6 @@ Return ONLY valid JSON:
     "total_transit_costs": 0,
     "total_insurance": 0,
     "direct_cost_subtotal": 0,
-    "ga_overhead_pct": 15,
-    "ga_overhead": 0,
-    "cost_with_overhead": 0,
-    "profit_pct": 10,
-    "profit": 0,
-    "warranty_reserve_pct": 1.5,
-    "warranty_reserve": 0,
-    "contingency_pct": 10,
-    "contingency": 0,
     "grand_total": 0
   },
   "payment_terms": "Net 30, 10% retainage until substantial completion",
