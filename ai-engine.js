@@ -1077,7 +1077,7 @@ const SmartBrains = {
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
-    SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits'],
+    SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits', 'true_change_orders'],
     SHADOW_SCANNER: ['sheets', 'totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
     QUADRANT_SCANNER: ['quadrants', 'totals'],
@@ -1088,11 +1088,11 @@ const SmartBrains = {
     FINANCIAL_ENGINE: ['sov', 'project_summary'],
     REVERSE_VERIFIER: ['verified_items', 'discrepancies'],
     CROSS_VALIDATOR: ['status', 'issues', 'confidence_score'],
-    DEVILS_ADVOCATE: ['challenges', 'risk_score', 'missed_items'],
+    DEVILS_ADVOCATE: ['challenges', 'risk_score', 'missed_items', 'true_change_orders'],
     DETAIL_VERIFIER: ['area_audits', 'corrections', 'verified_counts'],
     CROSS_SHEET_ANALYZER: ['sheet_comparisons', 'inconsistencies', 'adjusted_counts'],
     FINAL_RECONCILIATION: ['final_counts', 'adjustment_log', 'confidence_score'],
-    SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies'],
+    SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies', 'true_change_orders'],
     ANNOTATION_READER: ['annotations', 'referenced_details'],
     RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
     ZOOM_SCANNER: ['quadrant_counts', 'zoom_findings'],
@@ -1661,8 +1661,22 @@ Return ONLY valid JSON:
   },
   "risks": [
     { "risk": "Pre-1980 building — potential asbestos", "mitigation": "Environmental survey before penetrations", "severity": "high" }
+  ],
+  "true_change_orders": [
+    { "description": "Owner may require additional conduit pathway not shown on plans for future AV rough-in", "estimated_impact": "$3,000-$6,000", "severity": "medium", "justification": "Specs mention 'future AV provisions' but no conduit pathways are shown on drawings — this scope is not in the contract documents and will likely be added during construction" },
+    { "description": "Unforeseen underground utility conflict at north parking lot crossing", "estimated_impact": "$5,000-$12,000", "severity": "high", "justification": "Site plans show an approximate utility crossing but no potholing or survey was performed — actual conditions cannot be known until excavation begins, making this a legitimate change order risk" }
   ]
-}`,
+}
+
+CRITICAL — true_change_orders RULES:
+These are ONLY items that are NOT in the plans, NOT in the specs, and NOT in the contract scope. They are risks that may arise DURING construction due to:
+- Ambiguous or incomplete contract documents
+- Conditions that cannot be known until construction begins (underground conflicts, concealed conditions)
+- Owner-requested additions not in the original scope
+- Code requirements discovered during construction that were not addressed in design
+- Design gaps where the plans show something but lack sufficient detail to bid accurately
+Do NOT put items here that ARE on the plans or in the specs — those belong in the bid estimate.
+Each item MUST have: description, estimated_impact (dollar range), severity (critical/high/medium/low), and justification (why this is a change order, not part of the base bid).`,
 
       // ── BRAIN 6: Material Pricer ─────────────────────────────
       MATERIAL_PRICER: () => {
@@ -2917,8 +2931,22 @@ Return ONLY valid JSON:
   "risk_level": "low|medium|high|critical",
   "missed_items": [],
   "pricing_flags": [],
-  "overall_assessment": "string"
-}`,
+  "overall_assessment": "string",
+  "true_change_orders": [
+    { "description": "No grounding bus bar specified for MDF rack — NEC 250.94 requires intersystem bonding termination", "estimated_impact": "$800-$1,500", "severity": "medium", "justification": "Code requirement not addressed in the contract documents — this will be discovered during inspection and result in a change order to add compliant grounding" },
+    { "description": "Fire-rated backboard and barrier required above drop ceiling at fire wall penetrations — not shown on plans", "estimated_impact": "$2,000-$5,000", "severity": "high", "justification": "Fire code requires rated barriers at all penetrations through fire-rated assemblies — drawings show cable pathways crossing fire walls but no firestopping details are provided, making this a guaranteed change order" }
+  ]
+}
+
+CRITICAL — true_change_orders RULES:
+These are REAL change orders — items NOT in the plans or specs that WILL cost the contractor money. As a hostile auditor, identify scope gaps that will become change orders during construction:
+- Code requirements the designer missed or didn't detail
+- Industry-standard items that are ALWAYS needed but not shown (grounding, firestopping, seismic bracing)
+- Scope that is ambiguous enough that the owner will request it but the contractor didn't price it
+- Conditions that cannot be verified until construction begins
+- Items where the plans are silent but field conditions will demand action
+Do NOT include items that are already on the plans or in the specs — those are bid corrections, not change orders.
+Each item MUST have: description, estimated_impact (dollar range), severity (critical/high/medium/low), and justification (why this is a change order and not part of the base bid).`,
 
       // ── BRAIN 18: Detail Verifier (Wave 3.5 — 4th Read) ──────
       DETAIL_VERIFIER: () => {
@@ -3130,8 +3158,21 @@ Return ONLY valid JSON:
     { "item": "IP Camera", "spec_model": "Axis P3245-V", "drawing_symbol": "C1", "match": true }
   ],
   "spec_sections_reviewed": ["27 10 00", "28 13 00", "28 23 00"],
-  "overall_spec_drawing_alignment": 85
-}`,
+  "overall_spec_drawing_alignment": 85,
+  "true_change_orders": [
+    { "description": "Spec section 28 23 00 calls for tamper switches on all camera housings but no tamper switches are shown on drawings or included in any schedule", "estimated_impact": "$1,500-$3,000", "severity": "medium", "justification": "The specification requires this item but it is not detailed in the contract drawings — this gap between specs and drawings will likely result in a change order when the installer discovers the requirement during construction" },
+    { "description": "Specs require Cat6A shielded cable but drawings show standard Cat6 — if owner enforces spec, material cost increase is significant", "estimated_impact": "$8,000-$15,000", "severity": "high", "justification": "Direct conflict between specifications and drawings creates ambiguity in the contract documents — the contractor cannot be held to both requirements, and resolution will require a change order" }
+  ]
+}
+
+CRITICAL — true_change_orders RULES:
+These are ONLY scope items where the SPECS and DRAWINGS CONFLICT or where scope is IMPLIED but not explicitly documented. They represent real change order risks due to:
+- Spec requirements with no corresponding drawing detail (spec says it, drawings don't show it)
+- Drawing items that contradict the written specifications
+- Spec sections that reference standards or codes requiring additional work not shown on plans
+- Equipment specified but with no installation detail, location, or pathway shown
+- Ambiguities between spec language and drawing intent that will require clarification (and cost) during construction
+Each item MUST have: description, estimated_impact (dollar range), severity (critical/high/medium/low), and justification.`,
 
       // ── BRAIN 22: Annotation Reader (Wave 1) ────────────────────
       ANNOTATION_READER: () => `You are a CONSTRUCTION ANNOTATION & CALLOUT EXPERT. Your job is to read EVERY text annotation, note, callout bubble, detail reference, and schedule on the ELV plan drawings.
