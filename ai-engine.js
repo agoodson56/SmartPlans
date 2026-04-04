@@ -1993,42 +1993,29 @@ CRITICAL RULES:
 10. You MUST include all NON-INSTALLATION phases below — these are real labor costs
 ${context.isTransitRailroad ? `
 ══ MANDATORY AMTRAK/RAILROAD LABOR RULES ══
-This is a transit/railroad project. You MUST use these labor rates and hours from REAL Amtrak winning bids:
+This is a transit/railroad project. Use these labor rates and structure from REAL Amtrak winning bids:
 
-STEP 1 — CALCULATE MINIMUM FIELD LABOR (do this math BEFORE estimating):
-  Camera install labor: (number of cameras) × 8 hrs = _____ hrs @ $80/hr
-  Conduit labor: (number of cameras) × 8 hrs = _____ hrs @ $95/hr (electrical tech)
-  Head-end/MDF: 16 hrs per MDF × (number of MDFs) = _____ hrs @ $80/hr
-  IDF install: 16 hrs per IDF × (number of IDFs) = _____ hrs @ $80/hr
-  Testing & programming: 16 hrs per system = _____ hrs @ $80/hr
-  Training: 8 hrs = 8 hrs @ $80/hr
-  Mobilization: 8 hrs × (number of phases) = _____ hrs @ $80/hr
-  SUBTOTAL FIELD HOURS = sum of above
-
-STEP 2 — ADD OVERHEAD LABOR:
-  NPT (8%): field hours × 0.08 = _____ hrs @ $80/hr
-  Coordination/idle (12%): field hours × 0.12 = _____ hrs @ $80/hr
-  Railroad productivity loss (25%): field hours × 0.25 = _____ hrs @ $80/hr
-  PM (8%): field hours × 0.08 = _____ hrs @ $85/hr
-  Admin/Eng (4%): field hours × 0.04 = _____ hrs @ $65/hr
-  TOTAL OVERHEAD HOURS = sum of above
-
-STEP 3 — ADD NON-FIELD LABOR:
-  Engineering & submittals: 80-200 hrs @ $75/hr
-  Project management: (project weeks) × 40 hrs @ $85/hr
-
-TOTAL HOURS = field + overhead + non-field
-MINIMUM TOTAL HOURS for transit projects: 30 hours per camera (includes ALL phases)
-  Example: 69 cameras × 30 hrs/cam = 2,070 minimum hours
-  Example: 100 cameras × 30 hrs/cam = 3,000 minimum hours
-If your calculated total is BELOW this minimum, you are underestimating. Add hours until you meet it.
-
-LABOR RATES (MANDATORY — do not change these):
+LABOR RATES (MANDATORY):
   ELV Technician: $80/hr | Electrical Technician: $95/hr
   Project Manager: $85/hr | Admin/Engineer: $65/hr
 
-YOUR TOTAL LABOR COST MUST BE AT LEAST: (camera count × 30 hrs × $80/hr average) = MINIMUM LABOR FLOOR
-If your total_base_cost is below this floor, INCREASE hours in rough-in and coordination phases until you reach it.` : ''}
+LABOR HOURS PER TASK:
+  Camera install (cable pull + mount + terminate): 8 hrs/camera @ $80/hr
+  Conduit install per camera: 4 hrs @ $95/hr (NOT 8 — only exterior/long runs need 8)
+  Head-end/MDF build: 16 hrs per MDF | IDF install: 16 hrs per IDF
+  Testing & programming: 16 hrs per system | Training: 8 hrs
+  Mobilization: 8 hrs per trip
+
+OVERHEAD PERCENTAGES (apply to field hours):
+  NPT: 8% | Coordination/idle: 10% | Railroad productivity loss: 20%
+  PM: 8% of field hours @ $85/hr | Admin/Eng: 4% @ $65/hr
+
+LABOR TARGETS (from real winning bids — your total should be in this range):
+  Target: 2,200-2,500 total hours for a 60-70 camera station project
+  Target: 2,800-3,200 total hours for a 100 camera station project
+  Target labor BASE cost: $3,500-$4,000 per camera
+  If your hours are BELOW these targets, add coordination and rough-in hours.
+  If your hours are ABOVE these targets by more than 15%, reduce overhead percentages.` : ''}
 
 Calculate labor by PROJECT PHASE:
 1. Rough-In (35-40% of field labor) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
@@ -2198,13 +2185,21 @@ LABOR RATES:
 CAMERA LABOR (from Emeryville internal takeoff):
 - Full install (cable pull + mount + terminate): 8 hrs/camera
 - Simple install (mount + terminate, short run): 4 hrs/camera
-- Pole camera cable re-pull: 20 hrs/camera (long exterior runs)
-- Pole IDF install: 8 hrs/pole | Conduit per camera: 8 hrs @ $95/hr
+- Conduit per camera: 4 hrs @ $95/hr (only exterior/long runs need 8)
 - Head-end: 16 hrs | IDF: 16 hrs each | Testing: 16 hrs | Training: 8 hrs
+- Total labor targets: 2,200-2,500 hrs for 60-70 cameras, 2,800-3,200 for 100 cameras
+- Labor base cost target: $3,500-$4,000 per camera
 
 OVERHEAD:
 - Material Support: 2% | Shipping: 1% | Warranty: 2% | Gen Conditions: 3%
 - Div 1 should be 4-8% of total contract (mob/demob + insurance + bonds + RRPLI)
+
+COST STRUCTURE (52% of Amtrak bids is electrical/civil — NOT camera materials):
+- Electrical (Div 26): typically 40-55% of total (trenching + UPS + power circuits)
+- Communications (Div 27): typically 8-12% (racks, switches, fiber, CAT6A)
+- Security (Div 28 cameras + access): typically 20-25%
+- Gen Conditions (Div 1): typically 4-8%
+- The AI MUST NOT inflate camera material costs to fill the gap — use subcontractors for electrical/civil
 
 TRAVEL: Per Diem $38/day | Mileage $0.65/mi (minus 40mi base)
 
@@ -3665,12 +3660,14 @@ Return ONLY valid JSON:
         ctx += `  - RRPLI Insurance, Bonds, General Insurance as separate line items\n`;
         ctx += `  - Mob/Demob, Construction Survey, Utility Location\n`;
         ctx += `  If any of these are missing from your estimate, it WILL lose the bid.\n\n`;
-        ctx += `MATERIAL COST FLOOR (MANDATORY for transit/railroad):\n`;
-        ctx += `  Your total material cost (before markup) MUST be at least $5,000 per camera.\n`;
-        ctx += `  Example: 69 cameras × $5,000 = $345,000 minimum material cost.\n`;
-        ctx += `  This includes: camera hardware + mount + license + cable + jacks + conduit + pathway.\n`;
-        ctx += `  If your material total is below this floor, you are missing line items. Add them.\n`;
-        ctx += `  From real bids: Emeryville 61 cam = $425K materials | Martinez 69 cam = $380-425K materials\n\n`;
+        ctx += `MATERIAL COST TARGETS (from real winning bids — use these to calibrate):\n`;
+        ctx += `  ELV materials (cameras + cabling + racks + infrastructure): $3,800-$4,500 per camera\n`;
+        ctx += `  Example: 69 cameras × $4,000 = $276,000 for ELV materials\n`;
+        ctx += `  IMPORTANT: Electrical/civil items (UPS, trenching, power circuits) should be in SUBCONTRACTOR\n`;
+        ctx += `  costs, NOT in materials. Only include items 3D installs directly as materials.\n`;
+        ctx += `  Real bid targets: Emeryville 61 cam = $425K total mat | Sacramento 100 cam = $400K total mat\n`;
+        ctx += `  If your material total is below $3,500/camera, you may be missing items.\n`;
+        ctx += `  If your material total is above $6,000/camera, you may be double-counting or inflating.\n\n`;
       }
     }
 
