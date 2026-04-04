@@ -3675,6 +3675,35 @@ Return ONLY valid JSON:
         ctx += `  If your material total is below $3,500/camera, you may be missing items.\n`;
         ctx += `  If your material total is above $6,000/camera, you may be double-counting or inflating.\n\n`;
       }
+
+      // ── Inject commercial benchmarks for NON-transit projects ──
+      if (projectTypeKey !== 'transit_railroad' && PRICING_DB.commercialBenchmarks) {
+        const cb = PRICING_DB.commercialBenchmarks;
+        const isPW = context.prevailingWage && context.prevailingWage !== 'No' && context.prevailingWage !== 'no';
+        const rates = isPW ? cb.laborRates.prevailing_wage : cb.laborRates.non_prevailing_wage;
+        const margins = isPW ? cb.markup.prevailing_wage : cb.markup.non_prevailing_wage;
+
+        ctx += `\n=== COMMERCIAL BID BENCHMARKS (from 15 real 3D Technology winning bids) ===\n`;
+        ctx += `Prevailing Wage: ${isPW ? 'YES' : 'NO'}\n\n`;
+        ctx += `MARKUP TARGETS:\n`;
+        ctx += `  Material markup: ${margins.material_markup_pct.low}-${margins.material_markup_pct.high}% (target: ${margins.material_markup_pct.mid}%)\n`;
+        ctx += `  Labor markup: ${margins.labor_markup_pct.low}-${margins.labor_markup_pct.high}% (target: ${margins.labor_markup_pct.mid}%)\n`;
+        ctx += `  Overall multiplier: ${margins.overall_multiplier.low}x-${margins.overall_multiplier.high}x (target: ${margins.overall_multiplier.mid}x)\n`;
+        ctx += `  Target gross margin: ${margins.target_gross_margin_pct.low}-${margins.target_gross_margin_pct.high}%\n\n`;
+        ctx += `LABOR RATES (${isPW ? 'Prevailing Wage' : 'Non-PW'}):\n`;
+        for (const [role, rate] of Object.entries(rates)) {
+          ctx += `  ${rate.description}: cost $${rate.cost}/hr, sell $${rate.sell}/hr\n`;
+        }
+        ctx += `\nOVERHEAD:\n`;
+        ctx += `  Material Support: ${cb.overhead.material_support_pct.mid}% | Shipping: ${cb.overhead.shipping_pct.mid}%\n`;
+        ctx += `  NPT/Travel: ${cb.overhead.npt_travel_pct.mid}% | PM: ${cb.overhead.pm_pct.mid}% | Admin: ${cb.overhead.admin_eng_pct.mid}%\n`;
+        ctx += `  Warranty: ${cb.overhead.warranty_pct.mid}% | Gen Conditions: ${cb.overhead.gen_conditions_pct}% | Commission: ${cb.overhead.commission_pct}%\n\n`;
+        ctx += `PER-DEVICE INSTALLED PRICES (standard commercial — NOT Amtrak):\n`;
+        for (const [k, v] of Object.entries(cb.deviceUnitPrices)) {
+          ctx += `  ${v.description}: $${v.low}-$${v.high} (mid: $${v.mid})\n`;
+        }
+        ctx += `\n`;
+      }
     }
 
     const categories = {

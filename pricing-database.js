@@ -811,6 +811,92 @@ const PRICING_DB = {
     },
 
     // ═══════════════════════════════════════════════════════════
+    // COMMERCIAL BID BENCHMARKS (non-Amtrak/non-railroad)
+    // Based on 15 REAL 3D Technology commercial bids (2022-2026)
+    // CHP, Auburn Indians, Ethos Energy, POA, Sheriff, Sam Brennan,
+    // 1515 S Street, 500 Capitol Mall, Superior Equipment, etc.
+    // ═══════════════════════════════════════════════════════════
+    commercialBenchmarks: {
+        // ── Markup Structure (varies by PW status) ──
+        markup: {
+            prevailing_wage: {
+                material_markup_pct:     { low: 32, mid: 47, high: 64, description: "Material markup % for PW projects" },
+                labor_markup_pct:        { low: 33, mid: 46, high: 55, description: "Labor markup % for PW projects" },
+                overall_multiplier:      { low: 1.26, mid: 1.49, high: 1.63, description: "Overall cost-to-sell multiplier (PW)" },
+                target_gross_margin_pct: { low: 27, mid: 35, high: 41, description: "Gross margin % (PW projects)" },
+            },
+            non_prevailing_wage: {
+                material_markup_pct:     { low: 30, mid: 40, high: 43, description: "Material markup % for non-PW projects" },
+                labor_markup_pct:        { low: 50, mid: 100, high: 100, description: "Labor markup % for non-PW (typically 100% = 2x)" },
+                overall_multiplier:      { low: 2.0, mid: 2.37, high: 2.92, description: "Overall cost-to-sell multiplier (non-PW)" },
+                target_gross_margin_pct: { low: 50, mid: 55, high: 67, description: "Gross margin % (non-PW projects)" },
+            },
+            configured_margins: {
+                material:       30,  // Estimate template: material margin %
+                labor:          50,  // Estimate template: labor margin %
+                subcontractor:  15,  // Subcontractor margin %
+                special_matl:   40,  // Specialty/proprietary materials
+                other:          20,  // Miscellaneous
+                commission:      3,  // Sales commission (full bid format only)
+            },
+        },
+        // ── Labor Rates (cost / sell per hour) ──
+        laborRates: {
+            prevailing_wage: {
+                pm:              { cost: 76, sell: 112, description: "Project Manager (PW)" },
+                foreman:         { cost: 97, sell: 135, description: "Foreman (PW)" },
+                cable_installer: { cost: 83, sell: 121, description: "Cable Installer / Tech (PW)" },
+                engineer:        { cost: 62, sell: 90,  description: "Engineer/CAD (PW)" },
+            },
+            non_prevailing_wage: {
+                pm:              { cost: 60, sell: 120, description: "Project Manager (non-PW)" },
+                foreman:         { cost: 55, sell: 110, description: "Foreman (non-PW)" },
+                tech:            { cost: 45, sell: 90,  description: "Field Technician (non-PW)" },
+                engineer:        { cost: 50, sell: 100, description: "Application Engineer (non-PW)" },
+                drafter:         { cost: 59, sell: 85,  description: "CAD/Drafter (non-PW)" },
+                warehouse:       { cost: 45, sell: 65,  description: "Warehouse (non-PW)" },
+                admin:           { cost: 47, sell: 70,  description: "Administration (non-PW)" },
+            },
+        },
+        // ── Overhead Percentages ──
+        overhead: {
+            material_support_pct: { low: 1, mid: 2, high: 5, description: "Material support / consumables" },
+            shipping_pct:         { low: 1, mid: 1, high: 2, description: "Freight / shipping" },
+            npt_travel_pct:       { low: 8, mid: 10, high: 12, description: "Non-Productive Time / travel" },
+            pm_pct:               { low: 6, mid: 6, high: 10, description: "PM overhead (% of labor)" },
+            admin_eng_pct:        { low: 4, mid: 4, high: 6, description: "Admin/engineering overhead" },
+            warranty_pct:         { low: 1, mid: 2, high: 5, description: "Warranty reserve" },
+            gen_conditions_pct:   3,   // General conditions / commissioning
+            safety_training_pct:  6,   // Safety training (specialized projects only)
+            commission_pct:       3,   // Sales commission
+        },
+        // ── Per-Device Sell Prices (from bid workbooks — all-in installed) ──
+        deviceUnitPrices: {
+            camera_installed:       { low: 2300, mid: 3500, high: 5200, description: "Camera installed (standard commercial)" },
+            card_reader_installed:  { low: 2000, mid: 2600, high: 3500, description: "Card reader installed" },
+            data_drop:              { low: 250, mid: 350, high: 500, description: "Data drop (cable + jack + terminate + test)" },
+            wap_indoor:             { low: 1500, mid: 2000, high: 2500, description: "Wireless AP indoor (installed)" },
+            wap_outdoor:            { low: 2000, mid: 2300, high: 3000, description: "Wireless AP outdoor (installed)" },
+            rfid_lock:              { low: 750, mid: 825, high: 900, description: "RFID lock (installed)" },
+            intercom_station:       { low: 1500, mid: 2000, high: 2500, description: "Intercom station (installed)" },
+            speaker:                { low: 300, mid: 500, high: 800, description: "Speaker/paging (installed)" },
+        },
+        // ── Actual Commercial Bid Totals (for sanity checking) ──
+        actualBids: {
+            chp_dublin:      { type: "CCTV", cameras: 8, drops: 12, total: 48397, pw: true, multiplier: 1.455 },
+            chp_north_sac:   { type: "CCTV", cameras: 8, drops: 16, total: 36863, pw: true, multiplier: 1.453 },
+            auburn_indians:  { type: "Access+CCTV", cameras: 14, doors: 10, drops: 88, total: 141129, pw: true, multiplier: 1.512 },
+            ethos_energy:    { type: "Fence Detection", total: 290883, pw: true, multiplier: 1.629 },
+            poa_sac:         { type: "Cabling+AC", total: 17412, pw: false, multiplier: 2.003 },
+            superior:        { type: "Equipment", total: 22761, pw: false, multiplier: 2.199 },
+            sheriffs_760:    { type: "Cabling+AC", total: 24341, pw: false, multiplier: 2.919 },
+            sam_brennan:     { type: "Multi-scope", total: 835224, pw: true, multiplier: 1.263 },
+            s_street_1515:   { type: "Multi-scope", total: 433439, pw: true, multiplier: 1.489 },
+            capitol_mall:    { type: "Data Cabling", total: 35059, pw: true, multiplier: 1.603 },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
     // SUBCONTRACTOR COST BENCHMARKS
     // Minimum expected costs by trade for project validation
     // ═══════════════════════════════════════════════════════════

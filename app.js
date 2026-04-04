@@ -10132,23 +10132,82 @@ function verifyBid(st) {
     else check('Div 1 (Gen Conditions)', 'fail', 'No general conditions items detected');
 
   } else {
-    // ═══ STANDARD CHECKLIST (5 checks) ═══
-    if (consensusCams > 0 || bomCams > 0) check('Camera Count', 'pass', `Consensus: ${consensusCams} | BOM: ${bomCams}`);
-    else check('Camera Count', 'warn', 'No cameras detected');
+    // ═══ STANDARD COMMERCIAL CHECKLIST (10 checks) ═══
+    const isPW = st.prevailingWage && st.prevailingWage !== 'No' && st.prevailingWage !== 'no';
 
-    if (hrsPerCam >= 15 && hrsPerCam <= 25) check('Labor Hours/Camera', 'pass', `${hrsPerCam.toFixed(1)} hrs/camera`);
-    else if (hrsPerCam > 0) check('Labor Hours/Camera', 'warn', `${hrsPerCam.toFixed(1)} hrs/camera (typical: 15-25)`);
-    else check('Labor Hours/Camera', 'fail', 'No labor data');
+    // 1. Camera count
+    if (consensusCams > 0 || bomCams > 0) {
+      const camDiff = consensusCams > 0 && bomCams > 0 ? Math.abs(consensusCams - bomCams) / Math.max(consensusCams, bomCams) : 0;
+      if (camDiff <= 0.15) check('Camera Count', 'pass', `Consensus: ${consensusCams} | BOM: ${bomCams}`);
+      else check('Camera Count', 'warn', `Consensus: ${consensusCams} vs BOM: ${bomCams} (${Math.round(camDiff*100)}% diff)`);
+    } else {
+      check('Camera Count', 'warn', 'No cameras detected (may be cabling-only project)');
+    }
 
+    // 2. Labor hours
+    if (camCount > 1 && hrsPerCam >= 12 && hrsPerCam <= 30) check('Labor Hours/Camera', 'pass', `${hrsPerCam.toFixed(1)} hrs/camera (${laborHrs.toLocaleString()} total)`);
+    else if (hrsPerCam > 0) check('Labor Hours/Camera', 'warn', `${hrsPerCam.toFixed(1)} hrs/camera (typical: 12-30 for commercial)`);
+    else if (laborHrs > 0) check('Labor Hours', 'pass', `${laborHrs.toLocaleString()} total hours`);
+    else check('Labor Hours', 'fail', 'No labor data');
+
+    // 3. Material cost
     if (bd && bd.materials > 0) check('Material Cost', 'pass', `$${bd.materials.toLocaleString()} total materials`);
     else check('Material Cost', 'fail', 'No material costs');
 
+    // 4. Labor cost present
+    if (bd && bd.laborBase > 0) check('Labor Cost', 'pass', `$${bd.laborBase.toLocaleString()} base labor`);
+    else check('Labor Cost', 'fail', 'No labor costs — check Labor Calculator output');
+
+    // 5. Overall multiplier check
+    if (bd && bd.materials > 0 && grandTotal > 0) {
+      const rawCost = bd.materials + bd.laborBase + (bd.equipment || 0) + (bd.subs || 0);
+      const mult = rawCost > 0 ? grandTotal / rawCost : 0;
+      const targetLow = isPW ? 1.26 : 2.0;
+      const targetHigh = isPW ? 1.63 : 2.92;
+      if (mult >= targetLow && mult <= targetHigh) check('Markup Multiplier', 'pass', `${mult.toFixed(2)}x (target: ${targetLow}-${targetHigh}x for ${isPW ? 'PW' : 'non-PW'})`);
+      else check('Markup Multiplier', 'warn', `${mult.toFixed(2)}x (target: ${targetLow}-${targetHigh}x for ${isPW ? 'PW' : 'non-PW'})`);
+    }
+
+    // 6. Travel
     const travelTotal = travelCosts?.grandTotal || 0;
     if (travelTotal > 0 || !st.travel?.enabled) check('Travel', 'pass', travelTotal > 0 ? `$${travelTotal.toLocaleString()}` : 'Local project (travel disabled)');
     else check('Travel', 'warn', 'Travel enabled but $0 — check Stage 6/7');
 
+    // 7. Grand total
     if (grandTotal > 1000) check('Grand Total', 'pass', `$${grandTotal.toLocaleString()}`);
     else check('Grand Total', 'fail', `$${grandTotal.toLocaleString()} — too low`);
+
+    // 8. Prevailing wage consistency
+    if (isPW) {
+      check('Prevailing Wage', 'pass', `PW enabled: ${st.prevailingWage}`);
+    } else {
+      check('Prevailing Wage', 'pass', 'Non-PW project');
+    }
+
+    // 9. Camera accessories (if cameras exist)
+    if (camCount > 1) {
+      const hasMounts = bomHas(/mount|bracket|pendant|hardware/i);
+      const hasLicenses = bomHas(/license|vms|genetec|milestone/i);
+      if (hasMounts && hasLicenses) check('Camera Accessories', 'pass', 'Mounts and licenses found');
+      else if (hasMounts || hasLicenses) check('Camera Accessories', 'warn', `${hasMounts ? 'Mounts' : 'Licenses'} found, ${!hasMounts ? 'mounts' : 'licenses'} not detected`);
+      else check('Camera Accessories', 'warn', 'No camera mounts or VMS licenses detected');
+    }
+
+    // 10. Benchmark comparison
+    const commBenchmarks = (typeof PRICING_DB !== 'undefined') ? PRICING_DB.commercialBenchmarks?.actualBids : null;
+    if (commBenchmarks && grandTotal > 0 && camCount > 1) {
+      let closest = null;
+      let closestDiff = Infinity;
+      Object.entries(commBenchmarks).forEach(([key, bid]) => {
+        const diff = Math.abs((bid.cameras || bid.drops || 0) - camCount);
+        if (diff < closestDiff && bid.total > 0) { closestDiff = diff; closest = { key, ...bid }; }
+      });
+      if (closest) {
+        const pctDiff = Math.abs(grandTotal - closest.total) / closest.total;
+        if (pctDiff <= 0.30) check('Benchmark', 'pass', `$${grandTotal.toLocaleString()} vs ${closest.key} ($${closest.total.toLocaleString()}) — ${Math.round(pctDiff*100)}% diff`);
+        else check('Benchmark', 'warn', `$${grandTotal.toLocaleString()} vs ${closest.key} ($${closest.total.toLocaleString()}) — ${Math.round(pctDiff*100)}% diff`);
+      }
+    }
   }
 
   // Render modal
