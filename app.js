@@ -11423,21 +11423,38 @@ function buildChangeOrderCard(st) {
   included.forEach(c => { bySev[c.severity] = (bySev[c.severity] || 0) + 1; });
 
   let rows = '';
-  cos.forEach(c => {
+  cos.forEach((c, idx) => {
     const excluded = st._excludedCOs.has(c.id);
+    // Build justification text for this CO
+    let coJustification = c.recommendation || '';
+    if (!coJustification) {
+      if (c.source === "Devil's Advocate") coJustification = 'Identified during adversarial estimate review. This item represents a code requirement, industry-standard practice, or field condition not addressed in the contract documents.';
+      else if (c.source === 'Spec Cross-Ref') coJustification = 'Discovered during specification-to-drawing cross-reference. The written specifications and the plan drawings conflict or have gaps that will require resolution during construction.';
+      else if (c.source === 'Special Conditions') coJustification = 'Identified from site conditions, permit requirements, or construction logistics not fully addressed in the contract documents. These conditions cannot be known with certainty until construction begins.';
+      else coJustification = 'This potential change was identified during the AI-assisted plan review. It represents scope not included in the contract documents that will likely be required during construction.';
+    }
+
     rows += `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);${excluded ? 'opacity:0.4;' : ''}">
       <td style="padding:8px 10px;text-align:center;">
         <input type="checkbox" class="co-include-cb" data-co-id="${esc(c.id)}" ${excluded ? '' : 'checked'} style="width:14px;height:14px;accent-color:#0D9488;">
       </td>
       <td style="padding:8px 10px;font-size:11px;font-weight:600;color:var(--text-muted);white-space:nowrap;">${esc(c.id)}</td>
-      <td style="padding:8px 10px;font-size:12px;color:var(--text-primary);max-width:300px;">
-        ${esc(c.description)}
-        ${c.recommendation ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic;">${esc(c.recommendation)}</div>` : ''}
+      <td style="padding:8px 10px;font-size:12px;color:var(--text-primary);max-width:400px;">
+        <div style="font-weight:600;margin-bottom:4px;">${esc(c.description)}</div>
+        <div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-bottom:4px;">
+          <strong>Why this is a change order:</strong> ${esc(coJustification)}
+        </div>
+        ${c.recommendation && c.recommendation !== coJustification ? `<div style="font-size:10px;color:#D97706;margin-top:2px;"><strong>Resolution:</strong> ${esc(c.recommendation)}</div>` : ''}
       </td>
       <td style="padding:8px 10px;text-align:center;">${sevBadge(c.severity)}</td>
       <td style="padding:8px 10px;font-size:12px;font-weight:600;text-align:right;color:var(--text-primary);">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : '<span style="color:var(--text-muted);font-weight:400;">TBD</span>'}</td>
-      <td style="padding:8px 10px;font-size:10px;color:var(--text-muted);white-space:nowrap;">${esc(c.source)}</td>
+      <td style="padding:8px 10px;font-size:10px;color:var(--text-muted);white-space:nowrap;">
+        ${esc(c.source)}<br>
+        <button class="co-generate-form-btn" data-co-idx="${idx}" style="margin-top:4px;padding:3px 8px;border:1px solid rgba(234,88,12,0.3);background:rgba(234,88,12,0.06);color:#EA580C;cursor:pointer;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;">Generate CO Form</button>
+      </td>
     </tr>`;
+    // Store justification for form generation
+    c._justification = coJustification;
   });
 
   return `
@@ -11452,8 +11469,22 @@ function buildChangeOrderCard(st) {
         <span id="co-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">${st._changeOrdersOpen ? '▼' : '▶'}</span>
       </div>
       <div id="co-collapsible" style="display:${st._changeOrdersOpen ? 'block' : 'none'};margin-top:12px;">
+        <!-- What Is a Change Order — Educational Callout -->
+        <div style="background:rgba(234,88,12,0.04);border:1px solid rgba(234,88,12,0.15);border-radius:8px;padding:14px 16px;margin-bottom:16px;">
+          <div style="font-size:12px;font-weight:700;color:#EA580C;margin-bottom:6px;">WHAT IS A POTENTIAL CHANGE ORDER?</div>
+          <p style="color:rgba(0,0,0,0.6);font-size:12px;line-height:1.7;margin:0 0 8px 0;">
+            A <strong>Potential Change Order (PCO)</strong> is an item that is <strong>NOT in the contract documents</strong> (plans or specs) but will likely be required during construction. These are <em>not</em> mistakes in your bid &mdash; they are legitimate scope gaps, ambiguities, or unforeseen conditions that the design team did not address. When these items surface during construction, the contractor has the right to submit a formal Change Order Request to the owner for additional compensation.
+          </p>
+          <p style="color:rgba(0,0,0,0.6);font-size:12px;line-height:1.7;margin:0 0 8px 0;">
+            <strong>Why this matters:</strong> Identifying PCOs <em>before</em> you bid protects your company in two ways: (1) you can include a contingency reserve in your bid to cover these risks, and (2) when the issue arises during construction, you have documentation showing it was identified during bid review &mdash; strengthening your CO request.
+          </p>
+          <div style="font-size:11px;color:rgba(0,0,0,0.45);line-height:1.6;">
+            <strong>Common sources of change orders:</strong> Ambiguous or conflicting contract documents &bull; Code requirements not addressed in design &bull; Unforeseen site conditions (underground conflicts, concealed structure) &bull; Owner-requested additions after contract execution &bull; Design gaps where plans lack sufficient detail &bull; Spec requirements with no corresponding drawing detail
+          </div>
+        </div>
+
         <p style="color:rgba(0,0,0,0.5);font-size:12px;margin-bottom:16px;">
-          Items NOT in the plans or specifications that may arise during construction. These are legitimate change order risks — ambiguous scope, owner-requested additions, code requirements not addressed in contract documents, or conditions that can't be known until construction begins. Items that ARE on the plans or specs are already included in your bid.
+          <strong>Use the checkboxes</strong> to include/exclude items from your bid contingency. Use the <strong>"Generate CO Form"</strong> button on any item to produce a formal Change Order Request ready to copy/paste into your CO submission form.
         </p>
 
         <!-- Severity Summary -->
@@ -11605,6 +11636,138 @@ function bindChangeOrderEvents(container) {
       if (win) { win.document.write(html); win.document.close(); }
     });
   }
+
+  // ── Generate CO Form Button (per-item) ──
+  document.querySelectorAll('.co-generate-form-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.coIdx);
+      const cos = extractPotentialChangeOrders(state);
+      const c = cos[idx];
+      if (!c) return;
+
+      const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+      const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      const sevColors = { critical: '#DC2626', high: '#EA580C', medium: '#D97706', low: '#65A30D' };
+
+      // Build justification
+      let justification = c._justification || c.recommendation || '';
+      if (!justification) {
+        if (c.source === "Devil's Advocate") justification = 'Identified during adversarial estimate review. This item represents a code requirement, industry-standard practice, or field condition not addressed in the contract documents. The original bid was prepared based on the information available in the plans and specifications. This change order addresses scope that was not included in the contract documents but is required for a complete and code-compliant installation.';
+        else if (c.source === 'Spec Cross-Ref') justification = 'Discovered during specification-to-drawing cross-reference analysis. A conflict or gap exists between the written specifications and the plan drawings. The contractor bid based on the drawings as the primary document. This change order addresses the discrepancy and the additional scope required to comply with both the specifications and the drawings.';
+        else if (c.source === 'Special Conditions') justification = 'Identified from site conditions, permit requirements, or construction logistics not fully addressed in the contract documents. These conditions were identified during the pre-construction plan review and represent scope that was not reasonably foreseeable from the contract documents alone. This change order addresses the additional work required to complete the installation under actual field conditions.';
+        else justification = 'This potential change was identified during the AI-assisted plan review process conducted prior to bid submission. The original bid does not account for this item because it is not clearly shown on the plans or specified in the project specifications. This change order addresses the gap between what was included in the contract documents and what is required for a complete and functional installation.';
+      }
+
+      const coHtml = `<!DOCTYPE html><html><head><title>Change Order Request — ${c.id}</title>
+        <style>
+          *{margin:0;padding:0;box-sizing:border-box}
+          body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;padding:40px;max-width:800px;margin:0 auto}
+          @media print{body{padding:20px}}
+          .field-label{font-size:9px;font-weight:700;color:#EA580C;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;}
+          .field-value{font-size:11px;line-height:1.6;padding:10px 14px;background:#FAFBFC;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:14px;min-height:40px;}
+          .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+          .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+        </style></head><body>
+        <!-- Header -->
+        <div style="border-bottom:3px solid #EA580C;padding-bottom:14px;margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+              <h1 style="font-size:20px;color:#EA580C;margin-bottom:2px;">CHANGE ORDER REQUEST</h1>
+              <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:1px;">Potential Change Order — Pre-Construction Identification</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:22px;font-weight:800;color:#EA580C;">${esc(c.id)}</div>
+              <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;color:white;background:${sevColors[c.severity] || '#D97706'};text-transform:uppercase;">${esc(c.severity)}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Project Info -->
+        <div class="grid2" style="margin-bottom:16px;">
+          <div>
+            <div class="field-label">Project Name</div>
+            <div class="field-value">${esc(state.projectName || '___________________________')}</div>
+          </div>
+          <div>
+            <div class="field-label">Contract / Bid Number</div>
+            <div class="field-value">${esc(state.bidNumber || '___________________________')}</div>
+          </div>
+        </div>
+        <div class="grid3" style="margin-bottom:16px;">
+          <div>
+            <div class="field-label">Contractor</div>
+            <div class="field-value">3D Technology Services, Inc.</div>
+          </div>
+          <div>
+            <div class="field-label">Date Submitted</div>
+            <div class="field-value">${date}</div>
+          </div>
+          <div>
+            <div class="field-label">Identified By</div>
+            <div class="field-value">SmartPlans AI Analysis (${esc(c.source)})</div>
+          </div>
+        </div>
+
+        <!-- Description of Change -->
+        <div class="field-label">Description of Change</div>
+        <div class="field-value" style="font-size:12px;line-height:1.7;background:#FFF8F5;border-color:#FED7AA;">
+          ${esc(c.description)}
+        </div>
+
+        <!-- Justification / Reason for Change -->
+        <div class="field-label">Justification / Reason for Change</div>
+        <div class="field-value" style="font-size:11px;line-height:1.7;">
+          ${esc(justification)}
+        </div>
+
+        <!-- Recommended Resolution -->
+        <div class="field-label">Recommended Resolution</div>
+        <div class="field-value">
+          ${c.recommendation ? esc(c.recommendation) : 'To be determined pending field verification and engineer review. Contractor recommends addressing this item prior to contract execution to avoid construction delays.'}
+        </div>
+
+        <!-- Cost & Schedule Impact -->
+        <div class="grid3" style="margin-bottom:16px;">
+          <div>
+            <div class="field-label">Estimated Cost Impact</div>
+            <div class="field-value" style="font-size:14px;font-weight:800;color:#EA580C;">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'To Be Determined'}</div>
+          </div>
+          <div>
+            <div class="field-label">Schedule Impact</div>
+            <div class="field-value">To Be Determined</div>
+          </div>
+          <div>
+            <div class="field-label">Status</div>
+            <div class="field-value" style="color:#D97706;font-weight:600;">Pending Review</div>
+          </div>
+        </div>
+
+        <!-- Signature Lines -->
+        <div style="margin-top:30px;border-top:1px solid #e5e7eb;padding-top:20px;">
+          <div class="grid2">
+            <div>
+              <div class="field-label">Submitted By (Contractor)</div>
+              <div style="border-bottom:1px solid #999;height:30px;margin-top:8px;"></div>
+              <div style="font-size:9px;color:#999;margin-top:4px;">Signature / Date</div>
+            </div>
+            <div>
+              <div class="field-label">Approved / Rejected By (Owner/Architect)</div>
+              <div style="border-bottom:1px solid #999;height:30px;margin-top:8px;"></div>
+              <div style="font-size:9px;color:#999;margin-top:4px;">Signature / Date</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:24px;font-size:9px;color:#999;text-align:center;">
+          Generated by SmartPlans AI &mdash; 3D Technology Services Inc. | 3D CONFIDENTIAL
+        </div>
+        <script>window.onload=function(){window.print();}</script>
+      </body></html>`;
+
+      const win = window.open('', '_blank');
+      if (win) { win.document.write(coHtml); win.document.close(); }
+    });
+  });
 }
 
 // BID PHASES / ALTERNATES
