@@ -1839,6 +1839,19 @@ CRITICAL RULES:
 11. Do NOT price OFCI (Owner Furnished) items as materials — include labor only for installation
 12. NEVER exceed the pricing guardrail maximums listed above — clamp to the max if your calculation is higher
 
+═══ ANTI-DUPLICATION RULES (CRITICAL — VIOLATIONS CAUSE DOUBLE-BILLING) ═══
+EVERY ITEM MUST APPEAR IN EXACTLY ONE CATEGORY. Before adding any item, check if it already exists elsewhere:
+
+13. UPS/INVERTER: Include in MDF/IDF category ONLY — do NOT also list in Structured Cabling or Infrastructure
+14. VIDEO SERVER (NVR/VMS): Include in CCTV category ONLY — do NOT also list in MDF equipment
+15. REMOTE IDF ENCLOSURES: Include in MDF/IDF category ONLY — do NOT duplicate in Structured Cabling
+16. KVM CONSOLE: Include in MDF/IDF category ONLY — do NOT duplicate in Communications
+17. PDU: Include in MDF/IDF category ONLY — do NOT duplicate
+18. PATCH PANELS: Include in MDF/IDF category ONLY — do NOT duplicate in Structured Cabling
+19. TRAVEL/PER DIEM: Do NOT include travel costs in Subcontractor category — travel is handled separately by the system on Stage 6/7. If you put hotel/per diem/mileage in subs, it will be DOUBLE-COUNTED.
+20. FIBER CABLE: Price at $0.85-$1.23/ft for 12-strand SM OS2 — NOT $33/ft. Check your unit price.
+21. Before finalizing, SCAN your entire output for any item name that appears in more than one category. If found, REMOVE the duplicate — keep only the one in the most logical category.
+
 ═══ UPS, INVERTERS & POWER EQUIPMENT (MANDATORY) ═══
 You MUST check ALL sources (schedules, plans, specs) for power equipment and price them:
 - UPS units — price based on kVA rating and form factor (rack-mount, tower)

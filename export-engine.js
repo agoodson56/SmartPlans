@@ -1132,6 +1132,40 @@ const SmartPlansExport = {
                 return true;
             });
 
+            // ═══ DEDUPLICATION: Remove items that appear in multiple categories ═══
+            // The AI sometimes puts UPS in MDF AND Structured Cabling, or travel in Subs AND Travel
+            const seenItems = new Map(); // key -> { catIdx, itemIdx, extCost }
+            const highValueDupPatterns = /ups|inverter|video.*server|vms.*server|surveillance.*server|network.*enclosure|remote.*enclosure|idf.*enclosure|kvm|console.*kvm|pdu|managed.*pdu/i;
+            const travelDupPatterns = /hotel|per\s*diem|lodging|mileage|rental.*car|travel.*home|tolls.*parking/i;
+
+            realCategories.forEach((cat, ci) => {
+                cat.items = cat.items.filter((item, ii) => {
+                    const name = (item.item || item.name || '').toLowerCase().trim();
+                    const ext = item.extCost || 0;
+                    if (!name || ext <= 0) return true;
+
+                    // Check for travel items in non-travel categories
+                    if (travelDupPatterns.test(name) && !/travel|per\s*diem|incidental/i.test(cat.name)) {
+                        console.warn(`[SmartPlans Export] REMOVED travel item from non-travel category: "${item.item || item.name}" ($${ext.toLocaleString()}) in "${cat.name}" — travel is handled by Stage 6/7`);
+                        return false;
+                    }
+
+                    // Check for high-value duplicate items
+                    if (highValueDupPatterns.test(name) && ext >= 1000) {
+                        const key = name.replace(/[^a-z0-9]/g, '').substring(0, 30);
+                        if (seenItems.has(key)) {
+                            const prev = seenItems.get(key);
+                            console.warn(`[SmartPlans Export] REMOVED duplicate high-value item: "${item.item || item.name}" ($${ext.toLocaleString()}) in "${cat.name}" — already in category ${prev.catName}`);
+                            return false;
+                        }
+                        seenItems.set(key, { catIdx: ci, catName: cat.name, ext });
+                    }
+                    return true;
+                });
+                // Recalculate category subtotal after dedup
+                cat.subtotal = cat.items.reduce((s, i) => s + (i.extCost || 0), 0);
+            });
+
             // Also remove "Not in Scope" placeholder categories with $0 totals
             const activeCategories = realCategories.filter(cat => {
                 const hasRealItems = cat.items.some(i => (i.extCost || 0) > 0 || (i.qty || 0) > 0);
