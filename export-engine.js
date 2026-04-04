@@ -2620,10 +2620,10 @@ Return ONLY the JSON array. No other text.`;
                     const headerKeywords = ['item', 'description', 'title', 'qty', 'quantity', 'unit cost', 'unit price', 'total', 'amount', 'extended', 'ext cost', 'ext price'];
 
                     // Column mapping keyword sets
-                    const nameKeys = ['item', 'description', 'desc', 'title', 'name', 'material', 'product', 'scope'];
+                    const nameKeys = ['item/description', 'item', 'description', 'desc', 'title', 'name', 'material', 'product', 'scope', 'line item'];
                     const qtyKeys = ['qty', 'quantity', 'count', 'units'];
                     const unitCostKeys = ['unit cost', 'unit price', 'price', 'rate', '$/unit', 'cost/ea'];
-                    const extKeys = ['total', 'amount', 'extended', 'ext cost', 'ext price', 'ext', 'line total', 'extended cost', 'total cost'];
+                    const extKeys = ['ext cost', 'ext price', 'ext.cost', 'ext. cost', 'total cost', 'total price', 'extended cost', 'extended price', 'line total', 'total', 'amount', 'extended', 'ext'];
                     const categoryKeys = ['category', 'section', 'division', 'group', 'csi', 'division title'];
 
                     // Auto-detect header row
