@@ -1404,16 +1404,21 @@ ${context.isTransitRailroad ? `⚠️ TRANSIT/RAILROAD PROJECT — THE FOLLOWING
 ══ MANDATORY TRANSIT LINE ITEMS (from real Amtrak winning bids) ══
 These are NOT optional. Every transit/railroad project requires ALL of these. Omitting any one of them will result in a losing bid or cost overrun.
 
-1. STATION-SIZED UPS/INVERTER: $160,000-$188,000 per station. This is NOT a rack UPS — it is a station-sized inverter/charger system with battery bank. MANDATORY on every station project.
-2. TRENCHING/SAW CUT: $95-$281 per linear foot (includes RWIC overhead on railroad property). Measure EVERY conduit run on the plans. Typical station projects have 500-2,500+ LF of trenching. Total typically $70,000-$590,000.
-3. POWER CIRCUITS: $2,400-$34,000 PER CIRCUIT (cable + panel + conduit). Count every new power circuit shown on plans. Typical: 5-8 circuits per station = $12,000-$204,000.
-4. RRPLI (Railroad Protective Liability Insurance): $1,828-$61,479 depending on track proximity. MANDATORY on every railroad project.
-5. PERFORMANCE & PAYMENT BONDS: $21,740-$40,986 (approximately 2% of contract value). MANDATORY.
-6. GENERAL INSURANCE (excluding RRPLI): $9,750-$20,493. MANDATORY.
-7. MOBILIZATION/DEMOBILIZATION: $17,920-$22,400 lump sum. MANDATORY.
-8. RWIC FLAGMAN: $1,200/day × number of track-side work days (minimum 25 days = $30,000+). MANDATORY for any work near tracks.
-9. CONSTRUCTION SURVEY: $20,000 allowance. MANDATORY.
-10. UTILITY LOCATION: $10,000 allowance. MANDATORY.
+CRITICAL PRICING NOTE — BENCHMARK PRICES ARE SELL PRICES:
+The prices below are from Amtrak PRICING SCHEDULES — they are SELL prices that ALREADY include markup. When you put these items in your estimate as subcontractor costs, you must price them at 87% of the benchmark value (divide by 1.15) because the system will automatically add 15% subcontractor markup on top. If you use the full benchmark price as your base cost, the final bid will be 15-26% too high.
+Example: Trenching benchmark = $281/LF (sell price). Your base cost = $281 / 1.15 = $244/LF.
+Example: UPS benchmark = $186,320 (sell price). Your base cost = $186,320 / 1.15 = $162,017.
+
+1. STATION-SIZED UPS/INVERTER: BASE COST $139,000-$163,000 per station (sell $160K-$188K). This is NOT a rack UPS — it is a station-sized inverter/charger system with battery bank. MANDATORY on every station project.
+2. TRENCHING/SAW CUT: BASE COST $83-$244 per linear foot (sell $95-$281/LF). Measure EVERY conduit run on the plans. Typical station projects have 500-2,500+ LF of trenching.
+3. POWER CIRCUITS: BASE COST $2,087-$29,556 PER CIRCUIT (sell $2,400-$34,000). Count every new power circuit shown on plans. Typical: 5-8 circuits per station.
+4. RRPLI (Railroad Protective Liability Insurance): $1,828-$61,479 depending on track proximity. MANDATORY on every railroad project. (Insurance is NOT marked up — use full amount.)
+5. PERFORMANCE & PAYMENT BONDS: $21,740-$40,986 (approximately 2% of contract value). MANDATORY. (Bonds are NOT marked up — use full amount.)
+6. GENERAL INSURANCE (excluding RRPLI): $9,750-$20,493. MANDATORY. (Insurance is NOT marked up — use full amount.)
+7. MOBILIZATION/DEMOBILIZATION: $17,920-$22,400 lump sum. MANDATORY. (Pass-through — NOT marked up.)
+8. RWIC FLAGMAN: BASE COST $1,043/day (sell $1,200/day) × number of track-side work days (minimum 25 days).
+9. CONSTRUCTION SURVEY: $20,000 allowance. MANDATORY. (Pass-through.)
+10. UTILITY LOCATION: $10,000 allowance. MANDATORY. (Pass-through.)
 11. NEW POLE & FOUNDATION: $25,847 per pole (if shown on plans).
 12. HANDHOLES: $1,680 each (count all on plans).
 13. ENCLOSURE FOUNDATIONS: $3,500 each for remote network enclosures.
@@ -3649,9 +3654,10 @@ Return ONLY valid JSON:
         for (const [station, data] of Object.entries(ab.actualBids)) {
           ctx += `  ${station}: ${data.cameras} cameras = $${data.total.toLocaleString()} total ($${data.avg_per_camera}/cam avg)\n`;
         }
-        ctx += `\nMANDATORY LINE ITEM PRICES (use mid value unless project-specific data justifies low or high):\n`;
+        ctx += `\nMANDATORY LINE ITEM PRICES (these are SELL prices — divide by 1.15 for base cost when placing in subcontractor categories):\n`;
         for (const [k, v] of Object.entries(ab.lineItemBenchmarks)) {
-          ctx += `  ${v.description}: $${v.low.toLocaleString()}-$${v.high.toLocaleString()} (USE: $${v.mid.toLocaleString()})\n`;
+          const baseMid = Math.round(v.mid / 1.15);
+          ctx += `  ${v.description}: sell $${v.low.toLocaleString()}-$${v.high.toLocaleString()} | BASE COST: $${baseMid.toLocaleString()}\n`;
         }
         ctx += `\nCRITICAL: For transit/railroad projects, your BOM MUST include these items as separate line items:\n`;
         ctx += `  - Station-sized UPS/Inverter ($160K-$188K) — NOT a rack UPS\n`;
