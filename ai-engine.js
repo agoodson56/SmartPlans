@@ -1399,7 +1399,27 @@ PROJECT: ${context.projectName} | Type: ${context.projectType}
 LOCATION: ${context.projectLocation || 'Not specified'}
 PREVAILING WAGE: ${context.prevailingWage || 'Not specified'}
 WORK SHIFT: ${context.workShift || 'Standard'}
-${context.isTransitRailroad ? `⚠️ TRANSIT/RAILROAD PROJECT — MANDATORY: Include ALL transit-specific costs (RWIC flagman, RPL insurance, TWIC/TSA, safety training, railroad escort, track-rated PPE, FRA approval, ROW permits, station coordination, specialty tools). Do NOT skip these — they are REAL costs that add 20-40% to project budget.` : ''}
+${context.isTransitRailroad ? `⚠️ TRANSIT/RAILROAD PROJECT — THE FOLLOWING LINE ITEMS ARE MANDATORY. YOU MUST INCLUDE ALL OF THEM:
+
+══ MANDATORY TRANSIT LINE ITEMS (from real Amtrak winning bids) ══
+These are NOT optional. Every transit/railroad project requires ALL of these. Omitting any one of them will result in a losing bid or cost overrun.
+
+1. STATION-SIZED UPS/INVERTER: $160,000-$188,000 per station. This is NOT a rack UPS — it is a station-sized inverter/charger system with battery bank. MANDATORY on every station project.
+2. TRENCHING/SAW CUT: $95-$281 per linear foot (includes RWIC overhead on railroad property). Measure EVERY conduit run on the plans. Typical station projects have 500-2,500+ LF of trenching. Total typically $70,000-$590,000.
+3. POWER CIRCUITS: $2,400-$34,000 PER CIRCUIT (cable + panel + conduit). Count every new power circuit shown on plans. Typical: 5-8 circuits per station = $12,000-$204,000.
+4. RRPLI (Railroad Protective Liability Insurance): $1,828-$61,479 depending on track proximity. MANDATORY on every railroad project.
+5. PERFORMANCE & PAYMENT BONDS: $21,740-$40,986 (approximately 2% of contract value). MANDATORY.
+6. GENERAL INSURANCE (excluding RRPLI): $9,750-$20,493. MANDATORY.
+7. MOBILIZATION/DEMOBILIZATION: $17,920-$22,400 lump sum. MANDATORY.
+8. RWIC FLAGMAN: $1,200/day × number of track-side work days (minimum 25 days = $30,000+). MANDATORY for any work near tracks.
+9. CONSTRUCTION SURVEY: $20,000 allowance. MANDATORY.
+10. UTILITY LOCATION: $10,000 allowance. MANDATORY.
+11. NEW POLE & FOUNDATION: $25,847 per pole (if shown on plans).
+12. HANDHOLES: $1,680 each (count all on plans).
+13. ENCLOSURE FOUNDATIONS: $3,500 each for remote network enclosures.
+14. MINI-SPLIT HVAC: $16,000 per telecom room (if plans show dedicated cooling).
+
+DO NOT use a small rack-mount UPS when the plans call for station power. DO NOT estimate trenching at less than $95/LF for railroad projects. DO NOT omit bonds, insurance, or RRPLI.` : ''}
 
 YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment rental, civil work, traffic control, site preparation, and specialty item needed to COMPLETE this installation from start to finish.
 
@@ -1971,6 +1991,19 @@ CRITICAL RULES:
 8. Apply shift differential if work shift is not Standard
 9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
 10. You MUST include all NON-INSTALLATION phases below — these are real labor costs
+${context.isTransitRailroad ? `
+══ MANDATORY AMTRAK/RAILROAD LABOR RULES ══
+This is a transit/railroad project. You MUST use these labor rates and hours from REAL Amtrak winning bids:
+- ELV Technician: $80/hr | Electrical Technician: $95/hr (conduit, circuits, panels)
+- Camera full install (cable pull + mount + terminate): 8 hrs/camera
+- Camera simple install (mount + terminate only): 4 hrs/camera
+- Conduit install per camera location: 8 hrs @ $95/hr (electrical tech)
+- Head-end/MDF build: 16 hrs | IDF install: 16 hrs each
+- Testing & programming: 16 hrs per system | Training: 8 hrs
+- NPT (Non-Productive Time): 8% of productive tech hours
+- PM: 8% of productive hours @ $85/hr | Admin/Eng: 4% @ $65/hr
+- Apply 25% productivity loss for railroad restricted work windows
+These are NOT suggestions — they are MANDATORY labor rates for transit projects.` : ''}
 
 Calculate labor by PROJECT PHASE:
 1. Rough-In (35-40% of field labor) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
@@ -3579,9 +3612,9 @@ Return ONLY valid JSON:
       // ── Inject Amtrak benchmarks for transit/railroad projects ──
       if (projectTypeKey === 'transit_railroad' && PRICING_DB.amtrakBenchmarks) {
         const ab = PRICING_DB.amtrakBenchmarks;
-        ctx += `\n=== AMTRAK STATION SECURITY BENCHMARKS (from REAL winning bids) ===\n`;
+        ctx += `\n=== MANDATORY AMTRAK/RAILROAD PRICING RULES (from REAL winning bids) ===\n`;
         ctx += `These are ACTUAL bid numbers from 3D Technology's Amtrak station projects (2025).\n`;
-        ctx += `USE THESE as sanity checks — if your estimate deviates more than 20%, explain why.\n\n`;
+        ctx += `YOU MUST USE THESE PRICES — do NOT estimate freely. These are proven winning prices.\n\n`;
         ctx += `LABOR RATES: Tech=$${ab.laborRates.technician}/hr | PM=$${ab.laborRates.projectManager}/hr (${ab.laborStructure.pm_pct}% of tech hrs) | Admin=$${ab.laborRates.adminEngineer}/hr (${ab.laborStructure.admin_eng_pct}% of tech hrs)\n`;
         ctx += `NPT: ${ab.laborStructure.npt_pct}% of productive hours | Camera install: ${ab.laborStructure.camera_install_hrs} hrs/camera avg\n`;
         ctx += `MATERIAL EXTRAS: ${ab.materialExtras.material_support_pct}% material support + ${ab.materialExtras.shipping_pct}% shipping\n`;
@@ -3592,15 +3625,21 @@ Return ONLY valid JSON:
         for (const [k, v] of Object.entries(ab.cameraUnitPrices)) {
           ctx += `  ${v.description}: $${v.low}-$${v.high} (mid: $${v.mid})\n`;
         }
-        ctx += `\nACTUAL BID TOTALS (sanity check your estimate against these):\n`;
+        ctx += `\nACTUAL WINNING BID TOTALS (your estimate MUST be within 15% of these for similar scope):\n`;
         for (const [station, data] of Object.entries(ab.actualBids)) {
           ctx += `  ${station}: ${data.cameras} cameras = $${data.total.toLocaleString()} total ($${data.avg_per_camera}/cam avg)\n`;
         }
-        ctx += `\nKEY LINE ITEM BENCHMARKS:\n`;
+        ctx += `\nMANDATORY LINE ITEM PRICES (use mid value unless project-specific data justifies low or high):\n`;
         for (const [k, v] of Object.entries(ab.lineItemBenchmarks)) {
-          ctx += `  ${v.description}: $${v.low.toLocaleString()}-$${v.high.toLocaleString()} (mid: $${v.mid.toLocaleString()})\n`;
+          ctx += `  ${v.description}: $${v.low.toLocaleString()}-$${v.high.toLocaleString()} (USE: $${v.mid.toLocaleString()})\n`;
         }
-        ctx += `\n`;
+        ctx += `\nCRITICAL: For transit/railroad projects, your BOM MUST include these items as separate line items:\n`;
+        ctx += `  - Station-sized UPS/Inverter ($160K-$188K) — NOT a rack UPS\n`;
+        ctx += `  - Trenching/Sawcut at $95-$281/LF — count EVERY linear foot on plans\n`;
+        ctx += `  - Power Circuits at $2,400-$34K/ea — count EVERY circuit on plans\n`;
+        ctx += `  - RRPLI Insurance, Bonds, General Insurance as separate line items\n`;
+        ctx += `  - Mob/Demob, Construction Survey, Utility Location\n`;
+        ctx += `  If any of these are missing from your estimate, it WILL lose the bid.\n\n`;
       }
     }
 
