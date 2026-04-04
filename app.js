@@ -10114,17 +10114,19 @@ function verifyBid(st) {
       check('Benchmark Comparison', 'warn', 'No benchmark data available for comparison');
     }
 
-    // 14. Div 1 percentage
+    // 14. Div 1 percentage — use EITHER category-level OR item-level, not both
     let div1Total = 0;
     (bom.categories || []).forEach(cat => {
       if (/mobiliz|demob|insurance|bond|rrpli|rpl|general\s*condition/i.test(cat.name || '')) {
         div1Total += cat.subtotal || 0;
+      } else {
+        // Only scan items if category name didn't match (prevents double-counting)
+        (cat.items || []).forEach(item => {
+          if (/mobiliz|demob|insurance|bond|rrpli|rpl/i.test(item.item || item.name || '')) {
+            div1Total += item.extCost || 0;
+          }
+        });
       }
-      (cat.items || []).forEach(item => {
-        if (/mobiliz|demob|insurance|bond|rrpli|rpl/i.test(item.item || item.name || '')) {
-          div1Total += item.extCost || 0;
-        }
-      });
     });
     const div1Pct = grandTotal > 0 ? (div1Total / grandTotal * 100) : 0;
     if (div1Pct >= 4 && div1Pct <= 8) check('Div 1 (Gen Conditions)', 'pass', `${div1Pct.toFixed(1)}% of total (target: 4-8%)`);

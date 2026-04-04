@@ -80,6 +80,7 @@ const CableAnalyzer = {
     'cat6_plenum':           0.22,
     'cat6_riser':            0.18,
     'cat5e_plenum':          0.15,
+    'cat5e_riser':           0.12,
     '22/6_18/4_composite':   0.35,
     '22/4':                  0.12,
     '18/2':                  0.10,
