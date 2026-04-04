@@ -662,16 +662,25 @@ const PRICING_DB = {
     amtrakBenchmarks: {
         // ── Labor Rates (prevailing wage, Northern California) ──
         laborRates: {
-            technician:      80,    // Field tech — install, pull, terminate
-            projectManager:  85,    // PM — 8% of productive tech hours
-            adminEngineer:   65,    // Eng/coordination/as-builts — 4% of productive tech hours
+            technician:        80,    // Field tech — install, pull, terminate
+            electricalTech:    95,    // Electrical tech — conduit, circuits, panels
+            projectManager:    85,    // PM — 8% of productive tech hours
+            adminEngineer:     65,    // Eng/coordination/as-builts — 4% of productive tech hours
         },
         // ── Labor Structure (% of productive tech hours) ──
         laborStructure: {
             npt_pct:            8,   // Non-Productive Time (travel to site, breaks, safety meetings)
             pm_pct:             8,   // Project Manager hours as % of tech hours
             admin_eng_pct:      4,   // Engineering/coordination/as-builts as % of tech hours
-            camera_install_hrs: 6.8, // Average hours per camera (pull cable + mount + terminate)
+            // Camera labor breakdown (from Emeryville internal takeoff)
+            camera_full_install_hrs: 8,  // Camera w/ cable pull + mount + terminate (complex/building run)
+            camera_simple_install_hrs: 4, // Camera mount + terminate only (short run/pre-wired)
+            camera_avg_install_hrs: 6.8, // Weighted average across both types
+            pole_camera_cable_hrs: 20,   // Re-pull cable per pole camera (long exterior runs)
+            pole_idf_install_hrs:  8,    // IDF-on-pole install per pole
+            // Conduit labor (electrical tech @ $95/hr)
+            conduit_per_camera_hrs: 8,   // Conduit install per camera location
+            // Infrastructure labor
             mdf_headend_hrs:    16,  // Head-end rack build per MDF
             idf_install_hrs:    16,  // Per IDF enclosure (build, terminate, test)
             testing_prog_hrs:   16,  // System testing and programming (per bid item)
@@ -754,13 +763,51 @@ const PRICING_DB = {
             construction_survey:      { low: 20000, mid: 20000, high: 20000, description: "Construction Survey (allowance)" },
             utility_location:         { low: 9999, mid: 10000, high: 10000, description: "Utility location (allowance)" },
         },
-        // ── Actual Bid Totals (for AI sanity checking) ──
-        actualBids: {
-            emeryville:  { cameras: 61,  total: 1302128,  avg_per_camera: 6534,  year: 2025 },
-            sacramento:  { cameras: 100, total: 1734097,  avg_per_camera: 4890,  year: 2025 },
-            martinez:    { cameras: 69,  total: 2035277,  avg_per_camera: 6150,  year: 2025 },
-            martinez_bafo: { cameras: 69, total: 1966150, avg_per_camera: 5978,  year: 2025 },
+        // ── Internal Material Costs (3D buy price, before markup) ──
+        internalCosts: {
+            genetec_omnicast_license:  210,     // Per camera connection
+            genetec_advantage_1yr:     25.44,   // Per camera maintenance/year
+            bcd_video_server_224tb:    14135,   // Video management server
+            axis_p3267_lme_mic:        729.36,  // 8MP fixed w/mic
+            axis_p3268_lve_outdoor:    778.97,  // 8MP outdoor dome
+            axis_p3738_ple_panoramic:  1416.91, // 32MP 4x4K panoramic
+            axis_p4708_plve_era:       977.44,  // Panoramic ERA
+            sd_card_128gb:             250,     // Surveillance SD card
+            nema4x_ss_enclosure:       1000,    // NEMA 4X stainless (IDF)
+            ethernet_surge_8port:      239.52,  // 8-port surge protector
+            din_rail_48vdc_psu:        210,     // 48VDC DIN rail power supply
+            tripplite_kvm_console:     2937.73, // Rack mount KVM console
+            cat6a_48port_patch:        710.70,  // 48-port Cat6A patch panel
+            managed_pdu:               508.95,  // Managed 1RU horizontal PDU
+            ups_1kva_rack:             950,     // 1kVA rack-mount UPS
+            sfp_smfo:                  500,     // SFP module single-mode fiber
+            fiber_sm_12strand_ft:      0.44,    // 12-strand SM fiber per ft
+            cat6_cmr_1000ft:           300.48,  // Cat6 CMR 1000ft box
+            cat6_osp_1000ft:           921.58,  // Cat6 OSP (outdoor) 1000ft
+            cat6a_jack:                9.53,    // Cat6A keystone jack
+            cat6a_patch_3ft:           15,      // Cat6A patch cord 3ft
+            ups_station_unit:          34943,   // Station-sized UPS (unit only)
+            ups_station_battery:       98477,   // Station-sized UPS battery bank
+            bollard_material:          350,     // Bollard material cost
+            bollard_foundation:        650,     // Bollard foundation cost
+            concrete_cut_per_lf:       85,      // Concrete sawcut/resurface per LF
+            handhole_each:             650,     // Handhole each
+            trench_per_lf:             90,      // Trench 12"x36" per LF
         },
+        // ── Actual Bid Totals (for AI sanity checking) ──
+        // ALL revisions from all 3 stations — use for calibration
+        actualBids: {
+            emeryville_original:     { cameras: 61,  total: 1302128, cost: 876945, avg_per_camera: 6534, year: 2025, type: "original" },
+            emeryville_ve:           { cameras: 61,  total: 1033760, cost: 829696, avg_per_camera: 6534, year: 2025, type: "value_engineering" },
+            sacramento_rev2:         { cameras: 100, total: 1734097, avg_per_camera: 4890, year: 2025, type: "revision" },
+            sacramento_sv_rev1:      { cameras: 100, total: 1810020, avg_per_camera: 5060, year: 2025, type: "revision" },
+            martinez_original:       { cameras: 69,  total: 2035277, avg_per_camera: 6150, year: 2025, type: "original" },
+            martinez_ve:             { cameras: 69,  total: 1731418, avg_per_camera: 6150, year: 2025, type: "value_engineering" },
+            martinez_bafo:           { cameras: 69,  total: 1966150, avg_per_camera: 5978, year: 2025, type: "bafo" },
+        },
+        // ── Div 1 General Conditions as % of Total ──
+        // Emeryville: 5.1%, Martinez: 6.4-7.9%, Sacramento: 4.0-5.0%
+        div1_pct_range: { low: 4.0, mid: 5.5, high: 7.9 },
     },
 
     // ═══════════════════════════════════════════════════════════

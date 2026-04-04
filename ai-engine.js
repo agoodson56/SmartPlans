@@ -2127,19 +2127,46 @@ If Special Conditions flagged transit/railroad work:
 - Safety training: $200-$500/worker → add to Labor column
 - Work window premium: 20-30% increase to labor hours (reduced productivity) → should already be in Labor Calculator
 
-═══ AMTRAK-SPECIFIC ESTIMATING RULES (from real winning bids) ═══
+═══ AMTRAK-SPECIFIC ESTIMATING RULES (from 7 real winning bids across 3 stations) ═══
 If this is an Amtrak project, apply these REAL labor and overhead rules from 3D Technology's actual bids:
-- Tech labor: $80/hr | PM: $85/hr (8% of tech hrs) | Admin/Eng: $65/hr (4% of tech hrs)
-- NPT (Non-Productive Time): 8% of productive tech hours at $80/hr
-- Material Support: 2% of material extended cost | Shipping: 1% of material extended cost
-- 2-Year Warranty: 2% of bid item total | General Conditions: 3% of bid item total
-- Per Diem: $38/day per worker | Mileage: $0.65/mi (minus 40mi base commute)
-- Camera install labor: ~6.8 hours per camera average (cable pull + mount + terminate)
-- Overall Cost-to-Price markup: 48.5% (multiplier: 1.485x)
-- Per-camera all-in pricing: $4,700-$6,965 depending on type (includes camera+mount+conduit+CAT6+license+labor+markup)
-- Mob/Demob: $17,920-$22,400 | Bonds: ~2% of contract | RRPLI: $1,828-$61,479
-- Trenching/Sawcut: $95-$281/LF | Station UPS: $160K-$188K | Power Circuits: $2,400-$34K/ea
-SANITY CHECK: Emeryville (61 cam) = $1.3M | Sacramento (100 cam) = $1.7M | Martinez (69 cam) = $2.0M
+
+LABOR RATES:
+- ELV Tech: $80/hr | Electrical Tech: $95/hr (conduit, circuits, panels)
+- PM: $85/hr (8% of tech hrs) | Admin/Eng: $65/hr (4% of tech hrs)
+- NPT: 8% of productive tech hours at $80/hr
+
+CAMERA LABOR (from Emeryville internal takeoff):
+- Full install (cable pull + mount + terminate): 8 hrs/camera
+- Simple install (mount + terminate, short run): 4 hrs/camera
+- Pole camera cable re-pull: 20 hrs/camera (long exterior runs)
+- Pole IDF install: 8 hrs/pole | Conduit per camera: 8 hrs @ $95/hr
+- Head-end: 16 hrs | IDF: 16 hrs each | Testing: 16 hrs | Training: 8 hrs
+
+OVERHEAD:
+- Material Support: 2% | Shipping: 1% | Warranty: 2% | Gen Conditions: 3%
+- Div 1 should be 4-8% of total contract (mob/demob + insurance + bonds + RRPLI)
+
+TRAVEL: Per Diem $38/day | Mileage $0.65/mi (minus 40mi base)
+
+MARKUP: Cost-to-Price multiplier: 1.392x (competitive) to 1.506x (standard), average 1.476x
+
+PER-CAMERA ALL-IN PRICING (camera+mount+conduit+CAT6+license+labor+markup):
+- Fixed 8M: $4,700-$6,650 | Fixed 8M w/mic: $5,050-$6,795
+- 2-lens 8M: $4,700-$6,200 | 360 4-lens: $5,580-$6,965
+- BAFO discount: typically 3-7% reduction from original pricing
+
+CRITICAL LINE ITEMS:
+- CAT6A per camera: $1,045-$1,300 | Fiber backbone: $37.59/ft
+- Camera server: $16,920-$41,057 | Station rack: $5,000-$19,267
+- Access control/door: $6,270-$8,175 | Access panel: $8,580-$11,478
+- Trenching: $95-$281/LF | Station UPS: $160K-$188K | Power Circuits: $2,400-$34K/ea
+- Bollards M30: $13,650-$13,717/ea | Window film: $350-$5,644/ea
+- RRPLI: $1,828-$61,479 (varies by track proximity) | Bonds: $21K-$41K
+
+SANITY CHECKS (from ALL 7 actual bids):
+- Emeryville (61 cam): $1.30M original, $1.03M VE | Sacramento (100 cam): $1.73-1.81M
+- Martinez (69 cam): $2.04M original, $1.73M VE, $1.97M BAFO
+- General conditions typically 4-8% of total | Camera line items typically 25-35% of total
 
 Return ONLY valid JSON:
 {
