@@ -1994,16 +1994,41 @@ CRITICAL RULES:
 ${context.isTransitRailroad ? `
 ══ MANDATORY AMTRAK/RAILROAD LABOR RULES ══
 This is a transit/railroad project. You MUST use these labor rates and hours from REAL Amtrak winning bids:
-- ELV Technician: $80/hr | Electrical Technician: $95/hr (conduit, circuits, panels)
-- Camera full install (cable pull + mount + terminate): 8 hrs/camera
-- Camera simple install (mount + terminate only): 4 hrs/camera
-- Conduit install per camera location: 8 hrs @ $95/hr (electrical tech)
-- Head-end/MDF build: 16 hrs | IDF install: 16 hrs each
-- Testing & programming: 16 hrs per system | Training: 8 hrs
-- NPT (Non-Productive Time): 8% of productive tech hours
-- PM: 8% of productive hours @ $85/hr | Admin/Eng: 4% @ $65/hr
-- Apply 25% productivity loss for railroad restricted work windows
-These are NOT suggestions — they are MANDATORY labor rates for transit projects.` : ''}
+
+STEP 1 — CALCULATE MINIMUM FIELD LABOR (do this math BEFORE estimating):
+  Camera install labor: (number of cameras) × 8 hrs = _____ hrs @ $80/hr
+  Conduit labor: (number of cameras) × 8 hrs = _____ hrs @ $95/hr (electrical tech)
+  Head-end/MDF: 16 hrs per MDF × (number of MDFs) = _____ hrs @ $80/hr
+  IDF install: 16 hrs per IDF × (number of IDFs) = _____ hrs @ $80/hr
+  Testing & programming: 16 hrs per system = _____ hrs @ $80/hr
+  Training: 8 hrs = 8 hrs @ $80/hr
+  Mobilization: 8 hrs × (number of phases) = _____ hrs @ $80/hr
+  SUBTOTAL FIELD HOURS = sum of above
+
+STEP 2 — ADD OVERHEAD LABOR:
+  NPT (8%): field hours × 0.08 = _____ hrs @ $80/hr
+  Coordination/idle (12%): field hours × 0.12 = _____ hrs @ $80/hr
+  Railroad productivity loss (25%): field hours × 0.25 = _____ hrs @ $80/hr
+  PM (8%): field hours × 0.08 = _____ hrs @ $85/hr
+  Admin/Eng (4%): field hours × 0.04 = _____ hrs @ $65/hr
+  TOTAL OVERHEAD HOURS = sum of above
+
+STEP 3 — ADD NON-FIELD LABOR:
+  Engineering & submittals: 80-200 hrs @ $75/hr
+  Project management: (project weeks) × 40 hrs @ $85/hr
+
+TOTAL HOURS = field + overhead + non-field
+MINIMUM TOTAL HOURS for transit projects: 30 hours per camera (includes ALL phases)
+  Example: 69 cameras × 30 hrs/cam = 2,070 minimum hours
+  Example: 100 cameras × 30 hrs/cam = 3,000 minimum hours
+If your calculated total is BELOW this minimum, you are underestimating. Add hours until you meet it.
+
+LABOR RATES (MANDATORY — do not change these):
+  ELV Technician: $80/hr | Electrical Technician: $95/hr
+  Project Manager: $85/hr | Admin/Engineer: $65/hr
+
+YOUR TOTAL LABOR COST MUST BE AT LEAST: (camera count × 30 hrs × $80/hr average) = MINIMUM LABOR FLOOR
+If your total_base_cost is below this floor, INCREASE hours in rough-in and coordination phases until you reach it.` : ''}
 
 Calculate labor by PROJECT PHASE:
 1. Rough-In (35-40% of field labor) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
@@ -3640,6 +3665,12 @@ Return ONLY valid JSON:
         ctx += `  - RRPLI Insurance, Bonds, General Insurance as separate line items\n`;
         ctx += `  - Mob/Demob, Construction Survey, Utility Location\n`;
         ctx += `  If any of these are missing from your estimate, it WILL lose the bid.\n\n`;
+        ctx += `MATERIAL COST FLOOR (MANDATORY for transit/railroad):\n`;
+        ctx += `  Your total material cost (before markup) MUST be at least $5,000 per camera.\n`;
+        ctx += `  Example: 69 cameras × $5,000 = $345,000 minimum material cost.\n`;
+        ctx += `  This includes: camera hardware + mount + license + cable + jacks + conduit + pathway.\n`;
+        ctx += `  If your material total is below this floor, you are missing line items. Add them.\n`;
+        ctx += `  From real bids: Emeryville 61 cam = $425K materials | Martinez 69 cam = $380-425K materials\n\n`;
       }
     }
 
