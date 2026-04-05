@@ -2903,10 +2903,14 @@ function renderStep0(container) {
   // Personalized greeting based on time of day
   const _hour = new Date().getHours();
   const _timeGreet = _hour < 12 ? 'GOOD MORNING' : _hour < 17 ? 'GOOD AFTERNOON' : 'GOOD EVENING';
-  const _userName = (typeof _currentUser !== 'undefined' && _currentUser?.name) ? _currentUser.name.split(' ')[0].toUpperCase() : '';
-  const _greetingHtml = _userName ? `
+  const _userName = (typeof _currentUser !== 'undefined' && _currentUser?.name)
+    ? _currentUser.name.split(' ')[0].toUpperCase()
+    : (typeof _currentUser !== 'undefined' && _currentUser?.email)
+      ? _currentUser.email.split('@')[0].toUpperCase()
+      : '';
+  const _greetingHtml = (typeof _currentUser !== 'undefined' && _currentUser) ? `
     <div style="margin-bottom:20px;padding:18px 22px;border-radius:12px;background:linear-gradient(135deg,rgba(13,148,136,0.12),rgba(99,102,241,0.08));border:1px solid rgba(13,148,136,0.25);">
-      <div style="font-size:20px;font-weight:800;color:#0D9488;letter-spacing:0.5px;">${_timeGreet}, ${esc(_userName)}!</div>
+      <div style="font-size:20px;font-weight:800;color:#0D9488;letter-spacing:0.5px;">${_timeGreet}${_userName ? ', ' + esc(_userName) : ''}!</div>
       <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-top:4px;">LET'S WIN SOME BIDS TODAY! 🏆</div>
     </div>` : '';
 
