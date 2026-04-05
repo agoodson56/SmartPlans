@@ -5482,9 +5482,24 @@ function renderStep7(container) {
     </div>
   `;
 
+  // Compute full bid price for display (same formula as Master Report)
+  const _bidBom = getFilteredBOM(state.aiAnalysis, state.disciplines);
+  const _bidBomTravel = state.travel?.enabled ? injectTravelIntoBOM(_bidBom) : _bidBom;
+  const _bidBreakdown = (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._computeFullBreakdown)
+    ? SmartPlansExport._computeFullBreakdown(state, _bidBomTravel) : null;
+  const _fullBidPrice = _bidBreakdown?.finalTotal > _bidBreakdown?.grandTotal
+    ? _bidBreakdown.finalTotal : (_bidBreakdown?.grandTotal || _bidBom.grandTotal || 0);
+  const _bidPriceColor = _fullBidPrice > 0 ? '#10b981' : '#f59e0b';
+
   container.innerHTML = `
     <h2 class="step-heading">Estimate Complete</h2>
     <p class="step-subheading">Your AI-powered estimate is ready. Review the analysis below, then export for your project management workflow.</p>
+
+    ${_fullBidPrice > 0 ? `<div style="margin-bottom:20px;padding:20px 24px;border-radius:14px;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(13,148,136,0.12));border:1px solid rgba(16,185,129,0.25);text-align:center;">
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;">FULL BID PRICE</div>
+      <div style="font-size:36px;font-weight:900;color:${_bidPriceColor};letter-spacing:-0.5px;">$${_fullBidPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Materials + Labor + Burden + Contingency${state.travel?.enabled ? ' + Travel' : ''}${_bidBreakdown?._benchmarkCalibrated ? ' (Transit Calibrated)' : ''}</div>
+    </div>` : ''}
 
     <div class="results-hero">
       <div class="results-top">
