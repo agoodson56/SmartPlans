@@ -2901,6 +2901,7 @@ function renderStep0(container) {
   }
 
   // Personalized greeting based on time of day
+  console.log('[Greeting] _currentUser:', JSON.stringify(_currentUser));
   const _hour = new Date().getHours();
   const _timeGreet = _hour < 12 ? 'GOOD MORNING' : _hour < 17 ? 'GOOD AFTERNOON' : 'GOOD EVENING';
   const _userName = (typeof _currentUser !== 'undefined' && _currentUser?.name)
@@ -12804,8 +12805,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   const hasSession = await Auth.init();
 
   if (hasSession) {
-    // User is logged in — start the app
+    // User is logged in — start the app (same as _startApp)
+    const header = document.getElementById('app-header');
+    const nav = document.getElementById('step-nav');
+    const footer = document.getElementById('step-footer');
+    if (header) header.style.display = '';
+    if (nav) nav.style.display = '';
+    if (footer) footer.style.display = '';
     Auth._updateHeader();
+    console.log('[SmartPlans] Session restored — user:', _currentUser?.name || _currentUser?.email || 'unknown');
     render();
     QuotaMonitor.start();
     UsageStats.start();
