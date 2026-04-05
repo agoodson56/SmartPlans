@@ -380,16 +380,19 @@ const SmartPlansExport = {
                 console.log(`[Export]   Formula grand total: $${grandTotal.toLocaleString()}`);
 
                 const deviation = grandTotal / targetGrandTotal;
-                // Calibrate if formula output exceeds benchmark by >8%
-                if (deviation > 1.08) {
-                    // Scale materials to match the benchmark target
-                    // For BAFO bids this is the actual winning price
-                    // For original bids we add a small 2% buffer for scope uncertainty
+                // Calibrate if formula output is >8% ABOVE or >8% BELOW benchmark
+                // The AI is wildly inconsistent ($1.5M one run, $3M the next).
+                // Benchmark data from actual winning bids is the anchor.
+                const needsCalibration = deviation > 1.08 || deviation < 0.92;
+                if (needsCalibration) {
+                    const direction = deviation > 1 ? 'OVER' : 'UNDER';
+                    const pctOff = Math.round(Math.abs(deviation - 1) * 100);
+                    // For BAFO bids target the exact price; for originals add 2% buffer
                     const targetMultiplier = benchmark.type === 'bafo' ? 1.00 : 1.02;
                     const calibratedTarget = this._round(targetGrandTotal * targetMultiplier);
                     const scaleFactor = calibratedTarget / grandTotal;
 
-                    console.warn(`[Export] ⚠️ CALIBRATING: formula is ${Math.round((deviation - 1) * 100)}% over benchmark`);
+                    console.warn(`[Export] ⚠️ CALIBRATING ${direction}: formula is ${pctOff}% ${direction.toLowerCase()} benchmark`);
                     console.warn(`[Export]   Scale factor: ${(scaleFactor * 100).toFixed(1)}% → target $${calibratedTarget.toLocaleString()}`);
 
                     // Scale all raw costs proportionally
@@ -425,13 +428,12 @@ const SmartPlansExport = {
                         commission: cComm, commissionPct: cCommPct, salesTax: cTax, salesTaxPct: cTaxPct,
                         escalation: cEsc, escalationPct: cEscPct, finalTotal: cFinal,
                         _benchmarkCalibrated: true, _scaleFactor: scaleFactor,
+                        _calibrationDirection: direction,
                         _cameraCount: cameraCount, _benchmarkKey: benchmark.key,
                         _targetGrandTotal: calibratedTarget
                     };
-                } else if (deviation < 0.85) {
-                    console.log(`[Export]   Formula is ${Math.round((1 - deviation) * 100)}% BELOW benchmark — keeping as-is (competitive bid)`);
                 } else {
-                    console.log(`[Export]   ✅ Within 15% of benchmark — no calibration needed`);
+                    console.log(`[Export]   ✅ Within ±8% of benchmark — no calibration needed`);
                 }
             }
         }

@@ -1651,7 +1651,7 @@ function generateMasterReport() {
       ${bd.salesTax > 0 ? `<tr><td>Sales Tax on Materials (${(bd.salesTaxPct * 100).toFixed(2)}%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.salesTax)}</td><td></td></tr>` : ''}
       ${bd.escalation > 0 ? `<tr><td>Material Escalation (${(bd.escalationPct * 100).toFixed(1)}%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.escalation)}</td><td></td></tr>` : ''}
       ${bd.finalTotal > bd.grandTotal ? `<tr style="background:#065F46;color:white;font-weight:700;"><td>FINAL TOTAL (incl. commission/tax)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.finalTotal)}</td><td></td></tr>` : ''}
-      ${bd._benchmarkCalibrated ? `<tr style="background:#DBEAFE;color:#1E40AF;"><td colspan="5">📐 Transit benchmark calibration: ${bd._cameraCount} cameras × $${Math.round(bd._targetGrandTotal / bd._cameraCount).toLocaleString()}/cam from ${bd._benchmarkKey} (target: ${fmt(bd._targetGrandTotal)})</td></tr>` : ''}
+      ${bd._benchmarkCalibrated ? `<tr style="background:#DBEAFE;color:#1E40AF;"><td colspan="5">📐 Transit calibration ${bd._calibrationDirection === 'UNDER' ? '⬆' : '⬇'}: ${bd._cameraCount} cameras × $${Math.round(bd._targetGrandTotal / bd._cameraCount).toLocaleString()}/cam from ${bd._benchmarkKey} (target: ${fmt(bd._targetGrandTotal)}, scale: ${(bd._scaleFactor * 100).toFixed(0)}%)</td></tr>` : ''}
     </table>`;
   } else if (financialEngine?.project_summary) {
     // Fallback: AI Financial Engine breakdown (legacy path)
