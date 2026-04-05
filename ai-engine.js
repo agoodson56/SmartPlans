@@ -2635,7 +2635,7 @@ ${context._missingDisciplines?.length > 0 ? `
 These disciplines have devices in the consensus counts but ZERO materials/labor were allocated.
 You MUST calculate and add materials + labor for ALL missing disciplines using the consensus counts and pricing database.
 ` : ''}
-1. **MISSING SCOPE**: If the Cross Validator or Devil's Advocate reports that a discipline (e.g., Access Control, Data Outlets, AV) is MISSING from the Material Pricer, you MUST add those materials and labor to the bid. Use the consensus device counts and pricing database to calculate costs.
+1. **MISSING SCOPE**: ${context.isTransitRailroad ? 'For transit/railroad projects: Do NOT add new scope. Report ONLY what the Material Pricer and Estimate Corrector produced. The BOM is final.' : 'If the Cross Validator or Devil\'s Advocate reports that a discipline (e.g., Access Control, Data Outlets, AV) is MISSING from the Material Pricer, you MUST add those materials and labor to the bid. Use the consensus device counts and pricing database to calculate costs.'}
 
 2. **QUANTITY CORRECTIONS**: If the validator found quantity mismatches (e.g., 25 cameras in consensus but 24 in pricer), use the HIGHER count from the consensus. Include all exterior/outdoor devices identified.
 
@@ -3653,7 +3653,7 @@ Return ONLY valid JSON:
     const projectText = `${state.projectName || ''} ${state.projectType || ''}`.toLowerCase();
     let projectTypeKey = 'commercial_standard';
 
-    if (state.isTransitRailroad || /amtrak|bnsf|union pacific|transit|railroad|railway|metro|bart|caltrain|light rail|commuter rail|rail station|train station/.test(projectText)) {
+    if (state.isTransitRailroad || /amtrak|bnsf|union\s+pacific|transit|railroad|railway|metro|bart|caltrain|light\s+rail|commuter\s+rail|rail\s+station|train\s+station/.test(projectText)) {
       projectTypeKey = 'transit_railroad';
     } else if (/government|federal|state|county|municipal|courthouse|city hall|military|dod|va hospital|gsa/.test(projectText)) {
       projectTypeKey = 'government_institutional';
@@ -3881,13 +3881,18 @@ Return ONLY valid JSON:
       progressCallback(pct, `✅ ${brain.name} complete`, this._brainStatus);
 
     } catch (err) {
+      const CRITICAL_BRAINS_LIST = ['SYMBOL_SCANNER', 'MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE', 'CONSENSUS_ARBITRATOR', 'ESTIMATE_CORRECTOR', 'REPORT_WRITER'];
+      const isCritical = CRITICAL_BRAINS_LIST.includes(key);
+      if (isCritical) {
+        console.error(`[SmartBrains] ⛔ CRITICAL brain ${key} FAILED all retries — bid accuracy may be compromised`);
+      }
       console.error(`[Brain:${brain.name}] FAILED:`, err.message);
       this._brainStatus[key] = { status: 'failed', progress: 0, result: null, error: err.message };
-      results[key] = { _error: err.message, _failed: true };
+      results[key] = { _error: err.message, _failed: true, _critical: isCritical };
       const completed = incrementCompleted();
 
       const pct = baseProgress + (completed / totalBrains) * (endProgress - baseProgress);
-      progressCallback(pct, `⚠️ ${brain.name} failed — continuing…`, this._brainStatus);
+      progressCallback(pct, `${isCritical ? '🚨' : '⚠️'} ${brain.name} failed${isCritical ? ' (CRITICAL)' : ''} — continuing…`, this._brainStatus);
     }
   },
 
@@ -4246,8 +4251,9 @@ Return ONLY valid JSON:
           }
         }
 
-        // ═══ ENFORCEMENT: Reject if corrector INCREASED total by >10% ═══
-        if (corrector.original_grand_total > 0 && corrector.corrected_grand_total > corrector.original_grand_total * 1.10) {
+        // ═══ ENFORCEMENT: Reject if corrector INCREASED total by >8% ═══
+        // Prompt says 5%, code allows 8% as buffer for legitimate corrections
+        if (corrector.original_grand_total > 0 && corrector.corrected_grand_total > corrector.original_grand_total * 1.08) {
           console.warn(`[SmartBrains] ⛔ REJECTED Estimate Corrector — increased total by ${(((corrector.corrected_grand_total / corrector.original_grand_total) - 1) * 100).toFixed(1)}% (from $${corrector.original_grand_total.toLocaleString()} to $${corrector.corrected_grand_total.toLocaleString()}). Using original pricer data.`);
           context._correctedPricer = null;
         } else {

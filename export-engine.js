@@ -230,9 +230,9 @@ const SmartPlansExport = {
                 // Travel is pass-through — NO markup, not counted as materials
                 travel += (cat.subtotal || 0);
                 console.log(`[Export] BOM category "${cat.name}" classified as TRAVEL (pass-through) — $${(cat.subtotal || 0).toLocaleString()}`);
-            } else if (/subcontract|civil|traffic|insurance|parking/.test(n)) {
+            } else if (/subcontract|civil|traffic|insurance|parking/i.test(n)) {
                 subs += (cat.subtotal || 0);
-            } else if (/equipment|air.?condition|hvac.?condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
+            } else if (/equipment|air.?condition|hvac.?condition|scissor|boom|excavat|tugger|drill|saw|scanner|ups|generator|battery.?backup|power.?supply/i.test(n)) {
                 equipment += (cat.subtotal || 0);
             } else if (/labor|install|rough.?in|trim|commission|program|test|mobiliz|phase\s*\d/i.test(n)) {
                 // Labor categories that leaked past the BOM parser filter —
@@ -350,7 +350,17 @@ const SmartPlansExport = {
             let cameraCount = consensusCount >= 5 ? consensusCount : bomCamCount;
             console.log(`[Export]   Camera counts — Consensus: ${consensusCount}, BOM (filtered): ${bomCamCount}, Using: ${cameraCount}`);
 
-            if (cameraCount >= 5) {
+            // Check if project is infrastructure-heavy (subs dominate the BOM)
+            // Per-camera calibration is unreliable when subs > 40% of raw BOM because
+            // the project cost is driven by civil/electrical work, not camera count.
+            // Example: Sacramento — 32 cameras but $721K subs (77% of BOM) = infrastructure project
+            const rawBomTotal = bom?.categories?.reduce((sum, c) => sum + (c.subtotal || 0), 0) || 0;
+            const subPctOfBom = rawBomTotal > 0 ? (subs / rawBomTotal) : 0;
+            if (subPctOfBom > 0.40) {
+                console.log(`[Export] ⚠️ SKIPPING per-camera calibration — subs are ${(subPctOfBom * 100).toFixed(0)}% of BOM ($${subs.toLocaleString()} / $${rawBomTotal.toLocaleString()})`);
+                console.log(`[Export]   Infrastructure-heavy project — formula total $${grandTotal.toLocaleString()} is more reliable than per-camera benchmark`);
+                // Skip calibration — fall through to the non-calibrated return
+            } else if (cameraCount >= 5) {
                 // Find closest bid by camera count
                 const bidArray = Object.entries(bids)
                     .map(([k, v]) => ({ key: k, ...v }))
@@ -1360,13 +1370,18 @@ const SmartPlansExport = {
                     }
 
                     // Deduplicate by EXACT COST — if two items in different categories have
-                    // the exact same extCost > $10K, they're almost certainly the same item
+                    // the exact same extCost > $10K AND similar names, they're likely duplicates.
+                    // FIX: Require name similarity — NVR ($10K) and Server ($10K) are NOT duplicates.
                     if (ext >= 10000) {
                         const priceKey = `price_${Math.round(ext)}`;
                         if (seenItems.has(priceKey)) {
                             const prev = seenItems.get(priceKey);
-                            if (prev.catIdx !== ci) {
-                                console.warn(`[Dedup] REMOVED likely duplicate (same cost $${ext.toLocaleString()}): "${name}" in "${cat.name}" — matches "${prev.catName}"`);
+                            // Only dedup if different category AND names are similar (first 8 alpha chars match)
+                            const curNorm = name.toLowerCase().replace(/[^a-z]/g, '').substring(0, 8);
+                            const prevNorm = (prev.itemName || '').toLowerCase().replace(/[^a-z]/g, '').substring(0, 8);
+                            const namesSimilar = curNorm === prevNorm || curNorm.includes(prevNorm) || prevNorm.includes(curNorm);
+                            if (prev.catIdx !== ci && namesSimilar) {
+                                console.warn(`[Dedup] REMOVED likely duplicate (same cost $${ext.toLocaleString()}, similar name): "${name}" in "${cat.name}" — matches "${prev.itemName}" in "${prev.catName}"`);
                                 return false;
                             }
                         }

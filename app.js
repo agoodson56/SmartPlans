@@ -847,6 +847,18 @@ function startNewBid() {
   state.exclusions = [];
   state._exclusionsLoaded = false;
 
+  // Reset internal cached state (prevents leaking between bids)
+  state._pwCounty = '';
+  state._pwState = '';
+  state._pwMetro = '';
+  state._cableScheduleCache = null;
+  state._restoredFinancials = null;
+  state.brainStats = null;
+  state.failedBrains = null;
+  state._symbolInventoryOpen = false;
+  state._symbolInventorySort = null;
+  state._symbolInventoryFilter = '';
+
   render();
   scrollContentTop();
   spToast('Ready for a new bid', 'success');
@@ -2831,6 +2843,9 @@ function renderFooter() {
         return;
       }
       state.analyzing = true;
+      // Disable button to prevent double-clicks during analysis
+      const nextBtn = document.getElementById('btn-next');
+      if (nextBtn) { nextBtn.disabled = true; nextBtn.style.opacity = '0.5'; nextBtn.style.pointerEvents = 'none'; }
       render();
     } else {
       state.currentStep++;
@@ -4719,14 +4734,14 @@ function renderStep6Travel(container) {
   document.querySelectorAll('.t6-input').forEach(input => {
     input.addEventListener('change', e => {
       const key = e.target.dataset.key;
-      if (key) { state.travel[key] = parseFloat(e.target.value) || 0; renderStep6Travel(container); }
+      if (key) { const _v = parseFloat(e.target.value); state.travel[key] = (!isNaN(_v) && _v >= 0) ? _v : 0; renderStep6Travel(container); }
     });
   });
 
   document.querySelectorAll('.inc-input').forEach(input => {
     input.addEventListener('change', e => {
       const key = e.target.dataset.key;
-      if (key) { state.incidentals[key] = parseFloat(e.target.value) || 0; renderStep6Travel(container); }
+      if (key) { const _v = parseFloat(e.target.value); state.incidentals[key] = (!isNaN(_v) && _v >= 0) ? _v : 0; renderStep6Travel(container); }
     });
   });
 
@@ -10463,7 +10478,14 @@ function bindCablePathwayEvents(container) {
 // Rates how well a project matches 3D Technology's strengths
 // Based on 22 real bid outcomes (Amtrak + commercial, 2022-2026)
 function computeBidFitScore(st) {
-  if (!st.aiAnalysis || !st.disciplines) return null;
+  if (!st.aiAnalysis || !st.disciplines) {
+    console.warn('[BidFitScore] Cannot compute — analysis or disciplines not available');
+    return null;
+  }
+  if (!st.brainResults) {
+    console.warn('[BidFitScore] Cannot compute — brain results not available');
+    return null;
+  }
   const cfg = (typeof PRICING_DB !== 'undefined') ? PRICING_DB.bidFitConfig : null;
   if (!cfg) return null;
 
