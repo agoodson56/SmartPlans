@@ -1144,7 +1144,8 @@ const SmartPlansExport = {
             const travelDupPatterns = /hotel|per\s*diem|lodging|mileage|rental.*car|travel.*home|tolls.*parking|workers?\s*[x×]\s*\d+\s*days?\s*@|crew\s*[x×]\s*\d+\s*days?\s*@|\d+\s*night|\d+\s*day.*\$\d+/i;
 
             // 3. MISCLASSIFIED ITEMS — items that should NOT be in certain categories
-            const notCCTV = /bollard|m30|window.*film|blast.*film|door|strike|latch|signage|paint|ceiling|masonry|concrete|hvac|mini.?split|trench|saw\s*cut|power\s*circuit|panel\s*board|conduit.*install|switch(?!.*camera)|rack(?!.*camera)|enclosure(?!.*camera)/i;
+            const notCCTV = /bollard|m30|window.*film|blast.*film|(?<!\bin)door(?!.*cam)|electric\s*strike|latch|signage|paint|ceiling|masonry|concrete|hvac|mini.?split|trench|saw\s*cut|power\s*circuit|panel\s*board|conduit.*install/i;
+            const isCameraItem = /camera|dome|bullet|ptz|fisheye|panoram|varifocal|8mp|5mp|4mp|lpr|turret|nvr|vms|genetec|axis|hikvision|dahua|milestone/i;
             const notStructCabling = /ups|inverter|station.*power|battery.*bank|video.*server|surveillance.*server|security\s*center|bollard/i;
 
             realCategories.forEach((cat, ci) => {
@@ -1166,8 +1167,8 @@ const SmartPlansExport = {
                         return false;
                     }
 
-                    // Remove misclassified items from CCTV
-                    if (isCCTV && notCCTV.test(nameLower)) {
+                    // Remove misclassified items from CCTV (but NEVER remove actual camera items)
+                    if (isCCTV && notCCTV.test(nameLower) && !isCameraItem.test(nameLower)) {
                         console.warn(`[Dedup] REMOVED non-camera item from CCTV: "${name}" ($${ext.toLocaleString()})`);
                         return false;
                     }
