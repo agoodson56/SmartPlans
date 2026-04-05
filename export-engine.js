@@ -223,10 +223,14 @@ const SmartPlansExport = {
 
     // ─── Classify BOM categories into material/equipment/subs/labor ──
     _classifyBOM(bom) {
-        let materials = 0, equipment = 0, subs = 0, labor = 0;
+        let materials = 0, equipment = 0, subs = 0, labor = 0, travel = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
-            if (/subcontract|civil|traffic|insurance|parking/.test(n)) {
+            if (/travel|per\s*diem|incidental|lodging|hotel|mileage|flight/i.test(n)) {
+                // Travel is pass-through — NO markup, not counted as materials
+                travel += (cat.subtotal || 0);
+                console.log(`[Export] BOM category "${cat.name}" classified as TRAVEL (pass-through) — $${(cat.subtotal || 0).toLocaleString()}`);
+            } else if (/subcontract|civil|traffic|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
             } else if (/equipment|air.?condition|hvac.?condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
@@ -239,13 +243,13 @@ const SmartPlansExport = {
                 materials += (cat.subtotal || 0);
             }
         }
-        return { materials, equipment, subs, labor };
+        return { materials, equipment, subs, labor, travel };
     },
 
     // ─── Compute full bid price breakdown with all markups ──
     // SINGLE SOURCE OF TRUTH: Every output reads from this.
     _computeFullBreakdown(state, bom) {
-        const { materials, equipment, subs, labor: bomLabor } = this._classifyBOM(bom);
+        const { materials, equipment, subs, labor: bomLabor, travel: bomTravel } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
         const matPct = (cfg.material ?? 50) / 100;
         const labPct = (cfg.labor ?? 50) / 100;
@@ -255,6 +259,8 @@ const SmartPlansExport = {
         const burdenRate = rawBurden > 1 ? rawBurden / 100 : rawBurden;
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         const contingencyPct = 0.10;
+
+        console.log(`[Export] _classifyBOM: materials=$${materials.toLocaleString()}, equipment=$${equipment.toLocaleString()}, subs=$${subs.toLocaleString()}, bomLabor=$${bomLabor.toLocaleString()}, bomTravel=$${bomTravel.toLocaleString()}`);
 
         // ── Labor: use REAL data from Labor Calculator brain when available ──
         // Previously this always used materials × 1.0 which doubled labor when
@@ -280,8 +286,16 @@ const SmartPlansExport = {
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
         const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
-        const travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
+        // Travel: use Stage 6 deterministic travel if configured, otherwise BOM travel
+        // Travel is PASS-THROUGH — no markup applied (it's already at cost)
+        const stage6Travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
             ? this._round(computeTravelIncidentals().grandTotal || 0) : 0;
+        const travel = stage6Travel > 0 ? stage6Travel : this._round(bomTravel);
+        if (bomTravel > 0 && stage6Travel > 0) {
+            console.log(`[Export] Travel: Stage 6 $${stage6Travel.toLocaleString()} (BOM had $${bomTravel.toLocaleString()} — using Stage 6, BOM travel excluded from materials)`);
+        } else if (bomTravel > 0) {
+            console.log(`[Export] Travel: BOM pass-through $${bomTravel.toLocaleString()} (no Stage 6 configured)`);
+        }
 
         let subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
         let contingency = this._round(subtotal * contingencyPct);
@@ -358,8 +372,8 @@ const SmartPlansExport = {
                 console.log(`[Export]   Formula grand total: $${grandTotal.toLocaleString()}`);
 
                 const deviation = grandTotal / targetGrandTotal;
-                // Allow 15% above target before calibrating — gives AI some room
-                if (deviation > 1.15) {
+                // Calibrate if formula output exceeds benchmark by >8%
+                if (deviation > 1.08) {
                     // Scale materials to match the benchmark target
                     // For BAFO bids this is the actual winning price
                     // For original bids we add a small 2% buffer for scope uncertainty
