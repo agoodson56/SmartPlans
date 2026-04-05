@@ -283,16 +283,81 @@ const SmartPlansExport = {
         const travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
             ? this._round(computeTravelIncidentals().grandTotal || 0) : 0;
 
-        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
-        const contingency = this._round(subtotal * contingencyPct);
-        const grandTotal = this._round(subtotal + contingency);
+        let subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
+        let contingency = this._round(subtotal * contingencyPct);
+        let grandTotal = this._round(subtotal + contingency);
+
+        // ═══ TRANSIT/RAILROAD BENCHMARK CAP ═══
+        // If this is an Amtrak/transit project and the computed total exceeds the
+        // benchmark range by >25%, scale ALL cost buckets down proportionally.
+        // This prevents the AI from inflating the BOM with phantom scope.
+        if (state.isTransitRailroad && typeof PRICING_DB !== 'undefined' && PRICING_DB.amtrakBenchmarks?.actualBids) {
+            const bids = PRICING_DB.amtrakBenchmarks.actualBids;
+            const bidTotals = Object.values(bids).map(b => b.total).filter(t => t > 0);
+            if (bidTotals.length > 0) {
+                // Find the highest actual bid as our ceiling
+                const maxBid = Math.max(...bidTotals);
+                const benchmarkCeiling = maxBid * 1.25; // Allow 25% above highest known bid
+                if (grandTotal > benchmarkCeiling) {
+                    const scaleFactor = benchmarkCeiling / grandTotal;
+                    console.warn(`[Export] ⚠️ TRANSIT BENCHMARK CAP: $${grandTotal.toLocaleString()} exceeds ceiling $${benchmarkCeiling.toLocaleString()} (max bid $${maxBid.toLocaleString()} × 1.25)`);
+                    console.warn(`[Export]   Scaling all costs by ${(scaleFactor * 100).toFixed(1)}%`);
+
+                    // Scale the raw costs proportionally
+                    const sMat = this._round(materials * scaleFactor);
+                    const sLab = this._round(laborBase * scaleFactor);
+                    const sEq = this._round(equipment * scaleFactor);
+                    const sSub = this._round(subs * scaleFactor);
+
+                    const sMatSell = this._round(sMat * (1 + matPct));
+                    const sLabSell = this._round(sLab * (1 + labPct));
+                    const sEqSell = this._round(sEq * (1 + eqPct));
+                    const sSubSell = this._round(sSub * (1 + subPct));
+                    const sBurden = includeBurden ? this._round(sLab * burdenRate) : 0;
+
+                    subtotal = this._round(sMatSell + sLabSell + sEqSell + sSubSell + sBurden + travel);
+                    contingency = this._round(subtotal * contingencyPct);
+                    grandTotal = this._round(subtotal + contingency);
+
+                    console.warn(`[Export]   Capped grand total: $${grandTotal.toLocaleString()}`);
+                    const cCommPct = (state.commissionPct || 0) / 100;
+                    const cTaxPct = (state.salesTaxPct || 0) / 100;
+                    const cEscPct = (state.escalationPct || 0) / 100;
+                    const cComm = this._round(grandTotal * cCommPct);
+                    const cTax = this._round(sMat * cTaxPct);
+                    const cEsc = this._round(sMat * cEscPct);
+                    const cFinal = this._round(grandTotal + cComm + cTax + cEsc);
+                    return {
+                        materials: sMat, equipment: sEq, subs: sSub, laborBase: sLab,
+                        matPct, labPct, eqPct, subPct,
+                        matSell: sMatSell, labSell: sLabSell, eqSell: sEqSell, subSell: sSubSell,
+                        burden: sBurden, burdenRate: includeBurden ? burdenRate : 0,
+                        travel, subtotal, contingency, contingencyPct, grandTotal,
+                        commission: cComm, commissionPct: cCommPct, salesTax: cTax, salesTaxPct: cTaxPct,
+                        escalation: cEsc, escalationPct: cEscPct, finalTotal: cFinal,
+                        _benchmarkCapped: true, _scaleFactor: scaleFactor
+                    };
+                }
+            }
+        }
+
+        // ═══ Commission, Sales Tax & Escalation ═══
+        const commissionPct = (state.commissionPct || 0) / 100;
+        const salesTaxPct = (state.salesTaxPct || 0) / 100;
+        const escalationPct = (state.escalationPct || 0) / 100;
+        const commission = this._round(grandTotal * commissionPct);
+        const salesTax = this._round(materials * salesTaxPct); // Tax on materials only
+        const escalation = this._round(materials * escalationPct); // Escalation on materials
+        const finalTotal = this._round(grandTotal + commission + salesTax + escalation);
 
         return {
             materials, equipment, subs, laborBase,
             matPct, labPct, eqPct, subPct,
             matSell, labSell, eqSell, subSell,
             burden, burdenRate: includeBurden ? burdenRate : 0,
-            travel, subtotal, contingency, contingencyPct, grandTotal
+            travel, subtotal, contingency, contingencyPct, grandTotal,
+            commission, commissionPct, salesTax, salesTaxPct,
+            escalation, escalationPct, finalTotal
         };
     },
 
@@ -314,8 +379,10 @@ const SmartPlansExport = {
         if (bom?.categories?.length > 0) {
             const breakdown = this._computeFullBreakdown(state, bom);
             if (breakdown.grandTotal > 1000) {
-                console.log(`[Export] ✅ Grand total from deterministic breakdown: $${breakdown.grandTotal.toLocaleString()}`);
-                return breakdown.grandTotal;
+                // Use finalTotal if commission/tax/escalation were applied
+                const displayTotal = (breakdown.finalTotal > breakdown.grandTotal) ? breakdown.finalTotal : breakdown.grandTotal;
+                console.log(`[Export] ✅ Grand total from deterministic breakdown: $${displayTotal.toLocaleString()}${breakdown._benchmarkCapped ? ' (benchmark capped)' : ''}${breakdown.finalTotal > breakdown.grandTotal ? ` (incl. commission/tax/escalation from base $${breakdown.grandTotal.toLocaleString()})` : ''}`);
+                return displayTotal;
             }
         }
 

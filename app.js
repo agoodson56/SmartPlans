@@ -648,6 +648,9 @@ const state = {
     equipment: 15,
     subcontractor: 10,
   },
+  commissionPct: 0,       // Sales commission % (applied to total sell)
+  salesTaxPct: 0,         // Sales tax % (applied to materials only)
+  escalationPct: 0,       // Material escalation % (for future projects)
 
   // Files (arrays of {name, size, type, base64?, rawFile?})
   legendFiles: [],
@@ -1602,7 +1605,12 @@ function generateMasterReport() {
       ${bd.travel > 0 ? `<tr><td>Travel & Incidentals</td><td style="text-align:right;">${fmt(bd.travel)}</td><td style="text-align:right;">—</td><td style="text-align:right;">${fmt(bd.travel)}</td><td style="text-align:right;">${pct(bd.travel)}</td></tr>` : ''}
       <tr style="background:#e0f2fe;font-weight:700;"><td>SUBTOTAL</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.subtotal)}</td><td style="text-align:right;"></td></tr>
       <tr><td>Contingency (10%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.contingency)}</td><td style="text-align:right;">${pct(bd.contingency)}</td></tr>
-      <tr style="background:#0D9488;color:white;font-weight:700;"><td>TOTAL BID</td><td colspan="2"></td><td style="text-align:right;">${fmt(grandTotal)}</td><td style="text-align:right;">100%</td></tr>
+      <tr style="background:#0D9488;color:white;font-weight:700;"><td>TOTAL BID</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.grandTotal)}</td><td style="text-align:right;">100%</td></tr>
+      ${bd.commission > 0 ? `<tr><td>Commission (${(bd.commissionPct * 100).toFixed(1)}%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.commission)}</td><td></td></tr>` : ''}
+      ${bd.salesTax > 0 ? `<tr><td>Sales Tax on Materials (${(bd.salesTaxPct * 100).toFixed(2)}%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.salesTax)}</td><td></td></tr>` : ''}
+      ${bd.escalation > 0 ? `<tr><td>Material Escalation (${(bd.escalationPct * 100).toFixed(1)}%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.escalation)}</td><td></td></tr>` : ''}
+      ${bd.finalTotal > bd.grandTotal ? `<tr style="background:#065F46;color:white;font-weight:700;"><td>FINAL TOTAL (incl. commission/tax)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.finalTotal)}</td><td></td></tr>` : ''}
+      ${bd._benchmarkCapped ? `<tr style="background:#FEF3C7;color:#92400E;"><td colspan="5">⚠️ Transit benchmark cap applied (scale factor: ${(bd._scaleFactor * 100).toFixed(1)}%)</td></tr>` : ''}
     </table>`;
   } else if (financialEngine?.project_summary) {
     // Fallback: AI Financial Engine breakdown (legacy path)
@@ -4970,7 +4978,8 @@ function renderStep7(container) {
             <input type="file" accept=".xlsx,.csv,.pdf" id="supplier-file-input" style="display:none;">
             <div style="font-size:20px;margin-bottom:4px;"><i data-lucide="download" style="width:22px;height:22px;color:#14B8A6;"></i></div>
             <div style="font-size:12px;font-weight:600;color:var(--text-primary);">Import Supplier Pricing</div>
-            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Drop completed pricing file here or click to browse · XLSX or CSV</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Drop completed pricing file here or click to browse · XLSX, CSV, or PDF</div>
+            <button id="supplier-browse-btn" type="button" style="margin-top:8px;padding:8px 20px;border-radius:8px;border:1px solid rgba(20,184,166,0.4);background:rgba(20,184,166,0.08);color:#14B8A6;cursor:pointer;font-size:12px;font-weight:600;">Browse Files</button>
           </div>
         </div>
         <div id="supplier-quotes-container"></div>
@@ -5258,6 +5267,24 @@ function renderStep7(container) {
           </div>
         </div>
       </div>
+      ${(() => {
+        const da = state.brainResults?.wave3?.DEVILS_ADVOCATE;
+        const rs = da?.risk_score;
+        if (rs == null) return '';
+        const rc = rs <= 30 ? '#10b981' : rs <= 60 ? '#f59e0b' : '#ef4444';
+        const rl = rs <= 30 ? 'Low Risk' : rs <= 60 ? 'Medium Risk' : 'High Risk';
+        const challenges = (da?.challenges || []).slice(0, 3);
+        return `<div style="margin:12px 0;padding:12px 16px;border-radius:10px;border:1px solid ${rc}33;background:${rc}0a;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:${challenges.length ? '6' : '0'}px;">
+            <span style="font-size:28px;font-weight:900;color:${rc};">${rs}</span>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:${rc};">${rl}</div>
+              <div style="font-size:10px;color:var(--text-muted);">Devil's Advocate Risk Score</div>
+            </div>
+          </div>
+          ${challenges.length ? `<div style="font-size:10px;color:var(--text-secondary);line-height:1.5;">${challenges.map(c => '<div style="padding:1px 0;">\u2022 ' + esc(typeof c === 'string' ? c : c.description || JSON.stringify(c)).substring(0, 120) + '</div>').join('')}</div>` : ''}
+        </div>`;
+      })()}
       <div class="results-stats">
         <div class="results-stat">
           <div class="results-stat-icon"><i data-lucide="ruler" style="width:22px;height:22px;color:#14B8A6;"></i></div>
@@ -5499,11 +5526,17 @@ function renderStep7(container) {
   if (supplierExcelBtn) supplierExcelBtn.addEventListener("click", () => handleSupplierExport("xlsx"));
   if (supplierCsvBtn) supplierCsvBtn.addEventListener("click", () => handleSupplierExport("csv"));
 
-  // Supplier import drag-drop
-  const supplierZone = document.getElementById("supplier-import-zone");
-  const supplierInput = document.getElementById("supplier-file-input");
-  if (supplierZone && supplierInput) {
-    supplierZone.addEventListener("click", () => supplierInput.click());
+  // Supplier import drag-drop (wrapped in rAF to ensure DOM is settled)
+  requestAnimationFrame(() => {
+    const supplierZone = document.getElementById("supplier-import-zone");
+    const supplierInput = document.getElementById("supplier-file-input");
+    const browseBtn = document.getElementById("supplier-browse-btn");
+    if (!supplierZone || !supplierInput) {
+      console.warn('[SmartPlans] Supplier import elements not found — upload may not work');
+      return;
+    }
+    supplierZone.addEventListener("click", (e) => { if (e.target.id !== 'supplier-browse-btn') supplierInput.click(); });
+    if (browseBtn) browseBtn.addEventListener("click", (e) => { e.stopPropagation(); supplierInput.click(); });
     supplierZone.addEventListener("dragover", (e) => { e.preventDefault(); supplierZone.style.borderColor = "rgba(20,184,166,0.6)"; supplierZone.style.background = "rgba(20,184,166,0.06)"; });
     supplierZone.addEventListener("dragleave", () => { supplierZone.style.borderColor = "rgba(20,184,166,0.25)"; supplierZone.style.background = "rgba(20,184,166,0.02)"; });
     supplierZone.addEventListener("drop", (e) => {
@@ -5516,7 +5549,7 @@ function renderStep7(container) {
       if (e.target.files.length) handleSupplierImport(e.target.files[0]);
       supplierInput.value = "";
     });
-  }
+  });
 
   async function handleSupplierImport(file) {
     try {

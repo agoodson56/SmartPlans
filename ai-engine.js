@@ -2392,12 +2392,19 @@ Maximum unit costs (premium × 2.5 for transit/ruggedized):
 CORRECTION RULES:
 1. QUANTITY FIX: If Devil's Advocate says "13 phantom cameras" — REDUCE the camera count by 13
 2. PRICE FIX: If any unit cost exceeds the guardrail max — CLAMP it to the max
-3. MISSING ITEMS: If Devil's Advocate says "missing camera poles" or "missing concrete foundations" — ADD them
+3. MISSING ITEMS: If Devil's Advocate says "missing camera poles" or "missing concrete foundations" — ADD them ONLY to an EXISTING category. NEVER create a new category.
 4. OFCI: If an item is marked "owner furnished, contractor install" — set unit_cost to 0 (labor only)
 5. DOUBLE-COUNT: If the same devices were counted from both schedule AND symbols — use the LOWER count (schedule preferred)
 6. MATH: Recalculate ext_cost = qty × unit_cost for every row you change
 7. SUBTOTALS: Recalculate category subtotals after corrections
 8. Do NOT remove legitimate items — only correct quantities and prices that are wrong
+
+ABSOLUTE PROHIBITIONS — VIOLATING THESE INVALIDATES YOUR ENTIRE OUTPUT:
+9. NEVER CREATE NEW CATEGORIES. Your output must contain ONLY the categories from the original Material Pricer. If you need to add an item, add it to the most appropriate EXISTING category.
+10. NEVER INCREASE the corrected_grand_total above the original_grand_total by more than 5%. Your job is to CORRECT errors (reduce phantom items, fix prices), not to ADD scope.
+11. NET DIRECTION MUST BE DOWN. If the Devil's Advocate found phantom items, your total_adjustment MUST be NEGATIVE. The whole point of correction is to remove inflated pricing.
+12. Cisco/Juniper network switches on transit/railroad projects are OWNER-FURNISHED — set unit_cost to 0 (labor only at $448-$758 per switch).
+13. Do NOT add categories like "Cabling & Pathways", "Architectural/Glazing", "Site Work", or similar broad categories. These are either already covered in existing categories or are subcontractor scope.
 
 Return ONLY valid JSON:
 {
@@ -2640,6 +2647,19 @@ You MUST calculate and add materials + labor for ALL missing disciplines using t
 
 The final bid MUST incorporate ALL corrections. Do NOT just report the errors — FIX them in the actual tables and totals.
 
+${context.isTransitRailroad ? `
+═══ ⚠️ TRANSIT/RAILROAD PRICING GUARDRAILS ═══
+This is a Transit/Railroad project. Actual winning bid prices for similar Amtrak station CCTV projects range from $1.0M to $2.1M for 60-100 cameras. Your material BOM MUST stay within the range implied by the Material Pricer output.
+
+CRITICAL RULES FOR TRANSIT:
+- Do NOT add new material categories beyond what the Material Pricer provided
+- Do NOT inflate infrastructure costs beyond what the plans show
+- Cisco/Juniper network switches are OWNER-FURNISHED (Amtrak-provided) — labor only ($448-$758/switch)
+- Use the CORRECTED Material Pricer data if available — it has already been audited
+- Do NOT add "Cabling & Pathways", "Architectural/Glazing", "Site Work" or other broad categories that were not in the Material Pricer
+- The Material Pricer and Estimate Corrector already account for all scope — your job is to FORMAT it, not to ADD to it
+- If your Project Cost Summary material total is more than 15% above the Material Pricer grand total, you have added phantom scope. REMOVE IT.
+` : ''}
 Generate the COMPLETE BID REPORT now. Every section must have real data with real dollar amounts. This is not a template — it is an actual bid.`;
       },
 
@@ -4194,16 +4214,54 @@ Return ONLY valid JSON:
       // If corrections were produced, log the summary and inject into context
       const corrector = wave385Results.ESTIMATE_CORRECTOR;
       if (corrector && !corrector._failed && !corrector._parseFailed && corrector.corrected_categories) {
-        const log = corrector.correction_log || [];
-        console.log(`[SmartBrains] ═══ Wave 3.85 Complete — ${log.length} correction(s) applied ═══`);
-        for (const entry of log) {
-          console.log(`[SmartBrains]   🔧 ${entry.action}: ${entry.item} — ${entry.reason} (${entry.cost_impact >= 0 ? '+' : ''}$${entry.cost_impact?.toLocaleString()})`);
+        // ═══ CODE-LEVEL ENFORCEMENT: Strip phantom categories ═══
+        // The AI ignores instructions and adds new categories. We only allow
+        // categories that existed in the original Material Pricer output.
+        const origPricer = context.wave2?.MATERIAL_PRICER;
+        if (origPricer && corrector.corrected_categories) {
+          const origCatNames = new Set();
+          const origCats = origPricer.categories || origPricer.material_categories || [];
+          for (const oc of origCats) {
+            origCatNames.add((oc.name || oc.category || '').toLowerCase().trim());
+          }
+          const beforeCount = corrector.corrected_categories.length;
+          corrector.corrected_categories = corrector.corrected_categories.filter(cc => {
+            const ccName = (cc.name || '').toLowerCase().trim();
+            // Check if this category matches any original category (fuzzy — first 15 chars)
+            const ccShort = ccName.replace(/[^a-z]/g, '').substring(0, 15);
+            const isOriginal = [...origCatNames].some(on => {
+              const onShort = on.replace(/[^a-z]/g, '').substring(0, 15);
+              return ccShort === onShort || on.includes(ccShort) || ccShort.includes(onShort);
+            });
+            if (!isOriginal) {
+              console.warn(`[SmartBrains] ⛔ STRIPPED phantom category from Estimate Corrector: "${cc.name}" ($${(cc.subtotal || 0).toLocaleString()}) — not in original Material Pricer`);
+            }
+            return isOriginal;
+          });
+          if (corrector.corrected_categories.length < beforeCount) {
+            console.warn(`[SmartBrains] Removed ${beforeCount - corrector.corrected_categories.length} phantom categories from Estimate Corrector output`);
+            // Recalculate corrected_grand_total
+            corrector.corrected_grand_total = corrector.corrected_categories.reduce((s, c) => s + (c.subtotal || 0), 0);
+            corrector.total_adjustment = corrector.corrected_grand_total - (corrector.original_grand_total || 0);
+          }
         }
-        if (corrector.total_adjustment) {
-          console.log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
+
+        // ═══ ENFORCEMENT: Reject if corrector INCREASED total by >10% ═══
+        if (corrector.original_grand_total > 0 && corrector.corrected_grand_total > corrector.original_grand_total * 1.10) {
+          console.warn(`[SmartBrains] ⛔ REJECTED Estimate Corrector — increased total by ${(((corrector.corrected_grand_total / corrector.original_grand_total) - 1) * 100).toFixed(1)}% (from $${corrector.original_grand_total.toLocaleString()} to $${corrector.corrected_grand_total.toLocaleString()}). Using original pricer data.`);
+          context._correctedPricer = null;
+        } else {
+          const log = corrector.correction_log || [];
+          console.log(`[SmartBrains] ═══ Wave 3.85 Complete — ${log.length} correction(s) applied ═══`);
+          for (const entry of log) {
+            console.log(`[SmartBrains]   🔧 ${entry.action}: ${entry.item} — ${entry.reason} (${entry.cost_impact >= 0 ? '+' : ''}$${entry.cost_impact?.toLocaleString()})`);
+          }
+          if (corrector.total_adjustment) {
+            console.log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
+          }
+          // Inject corrected data so Report Writer uses it
+          context._correctedPricer = corrector;
         }
-        // Inject corrected data so Report Writer uses it
-        context._correctedPricer = corrector;
       } else {
         console.warn('[SmartBrains] Estimate Corrector returned no corrections — Report Writer will use original pricer data');
       }
