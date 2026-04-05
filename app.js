@@ -5490,6 +5490,34 @@ function renderStep7(container) {
           ${challenges.length ? `<div style="font-size:10px;color:var(--text-secondary);line-height:1.5;">${challenges.map(c => '<div style="padding:1px 0;">\u2022 ' + esc(typeof c === 'string' ? c : c.description || JSON.stringify(c)).substring(0, 120) + '</div>').join('')}</div>` : ''}
         </div>`;
       })()}
+      ${(() => {
+        const fit = computeBidFitScore(state);
+        if (!fit) return '';
+        const fc = fit.score >= 80 ? '#10b981' : fit.score >= 60 ? '#f59e0b' : fit.score >= 40 ? '#f97316' : '#ef4444';
+        const barHtml = (label, pts, max) => {
+          const pct = Math.round((pts / max) * 100);
+          return `<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">
+            <div style="width:120px;font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</div>
+            <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:${fc};border-radius:3px;transition:width 0.3s;"></div>
+            </div>
+            <div style="font-size:10px;font-weight:700;color:var(--text-secondary);width:36px;text-align:right;">${pts}/${max}</div>
+          </div>`;
+        };
+        return `<div style="margin:12px 0;padding:14px 16px;border-radius:10px;border:1px solid ${fc}33;background:${fc}0a;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <span style="font-size:28px;font-weight:900;color:${fc};">🎯 ${fit.score}</span>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:${fc};">${fit.label}</div>
+              <div style="font-size:10px;color:var(--text-muted);">Bid Fit Score — based on 22 actual 3D bids</div>
+            </div>
+          </div>
+          ${fit.categories.map(c => barHtml(c.name, c.pts, c.max)).join('')}
+          <div style="margin-top:8px;font-size:10px;line-height:1.6;">
+            ${fit.factors.map(f => `<div>${f}</div>`).join('')}
+          </div>
+        </div>`;
+      })()}
       <div class="results-stats">
         <div class="results-stat">
           <div class="results-stat-icon"><i data-lucide="ruler" style="width:22px;height:22px;color:#14B8A6;"></i></div>
@@ -10419,6 +10447,130 @@ function bindCablePathwayEvents(container) {
 // Runs 14 checks (transit) or 5 checks (standard) and shows
 // traffic light results in a modal overlay
 // ═══════════════════════════════════════════════════════════════
+
+// ═══ BID FIT SCORECARD ═══
+// Rates how well a project matches 3D Technology's strengths
+// Based on 22 real bid outcomes (Amtrak + commercial, 2022-2026)
+function computeBidFitScore(st) {
+  if (!st.aiAnalysis || !st.disciplines) return null;
+  const cfg = (typeof PRICING_DB !== 'undefined') ? PRICING_DB.bidFitConfig : null;
+  if (!cfg) return null;
+
+  const cats = [];
+  const factors = [];
+  const disc = new Set((st.disciplines || []).map(d => d.toLowerCase()));
+  const projName = (st.projectName || '').toLowerCase();
+  const projLoc = (st.projectLocation || '').toLowerCase();
+  const isTransit = !!st.isTransitRailroad;
+  const consensus = st.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || {};
+  const specConds = st.brainResults?.wave1?.SPECIAL_CONDITIONS || {};
+
+  // Count cameras from consensus
+  let camCount = 0;
+  for (const [key, val] of Object.entries(consensus)) {
+    if (/camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i.test(key) && !/mount|bracket|license|sd|cable|adapter|housing/i.test(key)) {
+      camCount += (typeof val === 'number' ? val : val?.count || val?.qty || 0);
+    }
+  }
+
+  // 1. Discipline Match (20 pts)
+  const hasCCTV = disc.has('cctv');
+  const hasAC = disc.has('access control');
+  const hasCabling = disc.has('structured cabling');
+  let discPts = 0;
+  if (hasCCTV) { discPts = 20; factors.push('✅ CCTV is our #1 strength — 100% win history'); }
+  else if (hasCabling && hasAC) { discPts = 16; factors.push('✅ Cabling + Access Control — proven combo'); }
+  else if (hasCabling) { discPts = 12; factors.push('🟡 Structured Cabling only — can do but not strongest'); }
+  else if (disc.has('fire alarm')) { discPts = 8; factors.push('⚠️ Fire Alarm — limited bid history'); }
+  else if (disc.size > 0) { discPts = 10; }
+  else { discPts = 0; factors.push('❌ No recognized discipline selected'); }
+  cats.push({ name: 'Discipline Match', pts: discPts, max: 20 });
+
+  // 2. Project Size Match (15 pts)
+  const bom = (typeof getFilteredBOM !== 'undefined' && st.aiAnalysis) ? getFilteredBOM(st.aiAnalysis, st.disciplines) : null;
+  const bd = (bom && typeof SmartPlansExport !== 'undefined') ? SmartPlansExport._computeFullBreakdown(st, bom) : null;
+  const total = bd?.grandTotal || 0;
+  let sizePts = 8; // neutral if no estimate
+  if (total > 0) {
+    const range = isTransit ? cfg.sweetSpotTotal.transit : cfg.sweetSpotTotal.commercial;
+    if (total >= range.ideal_min && total <= range.ideal_max) { sizePts = 15; factors.push(`✅ $${(total/1000000).toFixed(2)}M — right in our sweet spot`); }
+    else if (total >= range.ok_min && total <= range.ok_max) { sizePts = 10; }
+    else { sizePts = 5; factors.push(`⚠️ $${total.toLocaleString()} — outside typical bid range`); }
+  }
+  cats.push({ name: 'Project Size', pts: sizePts, max: 15 });
+
+  // 3. Location & Travel (10 pts)
+  let locPts = 6; // default if can't determine
+  if (projLoc) {
+    const locLower = projLoc.toLowerCase();
+    if (cfg.homeTurf.some(c => locLower.includes(c))) { locPts = 10; factors.push('✅ NorCal home turf — minimal travel'); }
+    else if (cfg.calCities.some(c => locLower.includes(c)) || locLower.includes('california') || locLower.includes(', ca')) { locPts = 7; }
+    else if (/nevada|oregon|washington|arizona|utah|colorado/i.test(locLower)) { locPts = 5; }
+    else if (locLower.length > 2) { locPts = 3; factors.push('⚠️ Remote location — significant travel costs'); }
+  }
+  cats.push({ name: 'Location', pts: locPts, max: 10 });
+
+  // 4. Transit/Railroad Experience (15 pts)
+  let transitPts = 8; // neutral for non-transit
+  if (isTransit) {
+    if (hasCCTV) { transitPts = 15; factors.push('✅ Transit CCTV — our strongest niche (7 Amtrak wins)'); }
+    else { transitPts = 10; }
+  }
+  cats.push({ name: 'Transit Experience', pts: transitPts, max: 15 });
+
+  // 5. Prevailing Wage Readiness (10 pts)
+  const specText = JSON.stringify(specConds).toLowerCase();
+  const isPW = /prevailing\s*wage|davis.bacon|dir.*register/i.test(specText) || isTransit;
+  let pwPts = 5;
+  if (isPW && isTransit) { pwPts = 10; }
+  else if (isPW) { pwPts = 8; }
+  else if (!isPW && specText.length > 50) { pwPts = 10; } // non-PW = higher margins
+  cats.push({ name: 'Prevailing Wage', pts: pwPts, max: 10 });
+
+  // 6. Scope Complexity Match (15 pts)
+  let scopePts = 8;
+  if (camCount >= 20 && camCount <= 100) { scopePts = 15; }
+  else if (camCount >= 8 && camCount < 20) { scopePts = 12; }
+  else if (camCount > 100 && camCount <= 200) { scopePts = 10; }
+  else if (camCount > 200) { scopePts = 7; factors.push('⚠️ ' + camCount + ' cameras — larger than typical scope'); }
+  else if (camCount > 0 && camCount < 8) { scopePts = 10; }
+  if (hasCCTV && hasAC && camCount > 0) { scopePts = Math.min(15, scopePts + 2); }
+  cats.push({ name: 'Scope Complexity', pts: scopePts, max: 15 });
+
+  // 7. Competition Risk (10 pts)
+  let compPts = 6;
+  if (/sole\s*source|single\s*source|direct\s*award|invited/i.test(specText)) { compPts = 10; factors.push('✅ Invited/sole source — limited competition'); }
+  else if (/prequalif|short\s*list/i.test(specText)) { compPts = 8; }
+  else if (/public\s*bid|open\s*bid|lowest\s*bidder|sealed\s*bid/i.test(specText)) { compPts = 4; factors.push('⚠️ Open/public bid — expect price competition'); }
+  cats.push({ name: 'Competition Risk', pts: compPts, max: 10 });
+
+  // 8. Client Relationship (5 pts)
+  let clientPts = 3;
+  if (cfg.knownClients.some(c => projName.includes(c))) { clientPts = 5; factors.push('✅ Known client — existing relationship'); }
+  else if (/county|city|state|federal|government|agency/i.test(projName)) { clientPts = 3; }
+  else { clientPts = 4; }
+  cats.push({ name: 'Client Relationship', pts: clientPts, max: 5 });
+
+  // Total
+  const score = cats.reduce((s, c) => s + c.pts, 0);
+  let label;
+  if (score >= 80) label = 'BID IT — Strong fit, high confidence';
+  else if (score >= 60) label = 'CONSIDER — Good fit with some gaps';
+  else if (score >= 40) label = 'CAUTION — Review carefully before bidding';
+  else label = 'PASS — Outside our wheelhouse';
+
+  // Add benchmark comparison to factors
+  if (isTransit && camCount > 0 && typeof PRICING_DB !== 'undefined') {
+    const bids = PRICING_DB.amtrakBenchmarks?.actualBids;
+    if (bids) {
+      const closest = Object.entries(bids).map(([k, v]) => ({ key: k, ...v })).filter(b => b.cameras > 0)
+        .sort((a, b) => Math.abs(a.cameras - camCount) - Math.abs(b.cameras - camCount))[0];
+      if (closest) factors.push(`📊 Similar to ${closest.key.replace(/_/g, ' ')} (${closest.cameras} cams, $${closest.total.toLocaleString()})`);
+    }
+  }
+
+  return { score, label, categories: cats, factors: factors.slice(0, 5) };
+}
 
 function verifyBid(st) {
   const checks = [];

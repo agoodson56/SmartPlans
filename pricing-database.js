@@ -927,6 +927,36 @@ const PRICING_DB = {
             traffic_control_daily: 800,
         },
     },
+
+    // ═══════════════════════════════════════════════════════════
+    // BID FIT SCORING CONFIG
+    // Based on 22 real 3D Technology bids (2022-2026)
+    // Used by computeBidFitScore() to rate project fit
+    // ═══════════════════════════════════════════════════════════
+    bidFitConfig: {
+        // Known clients we've worked with (for relationship scoring)
+        knownClients: ['amtrak', 'caltrans', 'chp', 'california highway patrol', 'bart', 'sacramento',
+                       'auburn', 'ethos', 'sam brennan', 'capitol mall', '1515 s street', 'superior equipment',
+                       'sheriff', 'poa', 'caltrain', 'union pacific', 'bnsf'],
+        // Camera count sweet spot from actual wins
+        sweetSpotCameras: { min: 8, max: 100 },
+        // Project size ranges from actual wins
+        sweetSpotTotal: {
+            transit: { ideal_min: 1000000, ideal_max: 2100000, ok_min: 500000, ok_max: 3000000 },
+            commercial: { ideal_min: 15000, ideal_max: 850000, ok_min: 5000, ok_max: 1500000 },
+        },
+        // Core strengths ranked by win rate
+        coreStrengths: ['cctv', 'access_control', 'structured_cabling'],
+        // NorCal home turf cities/regions
+        homeTurf: ['sacramento', 'rancho cordova', 'elk grove', 'roseville', 'folsom', 'davis',
+                    'stockton', 'modesto', 'oakland', 'san francisco', 'san jose', 'martinez',
+                    'emeryville', 'richmond', 'berkeley', 'hayward', 'fremont', 'concord',
+                    'walnut creek', 'pleasanton', 'livermore', 'dublin', 'fairfield', 'vacaville',
+                    'vallejo', 'napa', 'santa rosa', 'auburn', 'grass valley', 'placerville'],
+        // California but not NorCal
+        calCities: ['los angeles', 'san diego', 'fresno', 'bakersfield', 'riverside',
+                     'long beach', 'anaheim', 'irvine', 'santa barbara', 'monterey'],
+    },
 };
 
 // Prevent runtime tampering with pricing data
