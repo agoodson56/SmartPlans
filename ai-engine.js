@@ -1424,7 +1424,16 @@ Example: UPS benchmark = $186,320 (sell price). Your base cost = $186,320 / 1.15
 13. ENCLOSURE FOUNDATIONS: $3,500 each for remote network enclosures.
 14. MINI-SPLIT HVAC: $16,000 per telecom room (if plans show dedicated cooling).
 
-DO NOT use a small rack-mount UPS when the plans call for station power. DO NOT estimate trenching at less than $95/LF for railroad projects. DO NOT omit bonds, insurance, or RRPLI.` : ''}
+DO NOT use a small rack-mount UPS when the plans call for station power. DO NOT estimate trenching at less than $95/LF for railroad projects. DO NOT omit bonds, insurance, or RRPLI.
+
+AMTRAK-PROVIDED EQUIPMENT (DO NOT PRICE AS MATERIALS):
+Amtrak provides their own network switches — 3D does NOT buy or sell these.
+- Cisco 9200 PoE switches — PROVIDED BY AMTRAK, labor only ($448-$758/switch)
+- Cisco 9300 fiber switches — PROVIDED BY AMTRAK, labor only ($448-$758/switch)
+- Cisco 3300 hardened PoE switches — PROVIDED BY AMTRAK, labor only ($448-$758/switch)
+- Cisco IE-series industrial switches — PROVIDED BY AMTRAK, labor only
+DO NOT include Cisco switch material costs in your estimate. Include ONLY the labor to install them.
+If you see switches on the plans, list them as labor-only line items at $448-$758 per switch.` : ''}
 
 YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment rental, civil work, traffic control, site preparation, and specialty item needed to COMPLETE this installation from start to finish.
 
