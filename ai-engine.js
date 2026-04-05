@@ -1416,7 +1416,7 @@ Example: UPS benchmark = $186,320 (sell price). Your base cost = $186,320 / 1.15
 5. PERFORMANCE & PAYMENT BONDS: $21,740-$40,986 (approximately 2% of contract value). MANDATORY. (Bonds are NOT marked up — use full amount.)
 6. GENERAL INSURANCE (excluding RRPLI): $9,750-$20,493. MANDATORY. (Insurance is NOT marked up — use full amount.)
 7. MOBILIZATION/DEMOBILIZATION: $17,920-$22,400 lump sum. MANDATORY. (Pass-through — NOT marked up.)
-8. RWIC FLAGMAN: BASE COST $1,043/day (sell $1,200/day) × number of track-side work days (minimum 25 days).
+8. RWIC FLAGMAN: BASE COST $1,300/day (sell $1,500-$2,000/day depending on railroad/union) × number of track-side work days (minimum 25 days).
 9. CONSTRUCTION SURVEY: $20,000 allowance. MANDATORY. (Pass-through.)
 10. UTILITY LOCATION: $10,000 allowance. MANDATORY. (Pass-through.)
 11. NEW POLE & FOUNDATION: $25,847 per pole (if shown on plans).
@@ -1979,7 +1979,7 @@ ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 800
 
 NECA LABOR UNIT GUIDELINES:
 - Cat6A drop (install+terminate+test): 0.45-0.55 hrs/drop
-- Camera install (mount+wire+aim): 2.0-3.5 hrs/camera
+- Camera install (mount+wire+aim): 3.0-4.0 hrs/camera (standard commercial), 6-8 hrs/camera (transit/railroad with restricted access, platform work, or pole-mount)
 - Card reader (mount+wire+program): 2.5-4.0 hrs/door
 - Fire alarm device: 0.5-1.5 hrs/device depending on type
 - Rack build-out: 8-16 hrs/rack
@@ -2017,6 +2017,7 @@ CRITICAL RULES:
 7. You MUST include conduit installation labor if Special Conditions or Cable Pathway shows conduit runs
 8. Apply shift differential if work shift is not Standard
 9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
+10. If project requires prevailing wage (any state), multiply ALL labor hours by 1.15-1.20 for prevailing wage productivity overhead (documentation, certified payroll, compliance)
 10. You MUST include all NON-INSTALLATION phases below — these are real labor costs
 ${context.isTransitRailroad ? `
 ══ MANDATORY AMTRAK/RAILROAD LABOR RULES ══
@@ -2196,7 +2197,7 @@ If the project location is 60+ miles from Rancho Cordova, CA (Sacramento area):
 
 ═══ TRANSIT / RAILROAD COST RULES ═══
 If Special Conditions flagged transit/railroad work:
-- RWIC/Flagman costs: $1,000-$1,500/day × number of track-side work days → add to Subcontractor column
+- RWIC/Flagman costs: $1,500-$2,000/day × number of track-side work days (min 25 days) → add to Subcontractor column
 - RPL Insurance: $15,000-$50,000+ → add to project_summary
 - Safety training: $200-$500/worker → add to Labor column
 - Work window premium: 20-30% increase to labor hours (reduced productivity) → should already be in Labor Calculator
@@ -2274,7 +2275,7 @@ Return ONLY valid JSON:
   },
   "transit_infrastructure": {
     "applicable": false,
-    "rwic_flagman": { "days": 0, "daily_rate": 1200, "total": 0 },
+    "rwic_flagman": { "days": 0, "daily_rate": 1750, "total": 0 },
     "rpl_insurance": 0,
     "safety_training": { "workers": 0, "cost_per": 350, "total": 0 },
     "work_window_premium": 0,
@@ -2944,6 +2945,13 @@ CONSENSUS RULES:
 4. For disputed items, identify WHICH sheets/areas likely caused the disagreement.
 5. When multiple conflicting counts exist with no clear majority, use the MEDIAN value (middle value when sorted). Do NOT default to the highest count — over-counting inflates bids.
 
+═══ LOW-CONFIDENCE DEVICE RULE ═══
+Devices appearing in fewer than 3 of the 6 reads are LOW CONFIDENCE:
+- Do NOT include them in consensus_counts unless the Detail Verifier or Annotation Reader explicitly confirms them
+- Flag them in the disputes array with confidence: "low"
+- These are likely false positives (misread symbols, one-off annotations, or legend interpretation errors)
+- Exception: if a device appears in only 1-2 reads but matches an equipment schedule exactly, include it
+
 ═══ CRITICAL: TYPICAL NOTE MULTIPLICATION ═══
 When an annotation says "TYP" or "TYPICAL" (e.g., "Card reader TYP at each secure door"):
 - Check the Per-Floor Analyzer for the count of matching locations
@@ -3219,7 +3227,7 @@ ${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substrin
 6. Apply detail verifier corrections (from Read 4)
 7. Produce FINAL AUTHORITATIVE COUNTS — these are the numbers that go into the bid
 
-CRITICAL: This is the LAST CHANCE to get counts right. The bid price depends on these numbers. If you are uncertain about any count, round UP slightly (it's better to over-quote than under-quote).
+CRITICAL: This is the LAST CHANCE to get counts right. The bid price depends on these numbers. If you are uncertain about any count, use the MEDIAN of all 6 reads. Do NOT systematically round up — over-counting inflates bids and loses competitive advantage.
 
 Return ONLY valid JSON:
 {
@@ -3696,7 +3704,7 @@ Return ONLY valid JSON:
         }
         ctx += `\nACTUAL WINNING BID TOTALS (your estimate MUST be within 15% of these for similar scope):\n`;
         for (const [station, data] of Object.entries(ab.actualBids)) {
-          ctx += `  ${station}: ${data.cameras} cameras = $${data.total.toLocaleString()} total ($${data.avg_per_camera}/cam avg)\n`;
+          ctx += `  ${station}: ${data.cameras} cameras = $${data.total.toLocaleString()} total ($${Math.round(data.total / data.cameras).toLocaleString()}/cam avg)\n`;
         }
         ctx += `\nMANDATORY LINE ITEM PRICES (these are SELL prices — divide by 1.15 for base cost when placing in subcontractor categories):\n`;
         for (const [k, v] of Object.entries(ab.lineItemBenchmarks)) {

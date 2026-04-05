@@ -797,13 +797,15 @@ const PRICING_DB = {
         // ── Actual Bid Totals (for AI sanity checking) ──
         // ALL revisions from all 3 stations — use for calibration
         actualBids: {
-            emeryville_original:     { cameras: 61,  total: 1302128, cost: 876945, avg_per_camera: 6534, year: 2025, type: "original" },
-            emeryville_ve:           { cameras: 61,  total: 1033760, cost: 829696, avg_per_camera: 6534, year: 2025, type: "value_engineering" },
-            sacramento_rev2:         { cameras: 100, total: 1734097, avg_per_camera: 4890, year: 2025, type: "revision" },
-            sacramento_sv_rev1:      { cameras: 100, total: 1810020, avg_per_camera: 5060, year: 2025, type: "revision" },
-            martinez_original:       { cameras: 69,  total: 2035277, avg_per_camera: 6150, year: 2025, type: "original" },
-            martinez_ve:             { cameras: 69,  total: 1731418, avg_per_camera: 6150, year: 2025, type: "value_engineering" },
-            martinez_bafo:           { cameras: 69,  total: 1966150, avg_per_camera: 5978, year: 2025, type: "bafo" },
+            // Per-camera sell price is computed dynamically as total/cameras in calibration code
+            // DO NOT add avg_per_camera — it was previously wrong by 200-376%
+            emeryville_original:     { cameras: 61,  total: 1302128, cost: 876945, year: 2025, type: "original" },
+            emeryville_ve:           { cameras: 61,  total: 1033760, cost: 829696, year: 2025, type: "value_engineering" },
+            sacramento_rev2:         { cameras: 100, total: 1734097, year: 2025, type: "revision" },
+            sacramento_sv_rev1:      { cameras: 100, total: 1810020, year: 2025, type: "revision" },
+            martinez_original:       { cameras: 69,  total: 2035277, year: 2025, type: "original" },
+            martinez_ve:             { cameras: 69,  total: 1731418, year: 2025, type: "value_engineering" },
+            martinez_bafo:           { cameras: 69,  total: 1966150, year: 2025, type: "bafo" },
         },
         // ── Div 1 General Conditions as % of Total ──
         // Emeryville: 5.1%, Martinez: 6.4-7.9%, Sacramento: 4.0-5.0%
@@ -904,7 +906,7 @@ const PRICING_DB = {
         transit_railroad: {
             civil_contractor_min: 60000,      // Minimum civil sub for transit (boring, trenching, restoration)
             electrical_contractor_min: 80000,  // Dedicated circuits, panels, grounding for camera/access systems
-            rwic_flagman_daily: 1200,          // Per day, per flagman
+            rwic_flagman_daily: 1750,          // Per day, per flagman (updated Q2 2026)
             rwic_min_days: 25,                 // Minimum flagman days for a multi-week transit project
             rwic_min_total: 30000,             // Absolute floor for RWIC costs
             rpl_insurance_min: 25000,          // Minimum RPL for railroad project
