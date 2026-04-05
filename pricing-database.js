@@ -947,15 +947,29 @@ const PRICING_DB = {
         },
         // Core strengths ranked by win rate
         coreStrengths: ['cctv', 'access_control', 'structured_cabling'],
-        // NorCal home turf cities/regions
-        homeTurf: ['sacramento', 'rancho cordova', 'elk grove', 'roseville', 'folsom', 'davis',
-                    'stockton', 'modesto', 'oakland', 'san francisco', 'san jose', 'martinez',
-                    'emeryville', 'richmond', 'berkeley', 'hayward', 'fremont', 'concord',
-                    'walnut creek', 'pleasanton', 'livermore', 'dublin', 'fairfield', 'vacaville',
-                    'vallejo', 'napa', 'santa rosa', 'auburn', 'grass valley', 'placerville'],
-        // California but not NorCal
-        calCities: ['los angeles', 'san diego', 'fresno', 'bakersfield', 'riverside',
-                     'long beach', 'anaheim', 'irvine', 'santa barbara', 'monterey'],
+        // 3D Technology office locations (lat/lng for distance calc)
+        offices: [
+            { name: 'Rancho Cordova HQ', lat: 38.5949, lng: -121.2908, address: '11365 Sunrise Gold Circle, Rancho Cordova, CA 95742' },
+            { name: 'Livermore', lat: 37.6819, lng: -121.7680, address: '7616 Las Positas Road, Livermore, CA 94551' },
+            { name: 'Sparks NV', lat: 39.5349, lng: -119.7527, address: '1430 Greg Street, Suite 511, Sparks, NV 89431' },
+            { name: 'McCall ID', lat: 44.7310, lng: -116.0990, address: '411 Deinhard Lane, McCall, ID 83638' },
+        ],
+        // Max distance from nearest office (miles) — exception: Amtrak anywhere
+        maxDistanceMiles: 100,
+        // Cities within ~100 miles of offices (for text-based matching when no lat/lng)
+        withinRange: ['sacramento', 'rancho cordova', 'elk grove', 'roseville', 'folsom', 'davis',
+                      'stockton', 'modesto', 'oakland', 'san francisco', 'san jose', 'martinez',
+                      'emeryville', 'richmond', 'berkeley', 'hayward', 'fremont', 'concord',
+                      'walnut creek', 'pleasanton', 'livermore', 'dublin', 'fairfield', 'vacaville',
+                      'vallejo', 'napa', 'santa rosa', 'auburn', 'grass valley', 'placerville',
+                      'lodi', 'manteca', 'tracy', 'antioch', 'pittsburg', 'brentwood',
+                      'reno', 'sparks', 'carson city', 'tahoe', 'truckee', 'minden', 'gardnerville',
+                      'boise', 'nampa', 'meridian', 'caldwell', 'mccall', 'cascade',
+                      'fresno', 'merced', 'turlock', 'los banos', 'gilroy', 'santa cruz', 'monterey'],
+        // Outside range but still possible with travel
+        extendedRange: ['los angeles', 'san diego', 'bakersfield', 'riverside', 'long beach',
+                         'anaheim', 'irvine', 'santa barbara', 'portland', 'seattle',
+                         'phoenix', 'tucson', 'salt lake city', 'las vegas', 'denver'],
     },
 };
 

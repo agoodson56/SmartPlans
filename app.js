@@ -10500,13 +10500,23 @@ function computeBidFitScore(st) {
   cats.push({ name: 'Project Size', pts: sizePts, max: 15 });
 
   // 3. Location & Travel (10 pts)
+  // Rule: Must be within 100 miles of an office. Exception: Amtrak = travel anywhere.
   let locPts = 6; // default if can't determine
-  if (projLoc) {
+  if (isTransit) {
+    locPts = 10; // Amtrak exception — we travel anywhere for transit
+    if (projLoc) factors.push('✅ Amtrak — will travel anywhere for transit');
+  } else if (projLoc) {
     const locLower = projLoc.toLowerCase();
-    if (cfg.homeTurf.some(c => locLower.includes(c))) { locPts = 10; factors.push('✅ NorCal home turf — minimal travel'); }
-    else if (cfg.calCities.some(c => locLower.includes(c)) || locLower.includes('california') || locLower.includes(', ca')) { locPts = 7; }
-    else if (/nevada|oregon|washington|arizona|utah|colorado/i.test(locLower)) { locPts = 5; }
-    else if (locLower.length > 2) { locPts = 3; factors.push('⚠️ Remote location — significant travel costs'); }
+    if (cfg.withinRange.some(c => locLower.includes(c))) {
+      locPts = 10;
+      factors.push('✅ Within 100 miles of a 3D office');
+    } else if (cfg.extendedRange.some(c => locLower.includes(c))) {
+      locPts = 4;
+      factors.push('⚠️ Outside 100-mile range — requires travel budget');
+    } else if (locLower.length > 2) {
+      locPts = 2;
+      factors.push('❌ Outside service area — 100-mile max from offices');
+    }
   }
   cats.push({ name: 'Location', pts: locPts, max: 10 });
 
