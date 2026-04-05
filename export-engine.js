@@ -287,23 +287,90 @@ const SmartPlansExport = {
         let contingency = this._round(subtotal * contingencyPct);
         let grandTotal = this._round(subtotal + contingency);
 
-        // ═══ TRANSIT/RAILROAD BENCHMARK CAP ═══
-        // If this is an Amtrak/transit project and the computed total exceeds the
-        // benchmark range by >25%, scale ALL cost buckets down proportionally.
-        // This prevents the AI from inflating the BOM with phantom scope.
+        // ═══ TRANSIT/RAILROAD BENCHMARK CALIBRATION ═══
+        // The AI Material Pricer consistently produces raw material costs 2-3x too high
+        // because it prices at near-sell levels, then our formula adds markups on top.
+        // Instead of capping the output, we CALIBRATE the material input using actual
+        // bid data and the known 1.485x cost-to-sell multiplier.
+        //
+        // How it works:
+        // 1. Find closest Amtrak bid by camera count
+        // 2. Compute target grand total from that benchmark
+        // 3. If our formula's output exceeds target by >15%, scale materials to hit target
+        //
+        // This is based on REAL winning bid data, not guesses.
         if (state.isTransitRailroad && typeof PRICING_DB !== 'undefined' && PRICING_DB.amtrakBenchmarks?.actualBids) {
             const bids = PRICING_DB.amtrakBenchmarks.actualBids;
-            const bidTotals = Object.values(bids).map(b => b.total).filter(t => t > 0);
-            if (bidTotals.length > 0) {
-                // Find the highest actual bid as our ceiling
-                const maxBid = Math.max(...bidTotals);
-                const benchmarkCeiling = maxBid * 1.25; // Allow 25% above highest known bid
-                if (grandTotal > benchmarkCeiling) {
-                    const scaleFactor = benchmarkCeiling / grandTotal;
-                    console.warn(`[Export] ⚠️ TRANSIT BENCHMARK CAP: $${grandTotal.toLocaleString()} exceeds ceiling $${benchmarkCeiling.toLocaleString()} (max bid $${maxBid.toLocaleString()} × 1.25)`);
-                    console.warn(`[Export]   Scaling all costs by ${(scaleFactor * 100).toFixed(1)}%`);
+            const consensus = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts;
+            const finalRecon = state.brainResults?.wave3_75?.FINAL_RECONCILIATION?.final_counts;
 
-                    // Scale the raw costs proportionally
+            // Get camera count from best available source
+            let cameraCount = 0;
+            const countSource = finalRecon || consensus;
+            if (countSource) {
+                for (const [key, val] of Object.entries(countSource)) {
+                    if (/camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i.test(key)) {
+                        cameraCount += (typeof val === 'number' ? val : val?.count || val?.qty || 0);
+                    }
+                }
+            }
+            if (cameraCount < 5) {
+                // Fallback: count cameras from BOM
+                for (const cat of (bom?.categories || [])) {
+                    if (/cctv|camera|surveillance/i.test(cat.name || '')) {
+                        for (const item of (cat.items || [])) {
+                            if (/camera|dome|bullet|ptz|fisheye|panoram|turret|lpr|varifocal/i.test(item.item || item.name || '')) {
+                                cameraCount += (item.qty || 0);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (cameraCount >= 5) {
+                // Find closest bid by camera count
+                const bidArray = Object.entries(bids)
+                    .map(([k, v]) => ({ key: k, ...v }))
+                    .filter(b => b.cameras > 0 && b.total > 0);
+
+                let closest = null;
+                let closestDiff = Infinity;
+                for (const b of bidArray) {
+                    const diff = Math.abs(b.cameras - cameraCount);
+                    if (diff < closestDiff) { closestDiff = diff; closest = b; }
+                }
+
+                // If we have BAFO bids, prefer those over original/VE for same camera count
+                const sameCamBids = bidArray.filter(b => b.cameras === closest.cameras);
+                const bafo = sameCamBids.find(b => b.type === 'bafo');
+                const original = sameCamBids.find(b => b.type === 'original');
+                const benchmark = bafo || original || closest;
+
+                // Compute per-camera sell price from benchmark and scale to our camera count
+                const perCameraSell = benchmark.total / benchmark.cameras;
+                const targetGrandTotal = this._round(cameraCount * perCameraSell);
+
+                console.log(`[Export] ═══ TRANSIT CALIBRATION ═══`);
+                console.log(`[Export]   Camera count: ${cameraCount} (from ${finalRecon ? 'Final Reconciliation' : consensus ? 'Consensus' : 'BOM'})`);
+                console.log(`[Export]   Benchmark: ${benchmark.key} — ${benchmark.cameras} cameras, $${benchmark.total.toLocaleString()} (${benchmark.type})`);
+                console.log(`[Export]   Per-camera sell: $${Math.round(perCameraSell).toLocaleString()}`);
+                console.log(`[Export]   Target grand total: $${targetGrandTotal.toLocaleString()}`);
+                console.log(`[Export]   Formula grand total: $${grandTotal.toLocaleString()}`);
+
+                const deviation = grandTotal / targetGrandTotal;
+                // Allow 15% above target before calibrating — gives AI some room
+                if (deviation > 1.15) {
+                    // Scale materials to match the benchmark target
+                    // For BAFO bids this is the actual winning price
+                    // For original bids we add a small 2% buffer for scope uncertainty
+                    const targetMultiplier = benchmark.type === 'bafo' ? 1.00 : 1.02;
+                    const calibratedTarget = this._round(targetGrandTotal * targetMultiplier);
+                    const scaleFactor = calibratedTarget / grandTotal;
+
+                    console.warn(`[Export] ⚠️ CALIBRATING: formula is ${Math.round((deviation - 1) * 100)}% over benchmark`);
+                    console.warn(`[Export]   Scale factor: ${(scaleFactor * 100).toFixed(1)}% → target $${calibratedTarget.toLocaleString()}`);
+
+                    // Scale all raw costs proportionally
                     const sMat = this._round(materials * scaleFactor);
                     const sLab = this._round(laborBase * scaleFactor);
                     const sEq = this._round(equipment * scaleFactor);
@@ -319,7 +386,7 @@ const SmartPlansExport = {
                     contingency = this._round(subtotal * contingencyPct);
                     grandTotal = this._round(subtotal + contingency);
 
-                    console.warn(`[Export]   Capped grand total: $${grandTotal.toLocaleString()}`);
+                    console.warn(`[Export]   Calibrated grand total: $${grandTotal.toLocaleString()} (target was $${calibratedTarget.toLocaleString()})`);
                     const cCommPct = (state.commissionPct || 0) / 100;
                     const cTaxPct = (state.salesTaxPct || 0) / 100;
                     const cEscPct = (state.escalationPct || 0) / 100;
@@ -335,8 +402,14 @@ const SmartPlansExport = {
                         travel, subtotal, contingency, contingencyPct, grandTotal,
                         commission: cComm, commissionPct: cCommPct, salesTax: cTax, salesTaxPct: cTaxPct,
                         escalation: cEsc, escalationPct: cEscPct, finalTotal: cFinal,
-                        _benchmarkCapped: true, _scaleFactor: scaleFactor
+                        _benchmarkCalibrated: true, _scaleFactor: scaleFactor,
+                        _cameraCount: cameraCount, _benchmarkKey: benchmark.key,
+                        _targetGrandTotal: calibratedTarget
                     };
+                } else if (deviation < 0.85) {
+                    console.log(`[Export]   Formula is ${Math.round((1 - deviation) * 100)}% BELOW benchmark — keeping as-is (competitive bid)`);
+                } else {
+                    console.log(`[Export]   ✅ Within 15% of benchmark — no calibration needed`);
                 }
             }
         }
@@ -381,7 +454,7 @@ const SmartPlansExport = {
             if (breakdown.grandTotal > 1000) {
                 // Use finalTotal if commission/tax/escalation were applied
                 const displayTotal = (breakdown.finalTotal > breakdown.grandTotal) ? breakdown.finalTotal : breakdown.grandTotal;
-                console.log(`[Export] ✅ Grand total from deterministic breakdown: $${displayTotal.toLocaleString()}${breakdown._benchmarkCapped ? ' (benchmark capped)' : ''}${breakdown.finalTotal > breakdown.grandTotal ? ` (incl. commission/tax/escalation from base $${breakdown.grandTotal.toLocaleString()})` : ''}`);
+                console.log(`[Export] ✅ Grand total from deterministic breakdown: $${displayTotal.toLocaleString()}${breakdown._benchmarkCalibrated ? ` (transit calibrated from ${breakdown._benchmarkKey}, ${breakdown._cameraCount} cams)` : ''}${breakdown.finalTotal > breakdown.grandTotal ? ` (incl. commission/tax/escalation from base $${breakdown.grandTotal.toLocaleString()})` : ''}`);
                 return displayTotal;
             }
         }
