@@ -704,6 +704,25 @@ const state = {
   exclusions: [],           // cached from API: [{ id, type, text, category, sort_order }]
   _exclusionsLoaded: false, // true after first API load
   _exclusionsTab: 'exclusion', // active tab: 'exclusion', 'assumption', 'clarification'
+
+  // Win/Loss Tracker
+  bidOutcome: null,         // 'won' | 'lost' | 'pending' | 'no_bid'
+  bidOutcomeNotes: '',      // Why we won/lost
+  bidOutcomeDate: null,     // Date of outcome
+  competitorBids: [],       // [{ name, amount, notes }]
+
+  // Approval Workflow
+  approvalStatus: 'draft',  // 'draft' | 'pending_review' | 'approved' | 'rejected' | 'revision_requested'
+  approvalHistory: [],       // [{ status, by, date, notes }]
+  approvalReviewers: [],     // [{ name, email, role }]
+
+  // Scope Comparison (for re-bids / VE rounds)
+  comparisonEstimateId: null,  // ID of estimate to compare against
+  comparisonData: null,        // Cached comparison results
+
+  // Bid Templates
+  activeBidTemplate: null,     // Template ID currently applied
+  bidTemplates: [],            // Cached list from API
 };
 
 // ─── Start New Bid — full state reset ───
@@ -778,6 +797,28 @@ function startNewBid() {
   ];
   state._bidPhasesOpen = false;
   state._bidPhaseCounter = 0;
+
+  // Reset pricing adjustments
+  state.commissionPct = 0;
+  state.salesTaxPct = 0;
+  state.escalationPct = 0;
+
+  // Reset win/loss tracker
+  state.bidOutcome = null;
+  state.bidOutcomeNotes = '';
+  state.bidOutcomeDate = null;
+  state.competitorBids = [];
+
+  // Reset approval workflow
+  state.approvalStatus = 'draft';
+  state.approvalHistory = [];
+
+  // Reset scope comparison
+  state.comparisonEstimateId = null;
+  state.comparisonData = null;
+
+  // Reset bid template (keep templates list)
+  state.activeBidTemplate = null;
 
   // Reset travel (keep rates, clear AI recommendations)
   state.travel.enabled = false;
@@ -5186,6 +5227,164 @@ function renderStep7(container) {
     </div>`;
   }
 
+  // ── Pricing Adjustments (Commission / Tax / Escalation) ──
+  const _pricingAdjustments = `
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
+      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
+        💰 Pricing Adjustments
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Commission %</label>
+          <input type="number" id="input-commission-pct" value="${state.commissionPct}" min="0" max="20" step="0.5"
+            style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:13px;font-weight:600;"
+            placeholder="0">
+          <div style="font-size:9px;color:var(--text-muted);margin-top:2px;">Applied to total sell price</div>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Sales Tax %</label>
+          <input type="number" id="input-salestax-pct" value="${state.salesTaxPct}" min="0" max="15" step="0.25"
+            style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:13px;font-weight:600;"
+            placeholder="0">
+          <div style="font-size:9px;color:var(--text-muted);margin-top:2px;">On materials only (e.g. 8.75)</div>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Escalation %</label>
+          <input type="number" id="input-escalation-pct" value="${state.escalationPct}" min="0" max="25" step="0.5"
+            style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:13px;font-weight:600;"
+            placeholder="0">
+          <div style="font-size:9px;color:var(--text-muted);margin-top:2px;">Material price escalation</div>
+        </div>
+      </div>
+    </div>`;
+
+  // ── Win/Loss Tracker ──
+  const _winLossHtml = `
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
+      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
+        🏆 Bid Outcome
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:10px;" id="bid-outcome-buttons">
+        ${['won', 'lost', 'pending', 'no_bid'].map(o => {
+          const labels = { won: '✅ Won', lost: '❌ Lost', pending: '⏳ Pending', no_bid: '🚫 No Bid' };
+          const colors = { won: '#10b981', lost: '#ef4444', pending: '#f59e0b', no_bid: '#6b7280' };
+          const isSel = state.bidOutcome === o;
+          return `<button data-outcome="${o}" style="flex:1;padding:8px 12px;border-radius:8px;border:2px solid ${isSel ? colors[o] : 'rgba(255,255,255,0.1)'};background:${isSel ? colors[o] + '20' : 'transparent'};color:${isSel ? colors[o] : 'var(--text-muted)'};cursor:pointer;font-size:12px;font-weight:${isSel ? '700' : '500'};transition:all 0.15s;">${labels[o]}</button>`;
+        }).join('')}
+      </div>
+      ${state.bidOutcome === 'won' || state.bidOutcome === 'lost' ? `
+      <div style="margin-top:8px;">
+        <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">${state.bidOutcome === 'won' ? 'Why we won' : 'Why we lost'}</label>
+        <textarea id="bid-outcome-notes" rows="2" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:12px;resize:vertical;"
+          placeholder="${state.bidOutcome === 'won' ? 'e.g. Best price, existing relationship, technical approach...' : 'e.g. Price too high, missing scope, competitor relationship...'}"
+        >${esc(state.bidOutcomeNotes || '')}</textarea>
+      </div>
+      <div style="margin-top:8px;">
+        <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Competitor Bids (optional)</label>
+        <div id="competitor-bids-list">
+          ${(state.competitorBids || []).map((c, i) => `
+            <div style="display:flex;gap:6px;margin-bottom:4px;align-items:center;" data-comp-idx="${i}">
+              <input type="text" value="${esc(c.name || '')}" placeholder="Company" style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:var(--text-primary);font-size:11px;" data-comp-field="name">
+              <input type="text" value="${c.amount ? '$' + Number(c.amount).toLocaleString() : ''}" placeholder="$Amount" style="width:100px;padding:6px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:var(--text-primary);font-size:11px;" data-comp-field="amount">
+              <button data-comp-remove="${i}" style="padding:4px 8px;border:none;background:rgba(239,68,68,0.1);color:#ef4444;border-radius:4px;cursor:pointer;font-size:11px;">✕</button>
+            </div>
+          `).join('')}
+        </div>
+        <button id="add-competitor-btn" style="padding:6px 12px;border-radius:6px;border:1px dashed rgba(20,184,166,0.3);background:transparent;color:var(--text-muted);cursor:pointer;font-size:11px;margin-top:4px;">+ Add Competitor</button>
+      </div>` : ''}
+    </div>`;
+
+  // ── Approval Workflow ──
+  const _approvalColors = { draft: '#6b7280', pending_review: '#f59e0b', approved: '#10b981', rejected: '#ef4444', revision_requested: '#8b5cf6' };
+  const _approvalLabels = { draft: 'Draft', pending_review: 'Pending Review', approved: 'Approved', rejected: 'Rejected', revision_requested: 'Revision Requested' };
+  const _approvalHtml = `
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
+      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
+        📋 Approval Status
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${_approvalColors[state.approvalStatus] || '#6b7280'};"></span>
+        <span style="font-size:14px;font-weight:700;color:${_approvalColors[state.approvalStatus] || '#6b7280'};">${_approvalLabels[state.approvalStatus] || 'Draft'}</span>
+        <div style="flex:1;"></div>
+        ${state.approvalStatus === 'draft' ? `<button id="btn-submit-approval" style="padding:8px 16px;border-radius:8px;border:1px solid rgba(245,158,11,0.4);background:rgba(245,158,11,0.1);color:#f59e0b;cursor:pointer;font-size:12px;font-weight:600;">Submit for Review</button>` : ''}
+        ${state.approvalStatus === 'pending_review' ? `
+          <button id="btn-approve-bid" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(16,185,129,0.4);background:rgba(16,185,129,0.1);color:#10b981;cursor:pointer;font-size:12px;font-weight:600;">✓ Approve</button>
+          <button id="btn-reject-bid" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(239,68,68,0.4);background:rgba(239,68,68,0.1);color:#ef4444;cursor:pointer;font-size:12px;font-weight:600;">✗ Reject</button>
+          <button id="btn-revision-bid" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.1);color:#8b5cf6;cursor:pointer;font-size:12px;font-weight:600;">↩ Request Revision</button>
+        ` : ''}
+        ${state.approvalStatus === 'approved' || state.approvalStatus === 'rejected' || state.approvalStatus === 'revision_requested' ? `<button id="btn-reset-approval" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:var(--text-muted);cursor:pointer;font-size:12px;">Reset to Draft</button>` : ''}
+      </div>
+      ${state.approvalHistory.length > 0 ? `
+      <div style="margin-top:8px;">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">History</div>
+        ${state.approvalHistory.slice(-5).reverse().map(h => `
+          <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:var(--text-muted);border-bottom:1px solid rgba(255,255,255,0.04);">
+            <span style="width:8px;height:8px;border-radius:50%;background:${_approvalColors[h.status] || '#6b7280'};flex-shrink:0;"></span>
+            <span style="font-weight:600;color:var(--text-primary);">${_approvalLabels[h.status] || h.status}</span>
+            ${h.by ? `<span>by ${esc(h.by)}</span>` : ''}
+            <span style="flex:1;"></span>
+            <span>${h.date ? new Date(h.date).toLocaleDateString() : ''}</span>
+          </div>
+          ${h.notes ? `<div style="font-size:10px;color:var(--text-muted);padding:2px 0 4px 16px;">${esc(h.notes)}</div>` : ''}
+        `).join('')}
+      </div>` : ''}
+    </div>`;
+
+  // ── Scope Comparison ──
+  const _scopeCompHtml = state.comparisonData ? `
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
+      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
+        🔄 Scope Comparison
+      </div>
+      <div style="background:rgba(20,184,166,0.04);border:1px solid rgba(20,184,166,0.15);border-radius:8px;padding:12px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;">
+          <div>
+            <div style="font-size:18px;font-weight:800;color:#10b981;">${state.comparisonData.addedItems || 0}</div>
+            <div style="font-size:10px;color:var(--text-muted);">Items Added</div>
+          </div>
+          <div>
+            <div style="font-size:18px;font-weight:800;color:#ef4444;">${state.comparisonData.removedItems || 0}</div>
+            <div style="font-size:10px;color:var(--text-muted);">Items Removed</div>
+          </div>
+          <div>
+            <div style="font-size:18px;font-weight:800;color:#f59e0b;">${state.comparisonData.changedItems || 0}</div>
+            <div style="font-size:10px;color:var(--text-muted);">Items Changed</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:13px;font-weight:700;text-align:center;color:${(state.comparisonData.priceDelta || 0) >= 0 ? '#10b981' : '#ef4444'};">
+          Net Change: ${(state.comparisonData.priceDelta || 0) >= 0 ? '+' : ''}$${Math.abs(state.comparisonData.priceDelta || 0).toLocaleString()}
+        </div>
+      </div>
+      <button id="btn-clear-comparison" style="margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--text-muted);cursor:pointer;font-size:11px;width:100%;text-align:center;">Clear Comparison</button>
+    </div>` : `
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
+      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
+        🔄 Scope Comparison
+      </div>
+      <button id="btn-load-comparison" style="width:100%;padding:12px 16px;border-radius:8px;border:1px dashed rgba(20,184,166,0.3);background:rgba(20,184,166,0.02);color:var(--text-muted);cursor:pointer;font-size:12px;text-align:center;">
+        Load Previous Estimate to Compare
+      </button>
+    </div>`;
+
+  // ── Bid Templates ──
+  const _templateHtml = `
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
+      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
+        📑 Bid Templates
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button class="export-pkg-btn" id="btn-save-template" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);cursor:pointer;text-align:left;font-size:12px;">
+          <span>💾</span>
+          <div><div style="font-weight:700;">Save as Template</div><div style="font-size:10px;color:var(--text-muted);">Save markups, rates & settings</div></div>
+        </button>
+        <button class="export-pkg-btn" id="btn-load-template" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);cursor:pointer;text-align:left;font-size:12px;">
+          <span>📂</span>
+          <div><div style="font-weight:700;">Load Template</div><div style="font-size:10px;color:var(--text-muted);">Apply saved bid configuration</div></div>
+        </button>
+      </div>
+      ${state.activeBidTemplate ? `<div style="margin-top:6px;font-size:11px;color:#0D9488;"><strong>Active:</strong> ${esc(state.activeBidTemplate)}</div>` : ''}
+    </div>`;
+
   // ── Regenerate Proposal button (conditional) ──
   const _hasOverrides = Object.keys(state.supplierPriceOverrides || {}).length > 0 || (state.manualBomItems || []).length > 0 || Object.keys(state.deletedBomItems || {}).length > 0;
   const regenButton = _hasOverrides ? `
@@ -5234,6 +5433,12 @@ function renderStep7(container) {
       <button id="btn-pdf-exec-proposal" style="display:none;margin-top:6px;padding:10px 16px;border-radius:8px;border:1px solid rgba(191,144,0,0.4);background:linear-gradient(135deg,rgba(191,144,0,0.12),rgba(191,144,0,0.04));color:#BF9000;cursor:pointer;font-size:13px;font-weight:700;width:100%;text-align:center;">📄 Save Executive Proposal as PDF</button>
 
       ${regenButton}
+
+      ${_pricingAdjustments}
+      ${_winLossHtml}
+      ${_approvalHtml}
+      ${_scopeCompHtml}
+      ${_templateHtml}
 
       <a href="https://smartpm.pages.dev/" target="_blank" rel="noopener" id="btn-open-smartpm" style="display:flex;align-items:center;gap:14px;padding:16px 20px;margin-top:14px;border-radius:12px;border:2px solid rgba(13,148,136,0.4);background:linear-gradient(135deg,rgba(13,148,136,0.08),rgba(13,148,136,0.02));color:var(--text-primary);text-decoration:none;cursor:pointer;transition:all 0.2s;">
         <span style="font-size:28px;"><i data-lucide="building-2" style="width:26px;height:26px;color:#0D9488;"></i></span>
@@ -5999,6 +6204,209 @@ function renderStep7(container) {
 
   const rateLibSaveBtn = document.getElementById('rate-library-save-from-estimate');
   if (rateLibSaveBtn) rateLibSaveBtn.addEventListener('click', () => saveRatesFromEstimate());
+
+  // ── Pricing Adjustments listeners ──
+  const commInput = document.getElementById('input-commission-pct');
+  const taxInput = document.getElementById('input-salestax-pct');
+  const escInput = document.getElementById('input-escalation-pct');
+  if (commInput) commInput.addEventListener('change', (e) => { state.commissionPct = parseFloat(e.target.value) || 0; render(); });
+  if (taxInput) taxInput.addEventListener('change', (e) => { state.salesTaxPct = parseFloat(e.target.value) || 0; render(); });
+  if (escInput) escInput.addEventListener('change', (e) => { state.escalationPct = parseFloat(e.target.value) || 0; render(); });
+
+  // ── Win/Loss Tracker listeners ──
+  const outcomeButtons = document.getElementById('bid-outcome-buttons');
+  if (outcomeButtons) {
+    outcomeButtons.querySelectorAll('button[data-outcome]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.bidOutcome = btn.dataset.outcome;
+        state.bidOutcomeDate = new Date().toISOString();
+        render();
+      });
+    });
+  }
+  const outcomeNotes = document.getElementById('bid-outcome-notes');
+  if (outcomeNotes) outcomeNotes.addEventListener('change', (e) => { state.bidOutcomeNotes = e.target.value; });
+  const addCompBtn = document.getElementById('add-competitor-btn');
+  if (addCompBtn) {
+    addCompBtn.addEventListener('click', () => {
+      state.competitorBids.push({ name: '', amount: 0, notes: '' });
+      render();
+    });
+  }
+  // Competitor remove buttons
+  container.querySelectorAll('button[data-comp-remove]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.compRemove);
+      state.competitorBids.splice(idx, 1);
+      render();
+    });
+  });
+  // Competitor field edits
+  container.querySelectorAll('[data-comp-field]').forEach(input => {
+    input.addEventListener('change', () => {
+      const row = input.closest('[data-comp-idx]');
+      if (!row) return;
+      const idx = parseInt(row.dataset.compIdx);
+      const field = input.dataset.compField;
+      if (field === 'amount') {
+        state.competitorBids[idx].amount = parseFloat(input.value.replace(/[$,]/g, '')) || 0;
+      } else {
+        state.competitorBids[idx][field] = input.value;
+      }
+    });
+  });
+
+  // ── Approval Workflow listeners ──
+  const submitApprovalBtn = document.getElementById('btn-submit-approval');
+  if (submitApprovalBtn) submitApprovalBtn.addEventListener('click', () => {
+    state.approvalStatus = 'pending_review';
+    state.approvalHistory.push({ status: 'pending_review', by: 'Estimator', date: new Date().toISOString(), notes: '' });
+    spToast('Bid submitted for review', 'success');
+    render();
+  });
+  const approveBtn = document.getElementById('btn-approve-bid');
+  if (approveBtn) approveBtn.addEventListener('click', () => {
+    const notes = prompt('Approval notes (optional):') || '';
+    state.approvalStatus = 'approved';
+    state.approvalHistory.push({ status: 'approved', by: 'Reviewer', date: new Date().toISOString(), notes });
+    spToast('Bid APPROVED ✅', 'success');
+    render();
+  });
+  const rejectBtn = document.getElementById('btn-reject-bid');
+  if (rejectBtn) rejectBtn.addEventListener('click', () => {
+    const notes = prompt('Rejection reason:') || '';
+    state.approvalStatus = 'rejected';
+    state.approvalHistory.push({ status: 'rejected', by: 'Reviewer', date: new Date().toISOString(), notes });
+    spToast('Bid REJECTED ❌', 'error');
+    render();
+  });
+  const revisionBtn = document.getElementById('btn-revision-bid');
+  if (revisionBtn) revisionBtn.addEventListener('click', () => {
+    const notes = prompt('What needs revision?') || '';
+    state.approvalStatus = 'revision_requested';
+    state.approvalHistory.push({ status: 'revision_requested', by: 'Reviewer', date: new Date().toISOString(), notes });
+    spToast('Revision requested ↩', 'info');
+    render();
+  });
+  const resetApprovalBtn = document.getElementById('btn-reset-approval');
+  if (resetApprovalBtn) resetApprovalBtn.addEventListener('click', () => {
+    state.approvalStatus = 'draft';
+    state.approvalHistory.push({ status: 'draft', by: 'Estimator', date: new Date().toISOString(), notes: 'Reset to draft' });
+    render();
+  });
+
+  // ── Scope Comparison listeners ──
+  const loadCompBtn = document.getElementById('btn-load-comparison');
+  if (loadCompBtn) loadCompBtn.addEventListener('click', async () => {
+    try {
+      const resp = await fetch('/api/estimates?limit=20', { headers: { 'X-App-Token': _appToken } });
+      if (!resp.ok) throw new Error('Failed to load estimates');
+      const data = await resp.json();
+      const estimates = (data.estimates || []).filter(e => e.id !== state.estimateId);
+      if (estimates.length === 0) { spToast('No previous estimates found to compare', 'info'); return; }
+      const list = estimates.map((e, i) => `${i + 1}. ${e.project_name || 'Untitled'} — $${(e.grand_total || 0).toLocaleString()} (${new Date(e.created_at).toLocaleDateString()})`).join('\n');
+      const choice = prompt(`Select estimate to compare:\n\n${list}\n\nEnter number:`);
+      if (!choice) return;
+      const idx = parseInt(choice) - 1;
+      if (idx < 0 || idx >= estimates.length) { spToast('Invalid selection', 'error'); return; }
+      const compEstimate = estimates[idx];
+      // Load the comparison estimate's BOM
+      const compResp = await fetch(`/api/estimates/${compEstimate.id}`, { headers: { 'X-App-Token': _appToken } });
+      if (!compResp.ok) throw new Error('Failed to load comparison estimate');
+      const compData = await compResp.json();
+      const compBom = (typeof SmartPlansExport !== 'undefined' && compData.estimate?.analysis_text)
+        ? SmartPlansExport._extractBOMFromAnalysis(compData.estimate.analysis_text) : null;
+      const currentBom = getFilteredBOM(state.aiAnalysis, state.disciplines);
+      if (!compBom || !currentBom) { spToast('Could not parse comparison BOM', 'error'); return; }
+      // Calculate differences
+      const currentItems = new Set();
+      const compItems = new Set();
+      currentBom.categories.forEach(c => c.items.forEach(i => currentItems.add((i.item || i.name || '').toLowerCase().substring(0, 40))));
+      compBom.categories.forEach(c => c.items.forEach(i => compItems.add((i.item || i.name || '').toLowerCase().substring(0, 40))));
+      let added = 0, removed = 0, changed = 0;
+      currentItems.forEach(i => { if (!compItems.has(i)) added++; });
+      compItems.forEach(i => { if (!currentItems.has(i)) removed++; });
+      changed = Math.min(currentItems.size, compItems.size) - added;
+      state.comparisonEstimateId = compEstimate.id;
+      state.comparisonData = {
+        compareName: compEstimate.project_name || 'Previous',
+        addedItems: added, removedItems: removed, changedItems: Math.max(0, changed),
+        priceDelta: (currentBom.grandTotal || 0) - (compBom.grandTotal || 0),
+      };
+      render();
+      spToast(`Comparing against: ${compEstimate.project_name || 'Previous estimate'}`, 'success');
+    } catch (err) {
+      console.error('[ScopeComparison]', err);
+      spToast('Failed to load comparison: ' + err.message, 'error');
+    }
+  });
+  const clearCompBtn = document.getElementById('btn-clear-comparison');
+  if (clearCompBtn) clearCompBtn.addEventListener('click', () => {
+    state.comparisonEstimateId = null;
+    state.comparisonData = null;
+    render();
+  });
+
+  // ── Bid Templates listeners ──
+  const saveTemplateBtn = document.getElementById('btn-save-template');
+  if (saveTemplateBtn) saveTemplateBtn.addEventListener('click', async () => {
+    const name = prompt('Template name:');
+    if (!name || !name.trim()) return;
+    const template = {
+      name: name.trim(),
+      markup: { ...state.markup },
+      burdenRate: state.burdenRate,
+      includeBurden: state.includeBurden,
+      commissionPct: state.commissionPct,
+      salesTaxPct: state.salesTaxPct,
+      escalationPct: state.escalationPct,
+      laborRates: { ...state.laborRates },
+      isTransitRailroad: state.isTransitRailroad,
+      created_at: new Date().toISOString(),
+    };
+    try {
+      // Save to API
+      if (state.estimateId) {
+        await fetch('/api/bid-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
+          body: JSON.stringify(template),
+        });
+      }
+      // Also save to localStorage as fallback
+      const templates = JSON.parse(localStorage.getItem('sp_bid_templates') || '[]');
+      templates.push(template);
+      localStorage.setItem('sp_bid_templates', JSON.stringify(templates));
+      state.activeBidTemplate = name.trim();
+      spToast(`Template "${name.trim()}" saved`, 'success');
+      render();
+    } catch (err) {
+      console.error('[BidTemplate]', err);
+      // Still saved to localStorage
+      spToast(`Template saved locally (API unavailable)`, 'info');
+    }
+  });
+  const loadTemplateBtn = document.getElementById('btn-load-template');
+  if (loadTemplateBtn) loadTemplateBtn.addEventListener('click', () => {
+    const templates = JSON.parse(localStorage.getItem('sp_bid_templates') || '[]');
+    if (templates.length === 0) { spToast('No saved templates. Create one first.', 'info'); return; }
+    const list = templates.map((t, i) => `${i + 1}. ${t.name} (${t.isTransitRailroad ? 'Transit' : 'Commercial'} — Mat ${t.markup?.material || 50}%, Lab ${t.markup?.labor || 50}%)`).join('\n');
+    const choice = prompt(`Select template to load:\n\n${list}\n\nEnter number:`);
+    if (!choice) return;
+    const idx = parseInt(choice) - 1;
+    if (idx < 0 || idx >= templates.length) { spToast('Invalid selection', 'error'); return; }
+    const t = templates[idx];
+    if (t.markup) Object.assign(state.markup, t.markup);
+    if (t.burdenRate !== undefined) state.burdenRate = t.burdenRate;
+    if (t.includeBurden !== undefined) state.includeBurden = t.includeBurden;
+    if (t.commissionPct !== undefined) state.commissionPct = t.commissionPct;
+    if (t.salesTaxPct !== undefined) state.salesTaxPct = t.salesTaxPct;
+    if (t.escalationPct !== undefined) state.escalationPct = t.escalationPct;
+    if (t.laborRates) Object.assign(state.laborRates, t.laborRates);
+    state.activeBidTemplate = t.name;
+    spToast(`Template "${t.name}" applied`, 'success');
+    render();
+  });
 
   // Copy analysis to clipboard
   const copyBtn = document.getElementById("btn-copy-analysis");
