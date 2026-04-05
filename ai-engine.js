@@ -177,7 +177,7 @@ const SmartBrains = {
             // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
               const CHUNK_THRESHOLD = 45 * 1024 * 1024; // Split PDFs over 45MB into chunks (smaller files upload fine as single)
-              const PAGES_PER_CHUNK = 30;
+              const PAGES_PER_CHUNK = 15; // Was 30 — reduced for better camera detection on large plan sets
               const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
 
               // Try chunking large PDFs using PDF.js
