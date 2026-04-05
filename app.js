@@ -9104,10 +9104,17 @@ function removeLocalEstimate(id) {
 
 async function saveEstimate(showToast = true) {
   if (window._savingEstimate) {
-    console.log('[SmartPlans] Save already in progress, skipping');
-    return;
+    // Auto-recover if save has been stuck for >30 seconds
+    if (window._saveStartTime && Date.now() - window._saveStartTime > 30000) {
+      console.warn('[SmartPlans] Save was stuck for 30s — auto-recovering');
+      window._savingEstimate = false;
+    } else {
+      console.log('[SmartPlans] Save already in progress, skipping');
+      return;
+    }
   }
   window._savingEstimate = true;
+  window._saveStartTime = Date.now();
   try {
   let exportPkg;
   try {

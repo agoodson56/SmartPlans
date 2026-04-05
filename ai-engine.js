@@ -433,7 +433,7 @@ const SmartBrains = {
       const maxWidth = Math.max(...canvases.map(c => c.width));
       const combined = document.createElement('canvas');
       combined.width = maxWidth;
-      combined.height = Math.min(totalHeight, 32000); // Canvas height limit
+      combined.height = Math.min(totalHeight, 65000); // Canvas height limit — raised to avoid cutting off pages
       const ctx = combined.getContext('2d');
       let y = 0;
       for (const c of canvases) {
@@ -2942,12 +2942,14 @@ CONSENSUS RULES:
 2. If 2+ reads agree within 5% → MODERATE CONFIDENCE. Use the agreeing group's average.
 3. If ALL reads disagree by >10% → DISPUTE. Flag for targeted re-scan.
 4. For disputed items, identify WHICH sheets/areas likely caused the disagreement.
+5. When multiple conflicting counts exist with no clear majority, use the MEDIAN value (middle value when sorted). Do NOT default to the highest count — over-counting inflates bids.
 
 ═══ CRITICAL: TYPICAL NOTE MULTIPLICATION ═══
 When an annotation says "TYP" or "TYPICAL" (e.g., "Card reader TYP at each secure door"):
-- Check the Per-Floor Analyzer for the count of matching locations (e.g., how many "secure doors" exist)
-- MULTIPLY the device by the number of matching locations
+- Check the Per-Floor Analyzer for the count of matching locations
+- MULTIPLY the device ONLY by locations that match the SPECIFIC attribute mentioned (e.g., "secure doors" — NOT all doors, only ones marked as secure/access-controlled)
 - If the TYPICAL count is HIGHER than the symbol count, USE THE TYPICAL COUNT (the symbols may not be drawn on every door)
+- Do NOT multiply a TYP note against a broader category than specified — match at the correct level of specificity
 - Document each TYPICAL multiplication in the output
 
 ═══ CRITICAL: EQUIPMENT SCHEDULE CROSS-CHECK ═══
@@ -4161,12 +4163,62 @@ Return ONLY valid JSON:
       console.warn('[SmartBrains] Report Writer will be instructed to add missing scope');
       context._missingDisciplines = missingDisciplines;
     }
+    // ═══ POST-PRICER: Code-enforced price guardrails ═══
+    // The prompt tells the AI to clamp prices, but we verify in code
+    const _pricer = wave2Results.MATERIAL_PRICER;
+    if (_pricer && (_pricer.categories || _pricer.material_categories)) {
+      const _pricerCats = _pricer.categories || _pricer.material_categories || [];
+      const _maxPrices = {
+        'camera': 7000, 'dome': 5000, 'bullet': 3500, 'ptz': 9000, 'fisheye': 4000,
+        'panoram': 6000, 'multi-sensor': 6000, 'nvr': 18000, 'server': 20000,
+        'switch': 6000, 'reader': 2000, 'panel': 5000, 'controller': 4000,
+        'ups': 8000, 'patch panel': 800, 'jack': 50, 'faceplate': 25, 'cable': 1500,
+      };
+      let _clampCount = 0;
+      for (const cat of _pricerCats) {
+        for (const item of (cat.items || [])) {
+          const iName = (item.item || item.name || '').toLowerCase();
+          const iCost = item.unit_cost || item.unitCost || 0;
+          for (const [keyword, maxPrice] of Object.entries(_maxPrices)) {
+            if (iName.includes(keyword) && iCost > maxPrice) {
+              console.warn(`[SmartBrains] ⚠️ CLAMPED ${item.item || item.name}: $${iCost} → $${maxPrice} (max for ${keyword})`);
+              item.unit_cost = maxPrice;
+              item.unitCost = maxPrice;
+              item.ext_cost = (item.qty || 1) * maxPrice;
+              item.extCost = (item.qty || 1) * maxPrice;
+              _clampCount++;
+              break;
+            }
+          }
+        }
+        cat.subtotal = (cat.items || []).reduce((s, i) => s + (i.ext_cost || i.extCost || 0), 0);
+      }
+      if (_clampCount > 0) {
+        _pricer.grand_total = _pricerCats.reduce((s, c) => s + (c.subtotal || 0), 0);
+        console.log(`[SmartBrains] Price guardrails: clamped ${_clampCount} item(s)`);
+      }
+    }
     console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
 
     // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
     progressCallback(62, '👷 Wave 2.25: Labor Calculator — computing labor hours…', this._brainStatus);
     const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], encodedFiles, state, context, progressCallback);
     context.wave2_25 = wave225Results;
+
+    // ═══ POST-LABOR: Bounds check — catch $0 or wildly high labor ═══
+    const _labCalc = wave225Results.LABOR_CALCULATOR;
+    const _matTotal = _pricer?.grand_total || 0;
+    if (_labCalc && _matTotal > 0) {
+      const _labTotal = _labCalc.total_base_cost || 0;
+      const _labRatio = _labTotal / _matTotal;
+      if (_labTotal <= 0) {
+        console.error('[SmartBrains] ⛔ LABOR IS $0 — Labor Calculator returned no cost. Bid will use fallback (100% of materials).');
+      } else if (_labRatio < 0.10 && _matTotal > 50000) {
+        console.warn(`[SmartBrains] ⚠️ LABOR UNUSUALLY LOW: $${_labTotal.toLocaleString()} = ${(_labRatio * 100).toFixed(0)}% of materials ($${_matTotal.toLocaleString()}). Check conduit/cable labor.`);
+      } else if (_labRatio > 2.0) {
+        console.warn(`[SmartBrains] ⚠️ LABOR UNUSUALLY HIGH: $${_labTotal.toLocaleString()} = ${(_labRatio * 100).toFixed(0)}% of materials. Check for inflated hours.`);
+      }
+    }
     console.log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
 
     // ═══ WAVE 2.5: Financial Engine (runs AFTER both to sum their outputs) ═══
@@ -4232,11 +4284,12 @@ Return ONLY valid JSON:
           const beforeCount = corrector.corrected_categories.length;
           corrector.corrected_categories = corrector.corrected_categories.filter(cc => {
             const ccName = (cc.name || '').toLowerCase().trim();
-            // Check if this category matches any original category (fuzzy — first 15 chars)
+            // Check if this category matches any original category (exact 15-char prefix match)
+            // FIX: Was too loose — "database".includes("data") allowed phantom categories through
             const ccShort = ccName.replace(/[^a-z]/g, '').substring(0, 15);
             const isOriginal = [...origCatNames].some(on => {
               const onShort = on.replace(/[^a-z]/g, '').substring(0, 15);
-              return ccShort === onShort || on.includes(ccShort) || ccShort.includes(onShort);
+              return ccShort === onShort;
             });
             if (!isOriginal) {
               console.warn(`[SmartBrains] ⛔ STRIPPED phantom category from Estimate Corrector: "${cc.name}" ($${(cc.subtotal || 0).toLocaleString()}) — not in original Material Pricer`);
@@ -4251,9 +4304,8 @@ Return ONLY valid JSON:
           }
         }
 
-        // ═══ ENFORCEMENT: Reject if corrector INCREASED total by >8% ═══
-        // Prompt says 5%, code allows 8% as buffer for legitimate corrections
-        if (corrector.original_grand_total > 0 && corrector.corrected_grand_total > corrector.original_grand_total * 1.08) {
+        // ═══ ENFORCEMENT: Reject if corrector INCREASED total by >5% ═══
+        if (corrector.original_grand_total > 0 && corrector.corrected_grand_total > corrector.original_grand_total * 1.05) {
           console.warn(`[SmartBrains] ⛔ REJECTED Estimate Corrector — increased total by ${(((corrector.corrected_grand_total / corrector.original_grand_total) - 1) * 100).toFixed(1)}% (from $${corrector.original_grand_total.toLocaleString()} to $${corrector.corrected_grand_total.toLocaleString()}). Using original pricer data.`);
           context._correctedPricer = null;
         } else {

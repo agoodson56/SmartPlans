@@ -285,7 +285,8 @@ const SmartPlansExport = {
         const labSell = this._round(laborBase * (1 + labPct));
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
-        const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
+        // Burden covers payroll taxes, insurance, benefits — applied to BILLED labor rate, not raw cost
+        const burden = includeBurden ? this._round(labSell * burdenRate) : 0;
         // Travel: use Stage 6 deterministic travel if configured, otherwise BOM travel
         // Travel is PASS-THROUGH — no markup applied (it's already at cost)
         const stage6Travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
@@ -297,8 +298,10 @@ const SmartPlansExport = {
             console.log(`[Export] Travel: BOM pass-through $${bomTravel.toLocaleString()} (no Stage 6 configured)`);
         }
 
-        let subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
-        let contingency = this._round(subtotal * contingencyPct);
+        // Contingency applies to profit-bearing items only — NOT travel (pass-through)
+        let profitSubtotal = this._round(matSell + labSell + eqSell + subSell + burden);
+        let contingency = this._round(profitSubtotal * contingencyPct);
+        let subtotal = this._round(profitSubtotal + travel);
         let grandTotal = this._round(subtotal + contingency);
 
         // ═══ TRANSIT/RAILROAD BENCHMARK CALIBRATION ═══
@@ -416,7 +419,7 @@ const SmartPlansExport = {
                     const sLabSell = this._round(sLab * (1 + labPct));
                     const sEqSell = this._round(sEq * (1 + eqPct));
                     const sSubSell = this._round(sSub * (1 + subPct));
-                    const sBurden = includeBurden ? this._round(sLab * burdenRate) : 0;
+                    const sBurden = includeBurden ? this._round(sLabSell * burdenRate) : 0;
 
                     subtotal = this._round(sMatSell + sLabSell + sEqSell + sSubSell + sBurden + travel);
                     contingency = this._round(subtotal * contingencyPct);
@@ -1150,12 +1153,8 @@ const SmartPlansExport = {
                         // Skip total/subtotal rows
                         const firstCell = cells[0] || '';
                         if (/^(total|subtotal|grand total|sum|markup|margin|tax)/i.test(firstCell.replace(/\*+/g, '').trim())) {
-                            // Try to capture subtotal value
-                            const lastCell = cells[cells.length - 1];
-                            const subtMatch = lastCell.match(/\$?([\d,]+\.?\d*)/);
-                            if (subtMatch) {
-                                currentCategory.subtotal = parseFloat(subtMatch[1].replace(/,/g, ''));
-                            }
+                            // Skip subtotal/total rows — we compute subtotals from item sums (line 1398+)
+                            // DO NOT trust AI-reported subtotals — they can be wrong
                             continue;
                         }
                         if (firstCell.includes('continue') || firstCell.includes('...') || firstCell.replace(/\*+/g, '').trim() === '') continue;
