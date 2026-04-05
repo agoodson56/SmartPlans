@@ -318,36 +318,37 @@ const SmartPlansExport = {
             const consensus = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts;
             const finalRecon = state.brainResults?.wave3_75?.FINAL_RECONCILIATION?.final_counts;
 
-            // Get camera count from ALL available sources, use HIGHEST
-            // Consensus often undercounts (59 vs actual 69 for Martinez).
-            // BOM camera count is parsed from the Report Writer which uses all 6 reads.
+            // Get camera count — CONSENSUS is the primary source (6-read engine designed for counting).
+            // BOM count is unreliable because it matches accessories (licenses, mounts, SD cards).
             const camRegex = /camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i;
-            const camItemRegex = /camera|dome|bullet|ptz|fisheye|panoram|turret|lpr|varifocal/i;
+            const camAccessoryExclude = /mount|bracket|license|sd\s*card|memory|cable|adapter|mic|audio|housing|heater|sunshield|pendant|pole|arm|power|surge|injector|midspan|splitter|software|warranty|maintenance|accessori/i;
 
             let consensusCount = 0;
             const countSource = finalRecon || consensus;
             if (countSource) {
                 for (const [key, val] of Object.entries(countSource)) {
-                    if (camRegex.test(key)) {
+                    if (camRegex.test(key) && !camAccessoryExclude.test(key)) {
                         consensusCount += (typeof val === 'number' ? val : val?.count || val?.qty || 0);
                     }
                 }
             }
 
+            // BOM count as fallback only — with strict accessory exclusion
             let bomCamCount = 0;
             for (const cat of (bom?.categories || [])) {
                 if (/cctv|camera|surveillance/i.test(cat.name || '')) {
                     for (const item of (cat.items || [])) {
-                        if (camItemRegex.test(item.item || item.name || '')) {
+                        const itemName = item.item || item.name || '';
+                        if (camRegex.test(itemName) && !camAccessoryExclude.test(itemName)) {
                             bomCamCount += (item.qty || 0);
                         }
                     }
                 }
             }
 
-            // Use the HIGHER count — undercounting is far more common than overcounting
-            let cameraCount = Math.max(consensusCount, bomCamCount);
-            console.log(`[Export]   Camera counts — Consensus: ${consensusCount}, BOM: ${bomCamCount}, Using: ${cameraCount}`);
+            // Use CONSENSUS as primary (designed for counting). BOM only if consensus unavailable.
+            let cameraCount = consensusCount >= 5 ? consensusCount : bomCamCount;
+            console.log(`[Export]   Camera counts — Consensus: ${consensusCount}, BOM (filtered): ${bomCamCount}, Using: ${cameraCount}`);
 
             if (cameraCount >= 5) {
                 // Find closest bid by camera count
