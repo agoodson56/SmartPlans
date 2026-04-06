@@ -83,6 +83,14 @@ const APIHealthMonitor = {
   // Called after every _invokeBrain attempt (success or failure)
   record(slot, { success, status, latencyMs, model, brain }) {
     if (slot == null || slot < 0) return;
+
+    // 401/403 are auth errors (middleware/session), NOT API key health issues.
+    // Don't pollute key health metrics with auth failures.
+    if (status === 401 || status === 403) {
+      console.warn(`[HealthMonitor] Ignoring ${status} (auth error) — not an API key issue`);
+      return;
+    }
+
     const key = Math.floor(slot) % this.TOTAL_SLOTS;
     if (!this._slots[key]) {
       this._slots[key] = { results: [], lastSeen: 0 };
@@ -149,27 +157,27 @@ const APIHealthMonitor = {
     // Determine status
     let newStatus = 'GREEN';
 
-    if (activeSlots === 0) {
-      // No data yet — stay green (neutral)
+    if (activeSlots === 0 || totalCalls < 3) {
+      // Not enough data yet — stay green (need ≥3 calls before judging)
       newStatus = 'GREEN';
     } else {
       const overallRate = totalCalls > 0 ? totalSuccess / totalCalls : 1;
       const avgLatency = latencyCount > 0 ? totalLatency / latencyCount : 0;
 
-      // RED conditions (fail-safe: err on side of RED)
+      // RED conditions (fail-safe: err on side of RED, but require minimum evidence)
       if (
-        overallRate < (1 - 0.25) ||                    // >25% error rate
-        failingSlots > activeSlots * 0.5 ||            // Majority of active keys failing
+        (totalCalls >= 8 && overallRate < 0.75) ||     // >25% error rate with sufficient sample
+        (activeSlots >= 3 && failingSlots > activeSlots * 0.5) || // Majority of active keys failing
         (totalCalls >= 5 && totalSuccess === 0) ||     // 5+ calls, zero success
         avgLatency > this.LATENCY_CRIT_MS              // Critical latency
       ) {
         newStatus = 'RED';
       }
-      // YELLOW conditions
+      // YELLOW conditions (require ≥5 calls to avoid false alarms from early retries)
       else if (
-        overallRate < this.GREEN_THRESHOLD ||           // 5-25% error rate
-        failingSlots > 0 ||                             // Any key failing
-        avgLatency > this.LATENCY_WARN_MS               // Elevated latency
+        (totalCalls >= 5 && overallRate < this.GREEN_THRESHOLD) || // 5-25% error rate with data
+        (activeSlots >= 2 && failingSlots > 0) ||                  // Any key failing (2+ active)
+        avgLatency > this.LATENCY_WARN_MS                          // Elevated latency
       ) {
         newStatus = 'YELLOW';
       }
@@ -1056,7 +1064,9 @@ const SmartBrains = {
 
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `API ${response.status}`);
+          const httpErr = new Error(errData?.error?.message || `API ${response.status}`);
+          httpErr.status = response.status; // Preserve status for health monitor filtering
+          throw httpErr;
         }
 
         // ── Read SSE stream and assemble response ──

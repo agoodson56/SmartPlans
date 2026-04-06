@@ -51,7 +51,7 @@ export async function onRequest(context) {
 
     // SEC: Authentication — require session token OR legacy ESTIMATES_TOKEN
     // This prevents anyone who discovers the URL from burning through API keys
-    const sessionToken = request.headers.get('X-Session-Token') || '';
+    // sessionToken already declared above (line 39) for rate limiting
     const appToken = request.headers.get('X-App-Token') || '';
     const envToken = env.ESTIMATES_TOKEN;
 
