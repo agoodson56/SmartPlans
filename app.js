@@ -46,9 +46,7 @@ const QuotaMonitor = {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
-      const _qHeaders = {};
-      if (_sessionToken) _qHeaders['X-Session-Token'] = _sessionToken;
-      const res = await fetch('/api/ai/quota-check', { headers: _qHeaders, signal: controller.signal });
+      const res = await fetch('/api/ai/quota-check', { signal: controller.signal });
       clearTimeout(timer);
 
       if (!res.ok) {
@@ -623,10 +621,6 @@ const state = {
   ceilingHeight: 10,        // ft, typical finished ceiling height
   floorToFloorHeight: 14,   // ft, slab-to-slab height
   _cablePathwayOpen: false,
-  _cableScheduleOpen: false,
-  _cableScheduleView: 'byIdf',      // 'byIdf', 'byCableType', 'allDevices'
-  _cableScheduleCache: null,
-  cableAssumptions: {},              // user overrides for CableAnalyzer.defaults
   _symbolInventoryOpen: false,
   _symbolInventorySort: 'sheet',     // 'sheet', 'type', 'room', 'floor'
   _symbolInventoryFilter: '',         // device type filter
@@ -650,9 +644,6 @@ const state = {
     equipment: 15,
     subcontractor: 10,
   },
-  commissionPct: 0,       // Sales commission % (applied to total sell)
-  salesTaxPct: 0,         // Sales tax % (applied to materials only)
-  escalationPct: 0,       // Material escalation % (for future projects)
 
   // Files (arrays of {name, size, type, base64?, rawFile?})
   legendFiles: [],
@@ -706,25 +697,6 @@ const state = {
   exclusions: [],           // cached from API: [{ id, type, text, category, sort_order }]
   _exclusionsLoaded: false, // true after first API load
   _exclusionsTab: 'exclusion', // active tab: 'exclusion', 'assumption', 'clarification'
-
-  // Win/Loss Tracker
-  bidOutcome: null,         // 'won' | 'lost' | 'pending' | 'no_bid'
-  bidOutcomeNotes: '',      // Why we won/lost
-  bidOutcomeDate: null,     // Date of outcome
-  competitorBids: [],       // [{ name, amount, notes }]
-
-  // Approval Workflow
-  approvalStatus: 'draft',  // 'draft' | 'pending_review' | 'approved' | 'rejected' | 'revision_requested'
-  approvalHistory: [],       // [{ status, by, date, notes }]
-  approvalReviewers: [],     // [{ name, email, role }]
-
-  // Scope Comparison (for re-bids / VE rounds)
-  comparisonEstimateId: null,  // ID of estimate to compare against
-  comparisonData: null,        // Cached comparison results
-
-  // Bid Templates
-  activeBidTemplate: null,     // Template ID currently applied
-  bidTemplates: [],            // Cached list from API
 };
 
 // ─── Start New Bid — full state reset ───
@@ -800,28 +772,6 @@ function startNewBid() {
   state._bidPhasesOpen = false;
   state._bidPhaseCounter = 0;
 
-  // Reset pricing adjustments
-  state.commissionPct = 0;
-  state.salesTaxPct = 0;
-  state.escalationPct = 0;
-
-  // Reset win/loss tracker
-  state.bidOutcome = null;
-  state.bidOutcomeNotes = '';
-  state.bidOutcomeDate = null;
-  state.competitorBids = [];
-
-  // Reset approval workflow
-  state.approvalStatus = 'draft';
-  state.approvalHistory = [];
-
-  // Reset scope comparison
-  state.comparisonEstimateId = null;
-  state.comparisonData = null;
-
-  // Reset bid template (keep templates list)
-  state.activeBidTemplate = null;
-
   // Reset travel (keep rates, clear AI recommendations)
   state.travel.enabled = false;
   state.travel.aiRecommendedTechs = null;
@@ -848,18 +798,6 @@ function startNewBid() {
   // Reset exclusions
   state.exclusions = [];
   state._exclusionsLoaded = false;
-
-  // Reset internal cached state (prevents leaking between bids)
-  state._pwCounty = '';
-  state._pwState = '';
-  state._pwMetro = '';
-  state._cableScheduleCache = null;
-  state._restoredFinancials = null;
-  state.brainStats = null;
-  state.failedBrains = null;
-  state._symbolInventoryOpen = false;
-  state._symbolInventorySort = null;
-  state._symbolInventoryFilter = '';
 
   render();
   scrollContentTop();
@@ -888,7 +826,6 @@ const Auth = {
         if (res.ok) {
           const data = await res.json();
           _currentUser = data.user;
-          if (typeof SmartBrains !== 'undefined') SmartBrains.setAuthToken(_sessionToken);
           this._initialized = true;
           return true;
         }
@@ -1022,7 +959,6 @@ const Auth = {
       _sessionToken = data.sessionToken;
       _currentUser = data.user;
       sessionStorage.setItem('sp_session_token', _sessionToken);
-      if (typeof SmartBrains !== 'undefined') SmartBrains.setAuthToken(_sessionToken);
       this._startApp();
     } catch (err) {
       this._showError('Network error — check your connection');
@@ -1056,7 +992,6 @@ const Auth = {
       _sessionToken = data.sessionToken;
       _currentUser = data.user;
       sessionStorage.setItem('sp_session_token', _sessionToken);
-      if (typeof SmartBrains !== 'undefined') SmartBrains.setAuthToken(_sessionToken);
       this._startApp();
     } catch (err) {
       this._showError('Network error — check your connection');
@@ -1089,7 +1024,6 @@ const Auth = {
 
     render();
     QuotaMonitor.start();
-    if (typeof APIHealthMonitor !== 'undefined') APIHealthMonitor.init();
     UsageStats.start();
     SecurityDashboard.init();
   },
@@ -1664,12 +1598,7 @@ function generateMasterReport() {
       ${bd.travel > 0 ? `<tr><td>Travel & Incidentals</td><td style="text-align:right;">${fmt(bd.travel)}</td><td style="text-align:right;">—</td><td style="text-align:right;">${fmt(bd.travel)}</td><td style="text-align:right;">${pct(bd.travel)}</td></tr>` : ''}
       <tr style="background:#e0f2fe;font-weight:700;"><td>SUBTOTAL</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.subtotal)}</td><td style="text-align:right;"></td></tr>
       <tr><td>Contingency (10%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.contingency)}</td><td style="text-align:right;">${pct(bd.contingency)}</td></tr>
-      <tr style="background:#0D9488;color:white;font-weight:700;"><td>TOTAL BID</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.grandTotal)}</td><td style="text-align:right;">100%</td></tr>
-      ${bd.commission > 0 ? `<tr><td>Commission (${(bd.commissionPct * 100).toFixed(1)}%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.commission)}</td><td></td></tr>` : ''}
-      ${bd.salesTax > 0 ? `<tr><td>Sales Tax on Materials (${(bd.salesTaxPct * 100).toFixed(2)}%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.salesTax)}</td><td></td></tr>` : ''}
-      ${bd.escalation > 0 ? `<tr><td>Material Escalation (${(bd.escalationPct * 100).toFixed(1)}%)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.escalation)}</td><td></td></tr>` : ''}
-      ${bd.finalTotal > bd.grandTotal ? `<tr style="background:#065F46;color:white;font-weight:700;"><td>FINAL TOTAL (incl. commission/tax)</td><td colspan="2"></td><td style="text-align:right;">${fmt(bd.finalTotal)}</td><td></td></tr>` : ''}
-      ${bd._benchmarkCalibrated ? `<tr style="background:#DBEAFE;color:#1E40AF;"><td colspan="5">📐 Transit calibration ${bd._calibrationDirection === 'UNDER' ? '⬆' : '⬇'}: ${bd._cameraCount} cameras × $${Math.round(bd._targetGrandTotal / bd._cameraCount).toLocaleString()}/cam from ${bd._benchmarkKey} (target: ${fmt(bd._targetGrandTotal)}, scale: ${(bd._scaleFactor * 100).toFixed(0)}%)</td></tr>` : ''}
+      <tr style="background:#0D9488;color:white;font-weight:700;"><td>TOTAL BID</td><td colspan="2"></td><td style="text-align:right;">${fmt(grandTotal)}</td><td style="text-align:right;">100%</td></tr>
     </table>`;
   } else if (financialEngine?.project_summary) {
     // Fallback: AI Financial Engine breakdown (legacy path)
@@ -2849,9 +2778,6 @@ function renderFooter() {
         return;
       }
       state.analyzing = true;
-      // Disable button to prevent double-clicks during analysis
-      const nextBtn = document.getElementById('btn-next');
-      if (nextBtn) { nextBtn.disabled = true; nextBtn.style.opacity = '0.5'; nextBtn.style.pointerEvents = 'none'; }
       render();
     } else {
       state.currentStep++;
@@ -2906,22 +2832,7 @@ function renderStep0(container) {
     }
   }
 
-  // Personalized greeting based on time of day
-  const _hour = new Date().getHours();
-  const _timeGreet = _hour < 12 ? 'GOOD MORNING' : _hour < 17 ? 'GOOD AFTERNOON' : 'GOOD EVENING';
-  const _userName = (typeof _currentUser !== 'undefined' && _currentUser?.name)
-    ? _currentUser.name.split(' ')[0].toUpperCase()
-    : (typeof _currentUser !== 'undefined' && _currentUser?.email)
-      ? _currentUser.email.split('@')[0].toUpperCase()
-      : '';
-  const _greetingHtml = (typeof _currentUser !== 'undefined' && _currentUser) ? `
-    <div style="margin-bottom:20px;padding:18px 22px;border-radius:12px;background:linear-gradient(135deg,rgba(13,148,136,0.12),rgba(99,102,241,0.08));border:1px solid rgba(13,148,136,0.25);">
-      <div style="font-size:20px;font-weight:800;color:#0D9488;letter-spacing:0.5px;">${_timeGreet}${_userName ? ', ' + esc(_userName) : ''}!</div>
-      <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-top:4px;">LET'S WIN SOME BIDS TODAY! 🏆</div>
-    </div>` : '';
-
   container.innerHTML = `
-    ${_greetingHtml}
     <h2 class="step-heading">Tell me about your project</h2>
     <p class="step-subheading">This context helps me analyze your plans more accurately. The more detail you provide, the better my results will be.</p>
 
@@ -4744,14 +4655,14 @@ function renderStep6Travel(container) {
   document.querySelectorAll('.t6-input').forEach(input => {
     input.addEventListener('change', e => {
       const key = e.target.dataset.key;
-      if (key) { const _v = parseFloat(e.target.value); state.travel[key] = (!isNaN(_v) && _v >= 0) ? _v : 0; renderStep6Travel(container); }
+      if (key) { state.travel[key] = parseFloat(e.target.value) || 0; renderStep6Travel(container); }
     });
   });
 
   document.querySelectorAll('.inc-input').forEach(input => {
     input.addEventListener('change', e => {
       const key = e.target.dataset.key;
-      if (key) { const _v = parseFloat(e.target.value); state.incidentals[key] = (!isNaN(_v) && _v >= 0) ? _v : 0; renderStep6Travel(container); }
+      if (key) { state.incidentals[key] = parseFloat(e.target.value) || 0; renderStep6Travel(container); }
     });
   });
 
@@ -5011,26 +4922,6 @@ function renderStep7(container) {
         <button class="export-pkg-btn" id="export-bom-pdf" style="display:flex;align-items:center;justify-content:center;padding:14px 16px;border-radius:10px;border:1px solid rgba(16,185,129,0.4);background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.04));color:#10b981;cursor:pointer;font-weight:700;font-size:13px;flex:0 0 auto;">📄 PDF</button>
       </div>
 
-      <!-- Bid Verification & Amtrak Export -->
-      <div style="margin-top:14px;display:flex;gap:8px;">
-        <button class="export-pkg-btn" id="verify-bid-btn" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(234,88,12,0.35);background:linear-gradient(135deg,rgba(234,88,12,0.10),rgba(220,38,38,0.06));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;flex:1;">
-          <span style="font-size:24px;">✅</span>
-          <div style="flex:1;">
-            <div style="font-weight:700;font-size:14px;">Verify Bid</div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Run automated pre-submit checklist — ${state.isTransitRailroad ? '14' : '5'} checks</div>
-          </div>
-        </button>
-        ${state.isTransitRailroad ? `
-        <button class="export-pkg-btn" id="export-amtrak-schedule" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:10px;border:1px solid rgba(99,102,241,0.35);background:linear-gradient(135deg,rgba(99,102,241,0.10),rgba(79,70,229,0.06));color:var(--text-primary);cursor:pointer;text-align:left;transition:all 0.15s;flex:1;">
-          <span style="font-size:24px;">🚂</span>
-          <div style="flex:1;">
-            <div style="font-weight:700;font-size:14px;">Amtrak Pricing Schedule</div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">CSI division format Excel — ready to submit</div>
-          </div>
-          <span style="font-size:18px;color:rgba(99,102,241,0.7);">⬇</span>
-        </button>` : ''}
-      </div>
-
       <!-- Supplier Pricing Section -->
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
         <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;"><i data-lucide="send" style="width:16px;height:16px;"></i> Supplier Pricing</div>
@@ -5055,8 +4946,7 @@ function renderStep7(container) {
             <input type="file" accept=".xlsx,.csv,.pdf" id="supplier-file-input" style="display:none;">
             <div style="font-size:20px;margin-bottom:4px;"><i data-lucide="download" style="width:22px;height:22px;color:#14B8A6;"></i></div>
             <div style="font-size:12px;font-weight:600;color:var(--text-primary);">Import Supplier Pricing</div>
-            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Drop completed pricing file here or click to browse · XLSX, CSV, or PDF</div>
-            <button id="supplier-browse-btn" type="button" style="margin-top:8px;padding:8px 20px;border-radius:8px;border:1px solid rgba(20,184,166,0.4);background:rgba(20,184,166,0.08);color:#14B8A6;cursor:pointer;font-size:12px;font-weight:600;">Browse Files</button>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Drop completed pricing file here or click to browse · XLSX or CSV</div>
           </div>
         </div>
         <div id="supplier-quotes-container"></div>
@@ -5263,164 +5153,6 @@ function renderStep7(container) {
     </div>`;
   }
 
-  // ── Pricing Adjustments (Commission / Tax / Escalation) ──
-  const _pricingAdjustments = `
-    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
-      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
-        💰 Pricing Adjustments
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-        <div>
-          <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Commission %</label>
-          <input type="number" id="input-commission-pct" value="${state.commissionPct}" min="0" max="20" step="0.5"
-            style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:13px;font-weight:600;"
-            placeholder="0">
-          <div style="font-size:9px;color:var(--text-muted);margin-top:2px;">Applied to total sell price</div>
-        </div>
-        <div>
-          <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Sales Tax %</label>
-          <input type="number" id="input-salestax-pct" value="${state.salesTaxPct}" min="0" max="15" step="0.25"
-            style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:13px;font-weight:600;"
-            placeholder="0">
-          <div style="font-size:9px;color:var(--text-muted);margin-top:2px;">On materials only (e.g. 8.75)</div>
-        </div>
-        <div>
-          <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Escalation %</label>
-          <input type="number" id="input-escalation-pct" value="${state.escalationPct}" min="0" max="25" step="0.5"
-            style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:13px;font-weight:600;"
-            placeholder="0">
-          <div style="font-size:9px;color:var(--text-muted);margin-top:2px;">Material price escalation</div>
-        </div>
-      </div>
-    </div>`;
-
-  // ── Win/Loss Tracker ──
-  const _winLossHtml = `
-    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
-      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
-        🏆 Bid Outcome
-      </div>
-      <div style="display:flex;gap:6px;margin-bottom:10px;" id="bid-outcome-buttons">
-        ${['won', 'lost', 'pending', 'no_bid'].map(o => {
-          const labels = { won: '✅ Won', lost: '❌ Lost', pending: '⏳ Pending', no_bid: '🚫 No Bid' };
-          const colors = { won: '#10b981', lost: '#ef4444', pending: '#f59e0b', no_bid: '#6b7280' };
-          const isSel = state.bidOutcome === o;
-          return `<button data-outcome="${o}" style="flex:1;padding:8px 12px;border-radius:8px;border:2px solid ${isSel ? colors[o] : 'rgba(255,255,255,0.1)'};background:${isSel ? colors[o] + '20' : 'transparent'};color:${isSel ? colors[o] : 'var(--text-muted)'};cursor:pointer;font-size:12px;font-weight:${isSel ? '700' : '500'};transition:all 0.15s;">${labels[o]}</button>`;
-        }).join('')}
-      </div>
-      ${state.bidOutcome === 'won' || state.bidOutcome === 'lost' ? `
-      <div style="margin-top:8px;">
-        <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">${state.bidOutcome === 'won' ? 'Why we won' : 'Why we lost'}</label>
-        <textarea id="bid-outcome-notes" rows="2" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);font-size:12px;resize:vertical;"
-          placeholder="${state.bidOutcome === 'won' ? 'e.g. Best price, existing relationship, technical approach...' : 'e.g. Price too high, missing scope, competitor relationship...'}"
-        >${esc(state.bidOutcomeNotes || '')}</textarea>
-      </div>
-      <div style="margin-top:8px;">
-        <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Competitor Bids (optional)</label>
-        <div id="competitor-bids-list">
-          ${(state.competitorBids || []).map((c, i) => `
-            <div style="display:flex;gap:6px;margin-bottom:4px;align-items:center;" data-comp-idx="${i}">
-              <input type="text" value="${esc(c.name || '')}" placeholder="Company" style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:var(--text-primary);font-size:11px;" data-comp-field="name">
-              <input type="text" value="${c.amount ? '$' + Number(c.amount).toLocaleString() : ''}" placeholder="$Amount" style="width:100px;padding:6px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:var(--text-primary);font-size:11px;" data-comp-field="amount">
-              <button data-comp-remove="${i}" style="padding:4px 8px;border:none;background:rgba(239,68,68,0.1);color:#ef4444;border-radius:4px;cursor:pointer;font-size:11px;">✕</button>
-            </div>
-          `).join('')}
-        </div>
-        <button id="add-competitor-btn" style="padding:6px 12px;border-radius:6px;border:1px dashed rgba(20,184,166,0.3);background:transparent;color:var(--text-muted);cursor:pointer;font-size:11px;margin-top:4px;">+ Add Competitor</button>
-      </div>` : ''}
-    </div>`;
-
-  // ── Approval Workflow ──
-  const _approvalColors = { draft: '#6b7280', pending_review: '#f59e0b', approved: '#10b981', rejected: '#ef4444', revision_requested: '#8b5cf6' };
-  const _approvalLabels = { draft: 'Draft', pending_review: 'Pending Review', approved: 'Approved', rejected: 'Rejected', revision_requested: 'Revision Requested' };
-  const _approvalHtml = `
-    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
-      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
-        📋 Approval Status
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${_approvalColors[state.approvalStatus] || '#6b7280'};"></span>
-        <span style="font-size:14px;font-weight:700;color:${_approvalColors[state.approvalStatus] || '#6b7280'};">${_approvalLabels[state.approvalStatus] || 'Draft'}</span>
-        <div style="flex:1;"></div>
-        ${state.approvalStatus === 'draft' ? `<button id="btn-submit-approval" style="padding:8px 16px;border-radius:8px;border:1px solid rgba(245,158,11,0.4);background:rgba(245,158,11,0.1);color:#f59e0b;cursor:pointer;font-size:12px;font-weight:600;">Submit for Review</button>` : ''}
-        ${state.approvalStatus === 'pending_review' ? `
-          <button id="btn-approve-bid" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(16,185,129,0.4);background:rgba(16,185,129,0.1);color:#10b981;cursor:pointer;font-size:12px;font-weight:600;">✓ Approve</button>
-          <button id="btn-reject-bid" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(239,68,68,0.4);background:rgba(239,68,68,0.1);color:#ef4444;cursor:pointer;font-size:12px;font-weight:600;">✗ Reject</button>
-          <button id="btn-revision-bid" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.1);color:#8b5cf6;cursor:pointer;font-size:12px;font-weight:600;">↩ Request Revision</button>
-        ` : ''}
-        ${state.approvalStatus === 'approved' || state.approvalStatus === 'rejected' || state.approvalStatus === 'revision_requested' ? `<button id="btn-reset-approval" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:var(--text-muted);cursor:pointer;font-size:12px;">Reset to Draft</button>` : ''}
-      </div>
-      ${state.approvalHistory.length > 0 ? `
-      <div style="margin-top:8px;">
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">History</div>
-        ${state.approvalHistory.slice(-5).reverse().map(h => `
-          <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:var(--text-muted);border-bottom:1px solid rgba(255,255,255,0.04);">
-            <span style="width:8px;height:8px;border-radius:50%;background:${_approvalColors[h.status] || '#6b7280'};flex-shrink:0;"></span>
-            <span style="font-weight:600;color:var(--text-primary);">${_approvalLabels[h.status] || h.status}</span>
-            ${h.by ? `<span>by ${esc(h.by)}</span>` : ''}
-            <span style="flex:1;"></span>
-            <span>${h.date ? new Date(h.date).toLocaleDateString() : ''}</span>
-          </div>
-          ${h.notes ? `<div style="font-size:10px;color:var(--text-muted);padding:2px 0 4px 16px;">${esc(h.notes)}</div>` : ''}
-        `).join('')}
-      </div>` : ''}
-    </div>`;
-
-  // ── Scope Comparison ──
-  const _scopeCompHtml = state.comparisonData ? `
-    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
-      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
-        🔄 Scope Comparison
-      </div>
-      <div style="background:rgba(20,184,166,0.04);border:1px solid rgba(20,184,166,0.15);border-radius:8px;padding:12px;">
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;">
-          <div>
-            <div style="font-size:18px;font-weight:800;color:#10b981;">${state.comparisonData.addedItems || 0}</div>
-            <div style="font-size:10px;color:var(--text-muted);">Items Added</div>
-          </div>
-          <div>
-            <div style="font-size:18px;font-weight:800;color:#ef4444;">${state.comparisonData.removedItems || 0}</div>
-            <div style="font-size:10px;color:var(--text-muted);">Items Removed</div>
-          </div>
-          <div>
-            <div style="font-size:18px;font-weight:800;color:#f59e0b;">${state.comparisonData.changedItems || 0}</div>
-            <div style="font-size:10px;color:var(--text-muted);">Items Changed</div>
-          </div>
-        </div>
-        <div style="margin-top:10px;font-size:13px;font-weight:700;text-align:center;color:${(state.comparisonData.priceDelta || 0) >= 0 ? '#10b981' : '#ef4444'};">
-          Net Change: ${(state.comparisonData.priceDelta || 0) >= 0 ? '+' : ''}$${Math.abs(state.comparisonData.priceDelta || 0).toLocaleString()}
-        </div>
-      </div>
-      <button id="btn-clear-comparison" style="margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--text-muted);cursor:pointer;font-size:11px;width:100%;text-align:center;">Clear Comparison</button>
-    </div>` : `
-    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
-      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
-        🔄 Scope Comparison
-      </div>
-      <button id="btn-load-comparison" style="width:100%;padding:12px 16px;border-radius:8px;border:1px dashed rgba(20,184,166,0.3);background:rgba(20,184,166,0.02);color:var(--text-muted);cursor:pointer;font-size:12px;text-align:center;">
-        Load Previous Estimate to Compare
-      </button>
-    </div>`;
-
-  // ── Bid Templates ──
-  const _templateHtml = `
-    <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(20,184,166,0.15);">
-      <div style="font-weight:700;font-size:13px;color:rgba(20,184,166,0.9);margin-bottom:10px;letter-spacing:0.03em;text-transform:uppercase;">
-        📑 Bid Templates
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <button class="export-pkg-btn" id="btn-save-template" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);cursor:pointer;text-align:left;font-size:12px;">
-          <span>💾</span>
-          <div><div style="font-weight:700;">Save as Template</div><div style="font-size:10px;color:var(--text-muted);">Save markups, rates & settings</div></div>
-        </button>
-        <button class="export-pkg-btn" id="btn-load-template" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;border:1px solid rgba(20,184,166,0.3);background:rgba(20,184,166,0.04);color:var(--text-primary);cursor:pointer;text-align:left;font-size:12px;">
-          <span>📂</span>
-          <div><div style="font-weight:700;">Load Template</div><div style="font-size:10px;color:var(--text-muted);">Apply saved bid configuration</div></div>
-        </button>
-      </div>
-      ${state.activeBidTemplate ? `<div style="margin-top:6px;font-size:11px;color:#0D9488;"><strong>Active:</strong> ${esc(state.activeBidTemplate)}</div>` : ''}
-    </div>`;
-
   // ── Regenerate Proposal button (conditional) ──
   const _hasOverrides = Object.keys(state.supplierPriceOverrides || {}).length > 0 || (state.manualBomItems || []).length > 0 || Object.keys(state.deletedBomItems || {}).length > 0;
   const regenButton = _hasOverrides ? `
@@ -5470,12 +5202,6 @@ function renderStep7(container) {
 
       ${regenButton}
 
-      ${_pricingAdjustments}
-      ${_winLossHtml}
-      ${_approvalHtml}
-      ${_scopeCompHtml}
-      ${_templateHtml}
-
       <a href="https://smartpm.pages.dev/" target="_blank" rel="noopener" id="btn-open-smartpm" style="display:flex;align-items:center;gap:14px;padding:16px 20px;margin-top:14px;border-radius:12px;border:2px solid rgba(13,148,136,0.4);background:linear-gradient(135deg,rgba(13,148,136,0.08),rgba(13,148,136,0.02));color:var(--text-primary);text-decoration:none;cursor:pointer;transition:all 0.2s;">
         <span style="font-size:28px;"><i data-lucide="building-2" style="width:26px;height:26px;color:#0D9488;"></i></span>
         <div style="flex:1;">
@@ -5487,24 +5213,9 @@ function renderStep7(container) {
     </div>
   `;
 
-  // Compute full bid price for display (same formula as Master Report)
-  const _bidBom = getFilteredBOM(state.aiAnalysis, state.disciplines);
-  const _bidBomTravel = state.travel?.enabled ? injectTravelIntoBOM(_bidBom) : _bidBom;
-  const _bidBreakdown = (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._computeFullBreakdown)
-    ? SmartPlansExport._computeFullBreakdown(state, _bidBomTravel) : null;
-  const _fullBidPrice = _bidBreakdown?.finalTotal > _bidBreakdown?.grandTotal
-    ? _bidBreakdown.finalTotal : (_bidBreakdown?.grandTotal || _bidBom.grandTotal || 0);
-  const _bidPriceColor = _fullBidPrice > 0 ? '#10b981' : '#f59e0b';
-
   container.innerHTML = `
     <h2 class="step-heading">Estimate Complete</h2>
     <p class="step-subheading">Your AI-powered estimate is ready. Review the analysis below, then export for your project management workflow.</p>
-
-    ${_fullBidPrice > 0 ? `<div style="margin-bottom:20px;padding:20px 24px;border-radius:14px;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(13,148,136,0.12));border:1px solid rgba(16,185,129,0.25);text-align:center;">
-      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;">FULL BID PRICE</div>
-      <div style="font-size:36px;font-weight:900;color:${_bidPriceColor};letter-spacing:-0.5px;">$${_fullBidPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Materials + Labor + Burden + Contingency${state.travel?.enabled ? ' + Travel' : ''}${_bidBreakdown?._benchmarkCalibrated ? ' (Transit Calibrated)' : ''}</div>
-    </div>` : ''}
 
     <div class="results-hero">
       <div class="results-top">
@@ -5523,52 +5234,6 @@ function renderStep7(container) {
           </div>
         </div>
       </div>
-      ${(() => {
-        const da = state.brainResults?.wave3?.DEVILS_ADVOCATE;
-        const rs = da?.risk_score;
-        if (rs == null) return '';
-        const rc = rs <= 30 ? '#10b981' : rs <= 60 ? '#f59e0b' : '#ef4444';
-        const rl = rs <= 30 ? 'Low Risk' : rs <= 60 ? 'Medium Risk' : 'High Risk';
-        const challenges = (da?.challenges || []).slice(0, 3);
-        return `<div style="margin:12px 0;padding:12px 16px;border-radius:10px;border:1px solid ${rc}33;background:${rc}0a;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:${challenges.length ? '6' : '0'}px;">
-            <span style="font-size:28px;font-weight:900;color:${rc};">${rs}</span>
-            <div>
-              <div style="font-size:13px;font-weight:700;color:${rc};">${rl}</div>
-              <div style="font-size:10px;color:var(--text-muted);">Devil's Advocate Risk Score</div>
-            </div>
-          </div>
-          ${challenges.length ? `<div style="font-size:10px;color:var(--text-secondary);line-height:1.5;">${challenges.map(c => '<div style="padding:1px 0;">\u2022 ' + esc(typeof c === 'string' ? c : c.description || JSON.stringify(c)).substring(0, 120) + '</div>').join('')}</div>` : ''}
-        </div>`;
-      })()}
-      ${(() => {
-        const fit = computeBidFitScore(state);
-        if (!fit) return '';
-        const fc = fit.score >= 80 ? '#10b981' : fit.score >= 60 ? '#f59e0b' : fit.score >= 40 ? '#f97316' : '#ef4444';
-        const barHtml = (label, pts, max) => {
-          const pct = Math.round((pts / max) * 100);
-          return `<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">
-            <div style="width:120px;font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</div>
-            <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
-              <div style="width:${pct}%;height:100%;background:${fc};border-radius:3px;transition:width 0.3s;"></div>
-            </div>
-            <div style="font-size:10px;font-weight:700;color:var(--text-secondary);width:36px;text-align:right;">${pts}/${max}</div>
-          </div>`;
-        };
-        return `<div style="margin:12px 0;padding:14px 16px;border-radius:10px;border:1px solid ${fc}33;background:${fc}0a;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-            <span style="font-size:28px;font-weight:900;color:${fc};">🎯 ${fit.score}</span>
-            <div>
-              <div style="font-size:13px;font-weight:700;color:${fc};">${fit.label}</div>
-              <div style="font-size:10px;color:var(--text-muted);">Bid Fit Score — based on 22 actual 3D bids</div>
-            </div>
-          </div>
-          ${fit.categories.map(c => barHtml(c.name, c.pts, c.max)).join('')}
-          <div style="margin-top:8px;font-size:10px;line-height:1.6;">
-            ${fit.factors.map(f => `<div>${f}</div>`).join('')}
-          </div>
-        </div>`;
-      })()}
       <div class="results-stats">
         <div class="results-stat">
           <div class="results-stat-icon"><i data-lucide="ruler" style="width:22px;height:22px;color:#14B8A6;"></i></div>
@@ -5628,8 +5293,6 @@ function renderStep7(container) {
     ${buildBidStrategyCard(state)}
 
     ${buildCablePathwayCard(state)}
-
-    ${buildCableScheduleCard(state)}
 
     ${buildBidPhasesCard(state)}
 
@@ -5770,14 +5433,6 @@ function renderStep7(container) {
   const bomBtn = document.getElementById("export-bom");
   if (bomBtn) bomBtn.addEventListener("click", () => SmartPlansExport.exportBOM(state));
 
-  // ── Bid Verification ──
-  const verifyBtn = document.getElementById("verify-bid-btn");
-  if (verifyBtn) verifyBtn.addEventListener("click", () => verifyBid(state));
-
-  // ── Amtrak Pricing Schedule ──
-  const amtrakBtn = document.getElementById("export-amtrak-schedule");
-  if (amtrakBtn) amtrakBtn.addEventListener("click", () => SmartPlansExport.exportAmtrakPricingSchedule(state));
-
   // ── Supplier Pricing Handlers ──
   const supplierExcelBtn = document.getElementById("supplier-export-excel");
   const supplierCsvBtn = document.getElementById("supplier-export-csv");
@@ -5810,17 +5465,11 @@ function renderStep7(container) {
   if (supplierExcelBtn) supplierExcelBtn.addEventListener("click", () => handleSupplierExport("xlsx"));
   if (supplierCsvBtn) supplierCsvBtn.addEventListener("click", () => handleSupplierExport("csv"));
 
-  // Supplier import drag-drop (wrapped in rAF to ensure DOM is settled)
-  requestAnimationFrame(() => {
-    const supplierZone = document.getElementById("supplier-import-zone");
-    const supplierInput = document.getElementById("supplier-file-input");
-    const browseBtn = document.getElementById("supplier-browse-btn");
-    if (!supplierZone || !supplierInput) {
-      console.warn('[SmartPlans] Supplier import elements not found — upload may not work');
-      return;
-    }
-    supplierZone.addEventListener("click", (e) => { if (e.target.id !== 'supplier-browse-btn') supplierInput.click(); });
-    if (browseBtn) browseBtn.addEventListener("click", (e) => { e.stopPropagation(); supplierInput.click(); });
+  // Supplier import drag-drop
+  const supplierZone = document.getElementById("supplier-import-zone");
+  const supplierInput = document.getElementById("supplier-file-input");
+  if (supplierZone && supplierInput) {
+    supplierZone.addEventListener("click", () => supplierInput.click());
     supplierZone.addEventListener("dragover", (e) => { e.preventDefault(); supplierZone.style.borderColor = "rgba(20,184,166,0.6)"; supplierZone.style.background = "rgba(20,184,166,0.06)"; });
     supplierZone.addEventListener("dragleave", () => { supplierZone.style.borderColor = "rgba(20,184,166,0.25)"; supplierZone.style.background = "rgba(20,184,166,0.02)"; });
     supplierZone.addEventListener("drop", (e) => {
@@ -5833,7 +5482,7 @@ function renderStep7(container) {
       if (e.target.files.length) handleSupplierImport(e.target.files[0]);
       supplierInput.value = "";
     });
-  });
+  }
 
   async function handleSupplierImport(file) {
     try {
@@ -5966,7 +5615,6 @@ function renderStep7(container) {
   initExclusionsPanel(container);
   bindBidStrategyEvents(container);
   bindCablePathwayEvents(container);
-  bindCableScheduleEvents(container);
   bindBidPhasesEvents(container);
   bindChangeOrderEvents(container);
   bindSymbolInventoryEvents(container);
@@ -6283,209 +5931,6 @@ function renderStep7(container) {
 
   const rateLibSaveBtn = document.getElementById('rate-library-save-from-estimate');
   if (rateLibSaveBtn) rateLibSaveBtn.addEventListener('click', () => saveRatesFromEstimate());
-
-  // ── Pricing Adjustments listeners ──
-  const commInput = document.getElementById('input-commission-pct');
-  const taxInput = document.getElementById('input-salestax-pct');
-  const escInput = document.getElementById('input-escalation-pct');
-  if (commInput) commInput.addEventListener('change', (e) => { state.commissionPct = parseFloat(e.target.value) || 0; render(); });
-  if (taxInput) taxInput.addEventListener('change', (e) => { state.salesTaxPct = parseFloat(e.target.value) || 0; render(); });
-  if (escInput) escInput.addEventListener('change', (e) => { state.escalationPct = parseFloat(e.target.value) || 0; render(); });
-
-  // ── Win/Loss Tracker listeners ──
-  const outcomeButtons = document.getElementById('bid-outcome-buttons');
-  if (outcomeButtons) {
-    outcomeButtons.querySelectorAll('button[data-outcome]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        state.bidOutcome = btn.dataset.outcome;
-        state.bidOutcomeDate = new Date().toISOString();
-        render();
-      });
-    });
-  }
-  const outcomeNotes = document.getElementById('bid-outcome-notes');
-  if (outcomeNotes) outcomeNotes.addEventListener('change', (e) => { state.bidOutcomeNotes = e.target.value; });
-  const addCompBtn = document.getElementById('add-competitor-btn');
-  if (addCompBtn) {
-    addCompBtn.addEventListener('click', () => {
-      state.competitorBids.push({ name: '', amount: 0, notes: '' });
-      render();
-    });
-  }
-  // Competitor remove buttons
-  container.querySelectorAll('button[data-comp-remove]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.compRemove);
-      state.competitorBids.splice(idx, 1);
-      render();
-    });
-  });
-  // Competitor field edits
-  container.querySelectorAll('[data-comp-field]').forEach(input => {
-    input.addEventListener('change', () => {
-      const row = input.closest('[data-comp-idx]');
-      if (!row) return;
-      const idx = parseInt(row.dataset.compIdx);
-      const field = input.dataset.compField;
-      if (field === 'amount') {
-        state.competitorBids[idx].amount = parseFloat(input.value.replace(/[$,]/g, '')) || 0;
-      } else {
-        state.competitorBids[idx][field] = input.value;
-      }
-    });
-  });
-
-  // ── Approval Workflow listeners ──
-  const submitApprovalBtn = document.getElementById('btn-submit-approval');
-  if (submitApprovalBtn) submitApprovalBtn.addEventListener('click', () => {
-    state.approvalStatus = 'pending_review';
-    state.approvalHistory.push({ status: 'pending_review', by: 'Estimator', date: new Date().toISOString(), notes: '' });
-    spToast('Bid submitted for review', 'success');
-    render();
-  });
-  const approveBtn = document.getElementById('btn-approve-bid');
-  if (approveBtn) approveBtn.addEventListener('click', () => {
-    const notes = prompt('Approval notes (optional):') || '';
-    state.approvalStatus = 'approved';
-    state.approvalHistory.push({ status: 'approved', by: 'Reviewer', date: new Date().toISOString(), notes });
-    spToast('Bid APPROVED ✅', 'success');
-    render();
-  });
-  const rejectBtn = document.getElementById('btn-reject-bid');
-  if (rejectBtn) rejectBtn.addEventListener('click', () => {
-    const notes = prompt('Rejection reason:') || '';
-    state.approvalStatus = 'rejected';
-    state.approvalHistory.push({ status: 'rejected', by: 'Reviewer', date: new Date().toISOString(), notes });
-    spToast('Bid REJECTED ❌', 'error');
-    render();
-  });
-  const revisionBtn = document.getElementById('btn-revision-bid');
-  if (revisionBtn) revisionBtn.addEventListener('click', () => {
-    const notes = prompt('What needs revision?') || '';
-    state.approvalStatus = 'revision_requested';
-    state.approvalHistory.push({ status: 'revision_requested', by: 'Reviewer', date: new Date().toISOString(), notes });
-    spToast('Revision requested ↩', 'info');
-    render();
-  });
-  const resetApprovalBtn = document.getElementById('btn-reset-approval');
-  if (resetApprovalBtn) resetApprovalBtn.addEventListener('click', () => {
-    state.approvalStatus = 'draft';
-    state.approvalHistory.push({ status: 'draft', by: 'Estimator', date: new Date().toISOString(), notes: 'Reset to draft' });
-    render();
-  });
-
-  // ── Scope Comparison listeners ──
-  const loadCompBtn = document.getElementById('btn-load-comparison');
-  if (loadCompBtn) loadCompBtn.addEventListener('click', async () => {
-    try {
-      const resp = await fetch('/api/estimates?limit=20', { headers: { 'X-App-Token': _appToken } });
-      if (!resp.ok) throw new Error('Failed to load estimates');
-      const data = await resp.json();
-      const estimates = (data.estimates || []).filter(e => e.id !== state.estimateId);
-      if (estimates.length === 0) { spToast('No previous estimates found to compare', 'info'); return; }
-      const list = estimates.map((e, i) => `${i + 1}. ${e.project_name || 'Untitled'} — $${(e.grand_total || 0).toLocaleString()} (${new Date(e.created_at).toLocaleDateString()})`).join('\n');
-      const choice = prompt(`Select estimate to compare:\n\n${list}\n\nEnter number:`);
-      if (!choice) return;
-      const idx = parseInt(choice) - 1;
-      if (idx < 0 || idx >= estimates.length) { spToast('Invalid selection', 'error'); return; }
-      const compEstimate = estimates[idx];
-      // Load the comparison estimate's BOM
-      const compResp = await fetch(`/api/estimates/${compEstimate.id}`, { headers: { 'X-App-Token': _appToken } });
-      if (!compResp.ok) throw new Error('Failed to load comparison estimate');
-      const compData = await compResp.json();
-      const compBom = (typeof SmartPlansExport !== 'undefined' && compData.estimate?.analysis_text)
-        ? SmartPlansExport._extractBOMFromAnalysis(compData.estimate.analysis_text) : null;
-      const currentBom = getFilteredBOM(state.aiAnalysis, state.disciplines);
-      if (!compBom || !currentBom) { spToast('Could not parse comparison BOM', 'error'); return; }
-      // Calculate differences
-      const currentItems = new Set();
-      const compItems = new Set();
-      currentBom.categories.forEach(c => c.items.forEach(i => currentItems.add((i.item || i.name || '').toLowerCase().substring(0, 40))));
-      compBom.categories.forEach(c => c.items.forEach(i => compItems.add((i.item || i.name || '').toLowerCase().substring(0, 40))));
-      let added = 0, removed = 0, changed = 0;
-      currentItems.forEach(i => { if (!compItems.has(i)) added++; });
-      compItems.forEach(i => { if (!currentItems.has(i)) removed++; });
-      changed = Math.min(currentItems.size, compItems.size) - added;
-      state.comparisonEstimateId = compEstimate.id;
-      state.comparisonData = {
-        compareName: compEstimate.project_name || 'Previous',
-        addedItems: added, removedItems: removed, changedItems: Math.max(0, changed),
-        priceDelta: (currentBom.grandTotal || 0) - (compBom.grandTotal || 0),
-      };
-      render();
-      spToast(`Comparing against: ${compEstimate.project_name || 'Previous estimate'}`, 'success');
-    } catch (err) {
-      console.error('[ScopeComparison]', err);
-      spToast('Failed to load comparison: ' + err.message, 'error');
-    }
-  });
-  const clearCompBtn = document.getElementById('btn-clear-comparison');
-  if (clearCompBtn) clearCompBtn.addEventListener('click', () => {
-    state.comparisonEstimateId = null;
-    state.comparisonData = null;
-    render();
-  });
-
-  // ── Bid Templates listeners ──
-  const saveTemplateBtn = document.getElementById('btn-save-template');
-  if (saveTemplateBtn) saveTemplateBtn.addEventListener('click', async () => {
-    const name = prompt('Template name:');
-    if (!name || !name.trim()) return;
-    const template = {
-      name: name.trim(),
-      markup: { ...state.markup },
-      burdenRate: state.burdenRate,
-      includeBurden: state.includeBurden,
-      commissionPct: state.commissionPct,
-      salesTaxPct: state.salesTaxPct,
-      escalationPct: state.escalationPct,
-      laborRates: { ...state.laborRates },
-      isTransitRailroad: state.isTransitRailroad,
-      created_at: new Date().toISOString(),
-    };
-    try {
-      // Save to API
-      if (state.estimateId) {
-        await fetch('/api/bid-templates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken },
-          body: JSON.stringify(template),
-        });
-      }
-      // Also save to localStorage as fallback
-      const templates = JSON.parse(localStorage.getItem('sp_bid_templates') || '[]');
-      templates.push(template);
-      localStorage.setItem('sp_bid_templates', JSON.stringify(templates));
-      state.activeBidTemplate = name.trim();
-      spToast(`Template "${name.trim()}" saved`, 'success');
-      render();
-    } catch (err) {
-      console.error('[BidTemplate]', err);
-      // Still saved to localStorage
-      spToast(`Template saved locally (API unavailable)`, 'info');
-    }
-  });
-  const loadTemplateBtn = document.getElementById('btn-load-template');
-  if (loadTemplateBtn) loadTemplateBtn.addEventListener('click', () => {
-    const templates = JSON.parse(localStorage.getItem('sp_bid_templates') || '[]');
-    if (templates.length === 0) { spToast('No saved templates. Create one first.', 'info'); return; }
-    const list = templates.map((t, i) => `${i + 1}. ${t.name} (${t.isTransitRailroad ? 'Transit' : 'Commercial'} — Mat ${t.markup?.material || 50}%, Lab ${t.markup?.labor || 50}%)`).join('\n');
-    const choice = prompt(`Select template to load:\n\n${list}\n\nEnter number:`);
-    if (!choice) return;
-    const idx = parseInt(choice) - 1;
-    if (idx < 0 || idx >= templates.length) { spToast('Invalid selection', 'error'); return; }
-    const t = templates[idx];
-    if (t.markup) Object.assign(state.markup, t.markup);
-    if (t.burdenRate !== undefined) state.burdenRate = t.burdenRate;
-    if (t.includeBurden !== undefined) state.includeBurden = t.includeBurden;
-    if (t.commissionPct !== undefined) state.commissionPct = t.commissionPct;
-    if (t.salesTaxPct !== undefined) state.salesTaxPct = t.salesTaxPct;
-    if (t.escalationPct !== undefined) state.escalationPct = t.escalationPct;
-    if (t.laborRates) Object.assign(state.laborRates, t.laborRates);
-    state.activeBidTemplate = t.name;
-    spToast(`Template "${t.name}" applied`, 'success');
-    render();
-  });
 
   // Copy analysis to clipboard
   const copyBtn = document.getElementById("btn-copy-analysis");
@@ -8590,7 +8035,6 @@ async function runGeminiAnalysis(updateProgress) {
 
   } catch (err) {
     console.error("[SmartBrains] Multi-Brain Analysis Error:", err);
-    if (typeof APIHealthMonitor !== 'undefined') APIHealthMonitor.analysisComplete();
 
     // ─── FALLBACK: Try legacy single-brain call ───
     console.warn('[SmartPlans] Falling back to legacy single-brain analysis…');
@@ -9130,17 +8574,10 @@ function removeLocalEstimate(id) {
 
 async function saveEstimate(showToast = true) {
   if (window._savingEstimate) {
-    // Auto-recover if save has been stuck for >30 seconds
-    if (window._saveStartTime && Date.now() - window._saveStartTime > 30000) {
-      console.warn('[SmartPlans] Save was stuck for 30s — auto-recovering');
-      window._savingEstimate = false;
-    } else {
-      console.log('[SmartPlans] Save already in progress, skipping');
-      return;
-    }
+    console.log('[SmartPlans] Save already in progress, skipping');
+    return;
   }
   window._savingEstimate = true;
-  window._saveStartTime = Date.now();
   try {
   let exportPkg;
   try {
@@ -10502,771 +9939,6 @@ function bindCablePathwayEvents(container) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// BID VERIFICATION — Automated pre-submit checklist for Tony
-// Runs 14 checks (transit) or 5 checks (standard) and shows
-// traffic light results in a modal overlay
-// ═══════════════════════════════════════════════════════════════
-
-// ═══ BID FIT SCORECARD ═══
-// Rates how well a project matches 3D Technology's strengths
-// Based on 22 real bid outcomes (Amtrak + commercial, 2022-2026)
-function computeBidFitScore(st) {
-  if (!st.aiAnalysis || !st.disciplines) {
-    console.warn('[BidFitScore] Cannot compute — analysis or disciplines not available');
-    return null;
-  }
-  if (!st.brainResults) {
-    console.warn('[BidFitScore] Cannot compute — brain results not available');
-    return null;
-  }
-  const cfg = (typeof PRICING_DB !== 'undefined') ? PRICING_DB.bidFitConfig : null;
-  if (!cfg) return null;
-
-  const cats = [];
-  const factors = [];
-  const disc = new Set((st.disciplines || []).map(d => d.toLowerCase()));
-  const projName = (st.projectName || '').toLowerCase();
-  const projLoc = (st.projectLocation || '').toLowerCase();
-  const isTransit = !!st.isTransitRailroad;
-  const consensus = st.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || {};
-  const specConds = st.brainResults?.wave1?.SPECIAL_CONDITIONS || {};
-
-  // Count cameras from consensus
-  let camCount = 0;
-  for (const [key, val] of Object.entries(consensus)) {
-    if (/camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i.test(key) && !/mount|bracket|license|sd|cable|adapter|housing/i.test(key)) {
-      camCount += (typeof val === 'number' ? val : val?.count || val?.qty || 0);
-    }
-  }
-
-  // 1. Discipline Match (20 pts)
-  const hasCCTV = disc.has('cctv');
-  const hasAC = disc.has('access control');
-  const hasCabling = disc.has('structured cabling');
-  let discPts = 0;
-  if (hasCCTV) { discPts = 20; factors.push('✅ CCTV is our #1 strength — 100% win history'); }
-  else if (hasCabling && hasAC) { discPts = 16; factors.push('✅ Cabling + Access Control — proven combo'); }
-  else if (hasCabling) { discPts = 12; factors.push('🟡 Structured Cabling only — can do but not strongest'); }
-  else if (disc.has('fire alarm')) { discPts = 8; factors.push('⚠️ Fire Alarm — limited bid history'); }
-  else if (disc.size > 0) { discPts = 10; }
-  else { discPts = 0; factors.push('❌ No recognized discipline selected'); }
-  cats.push({ name: 'Discipline Match', pts: discPts, max: 20 });
-
-  // 2. Project Size Match (15 pts)
-  const bom = (typeof getFilteredBOM !== 'undefined' && st.aiAnalysis) ? getFilteredBOM(st.aiAnalysis, st.disciplines) : null;
-  const bd = (bom && typeof SmartPlansExport !== 'undefined') ? SmartPlansExport._computeFullBreakdown(st, bom) : null;
-  const total = bd?.grandTotal || 0;
-  let sizePts = 8; // neutral if no estimate
-  if (total > 0) {
-    const range = isTransit ? cfg.sweetSpotTotal.transit : cfg.sweetSpotTotal.commercial;
-    if (total >= range.ideal_min && total <= range.ideal_max) { sizePts = 15; factors.push(`✅ $${(total/1000000).toFixed(2)}M — right in our sweet spot`); }
-    else if (total >= range.ok_min && total <= range.ok_max) { sizePts = 10; }
-    else { sizePts = 5; factors.push(`⚠️ $${total.toLocaleString()} — outside typical bid range`); }
-  }
-  cats.push({ name: 'Project Size', pts: sizePts, max: 15 });
-
-  // 3. Location & Travel (10 pts)
-  // Rule: Must be within 100 miles of an office. Exception: Amtrak = travel anywhere.
-  let locPts = 6; // default if can't determine
-  if (isTransit) {
-    locPts = 10; // Amtrak exception — we travel anywhere for transit
-    if (projLoc) factors.push('✅ Amtrak — will travel anywhere for transit');
-  } else if (projLoc) {
-    const locLower = projLoc.toLowerCase();
-    if (cfg.withinRange.some(c => locLower.includes(c))) {
-      locPts = 10;
-      factors.push('✅ Within 100 miles of a 3D office');
-    } else if (cfg.extendedRange.some(c => locLower.includes(c))) {
-      locPts = 4;
-      factors.push('⚠️ Outside 100-mile range — requires travel budget');
-    } else if (locLower.length > 2) {
-      locPts = 2;
-      factors.push('❌ Outside service area — 100-mile max from offices');
-    }
-  }
-  cats.push({ name: 'Location', pts: locPts, max: 10 });
-
-  // 4. Transit/Railroad Experience (15 pts)
-  let transitPts = 8; // neutral for non-transit
-  if (isTransit) {
-    if (hasCCTV) { transitPts = 15; factors.push('✅ Transit CCTV — our strongest niche (7 Amtrak wins)'); }
-    else { transitPts = 10; }
-  }
-  cats.push({ name: 'Transit Experience', pts: transitPts, max: 15 });
-
-  // 5. Prevailing Wage Readiness (10 pts)
-  const specText = JSON.stringify(specConds).toLowerCase();
-  const isPW = /prevailing\s*wage|davis.bacon|dir.*register/i.test(specText) || isTransit;
-  let pwPts = 5;
-  if (isPW && isTransit) { pwPts = 10; }
-  else if (isPW) { pwPts = 8; }
-  else if (!isPW && specText.length > 50) { pwPts = 10; } // non-PW = higher margins
-  cats.push({ name: 'Prevailing Wage', pts: pwPts, max: 10 });
-
-  // 6. Scope Complexity Match (15 pts)
-  let scopePts = 8;
-  if (camCount >= 20 && camCount <= 100) { scopePts = 15; }
-  else if (camCount >= 8 && camCount < 20) { scopePts = 12; }
-  else if (camCount > 100 && camCount <= 200) { scopePts = 10; }
-  else if (camCount > 200) { scopePts = 7; factors.push('⚠️ ' + camCount + ' cameras — larger than typical scope'); }
-  else if (camCount > 0 && camCount < 8) { scopePts = 10; }
-  if (hasCCTV && hasAC && camCount > 0) { scopePts = Math.min(15, scopePts + 2); }
-  cats.push({ name: 'Scope Complexity', pts: scopePts, max: 15 });
-
-  // 7. Competition Risk (10 pts)
-  let compPts = 6;
-  if (/sole\s*source|single\s*source|direct\s*award|invited/i.test(specText)) { compPts = 10; factors.push('✅ Invited/sole source — limited competition'); }
-  else if (/prequalif|short\s*list/i.test(specText)) { compPts = 8; }
-  else if (/public\s*bid|open\s*bid|lowest\s*bidder|sealed\s*bid/i.test(specText)) { compPts = 4; factors.push('⚠️ Open/public bid — expect price competition'); }
-  cats.push({ name: 'Competition Risk', pts: compPts, max: 10 });
-
-  // 8. Client Relationship (5 pts)
-  let clientPts = 3;
-  if (cfg.knownClients.some(c => projName.includes(c))) { clientPts = 5; factors.push('✅ Known client — existing relationship'); }
-  else if (/county|city|state|federal|government|agency/i.test(projName)) { clientPts = 3; }
-  else { clientPts = 4; }
-  cats.push({ name: 'Client Relationship', pts: clientPts, max: 5 });
-
-  // Total
-  const score = cats.reduce((s, c) => s + c.pts, 0);
-  let label;
-  if (score >= 80) label = 'BID IT — Strong fit, high confidence';
-  else if (score >= 60) label = 'CONSIDER — Good fit with some gaps';
-  else if (score >= 40) label = 'CAUTION — Review carefully before bidding';
-  else label = 'PASS — Outside our wheelhouse';
-
-  // Add benchmark comparison to factors
-  if (isTransit && camCount > 0 && typeof PRICING_DB !== 'undefined') {
-    const bids = PRICING_DB.amtrakBenchmarks?.actualBids;
-    if (bids) {
-      const closest = Object.entries(bids).map(([k, v]) => ({ key: k, ...v })).filter(b => b.cameras > 0)
-        .sort((a, b) => Math.abs(a.cameras - camCount) - Math.abs(b.cameras - camCount))[0];
-      if (closest) factors.push(`📊 Similar to ${closest.key.replace(/_/g, ' ')} (${closest.cameras} cams, $${closest.total.toLocaleString()})`);
-    }
-  }
-
-  return { score, label, categories: cats, factors: factors.slice(0, 5) };
-}
-
-function verifyBid(st) {
-  const checks = [];
-  const bom = getFilteredBOM(st.aiAnalysis, st.disciplines);
-  const bd = (typeof SmartPlansExport !== 'undefined') ? SmartPlansExport._computeFullBreakdown(st, bom) : null;
-  const consensus = st.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
-    || st.brainResults?.wave1?.SYMBOL_SCANNER?.totals || {};
-  const laborCalc = st.brainResults?.wave2_25?.LABOR_CALCULATOR;
-  const travelCosts = st.travel?.enabled ? computeTravelIncidentals() : null;
-  const grandTotal = bd?.grandTotal || 0;
-
-  // Count cameras from consensus
-  let consensusCams = 0;
-  Object.entries(consensus).forEach(([k, v]) => {
-    if (/camera|cam|dome|bullet|ptz|turret|fisheye|panoram|multisensor/i.test(k)) {
-      consensusCams += (typeof v === 'object' ? v.consensus || v.count || 0 : v) || 0;
-    }
-  });
-
-  // Count cameras from BOM (exclude accessories: mounts, brackets, mics, SD cards, licenses, housings)
-  let bomCams = 0;
-  const camAccessoryExclude = /mount|bracket|pendant|housing|enclosure|mic|microphone|sd\s*card|memory|license|vms|server|nvr|surge|power\s*supply|junction|back\s*box|conduit|cable\s*mgr|hardware|adapter|patch/i;
-  (bom.categories || []).forEach(cat => {
-    (cat.items || []).forEach(item => {
-      const name = item.item || item.name || '';
-      if (/camera|dome\s*cam|bullet\s*cam|ptz|fisheye|panoram|fixed\s*dome|varifocal/i.test(name) && !camAccessoryExclude.test(name)) {
-        bomCams += item.qty || 0;
-      }
-    });
-  });
-  const camCount = Math.max(consensusCams, bomCams) || 1;
-
-  // Helper: search BOM for keyword (checks category names, item names, and subcontractor items)
-  const bomHas = (regex) => {
-    for (const cat of (bom.categories || [])) {
-      if (regex.test(cat.name || '')) return true;
-      for (const item of (cat.items || [])) {
-        if (regex.test(item.item || item.name || '')) return true;
-        if (regex.test(item.description || '')) return true;
-        if (regex.test(item.mfg || '')) return true;
-      }
-    }
-    // Also check the raw AI analysis text for these items
-    const analysis = st.aiAnalysis || '';
-    if (regex.test(analysis)) return true;
-    return false;
-  };
-
-  // Helper: add check
-  const check = (label, status, detail) => checks.push({ label, status, detail });
-
-  const laborHrs = laborCalc?.total_hours || 0;
-  const hrsPerCam = camCount > 0 ? laborHrs / camCount : 0;
-  const matPerCam = bd ? bd.materials / camCount : 0;
-
-  if (st.isTransitRailroad) {
-    // ═══ TRANSIT CHECKLIST (14 checks) ═══
-
-    // 1. Camera count
-    const camDiff = consensusCams > 0 && bomCams > 0 ? Math.abs(consensusCams - bomCams) / Math.max(consensusCams, bomCams) : 0;
-    if (consensusCams === 0 && bomCams === 0) check('Camera Count', 'fail', 'No cameras found in consensus or BOM');
-    else if (camDiff <= 0.10) check('Camera Count', 'pass', `Consensus: ${consensusCams} | BOM: ${bomCams}`);
-    else if (camDiff <= 0.20) check('Camera Count', 'warn', `Consensus: ${consensusCams} vs BOM: ${bomCams} (${Math.round(camDiff*100)}% diff)`);
-    else check('Camera Count', 'fail', `Consensus: ${consensusCams} vs BOM: ${bomCams} (${Math.round(camDiff*100)}% mismatch)`);
-
-    // 2. Camera accessories
-    const hasMounts = bomHas(/mount|bracket|pendant|pole.*mount|wall.*mount/i);
-    const hasLicenses = bomHas(/license|omnicast|genetec|vms/i);
-    if (hasMounts && hasLicenses) check('Camera Accessories', 'pass', 'Mounts and licenses found in BOM');
-    else if (hasMounts || hasLicenses) check('Camera Accessories', 'warn', `${hasMounts ? 'Mounts' : 'Licenses'} found, ${!hasMounts ? 'mounts' : 'licenses'} not detected`);
-    else check('Camera Accessories', 'fail', 'No camera mounts or VMS licenses found in BOM');
-
-    // 3. Labor hrs/camera
-    if (hrsPerCam >= 25 && hrsPerCam <= 35) check('Labor Hours/Camera', 'pass', `${hrsPerCam.toFixed(1)} hrs/camera (${laborHrs.toLocaleString()} total hrs / ${camCount} cameras)`);
-    else if (hrsPerCam >= 20 && hrsPerCam < 25) check('Labor Hours/Camera', 'warn', `${hrsPerCam.toFixed(1)} hrs/camera — LOW (target: 25-35 for transit)`);
-    else if (hrsPerCam > 35 && hrsPerCam <= 45) check('Labor Hours/Camera', 'warn', `${hrsPerCam.toFixed(1)} hrs/camera — HIGH (target: 25-35 for transit)`);
-    else check('Labor Hours/Camera', 'fail', `${hrsPerCam.toFixed(1)} hrs/camera — OUT OF RANGE (target: 25-35 for transit)`);
-
-    // 4. Material $/camera
-    if (matPerCam >= 4000 && matPerCam <= 7000) check('Material $/Camera', 'pass', `$${Math.round(matPerCam).toLocaleString()}/camera (base cost before markup)`);
-    else if (matPerCam >= 3000 && matPerCam < 4000) check('Material $/Camera', 'warn', `$${Math.round(matPerCam).toLocaleString()}/camera — LOW (target: $4,000-$7,000)`);
-    else check('Material $/Camera', 'fail', `$${Math.round(matPerCam).toLocaleString()}/camera — OUT OF RANGE (target: $4,000-$7,000)`);
-
-    // 5-11: Required line items (broad keyword matching to catch various AI naming)
-    const reqItems = [
-      { label: 'Trenching / Saw Cut', regex: /trench|saw\s*cut|sawcut|excavat|boring|civil.*contract|underground|conduit.*install/i },
-      { label: 'Station UPS/Inverter', regex: /ups|inverter|uninterrupt|battery.*bank|power.*backup|station.*power/i, minCost: 50000 },
-      { label: 'Power Circuits', regex: /power\s*circuit|dedicated\s*circuit|electrical\s*panel|panelboard|new.*panel|power.*cable|electrical.*contract/i },
-      { label: 'Bonds', regex: /bond|performance.*payment|surety|perf.*bond/i },
-      { label: 'RRPLI Insurance', regex: /rrpli|railroad.*protective|rpl|rail.*liab|railroad.*insurance/i },
-      { label: 'General Insurance', regex: /insurance|liability|general\s*liab|builders.*risk|umbrella/i },
-      { label: 'Mob/Demob', regex: /mobiliz|demob|mob.*demob|mob\/demob|site.*setup|general.*condition|div.*1.*req/i },
-    ];
-    reqItems.forEach(ri => {
-      const found = bomHas(ri.regex);
-      if (found) {
-        if (ri.minCost) {
-          // Check if the item value is above minimum
-          let itemCost = 0;
-          (bom.categories || []).forEach(cat => (cat.items || []).forEach(item => {
-            if (ri.regex.test(item.item || item.name || '')) itemCost += item.extCost || 0;
-          }));
-          if (itemCost >= ri.minCost) check(ri.label, 'pass', `Found — $${itemCost.toLocaleString()}`);
-          else check(ri.label, 'warn', `Found but only $${itemCost.toLocaleString()} (expected >$${ri.minCost.toLocaleString()})`);
-        } else {
-          check(ri.label, 'pass', 'Found in BOM');
-        }
-      } else {
-        check(ri.label, 'fail', 'NOT FOUND — required for transit/railroad projects');
-      }
-    });
-
-    // 12. Travel
-    const travelTotal = travelCosts?.grandTotal || 0;
-    if (travelTotal > 0) check('Travel & Per Diem', 'pass', `$${travelTotal.toLocaleString()} configured`);
-    else check('Travel & Per Diem', 'fail', 'Travel is $0 — enable on Stage 6/7 if project is out of town');
-
-    // 13. Grand total vs benchmark
-    const benchmarks = (typeof PRICING_DB !== 'undefined') ? PRICING_DB.amtrakBenchmarks?.actualBids : null;
-    if (benchmarks && grandTotal > 0) {
-      // Find closest comparable bid by camera count
-      let closest = null;
-      let closestDiff = Infinity;
-      Object.entries(benchmarks).forEach(([key, bid]) => {
-        const diff = Math.abs((bid.cameras || 0) - camCount);
-        if (diff < closestDiff) { closestDiff = diff; closest = { key, ...bid }; }
-      });
-      if (closest) {
-        const pctDiff = Math.abs(grandTotal - closest.total) / closest.total;
-        if (pctDiff <= 0.15) check('Benchmark Comparison', 'pass', `$${grandTotal.toLocaleString()} vs ${closest.key} ($${closest.total.toLocaleString()}) — ${Math.round(pctDiff*100)}% diff`);
-        else check('Benchmark Comparison', 'warn', `$${grandTotal.toLocaleString()} vs ${closest.key} ($${closest.total.toLocaleString()}) — ${Math.round(pctDiff*100)}% diff (target: <15%)`);
-      }
-    } else {
-      check('Benchmark Comparison', 'warn', 'No benchmark data available for comparison');
-    }
-
-    // 14. Div 1 percentage — use EITHER category-level OR item-level, not both
-    let div1Total = 0;
-    (bom.categories || []).forEach(cat => {
-      if (/mobiliz|demob|insurance|bond|rrpli|rpl|general\s*condition/i.test(cat.name || '')) {
-        div1Total += cat.subtotal || 0;
-      } else {
-        // Only scan items if category name didn't match (prevents double-counting)
-        (cat.items || []).forEach(item => {
-          if (/mobiliz|demob|insurance|bond|rrpli|rpl/i.test(item.item || item.name || '')) {
-            div1Total += item.extCost || 0;
-          }
-        });
-      }
-    });
-    const div1Pct = grandTotal > 0 ? (div1Total / grandTotal * 100) : 0;
-    if (div1Pct >= 4 && div1Pct <= 8) check('Div 1 (Gen Conditions)', 'pass', `${div1Pct.toFixed(1)}% of total (target: 4-8%)`);
-    else if (div1Pct > 0) check('Div 1 (Gen Conditions)', 'warn', `${div1Pct.toFixed(1)}% of total (target: 4-8%) — $${div1Total.toLocaleString()}`);
-    else check('Div 1 (Gen Conditions)', 'fail', 'No general conditions items detected');
-
-  } else {
-    // ═══ STANDARD COMMERCIAL CHECKLIST (10 checks) ═══
-    const isPW = st.prevailingWage && st.prevailingWage !== 'No' && st.prevailingWage !== 'no';
-
-    // 1. Camera count
-    if (consensusCams > 0 || bomCams > 0) {
-      const camDiff = consensusCams > 0 && bomCams > 0 ? Math.abs(consensusCams - bomCams) / Math.max(consensusCams, bomCams) : 0;
-      if (camDiff <= 0.15) check('Camera Count', 'pass', `Consensus: ${consensusCams} | BOM: ${bomCams}`);
-      else check('Camera Count', 'warn', `Consensus: ${consensusCams} vs BOM: ${bomCams} (${Math.round(camDiff*100)}% diff)`);
-    } else {
-      check('Camera Count', 'warn', 'No cameras detected (may be cabling-only project)');
-    }
-
-    // 2. Labor hours
-    if (camCount > 1 && hrsPerCam >= 12 && hrsPerCam <= 30) check('Labor Hours/Camera', 'pass', `${hrsPerCam.toFixed(1)} hrs/camera (${laborHrs.toLocaleString()} total)`);
-    else if (hrsPerCam > 0) check('Labor Hours/Camera', 'warn', `${hrsPerCam.toFixed(1)} hrs/camera (typical: 12-30 for commercial)`);
-    else if (laborHrs > 0) check('Labor Hours', 'pass', `${laborHrs.toLocaleString()} total hours`);
-    else check('Labor Hours', 'fail', 'No labor data');
-
-    // 3. Material cost
-    if (bd && bd.materials > 0) check('Material Cost', 'pass', `$${bd.materials.toLocaleString()} total materials`);
-    else check('Material Cost', 'fail', 'No material costs');
-
-    // 4. Labor cost present
-    if (bd && bd.laborBase > 0) check('Labor Cost', 'pass', `$${bd.laborBase.toLocaleString()} base labor`);
-    else check('Labor Cost', 'fail', 'No labor costs — check Labor Calculator output');
-
-    // 5. Overall multiplier check
-    if (bd && bd.materials > 0 && grandTotal > 0) {
-      const rawCost = bd.materials + bd.laborBase + (bd.equipment || 0) + (bd.subs || 0);
-      const mult = rawCost > 0 ? grandTotal / rawCost : 0;
-      const targetLow = isPW ? 1.26 : 2.0;
-      const targetHigh = isPW ? 1.63 : 2.92;
-      if (mult >= targetLow && mult <= targetHigh) check('Markup Multiplier', 'pass', `${mult.toFixed(2)}x (target: ${targetLow}-${targetHigh}x for ${isPW ? 'PW' : 'non-PW'})`);
-      else check('Markup Multiplier', 'warn', `${mult.toFixed(2)}x (target: ${targetLow}-${targetHigh}x for ${isPW ? 'PW' : 'non-PW'})`);
-    }
-
-    // 6. Travel
-    const travelTotal = travelCosts?.grandTotal || 0;
-    if (travelTotal > 0 || !st.travel?.enabled) check('Travel', 'pass', travelTotal > 0 ? `$${travelTotal.toLocaleString()}` : 'Local project (travel disabled)');
-    else check('Travel', 'warn', 'Travel enabled but $0 — check Stage 6/7');
-
-    // 7. Grand total
-    if (grandTotal > 1000) check('Grand Total', 'pass', `$${grandTotal.toLocaleString()}`);
-    else check('Grand Total', 'fail', `$${grandTotal.toLocaleString()} — too low`);
-
-    // 8. Prevailing wage consistency
-    if (isPW) {
-      check('Prevailing Wage', 'pass', `PW enabled: ${st.prevailingWage}`);
-    } else {
-      check('Prevailing Wage', 'pass', 'Non-PW project');
-    }
-
-    // 9. Camera accessories (if cameras exist)
-    if (camCount > 1) {
-      const hasMounts = bomHas(/mount|bracket|pendant|hardware/i);
-      const hasLicenses = bomHas(/license|vms|genetec|milestone/i);
-      if (hasMounts && hasLicenses) check('Camera Accessories', 'pass', 'Mounts and licenses found');
-      else if (hasMounts || hasLicenses) check('Camera Accessories', 'warn', `${hasMounts ? 'Mounts' : 'Licenses'} found, ${!hasMounts ? 'mounts' : 'licenses'} not detected`);
-      else check('Camera Accessories', 'warn', 'No camera mounts or VMS licenses detected');
-    }
-
-    // 10. Benchmark comparison
-    const commBenchmarks = (typeof PRICING_DB !== 'undefined') ? PRICING_DB.commercialBenchmarks?.actualBids : null;
-    if (commBenchmarks && grandTotal > 0 && camCount > 1) {
-      let closest = null;
-      let closestDiff = Infinity;
-      Object.entries(commBenchmarks).forEach(([key, bid]) => {
-        const diff = Math.abs((bid.cameras || bid.drops || 0) - camCount);
-        if (diff < closestDiff && bid.total > 0) { closestDiff = diff; closest = { key, ...bid }; }
-      });
-      if (closest) {
-        const pctDiff = Math.abs(grandTotal - closest.total) / closest.total;
-        if (pctDiff <= 0.30) check('Benchmark', 'pass', `$${grandTotal.toLocaleString()} vs ${closest.key} ($${closest.total.toLocaleString()}) — ${Math.round(pctDiff*100)}% diff`);
-        else check('Benchmark', 'warn', `$${grandTotal.toLocaleString()} vs ${closest.key} ($${closest.total.toLocaleString()}) — ${Math.round(pctDiff*100)}% diff`);
-      }
-    }
-  }
-
-  // Render modal
-  const passCount = checks.filter(c => c.status === 'pass').length;
-  const warnCount = checks.filter(c => c.status === 'warn').length;
-  const failCount = checks.filter(c => c.status === 'fail').length;
-  const icon = { pass: '\u{1F7E2}', warn: '\u{1F7E1}', fail: '\u{1F534}' };
-  const statusColor = { pass: '#22c55e', warn: '#eab308', fail: '#ef4444' };
-
-  const rows = checks.map(c => `
-    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(0,0,0,0.06);">
-      <div style="width:12px;height:12px;border-radius:50%;background:${statusColor[c.status]};flex-shrink:0;margin-top:3px;"></div>
-      <div style="flex:1;">
-        <div style="font-weight:700;font-size:13px;color:var(--text-primary);">${esc(c.label)}</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${esc(c.detail)}</div>
-      </div>
-      <div style="font-size:11px;font-weight:700;color:${statusColor[c.status]};text-transform:uppercase;">${c.status}</div>
-    </div>
-  `).join('');
-
-  const overlay = document.createElement('div');
-  overlay.id = 'verify-bid-overlay';
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
-  overlay.innerHTML = `
-    <div style="background:white;border-radius:16px;width:90%;max-width:680px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-      <div style="padding:20px 24px;border-bottom:1px solid rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:space-between;">
-        <div>
-          <h2 style="margin:0;font-size:18px;color:var(--text-primary);">${esc(st.isTransitRailroad ? 'Transit/Railroad' : 'Standard')} Bid Verification</h2>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${esc(st.projectName || 'Project')} | $${grandTotal.toLocaleString()}</div>
-        </div>
-        <button id="verify-close-btn" style="border:none;background:none;font-size:24px;cursor:pointer;color:var(--text-muted);padding:4px 8px;">&times;</button>
-      </div>
-      <div style="padding:16px 24px;display:flex;gap:16px;align-items:center;background:${failCount > 0 ? 'rgba(239,68,68,0.06)' : failCount === 0 && warnCount > 0 ? 'rgba(234,179,8,0.06)' : 'rgba(34,197,94,0.06)'};">
-        <div style="font-size:36px;font-weight:900;color:${failCount > 0 ? '#ef4444' : '#22c55e'};">${passCount}/${checks.length}</div>
-        <div>
-          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">${failCount === 0 ? 'All Checks Passed' : failCount + ' Issue' + (failCount > 1 ? 's' : '') + ' Found'}</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${icon.pass} ${passCount} passed | ${icon.warn} ${warnCount} warnings | ${icon.fail} ${failCount} failed</div>
-        </div>
-      </div>
-      <div style="overflow-y:auto;flex:1;">
-        ${rows}
-      </div>
-      <div style="padding:16px 24px;border-top:1px solid rgba(0,0,0,0.08);text-align:right;">
-        <button id="verify-close-btn-2" style="padding:10px 24px;border:none;border-radius:8px;background:#0D9488;color:white;font-weight:700;font-size:13px;cursor:pointer;">Close</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  const close = () => overlay.remove();
-  document.getElementById('verify-close-btn').addEventListener('click', close);
-  document.getElementById('verify-close-btn-2').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
-}
-
-// ═══════════════════════════════════════════════════════════════
-// CABLE SCHEDULE — Per-device cable run assignment & calculation
-// Uses DEVICE_LOCATOR brain data (or falls back to zone-level)
-// to show every device's cable run to its home-run IDF/MDF
-// ═══════════════════════════════════════════════════════════════
-
-function buildCableScheduleCard(st) {
-  if (typeof CableAnalyzer === 'undefined' || !st.aiAnalysis) return '';
-
-  const schedule = CableAnalyzer.buildCableSchedule(st, st.cableAssumptions || {});
-  if (!schedule || schedule.assignments.length === 0) return '';
-  st._cableScheduleCache = schedule;
-
-  const open = st._cableScheduleOpen;
-  const view = st._cableScheduleView || 'byIdf';
-  const t = schedule.totals;
-  const fmt = CableAnalyzer.fmtFt;
-  const fmtC = CableAnalyzer.fmtCost;
-
-  const modeBadge = schedule.mode === 'device-level'
-    ? '<span style="padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;background:rgba(16,185,129,0.12);color:#10B981;">DEVICE-LEVEL</span>'
-    : '<span style="padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;background:rgba(245,158,11,0.12);color:#D97706;">ZONE-LEVEL</span>';
-
-  // Stats bar
-  const statsHtml = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:16px;">
-      <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);border-radius:8px;padding:10px;text-align:center;">
-        <div style="font-size:20px;font-weight:800;color:var(--accent-indigo);">${fmt(t.totalDevices)}</div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Devices</div>
-      </div>
-      <div style="background:rgba(13,148,136,0.06);border:1px solid rgba(13,148,136,0.12);border-radius:8px;padding:10px;text-align:center;">
-        <div style="font-size:20px;font-weight:800;color:var(--accent-teal);">${fmt(t.totalFt)}</div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Total Cable (ft)</div>
-      </div>
-      <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.12);border-radius:8px;padding:10px;text-align:center;">
-        <div style="font-size:20px;font-weight:800;color:var(--accent-indigo);">${fmt(t.avgRunFt)} ft</div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Avg Run</div>
-      </div>
-      <div style="background:${t.tiaViolationCount > 0 ? 'rgba(220,38,38,0.06)' : 'rgba(16,185,129,0.06)'};border:1px solid ${t.tiaViolationCount > 0 ? 'rgba(220,38,38,0.12)' : 'rgba(16,185,129,0.12)'};border-radius:8px;padding:10px;text-align:center;">
-        <div style="font-size:20px;font-weight:800;color:${t.tiaViolationCount > 0 ? '#DC2626' : '#10B981'};">${t.tiaViolationCount}</div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">TIA Violations</div>
-      </div>
-    </div>`;
-
-  // View tabs
-  const tabBtn = (key, label) =>
-    `<button class="cable-schedule-tab" data-cs-view="${key}" style="padding:5px 14px;font-size:10px;font-weight:${view === key ? '700' : '500'};border:1px solid ${view === key ? 'rgba(99,102,241,0.3)' : 'rgba(0,0,0,0.1)'};border-radius:4px;background:${view === key ? 'rgba(99,102,241,0.08)' : 'transparent'};color:${view === key ? 'var(--accent-indigo)' : 'var(--text-muted)'};cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">${label}</button>`;
-
-  const tabsHtml = `<div style="display:flex;gap:6px;margin-bottom:12px;">
-    ${tabBtn('byIdf', 'By IDF')}
-    ${tabBtn('byCableType', 'By Cable Type')}
-    ${tabBtn('allDevices', 'All Devices')}
-  </div>`;
-
-  // Table content based on current view
-  let tableHtml = '';
-  if (view === 'allDevices') {
-    tableHtml = _buildCableScheduleAllDevicesTable(schedule);
-  } else {
-    const groups = view === 'byIdf' ? schedule.byIdf : schedule.byCableType;
-    tableHtml = _buildCableScheduleGroupedTable(groups, view === 'byIdf' ? 'IDF' : 'Cable Type');
-  }
-
-  // Assumptions panel (Phase 4)
-  const assumptionsHtml = _buildCableAssumptionsPanel(schedule.config);
-
-  // Cable cost summary
-  const costSummary = Object.entries(schedule.byCableType).map(([type, data]) =>
-    `<span style="font-size:11px;color:var(--text-secondary);margin-right:12px;">${CableAnalyzer._cableLabel(type)}: <strong>${fmt(data.totalFt)} ft</strong> (${fmtC(data.totalCost)})</span>`
-  ).join('');
-
-  return `
-    <div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div>
-    <div class="info-card" id="cable-schedule-card" style="border-left:3px solid #6366F1;">
-      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="cable-schedule-toggle">
-        <h3 class="info-card-title" style="margin:0;">
-          <i data-lucide="cable" style="width:16px;height:16px;"></i>
-          CABLE SCHEDULE
-          ${modeBadge}
-          <span style="font-size:11px;font-weight:400;color:rgba(0,0,0,0.4);margin-left:8px;">(${fmt(t.totalDevices)} devices | ${fmt(t.totalFt)} ft | ${fmtC(t.totalCost)})</span>
-        </h3>
-        <span id="cable-schedule-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">${open ? '\u25BC' : '\u25B6'}</span>
-      </div>
-      <div id="cable-schedule-collapsible" style="display:${open ? 'block' : 'none'};margin-top:12px;">
-        <p style="color:rgba(0,0,0,0.5);font-size:12px;margin-bottom:16px;">
-          Every detected device assigned to its nearest IDF/MDF with calculated cable run length. ${schedule.mode === 'device-level' ? 'Device positions from AI plan analysis.' : 'Using zone-level estimates (run Device Locator for per-device accuracy).'}
-        </p>
-        ${statsHtml}
-        <div style="margin-bottom:8px;line-height:1.8;">${costSummary}</div>
-        ${tabsHtml}
-        <div id="cable-schedule-table-container" style="overflow-x:auto;">
-          ${tableHtml}
-        </div>
-        ${assumptionsHtml}
-        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
-          <button id="cable-schedule-export-btn" style="padding:8px 16px;border:1px solid rgba(99,102,241,0.3);background:rgba(99,102,241,0.06);color:#6366F1;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
-            EXPORT CABLE SCHEDULE
-          </button>
-          <button id="cable-schedule-copy-btn" style="padding:8px 16px;border:1px solid rgba(99,102,241,0.3);background:rgba(99,102,241,0.06);color:#6366F1;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
-            COPY TO CLIPBOARD
-          </button>
-        </div>
-      </div>
-    </div>`;
-}
-
-function _buildCableScheduleAllDevicesTable(schedule) {
-  const rows = schedule.assignments.map(a => {
-    const rowBg = a.tiaViolation ? 'background:rgba(220,38,38,0.04);' : '';
-    return `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);${rowBg}">
-      <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);white-space:nowrap;">${esc(a.deviceId)}</td>
-      <td style="padding:5px 8px;font-size:11px;text-transform:capitalize;">${esc(a.deviceType.replace(/_/g, ' '))}</td>
-      <td style="padding:5px 8px;font-size:11px;color:var(--text-secondary);">${esc(a.room)}</td>
-      <td style="padding:5px 8px;font-size:11px;text-align:center;">${esc(a.floor)}</td>
-      <td style="padding:5px 8px;font-size:11px;font-weight:600;color:var(--accent-indigo);">${esc(a.idfAssigned)}</td>
-      <td style="padding:5px 8px;font-size:11px;">${esc(a.cableTypeLabel)}</td>
-      <td style="padding:5px 8px;font-size:11px;text-align:right;font-weight:600;${a.tiaViolation ? 'color:#DC2626;' : ''}">${a.runFt}${a.tiaViolation ? ' \u26A0\uFE0F' : ''}</td>
-      <td style="padding:5px 8px;font-size:11px;text-align:center;">${a.qty}</td>
-      <td style="padding:5px 8px;font-size:11px;text-align:right;">${CableAnalyzer.fmtFt(a.totalFtWithWaste)}</td>
-      <td style="padding:5px 8px;font-size:11px;text-align:right;">${CableAnalyzer.fmtCost(a.totalCost)}</td>
-      <td style="padding:5px 8px;font-size:10px;color:var(--text-muted);">${esc(a.basis)}</td>
-    </tr>`;
-  }).join('');
-
-  return `<table style="width:100%;border-collapse:collapse;font-size:11px;">
-    <thead><tr style="background:rgba(99,102,241,0.06);">
-      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">ID</th>
-      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Type</th>
-      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Room</th>
-      <th style="padding:6px 8px;text-align:center;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Floor</th>
-      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">IDF</th>
-      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Cable</th>
-      <th style="padding:6px 8px;text-align:right;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Run (ft)</th>
-      <th style="padding:6px 8px;text-align:center;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Qty</th>
-      <th style="padding:6px 8px;text-align:right;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Total (ft)</th>
-      <th style="padding:6px 8px;text-align:right;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Cost</th>
-      <th style="padding:6px 8px;text-align:left;font-size:9px;color:#6366F1;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(99,102,241,0.15);">Basis</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
-function _buildCableScheduleGroupedTable(groups, groupLabel) {
-  const fmt = CableAnalyzer.fmtFt;
-  const fmtC = CableAnalyzer.fmtCost;
-  let html = '';
-  Object.entries(groups).forEach(([key, g]) => {
-    html += `<div style="margin-bottom:16px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1);border-radius:6px;margin-bottom:4px;">
-        <div>
-          <strong style="font-size:13px;color:var(--text-primary);">${esc(key)}</strong>
-          <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${g.deviceCount} devices</span>
-        </div>
-        <div style="font-size:12px;">
-          <span style="font-weight:600;color:var(--accent-indigo);">${fmt(g.totalFt)} ft</span>
-          <span style="color:var(--text-muted);margin-left:8px;">${fmtC(g.totalCost)}</span>
-        </div>
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:11px;">
-        <thead><tr style="background:rgba(0,0,0,0.02);">
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Type</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Room</th>
-          <th style="padding:4px 8px;text-align:center;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Floor</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Cable</th>
-          <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Run</th>
-          <th style="padding:4px 8px;text-align:center;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Qty</th>
-          <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Total ft</th>
-          <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Cost</th>
-        </tr></thead><tbody>`;
-    g.devices.forEach(a => {
-      const rowBg = a.tiaViolation ? 'background:rgba(220,38,38,0.04);' : '';
-      html += `<tr style="border-bottom:1px solid rgba(0,0,0,0.03);${rowBg}">
-        <td style="padding:4px 8px;text-transform:capitalize;">${esc(a.deviceType.replace(/_/g, ' '))}</td>
-        <td style="padding:4px 8px;color:var(--text-secondary);">${esc(a.room)}</td>
-        <td style="padding:4px 8px;text-align:center;">${esc(a.floor)}</td>
-        <td style="padding:4px 8px;">${esc(a.cableTypeLabel)}</td>
-        <td style="padding:4px 8px;text-align:right;font-weight:600;${a.tiaViolation ? 'color:#DC2626;' : ''}">${a.runFt}${a.tiaViolation ? ' \u26A0\uFE0F' : ''}</td>
-        <td style="padding:4px 8px;text-align:center;">${a.qty}</td>
-        <td style="padding:4px 8px;text-align:right;">${fmt(a.totalFtWithWaste)}</td>
-        <td style="padding:4px 8px;text-align:right;">${fmtC(a.totalCost)}</td>
-      </tr>`;
-    });
-    html += `</tbody></table></div>`;
-  });
-  return html;
-}
-
-function _buildCableAssumptionsPanel(config) {
-  if (typeof CableAnalyzer === 'undefined') return '';
-  const schema = CableAnalyzer.configSchema;
-  let inputs = '';
-  Object.entries(schema).forEach(([key, s]) => {
-    const val = config[key] ?? CableAnalyzer.defaults[key];
-    const displayVal = key === 'wastePct' ? val : val;
-    inputs += `<div style="display:flex;align-items:center;gap:8px;">
-      <label style="font-size:10px;color:var(--text-muted);min-width:140px;text-transform:uppercase;letter-spacing:0.5px;">${s.label}</label>
-      <input type="number" class="cable-assumption-input" data-ca-key="${key}" value="${displayVal}" min="${s.min}" max="${s.max}" step="${s.step}"
-        style="width:70px;padding:4px 6px;border:1px solid rgba(0,0,0,0.1);border-radius:4px;font-size:12px;font-family:var(--font-sans);text-align:right;">
-    </div>`;
-  });
-
-  return `<div style="margin-top:16px;border-top:1px solid rgba(0,0,0,0.06);padding-top:12px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="cable-assumptions-toggle">
-      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">ASSUMPTIONS</span>
-      <span style="font-size:10px;color:var(--text-muted);">\u25B6 adjust</span>
-    </div>
-    <div id="cable-assumptions-body" style="display:none;margin-top:8px;">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:6px;">
-        ${inputs}
-      </div>
-      <button id="cable-assumptions-reset" style="margin-top:8px;padding:4px 12px;border:1px solid rgba(0,0,0,0.1);background:transparent;color:var(--text-muted);cursor:pointer;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Reset to Defaults</button>
-    </div>
-  </div>`;
-}
-
-function _reRenderCableScheduleTable() {
-  const container = document.getElementById('cable-schedule-table-container');
-  if (!container) return;
-  state._cableScheduleCache = null;
-  const schedule = CableAnalyzer.buildCableSchedule(state, state.cableAssumptions || {});
-  if (!schedule) return;
-  state._cableScheduleCache = schedule;
-  const view = state._cableScheduleView || 'byIdf';
-  if (view === 'allDevices') {
-    container.innerHTML = _buildCableScheduleAllDevicesTable(schedule);
-  } else {
-    const groups = view === 'byIdf' ? schedule.byIdf : schedule.byCableType;
-    container.innerHTML = _buildCableScheduleGroupedTable(groups, view === 'byIdf' ? 'IDF' : 'Cable Type');
-  }
-}
-
-function bindCableScheduleEvents(container) {
-  // Toggle expand/collapse
-  const toggle = document.getElementById('cable-schedule-toggle');
-  if (toggle) {
-    toggle.addEventListener('click', () => {
-      state._cableScheduleOpen = !state._cableScheduleOpen;
-      const body = document.getElementById('cable-schedule-collapsible');
-      const icon = document.getElementById('cable-schedule-toggle-icon');
-      if (body) body.style.display = state._cableScheduleOpen ? 'block' : 'none';
-      if (icon) icon.textContent = state._cableScheduleOpen ? '\u25BC' : '\u25B6';
-    });
-  }
-
-  // View tabs
-  container.querySelectorAll('.cable-schedule-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state._cableScheduleView = btn.dataset.csView;
-      // Update tab styling
-      container.querySelectorAll('.cable-schedule-tab').forEach(b => {
-        const active = b.dataset.csView === state._cableScheduleView;
-        b.style.fontWeight = active ? '700' : '500';
-        b.style.borderColor = active ? 'rgba(99,102,241,0.3)' : 'rgba(0,0,0,0.1)';
-        b.style.background = active ? 'rgba(99,102,241,0.08)' : 'transparent';
-        b.style.color = active ? 'var(--accent-indigo)' : 'var(--text-muted)';
-      });
-      _reRenderCableScheduleTable();
-    });
-  });
-
-  // Assumptions toggle
-  const assToggle = document.getElementById('cable-assumptions-toggle');
-  if (assToggle) {
-    assToggle.addEventListener('click', () => {
-      const body = document.getElementById('cable-assumptions-body');
-      if (body) body.style.display = body.style.display === 'none' ? 'block' : 'none';
-    });
-  }
-
-  // Assumptions inputs (debounced)
-  let assTimer = null;
-  container.querySelectorAll('.cable-assumption-input').forEach(inp => {
-    inp.addEventListener('input', () => {
-      clearTimeout(assTimer);
-      assTimer = setTimeout(() => {
-        const key = inp.dataset.caKey;
-        const val = parseFloat(inp.value);
-        if (!isNaN(val)) {
-          state.cableAssumptions[key] = val;
-          state._cableScheduleCache = null;
-          _reRenderCableScheduleTable();
-        }
-      }, 300);
-    });
-  });
-
-  // Reset assumptions
-  const resetBtn = document.getElementById('cable-assumptions-reset');
-  if (resetBtn) {
-    resetBtn.addEventListener('click', () => {
-      state.cableAssumptions = {};
-      state._cableScheduleCache = null;
-      // Reset input values to defaults
-      container.querySelectorAll('.cable-assumption-input').forEach(inp => {
-        const key = inp.dataset.caKey;
-        inp.value = CableAnalyzer.defaults[key];
-      });
-      _reRenderCableScheduleTable();
-    });
-  }
-
-  // Export button
-  const exportBtn = document.getElementById('cable-schedule-export-btn');
-  if (exportBtn) {
-    exportBtn.addEventListener('click', () => {
-      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport.exportCableSchedule) {
-        SmartPlansExport.exportCableSchedule(state);
-      } else {
-        alert('Cable schedule export not available yet.');
-      }
-    });
-  }
-
-  // Copy button
-  const copyBtn = document.getElementById('cable-schedule-copy-btn');
-  if (copyBtn) {
-    copyBtn.addEventListener('click', () => {
-      const schedule = state._cableScheduleCache;
-      if (!schedule) return;
-      const lines = ['Device ID\tType\tRoom\tFloor\tIDF\tCable\tRun (ft)\tQty\tTotal (ft)\tCost'];
-      schedule.assignments.forEach(a => {
-        lines.push(`${a.deviceId}\t${a.deviceType}\t${a.room}\t${a.floor}\t${a.idfAssigned}\t${a.cableTypeLabel}\t${a.runFt}\t${a.qty}\t${a.totalFtWithWaste}\t${a.totalCost.toFixed(2)}`);
-      });
-      navigator.clipboard.writeText(lines.join('\n')).then(() => {
-        copyBtn.textContent = 'COPIED!';
-        setTimeout(() => { copyBtn.textContent = 'COPY TO CLIPBOARD'; }, 2000);
-      });
-    });
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
 // SYMBOL INVENTORY AUDIT — Per-sheet/per-location device verification
 // Extracts device_inventory from SYMBOL_SCANNER brain results
 // and cross-references sheets to detect potential duplicate counts
@@ -12413,38 +11085,21 @@ function buildChangeOrderCard(st) {
   included.forEach(c => { bySev[c.severity] = (bySev[c.severity] || 0) + 1; });
 
   let rows = '';
-  cos.forEach((c, idx) => {
+  cos.forEach(c => {
     const excluded = st._excludedCOs.has(c.id);
-    // Build justification text for this CO
-    let coJustification = c.recommendation || '';
-    if (!coJustification) {
-      if (c.source === "Devil's Advocate") coJustification = 'Identified during adversarial estimate review. This item represents a code requirement, industry-standard practice, or field condition not addressed in the contract documents.';
-      else if (c.source === 'Spec Cross-Ref') coJustification = 'Discovered during specification-to-drawing cross-reference. The written specifications and the plan drawings conflict or have gaps that will require resolution during construction.';
-      else if (c.source === 'Special Conditions') coJustification = 'Identified from site conditions, permit requirements, or construction logistics not fully addressed in the contract documents. These conditions cannot be known with certainty until construction begins.';
-      else coJustification = 'This potential change was identified during the AI-assisted plan review. It represents scope not included in the contract documents that will likely be required during construction.';
-    }
-
     rows += `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);${excluded ? 'opacity:0.4;' : ''}">
       <td style="padding:8px 10px;text-align:center;">
         <input type="checkbox" class="co-include-cb" data-co-id="${esc(c.id)}" ${excluded ? '' : 'checked'} style="width:14px;height:14px;accent-color:#0D9488;">
       </td>
       <td style="padding:8px 10px;font-size:11px;font-weight:600;color:var(--text-muted);white-space:nowrap;">${esc(c.id)}</td>
-      <td style="padding:8px 10px;font-size:12px;color:var(--text-primary);max-width:400px;">
-        <div style="font-weight:600;margin-bottom:4px;">${esc(c.description)}</div>
-        <div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-bottom:4px;">
-          <strong>Why this is a change order:</strong> ${esc(coJustification)}
-        </div>
-        ${c.recommendation && c.recommendation !== coJustification ? `<div style="font-size:10px;color:#D97706;margin-top:2px;"><strong>Resolution:</strong> ${esc(c.recommendation)}</div>` : ''}
+      <td style="padding:8px 10px;font-size:12px;color:var(--text-primary);max-width:300px;">
+        ${esc(c.description)}
+        ${c.recommendation ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic;">${esc(c.recommendation)}</div>` : ''}
       </td>
       <td style="padding:8px 10px;text-align:center;">${sevBadge(c.severity)}</td>
       <td style="padding:8px 10px;font-size:12px;font-weight:600;text-align:right;color:var(--text-primary);">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : '<span style="color:var(--text-muted);font-weight:400;">TBD</span>'}</td>
-      <td style="padding:8px 10px;font-size:10px;color:var(--text-muted);white-space:nowrap;">
-        ${esc(c.source)}<br>
-        <button class="co-generate-form-btn" data-co-idx="${idx}" style="margin-top:4px;padding:3px 8px;border:1px solid rgba(234,88,12,0.3);background:rgba(234,88,12,0.06);color:#EA580C;cursor:pointer;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;">Generate CO Form</button>
-      </td>
+      <td style="padding:8px 10px;font-size:10px;color:var(--text-muted);white-space:nowrap;">${esc(c.source)}</td>
     </tr>`;
-    // Store justification for form generation
-    c._justification = coJustification;
   });
 
   return `
@@ -12459,22 +11114,8 @@ function buildChangeOrderCard(st) {
         <span id="co-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">${st._changeOrdersOpen ? '▼' : '▶'}</span>
       </div>
       <div id="co-collapsible" style="display:${st._changeOrdersOpen ? 'block' : 'none'};margin-top:12px;">
-        <!-- What Is a Change Order — Educational Callout -->
-        <div style="background:rgba(234,88,12,0.04);border:1px solid rgba(234,88,12,0.15);border-radius:8px;padding:14px 16px;margin-bottom:16px;">
-          <div style="font-size:12px;font-weight:700;color:#EA580C;margin-bottom:6px;">WHAT IS A POTENTIAL CHANGE ORDER?</div>
-          <p style="color:rgba(0,0,0,0.6);font-size:12px;line-height:1.7;margin:0 0 8px 0;">
-            A <strong>Potential Change Order (PCO)</strong> is an item that is <strong>NOT in the contract documents</strong> (plans or specs) but will likely be required during construction. These are <em>not</em> mistakes in your bid &mdash; they are legitimate scope gaps, ambiguities, or unforeseen conditions that the design team did not address. When these items surface during construction, the contractor has the right to submit a formal Change Order Request to the owner for additional compensation.
-          </p>
-          <p style="color:rgba(0,0,0,0.6);font-size:12px;line-height:1.7;margin:0 0 8px 0;">
-            <strong>Why this matters:</strong> Identifying PCOs <em>before</em> you bid protects your company in two ways: (1) you can include a contingency reserve in your bid to cover these risks, and (2) when the issue arises during construction, you have documentation showing it was identified during bid review &mdash; strengthening your CO request.
-          </p>
-          <div style="font-size:11px;color:rgba(0,0,0,0.45);line-height:1.6;">
-            <strong>Common sources of change orders:</strong> Ambiguous or conflicting contract documents &bull; Code requirements not addressed in design &bull; Unforeseen site conditions (underground conflicts, concealed structure) &bull; Owner-requested additions after contract execution &bull; Design gaps where plans lack sufficient detail &bull; Spec requirements with no corresponding drawing detail
-          </div>
-        </div>
-
         <p style="color:rgba(0,0,0,0.5);font-size:12px;margin-bottom:16px;">
-          <strong>Use the checkboxes</strong> to include/exclude items from your bid contingency. Use the <strong>"Generate CO Form"</strong> button on any item to produce a formal Change Order Request ready to copy/paste into your CO submission form.
+          Items NOT in the plans or specifications that may arise during construction. These are legitimate change order risks — ambiguous scope, owner-requested additions, code requirements not addressed in contract documents, or conditions that can't be known until construction begins. Items that ARE on the plans or specs are already included in your bid.
         </p>
 
         <!-- Severity Summary -->
@@ -12626,138 +11267,6 @@ function bindChangeOrderEvents(container) {
       if (win) { win.document.write(html); win.document.close(); }
     });
   }
-
-  // ── Generate CO Form Button (per-item) ──
-  document.querySelectorAll('.co-generate-form-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.coIdx);
-      const cos = extractPotentialChangeOrders(state);
-      const c = cos[idx];
-      if (!c) return;
-
-      const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-      const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      const sevColors = { critical: '#DC2626', high: '#EA580C', medium: '#D97706', low: '#65A30D' };
-
-      // Build justification
-      let justification = c._justification || c.recommendation || '';
-      if (!justification) {
-        if (c.source === "Devil's Advocate") justification = 'Identified during adversarial estimate review. This item represents a code requirement, industry-standard practice, or field condition not addressed in the contract documents. The original bid was prepared based on the information available in the plans and specifications. This change order addresses scope that was not included in the contract documents but is required for a complete and code-compliant installation.';
-        else if (c.source === 'Spec Cross-Ref') justification = 'Discovered during specification-to-drawing cross-reference analysis. A conflict or gap exists between the written specifications and the plan drawings. The contractor bid based on the drawings as the primary document. This change order addresses the discrepancy and the additional scope required to comply with both the specifications and the drawings.';
-        else if (c.source === 'Special Conditions') justification = 'Identified from site conditions, permit requirements, or construction logistics not fully addressed in the contract documents. These conditions were identified during the pre-construction plan review and represent scope that was not reasonably foreseeable from the contract documents alone. This change order addresses the additional work required to complete the installation under actual field conditions.';
-        else justification = 'This potential change was identified during the AI-assisted plan review process conducted prior to bid submission. The original bid does not account for this item because it is not clearly shown on the plans or specified in the project specifications. This change order addresses the gap between what was included in the contract documents and what is required for a complete and functional installation.';
-      }
-
-      const coHtml = `<!DOCTYPE html><html><head><title>Change Order Request — ${c.id}</title>
-        <style>
-          *{margin:0;padding:0;box-sizing:border-box}
-          body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;padding:40px;max-width:800px;margin:0 auto}
-          @media print{body{padding:20px}}
-          .field-label{font-size:9px;font-weight:700;color:#0D9488;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;}
-          .field-value{font-size:11px;line-height:1.6;padding:10px 14px;background:#FAFBFC;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:14px;min-height:40px;}
-          .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-          .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
-        </style></head><body>
-        <!-- Header -->
-        <div style="border-bottom:3px solid #0D9488;padding-bottom:14px;margin-bottom:20px;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-            <div>
-              <h1 style="font-size:20px;color:#0D9488;margin-bottom:2px;">CHANGE ORDER REQUEST</h1>
-              <div style="font-size:10px;color:#0D9488;text-transform:uppercase;letter-spacing:1px;font-weight:700;">3D TECHNOLOGY SERVICES, INC. &mdash; Pre-Construction Identification</div>
-            </div>
-            <div style="text-align:right;">
-              <div style="font-size:22px;font-weight:800;color:#0D9488;">${esc(c.id)}</div>
-              <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;color:white;background:${sevColors[c.severity] || '#D97706'};text-transform:uppercase;">${esc(c.severity)}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Project Info -->
-        <div class="grid2" style="margin-bottom:16px;">
-          <div>
-            <div class="field-label">Project Name</div>
-            <div class="field-value">${esc(state.projectName || '___________________________')}</div>
-          </div>
-          <div>
-            <div class="field-label">Contract / Bid Number</div>
-            <div class="field-value">${esc(state.bidNumber || '___________________________')}</div>
-          </div>
-        </div>
-        <div class="grid3" style="margin-bottom:16px;">
-          <div>
-            <div class="field-label">Contractor</div>
-            <div class="field-value">3D Technology Services, Inc.</div>
-          </div>
-          <div>
-            <div class="field-label">Date Submitted</div>
-            <div class="field-value">${date}</div>
-          </div>
-          <div>
-            <div class="field-label">Identified By</div>
-            <div class="field-value">SmartPlans AI Analysis (${esc(c.source)})</div>
-          </div>
-        </div>
-
-        <!-- Description of Change -->
-        <div class="field-label">Description of Change</div>
-        <div class="field-value" style="font-size:12px;line-height:1.7;background:#F0FDFA;border-color:#99F6E4;">
-          ${esc(c.description)}
-        </div>
-
-        <!-- Justification / Reason for Change -->
-        <div class="field-label">Justification / Reason for Change</div>
-        <div class="field-value" style="font-size:11px;line-height:1.7;">
-          ${esc(justification)}
-        </div>
-
-        <!-- Recommended Resolution -->
-        <div class="field-label">Recommended Resolution</div>
-        <div class="field-value">
-          ${c.recommendation ? esc(c.recommendation) : 'To be determined pending field verification and engineer review. Contractor recommends addressing this item prior to contract execution to avoid construction delays.'}
-        </div>
-
-        <!-- Cost & Schedule Impact -->
-        <div class="grid3" style="margin-bottom:16px;">
-          <div>
-            <div class="field-label">Estimated Cost Impact</div>
-            <div class="field-value" style="font-size:14px;font-weight:800;color:#0D9488;">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'To Be Determined'}</div>
-          </div>
-          <div>
-            <div class="field-label">Schedule Impact</div>
-            <div class="field-value">To Be Determined</div>
-          </div>
-          <div>
-            <div class="field-label">Status</div>
-            <div class="field-value" style="color:#D97706;font-weight:600;">Pending Review</div>
-          </div>
-        </div>
-
-        <!-- Signature Lines -->
-        <div style="margin-top:30px;border-top:1px solid #e5e7eb;padding-top:20px;">
-          <div class="grid2">
-            <div>
-              <div class="field-label">Submitted By (Contractor)</div>
-              <div style="border-bottom:1px solid #999;height:30px;margin-top:8px;"></div>
-              <div style="font-size:9px;color:#999;margin-top:4px;">Signature / Date</div>
-            </div>
-            <div>
-              <div class="field-label">Approved / Rejected By (Owner/Architect)</div>
-              <div style="border-bottom:1px solid #999;height:30px;margin-top:8px;"></div>
-              <div style="font-size:9px;color:#999;margin-top:4px;">Signature / Date</div>
-            </div>
-          </div>
-        </div>
-
-        <div style="margin-top:24px;font-size:9px;color:#999;text-align:center;">
-          Generated by SmartPlans AI &mdash; 3D Technology Services Inc. | 3D CONFIDENTIAL
-        </div>
-        <script>window.onload=function(){window.print();}</script>
-      </body></html>`;
-
-      const win = window.open('', '_blank');
-      if (win) { win.document.write(coHtml); win.document.close(); }
-    });
-  });
 }
 
 // BID PHASES / ALTERNATES
@@ -12826,18 +11335,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   const hasSession = await Auth.init();
 
   if (hasSession) {
-    // User is logged in — start the app (same as _startApp)
-    const header = document.getElementById('app-header');
-    const nav = document.getElementById('step-nav');
-    const footer = document.getElementById('step-footer');
-    if (header) header.style.display = '';
-    if (nav) nav.style.display = '';
-    if (footer) footer.style.display = '';
+    // User is logged in — start the app
     Auth._updateHeader();
-    console.debug('[SmartPlans] Session restored — user:', _currentUser?.name || _currentUser?.email || 'unknown');
     render();
     QuotaMonitor.start();
-    if (typeof APIHealthMonitor !== 'undefined') APIHealthMonitor.init();
     UsageStats.start();
     SecurityDashboard.init();
   } else {

@@ -31,7 +31,7 @@
             <div class="header-logo">
                 <img src="smartplans-logo.png" alt="SmartPlans" height="42">
             </div>
-            <div id="usage-stats" style="display:none;">
+            <div id="usage-stats">
                 <div class="usage-stat" title="Total bids processed">
                     <span id="stat-bid-count" class="usage-stat-value usage-stat-value--green">0</span>
                     <span class="usage-stat-label">BIDS</span>
@@ -51,9 +51,6 @@
                 </a>
                 <button id="btn-saved-estimates" class="header-btn" data-action="show-saved-estimates" title="Saved Estimates">
                     <i data-lucide="folder-open"></i> <span class="header-btn-label">Saved</span>
-                </button>
-                <button id="btn-motivation" class="header-btn" title="Play motivational music while you bid" onclick="(function(){var a=document.getElementById('motivation-audio');if(!a){a=document.createElement('audio');a.id='motivation-audio';a.src='3d.mp3';a.loop=true;document.body.appendChild(a)}if(a.paused){a.play();document.getElementById('btn-motivation').style.borderColor='#10b981';document.getElementById('btn-motivation').style.background='rgba(16,185,129,0.1)'}else{a.pause();document.getElementById('btn-motivation').style.borderColor='';document.getElementById('btn-motivation').style.background=''}})()">
-                    <i data-lucide="music"></i> <span class="header-btn-label">3D Motivation</span>
                 </button>
             </div>
         </header>
@@ -128,7 +125,7 @@
         Sentry.init({
           dsn: "https://60b02e5d7804fc77476c97324b9039e5@o4511099720957952.ingest.us.sentry.io/4511099752284160",
           environment: location.hostname.includes('localhost') ? 'development' : 'production',
-          release: 'smartplans@5.62.0',
+          release: 'smartplans@5.0.0',
           integrations: [Sentry.browserTracingIntegration()],
           tracesSampleRate: 0.1,
           initialScope: { tags: { app: 'smartplans' } },
@@ -155,7 +152,7 @@
                 function () {
                     console.warn('[SmartPlans] Primary SheetJS CDN failed, trying fallback…');
                     loadScript(
-                        'https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js',
+                        'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
                         'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw',
                         function () { console.log('[SmartPlans] SheetJS loaded (fallback CDN)'); },
                         function () { console.error('[SmartPlans] SheetJS failed to load from all CDNs — Excel export will use CSV fallback'); }
@@ -200,7 +197,6 @@
     <script src="prevailing-wages-ca.js"></script>
     <script src="prevailing-wages-national.js"></script>
     <script src="export-engine.js"></script>
-    <script src="cable-analyzer.js"></script>
     <script src="proposal-generator.js"></script>
     <script src="ai-engine.js"></script>
     <script src="app.js"></script>
@@ -216,7 +212,7 @@
                 console.log('[SmartPlans] Service Worker registered');
 
                 // Check for updates every 60 seconds (was 5 min)
-                setInterval(() => reg.update(), 300 * 1000); // Check for updates every 5 min (was 60s)
+                setInterval(() => reg.update(), 60 * 1000);
 
                 // When a new SW is found, auto-apply it
                 reg.addEventListener('updatefound', () => {
@@ -247,10 +243,12 @@
             var banner = document.createElement('div');
             banner.id = 'sp-update-banner';
             banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:99999;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;display:flex;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.3);cursor:pointer;animation:sp-slide-up 0.3s ease;';
-            banner.innerHTML = '<span style="font-size:20px;">🔄</span> New version available <button onclick="location.reload()" style="background:white;color:#6366f1;border:none;padding:6px 16px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;margin-left:4px;">Update Now</button> <button onclick="this.parentElement.remove()" style="background:none;border:none;color:rgba(255,255,255,0.7);font-size:18px;cursor:pointer;margin-left:4px;" title="Dismiss">✕</button>';
+            banner.innerHTML = '<span style="font-size:20px;">🔄</span> New version available <button onclick="location.reload()" style="background:white;color:#6366f1;border:none;padding:6px 16px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;margin-left:4px;">Update Now</button>';
             document.body.appendChild(banner);
-            // No auto-reload — user clicks "Update Now" when ready
-            // Previous 5-second auto-reload was destroying unsaved work
+            // Auto-reload after 5 seconds if user doesn't click
+            setTimeout(function() {
+                if (!window._swReloading) { window._swReloading = true; location.reload(); }
+            }, 5000);
         }
     </script>
 </body>

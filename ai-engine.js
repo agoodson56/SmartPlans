@@ -37,429 +37,6 @@
    └─────────────────────────────────────────────────────────┘
    ═══════════════════════════════════════════════════════════════ */
 
-// ═══════════════════════════════════════════════════════════════
-// API HEALTH MONITOR — Real-time traffic-light system health
-// ═══════════════════════════════════════════════════════════════
-// Tracks per-key success/failure/latency in a rolling window.
-// Aggregates into GREEN/YELLOW/RED status with abort control.
-// Designed for extensibility — any API provider can be added.
-// ═══════════════════════════════════════════════════════════════
-
-const APIHealthMonitor = {
-
-  // ── Configuration ──
-  WINDOW_SIZE: 20,          // Rolling window per key slot
-  TOTAL_SLOTS: 18,          // GEMINI_KEY_0 … GEMINI_KEY_17
-  GREEN_THRESHOLD: 0.95,    // ≥95% success = green
-  YELLOW_THRESHOLD: 0.75,   // ≥75% success = yellow, below = red
-  LATENCY_WARN_MS: 30000,   // >30s avg latency = degraded
-  LATENCY_CRIT_MS: 90000,   // >90s avg latency = critical
-  AUTO_ABORT: false,         // DISABLED — let brains retry/fallback on their own
-  UPDATE_INTERVAL_MS: 2000,  // UI refresh throttle
-
-  // ── State ──
-  _slots: {},                // Per-key rolling metrics: { [slot]: { results: [], lastSeen: Date } }
-  _status: 'GREEN',         // Current aggregate: GREEN | YELLOW | RED
-  _prevStatus: 'GREEN',     // Previous status (for transition logging)
-  _abortController: null,    // Shared AbortController for analysis abort
-  _analysisActive: false,    // Whether an analysis is currently running
-  _updateTimer: null,        // UI update debounce timer
-  _listeners: [],            // Status change callbacks
-  _lastUIUpdate: 0,          // Timestamp of last DOM update
-  _manualOverride: false,    // User override to continue despite RED
-  _transitionLog: [],        // State transition history
-
-  // ── Initialize ──
-  init() {
-    for (let i = 0; i < this.TOTAL_SLOTS; i++) {
-      this._slots[i] = { results: [], lastSeen: 0 };
-    }
-    this._abortController = new AbortController();
-    this._renderUI();
-    console.log('[HealthMonitor] Initialized — monitoring 18 key slots');
-  },
-
-  // ── Record an API call result ──
-  // Called after every _invokeBrain attempt (success or failure)
-  record(slot, { success, status, latencyMs, model, brain }) {
-    if (slot == null || slot < 0) return;
-
-    // 401/403 are auth errors (middleware/session), NOT API key health issues.
-    // Don't pollute key health metrics with auth failures.
-    if (status === 401 || status === 403) {
-      console.warn(`[HealthMonitor] Ignoring ${status} (auth error) — not an API key issue`);
-      return;
-    }
-
-    const key = Math.floor(slot) % this.TOTAL_SLOTS;
-    if (!this._slots[key]) {
-      this._slots[key] = { results: [], lastSeen: 0 };
-    }
-    const entry = {
-      ts: Date.now(),
-      success: !!success,
-      status: status || (success ? 200 : 500),
-      latencyMs: latencyMs || 0,
-      model: model || 'unknown',
-      brain: brain || 'unknown',
-    };
-    const results = this._slots[key].results;
-    results.push(entry);
-    // Trim to rolling window
-    if (results.length > this.WINDOW_SIZE) {
-      results.splice(0, results.length - this.WINDOW_SIZE);
-    }
-    this._slots[key].lastSeen = entry.ts;
-
-    // Re-evaluate aggregate health
-    this._evaluate();
-  },
-
-  // ── Evaluate aggregate health from all slots ──
-  _evaluate() {
-    const now = Date.now();
-    let totalCalls = 0;
-    let totalSuccess = 0;
-    let totalLatency = 0;
-    let latencyCount = 0;
-    let activeSlots = 0;
-    let failingSlots = 0;
-    let healthySlots = 0;
-    const failingBrains = new Set(); // Track unique brains that have failures
-
-    for (let i = 0; i < this.TOTAL_SLOTS; i++) {
-      const slot = this._slots[i];
-      if (!slot || slot.results.length === 0) continue;
-
-      // Only consider recent results (last 10 minutes)
-      const recent = slot.results.filter(r => now - r.ts < 600000);
-      if (recent.length === 0) continue;
-
-      activeSlots++;
-      const successes = recent.filter(r => r.success).length;
-      const failures = recent.filter(r => !r.success);
-      const rate = successes / recent.length;
-      totalCalls += recent.length;
-      totalSuccess += successes;
-
-      if (rate >= this.GREEN_THRESHOLD) {
-        healthySlots++;
-      } else if (rate < this.YELLOW_THRESHOLD) {
-        failingSlots++;
-        // Track which brains are actually failing
-        for (const r of failures) {
-          if (r.brain) failingBrains.add(r.brain);
-        }
-      }
-
-      // Latency from successful calls only
-      const successLatencies = recent.filter(r => r.success && r.latencyMs > 0);
-      for (const r of successLatencies) {
-        totalLatency += r.latencyMs;
-        latencyCount++;
-      }
-    }
-
-    // Determine status
-    let newStatus = 'GREEN';
-
-    if (activeSlots === 0 || totalCalls < 6) {
-      // Not enough data yet — stay green (need ≥6 calls before judging)
-      // This prevents one brain's 3 retries from triggering false RED
-      newStatus = 'GREEN';
-    } else {
-      const overallRate = totalCalls > 0 ? totalSuccess / totalCalls : 1;
-      const avgLatency = latencyCount > 0 ? totalLatency / latencyCount : 0;
-
-      // RED conditions — require STRONG evidence before aborting analysis
-      // Key insight: one brain retrying across 3 key slots looks like 3 failing slots,
-      // but it's really just one model/endpoint issue. Require multiple BRAINS failing.
-      const multiBrainFailure = failingBrains.size >= 3; // At least 3 different brains failing
-      if (
-        (totalCalls >= 12 && overallRate < 0.5 && multiBrainFailure) || // >50% error rate across multiple brains
-        (activeSlots >= 5 && failingSlots > activeSlots * 0.6 && multiBrainFailure) || // Supermajority of keys failing
-        (totalCalls >= 15 && totalSuccess === 0) ||    // 15+ calls, zero success — API is truly down
-        avgLatency > this.LATENCY_CRIT_MS              // Critical latency
-      ) {
-        newStatus = 'RED';
-      }
-      // YELLOW conditions (require ≥6 calls to avoid false alarms from early retries)
-      else if (
-        (totalCalls >= 8 && overallRate < this.GREEN_THRESHOLD) || // Degraded with sufficient data
-        (failingBrains.size >= 2 && failingSlots >= 2) ||          // Multiple brains AND keys failing
-        avgLatency > this.LATENCY_WARN_MS                           // Elevated latency
-      ) {
-        newStatus = 'YELLOW';
-      }
-    }
-
-    // Log state transitions
-    if (newStatus !== this._status) {
-      const transition = {
-        from: this._status,
-        to: newStatus,
-        ts: now,
-        activeSlots,
-        healthySlots,
-        failingSlots,
-        totalCalls,
-        successRate: totalCalls > 0 ? (totalSuccess / totalCalls * 100).toFixed(1) + '%' : 'N/A',
-      };
-      this._transitionLog.push(transition);
-      console.warn(`[HealthMonitor] ${this._status} → ${newStatus} | Active: ${activeSlots} slots, Healthy: ${healthySlots}, Failing: ${failingSlots} (${failingBrains.size} brains), Success rate: ${transition.successRate}`);
-
-      this._prevStatus = this._status;
-      this._status = newStatus;
-
-      // Fire listeners
-      for (const fn of this._listeners) {
-        try { fn(newStatus, transition); } catch (e) { /* ignore */ }
-      }
-
-      // Auto-abort on RED
-      if (newStatus === 'RED' && this.AUTO_ABORT && this._analysisActive && !this._manualOverride) {
-        console.error('[HealthMonitor] RED status — triggering analysis abort');
-        this.abortAnalysis('API health critical — majority of keys failing');
-      }
-    }
-
-    // Throttled UI update
-    this._scheduleUIUpdate();
-  },
-
-  // ── Abort control ──
-  abortAnalysis(reason) {
-    if (this._abortController && !this._abortController.signal.aborted) {
-      console.error(`[HealthMonitor] ABORT: ${reason}`);
-      this._abortController.abort(reason);
-    }
-    this._updateUI();
-  },
-
-  // Reset abort controller (call before starting new analysis)
-  resetAbort() {
-    this._abortController = new AbortController();
-    this._manualOverride = false;
-    this._analysisActive = true;
-  },
-
-  // Mark analysis as complete
-  analysisComplete() {
-    this._analysisActive = false;
-    this._updateUI();
-  },
-
-  // Check if aborted
-  isAborted() {
-    return this._abortController?.signal?.aborted || false;
-  },
-
-  // Get the signal for fetch calls
-  getSignal() {
-    return this._abortController?.signal;
-  },
-
-  // Manual override — user wants to continue despite RED
-  setManualOverride(enabled) {
-    this._manualOverride = !!enabled;
-    if (enabled) {
-      console.warn('[HealthMonitor] Manual override ENABLED — continuing despite RED status');
-    }
-    this._updateUI();
-  },
-
-  // ── Status accessors ──
-  getStatus() { return this._status; },
-
-  getSummary() {
-    const now = Date.now();
-    let active = 0, healthy = 0, failing = 0, degraded = 0;
-    let totalCalls = 0, totalSuccess = 0;
-
-    for (let i = 0; i < this.TOTAL_SLOTS; i++) {
-      const slot = this._slots[i];
-      if (!slot || slot.results.length === 0) continue;
-      const recent = slot.results.filter(r => now - r.ts < 600000);
-      if (recent.length === 0) continue;
-
-      active++;
-      const successes = recent.filter(r => r.success).length;
-      const rate = successes / recent.length;
-      totalCalls += recent.length;
-      totalSuccess += successes;
-
-      if (rate >= this.GREEN_THRESHOLD) healthy++;
-      else if (rate < this.YELLOW_THRESHOLD) failing++;
-      else degraded++;
-    }
-
-    return {
-      status: this._status,
-      active, healthy, failing, degraded,
-      successRate: totalCalls > 0 ? Math.round(totalSuccess / totalCalls * 100) : 100,
-      totalCalls,
-      analysisActive: this._analysisActive,
-      isAborted: this.isAborted(),
-      manualOverride: this._manualOverride,
-    };
-  },
-
-  // ── Event listeners ──
-  onStatusChange(fn) {
-    this._listeners.push(fn);
-  },
-
-  // ── UI Rendering ──
-  _scheduleUIUpdate() {
-    const now = Date.now();
-    if (now - this._lastUIUpdate < this.UPDATE_INTERVAL_MS) {
-      if (!this._updateTimer) {
-        this._updateTimer = setTimeout(() => {
-          this._updateTimer = null;
-          this._updateUI();
-        }, this.UPDATE_INTERVAL_MS);
-      }
-      return;
-    }
-    this._updateUI();
-  },
-
-  _renderUI() {
-    // Create the traffic light container in the header
-    const header = document.getElementById('app-header');
-    if (!header) return;
-
-    // Insert after logo, before usage-stats
-    let indicator = document.getElementById('api-health-indicator');
-    if (indicator) return; // Already rendered
-
-    indicator = document.createElement('div');
-    indicator.id = 'api-health-indicator';
-    indicator.className = 'api-health-indicator';
-    indicator.innerHTML = `
-      <div class="api-health-light" id="api-health-light" data-status="GREEN">
-        <div class="api-health-light__dot"></div>
-        <div class="api-health-light__pulse"></div>
-      </div>
-      <div class="api-health-tooltip" id="api-health-tooltip">
-        <div class="api-health-tooltip__header">
-          <span class="api-health-tooltip__title">API Health</span>
-          <span class="api-health-tooltip__badge" id="api-health-badge">HEALTHY</span>
-        </div>
-        <div class="api-health-tooltip__body" id="api-health-body">
-          All systems operational
-        </div>
-        <div class="api-health-tooltip__footer" id="api-health-footer"></div>
-      </div>
-    `;
-
-    // Insert after .header-logo
-    const logo = header.querySelector('.header-logo');
-    if (logo) {
-      logo.after(indicator);
-    } else {
-      header.prepend(indicator);
-    }
-
-    // Click to toggle tooltip
-    const light = indicator.querySelector('.api-health-light');
-    light.addEventListener('click', (e) => {
-      e.stopPropagation();
-      indicator.classList.toggle('api-health-indicator--open');
-    });
-
-    // Close tooltip on outside click
-    document.addEventListener('click', (e) => {
-      if (!indicator.contains(e.target)) {
-        indicator.classList.remove('api-health-indicator--open');
-      }
-    });
-  },
-
-  _updateUI() {
-    this._lastUIUpdate = Date.now();
-    const summary = this.getSummary();
-
-    const light = document.getElementById('api-health-light');
-    const badge = document.getElementById('api-health-badge');
-    const body = document.getElementById('api-health-body');
-    const footer = document.getElementById('api-health-footer');
-    if (!light) return;
-
-    // Update light color
-    light.setAttribute('data-status', summary.status);
-
-    // Update badge
-    const badgeMap = {
-      GREEN: 'HEALTHY',
-      YELLOW: 'DEGRADED',
-      RED: summary.isAborted ? 'ABORTED' : 'CRITICAL',
-    };
-    if (badge) {
-      badge.textContent = badgeMap[summary.status] || summary.status;
-      badge.setAttribute('data-status', summary.status);
-    }
-
-    // Update body
-    if (body) {
-      if (summary.totalCalls === 0) {
-        body.innerHTML = `<span style="color:var(--text-muted);">Waiting for API activity...</span>`;
-      } else {
-        const lines = [];
-        lines.push(`<div class="api-health-row"><span>Active Keys</span><strong>${summary.healthy}/${summary.active} healthy</strong></div>`);
-        if (summary.failing > 0) lines.push(`<div class="api-health-row api-health-row--bad"><span>Failing Keys</span><strong>${summary.failing}</strong></div>`);
-        if (summary.degraded > 0) lines.push(`<div class="api-health-row api-health-row--warn"><span>Degraded Keys</span><strong>${summary.degraded}</strong></div>`);
-        lines.push(`<div class="api-health-row"><span>Success Rate</span><strong>${summary.successRate}%</strong></div>`);
-        lines.push(`<div class="api-health-row"><span>Total Calls</span><strong>${summary.totalCalls}</strong></div>`);
-        body.innerHTML = lines.join('');
-      }
-    }
-
-    // Update footer with abort controls
-    if (footer) {
-      if (summary.status === 'RED' && summary.analysisActive) {
-        if (summary.isAborted) {
-          footer.innerHTML = `<div class="api-health-abort-msg">Analysis aborted — API health critical</div>`;
-        } else if (summary.manualOverride) {
-          footer.innerHTML = `<div class="api-health-override-msg">⚠️ Override active — running despite failures</div>`;
-        } else if (this.AUTO_ABORT) {
-          footer.innerHTML = `
-            <div class="api-health-abort-msg">Auto-abort triggered</div>
-            <button class="api-health-override-btn" id="api-health-override-btn">Override & Continue</button>
-          `;
-          const overrideBtn = document.getElementById('api-health-override-btn');
-          if (overrideBtn) {
-            overrideBtn.addEventListener('click', () => {
-              this.setManualOverride(true);
-            });
-          }
-        }
-      } else if (summary.status === 'YELLOW' && summary.analysisActive) {
-        footer.innerHTML = `<div class="api-health-warn-msg">Some keys degraded — retries may be slower</div>`;
-      } else {
-        footer.innerHTML = '';
-      }
-    }
-  },
-
-  // ── Debug: dump full state to console ──
-  dump() {
-    console.group('[HealthMonitor] Full State Dump');
-    console.log('Status:', this._status);
-    console.log('Summary:', this.getSummary());
-    console.log('Transitions:', this._transitionLog);
-    for (let i = 0; i < this.TOTAL_SLOTS; i++) {
-      const slot = this._slots[i];
-      if (slot && slot.results.length > 0) {
-        const rate = slot.results.filter(r => r.success).length / slot.results.length;
-        console.log(`  Slot ${i}: ${slot.results.length} calls, ${(rate * 100).toFixed(0)}% success, last: ${new Date(slot.lastSeen).toLocaleTimeString()}`);
-      }
-    }
-    console.groupEnd();
-  },
-};
-
-
 const SmartBrains = {
 
   VERSION: '5.0.0',
@@ -483,21 +60,6 @@ const SmartBrains = {
     proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
   },
 
-  // ── Auth token for API calls (set by app.js after login) ──
-  _authToken: '',
-
-  // Called by app.js after login to inject session token into all AI fetch calls
-  setAuthToken(token) {
-    this._authToken = token || '';
-  },
-
-  // Build headers with auth for all /api/ai/* fetch calls
-  _authHeaders(extra = {}) {
-    const headers = { ...extra };
-    if (this._authToken) headers['X-Session-Token'] = this._authToken;
-    return headers;
-  },
-
 
   // ═══════════════════════════════════════════════════════════
   // BRAIN REGISTRY — Each brain is a domain specialist
@@ -506,10 +68,9 @@ const SmartBrains = {
   BRAINS: {
     // ── Wave 0: Legend Pre-Processing + Spatial Layout (Gemini 3.1 Pro) ──
     LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 65536, useProModel: true },
-    SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true, preferProForFiles: true },
+    SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
     // ── Wave 1: First Read — Document Intelligence ──
-    // preferProForFiles: counting/visual brains use gemini-2.5-pro for accuracy, fall back to flash
-    SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     CODE_COMPLIANCE: { id: 2, name: 'Code Compliance', wave: 1, emoji: '📋', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     MDF_IDF_ANALYZER: { id: 3, name: 'MDF/IDF Analyzer', wave: 1, emoji: '🏗️', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     CABLE_PATHWAY: { id: 4, name: 'Cable & Pathway', wave: 1, emoji: '🔌', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
@@ -517,17 +78,15 @@ const SmartBrains = {
     SPEC_CROSS_REF: { id: 21, name: 'Spec Cross-Reference', wave: 1, emoji: '📑', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     ANNOTATION_READER: { id: 22, name: 'Annotation Reader', wave: 1, emoji: '💬', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     RISER_DIAGRAM_ANALYZER: { id: 23, name: 'Riser Diagram Analyzer', wave: 1, emoji: '📶', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
-    DEVICE_LOCATOR: { id: 28, name: 'Device Locator', wave: 1, emoji: '📍', needsFiles: ['plans', 'legends'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
-    // ── Wave 1.5: Second Read — Independent Verification ──
-    // Counting/verification brains use Pro for accuracy; others use Flash
-    SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    // ── Wave 1.5: Second Read — Independent Verification (all Gemini 3.1 Pro) ──
+    SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
-    QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
-    ZOOM_SCANNER: { id: 24, name: 'Zoom Scanner', wave: 1.5, emoji: '🔭', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
-    PER_FLOOR_ANALYZER: { id: 25, name: 'Per-Floor Analyzer', wave: 1.5, emoji: '🏢', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
+    ZOOM_SCANNER: { id: 24, name: 'Zoom Scanner', wave: 1.5, emoji: '🔭', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
+    PER_FLOOR_ANALYZER: { id: 25, name: 'Per-Floor Analyzer', wave: 1.5, emoji: '🏢', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 1.75: Consensus Resolution (Gemini 3.1 Pro deep reasoning) ──
     CONSENSUS_ARBITRATOR: { id: 9, name: 'Consensus Arbitrator', wave: 1.75, emoji: '⚖️', needsFiles: [], maxTokens: 65536, useProModel: true },
-    TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 2: Material Pricing (must run BEFORE labor so labor can use material qtys) ──
     MATERIAL_PRICER: { id: 11, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 65536, useProModel: true },
     // ── Wave 2.25: Labor Calculator (runs AFTER Material Pricer to use its quantities) ──
@@ -535,16 +94,16 @@ const SmartBrains = {
     // ── Wave 2.5: Financial Engine (runs AFTER both Pricer & Labor to sum their outputs) ──
     FINANCIAL_ENGINE: { id: 13, name: 'Financial Engine', wave: 2.5, emoji: '📊', needsFiles: [], maxTokens: 65536, useProModel: true },
     // ── Wave 2.75: Reverse Verification (Gemini 3.1 Pro) ──
-    REVERSE_VERIFIER: { id: 14, name: 'Reverse Verifier', wave: 2.75, emoji: '🔄', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    REVERSE_VERIFIER: { id: 14, name: 'Reverse Verifier', wave: 2.75, emoji: '🔄', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 3: Adversarial Audit (Gemini 3.1 Pro deep reasoning) ──
     CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 65536, useProModel: true },
     DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 3.5: 4th, 5th, 6th Read — Deep Accuracy Pass (3 brains, Pro model) ──
-    DETAIL_VERIFIER: { id: 18, name: 'Detail Verifier', wave: 3.5, emoji: '🔎', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
-    CROSS_SHEET_ANALYZER: { id: 19, name: 'Cross-Sheet Analyzer', wave: 3.5, emoji: '📊', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
-    OVERLAP_DETECTOR: { id: 26, name: 'Overlap Detector', wave: 3.5, emoji: '🔗', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    DETAIL_VERIFIER: { id: 18, name: 'Detail Verifier', wave: 3.5, emoji: '🔎', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
+    CROSS_SHEET_ANALYZER: { id: 19, name: 'Cross-Sheet Analyzer', wave: 3.5, emoji: '📊', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
+    OVERLAP_DETECTOR: { id: 26, name: 'Overlap Detector', wave: 3.5, emoji: '🔗', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 3.75: Final Reconciliation (1 brain, Pro deep reasoning) ──
-    FINAL_RECONCILIATION: { id: 20, name: 'Final Reconciliation', wave: 3.75, emoji: '🏁', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    FINAL_RECONCILIATION: { id: 20, name: 'Final Reconciliation', wave: 3.75, emoji: '🏁', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 3.85: Estimate Correction (1 brain, Pro — corrects pricing/quantities based on verification findings) ──
     ESTIMATE_CORRECTOR: { id: 27, name: 'Estimate Corrector', wave: 3.85, emoji: '🔧', needsFiles: [], maxTokens: 65536, useProModel: true },
     // ── Wave 4: Final Report (Gemini 3.1 Pro for comprehensive bid generation) ──
@@ -617,7 +176,7 @@ const SmartBrains = {
             // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
               const CHUNK_THRESHOLD = 45 * 1024 * 1024; // Split PDFs over 45MB into chunks (smaller files upload fine as single)
-              const PAGES_PER_CHUNK = 15; // Was 30 — reduced for better camera detection on large plan sets
+              const PAGES_PER_CHUNK = 30;
               const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
 
               // Try chunking large PDFs using PDF.js
@@ -747,8 +306,6 @@ const SmartBrains = {
     const result = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/ai/upload');
-      // Auth header for middleware
-      if (SmartBrains._authToken) xhr.setRequestHeader('X-Session-Token', SmartBrains._authToken);
 
       // Track upload progress
       if (rawFile.size > 5 * 1024 * 1024) {
@@ -793,7 +350,7 @@ const SmartBrains = {
       while (Date.now() - startTime < maxWaitMs) {
         await new Promise(r => setTimeout(r, pollIntervalMs));
         try {
-          const checkResponse = await fetch(`/api/ai/file-status?name=${encodeURIComponent(result.name)}&key=${encodeURIComponent(result._usedKeyName || '')}`, { headers: SmartBrains._authHeaders() });
+          const checkResponse = await fetch(`/api/ai/file-status?name=${encodeURIComponent(result.name)}&key=${encodeURIComponent(result._usedKeyName || '')}`);
           if (checkResponse.ok) {
             const status = await checkResponse.json();
             if (status.state === 'ACTIVE') {
@@ -875,7 +432,7 @@ const SmartBrains = {
       const maxWidth = Math.max(...canvases.map(c => c.width));
       const combined = document.createElement('canvas');
       combined.width = maxWidth;
-      combined.height = Math.min(totalHeight, 65000); // Canvas height limit — raised to avoid cutting off pages
+      combined.height = Math.min(totalHeight, 32000); // Canvas height limit
       const ctx = combined.getContext('2d');
       let y = 0;
       for (const c of canvases) {
@@ -954,7 +511,6 @@ const SmartBrains = {
   async _invokeBrain(brainKey, brainDef, promptText, fileParts, useJsonMode) {
     const maxRetries = this.config.maxRetries;
     let lastError = null;
-    let _callStartTime = 0; // Track latency per attempt
 
     // Determine model and URL up front (accessible in fallback block)
     let modelName = brainDef.useProModel ? (this.config.proModel || this.config.model) : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
@@ -964,11 +520,10 @@ const SmartBrains = {
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
 
     // ── Model compatibility: gemini-3.1-pro-preview does NOT support fileData (File API) ──
-    // Use gemini-2.5-flash for ALL file-based brains — reliable and fast
-    // gemini-2.5-pro is currently returning 500 errors on File API calls
+    // Auto-downgrade to gemini-2.5-pro for brains that reference uploaded files
     if (hasUploadedFiles && modelName.includes('3.1-pro-preview')) {
-      console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-flash (File API)`);
-      modelName = 'gemini-2.5-flash';
+      console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (3.1 preview doesn't support File API references)`);
+      modelName = 'gemini-2.5-pro';
     }
 
     // ── Key Selection (resolved once, used by both retry loop AND fallback) ──
@@ -994,14 +549,7 @@ const SmartBrains = {
     });
 
     let _fileDataStripped = false;
-    let lastKeySlot = brainDef.id % 18; // Track last used slot for fallback scope
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      // ── Health monitor: check abort (only if user manually aborted via UI) ──
-      if (APIHealthMonitor.isAborted() && APIHealthMonitor._manualOverride) {
-        throw new Error(`Brain "${brainDef.name}" aborted by user`);
-      }
-      _callStartTime = Date.now();
-
       // If a previous attempt got 400 with fileData, strip file references and use inline only
       let activeParts = cleanFileParts;
       if (_fileDataStripped) {
@@ -1025,14 +573,15 @@ const SmartBrains = {
       // keySlot is still used as fallback if _uploadKeyName is not available
       let keySlot;
       if (hasUploadedFiles && !uploadKeyName) {
-        console.warn(`[Brain:${brainDef.name}] WARNING: Uploaded files but no _usedKeyName — defaulting to slot 0`);
+        // Fallback: pin to slot 0 if key name wasn't tracked
         keySlot = 0;
       } else {
+        // No uploaded files — safe to rotate across all keys
         keySlot = (brainDef.id + attempt) % 18;
       }
-      lastKeySlot = keySlot; // Track for fallback scope
 
       // If context cache is available, use it instead of sending files
+      // Remove fileData parts since they're already in the cache
       let finalParts = parts;
       const useCache = this._contextCache && hasUploadedFiles;
       if (useCache) {
@@ -1049,7 +598,7 @@ const SmartBrains = {
 
       // ── DIAGNOSTIC: Log parts structure on first attempt ──
       if (attempt === 0) {
-        const partSummary = finalParts.map((p, i) => {
+        const partSummary = parts.map((p, i) => {
           if (p.text) return `  [${i}] text (${p.text.length} chars)`;
           if (p.fileData) return `  [${i}] fileData: ${p.fileData.fileUri} (mime: ${p.fileData.mimeType})`;
           if (p.inline_data) return `  [${i}] inline_data (mime: ${p.inline_data.mime_type}, ${Math.round((p.inline_data.data?.length || 0) / 1024)}KB b64)`;
@@ -1068,7 +617,7 @@ const SmartBrains = {
 
         const response = await fetch(url, {
           method: 'POST',
-          headers: this._authHeaders({ 'Content-Type': 'application/json' }),
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
           signal: controller.signal,
         });
@@ -1078,13 +627,6 @@ const SmartBrains = {
         // Errors come through as _proxyError events in the stream.
         // Non-proxy responses (direct API) may still return error codes.
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
-          // ── Health monitor: record HTTP-level failure ──
-          APIHealthMonitor.record(keySlot, {
-            success: false, status: response.status,
-            latencyMs: Date.now() - _callStartTime,
-            model: useCache ? this._contextCache.model : modelName,
-            brain: brainDef.name,
-          });
           const nextSlot = (brainDef.id + attempt + 1) % 18;
           const delay = this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500;
           console.warn(`[Brain:${brainDef.name}] API ${response.status}, rotating to key slot ${nextSlot}, retrying in ${Math.round(delay)}ms`);
@@ -1094,9 +636,7 @@ const SmartBrains = {
 
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
-          const httpErr = new Error(errData?.error?.message || `API ${response.status}`);
-          httpErr.status = response.status; // Preserve status for health monitor filtering
-          throw httpErr;
+          throw new Error(errData?.error?.message || `API ${response.status}`);
         }
 
         // ── Read SSE stream and assemble response ──
@@ -1217,24 +757,10 @@ const SmartBrains = {
         }
 
         console.log(`[Brain:${brainDef.name}] ✓ Complete (${text.length} chars, attempt ${attempt + 1})`);
-        // ── Health monitor: record success ──
-        APIHealthMonitor.record(keySlot, {
-          success: true, status: 200,
-          latencyMs: Date.now() - _callStartTime,
-          model: useCache ? this._contextCache.model : modelName,
-          brain: brainDef.name,
-        });
         return text;
 
       } catch (err) {
         lastError = err;
-        // ── Health monitor: record failure ──
-        APIHealthMonitor.record(keySlot, {
-          success: false, status: err.status || (err.name === 'AbortError' ? 504 : 500),
-          latencyMs: Date.now() - _callStartTime,
-          model: useCache ? this._contextCache.model : modelName,
-          brain: brainDef.name,
-        });
         if (err._retryable) {
           if (err._stripFileData && !_fileDataStripped) {
             _fileDataStripped = true;
@@ -1253,24 +779,20 @@ const SmartBrains = {
     }
 
     // ── Model Fallback: If primary model failed, try alternative models ──
-    const fallbackModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
+    const fallbackModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
     const triedModel = modelName;
     for (const fbModel of fallbackModels) {
       if (fbModel === triedModel) continue; // skip the one that already failed
       console.warn(`[Brain:${brainDef.name}] ${triedModel} failed — falling back to ${fbModel}`);
       try {
-        // Keep fileData for models that support File API (2.5-pro, 2.5-flash, 2.0-flash)
-        // Only strip if Google explicitly rejected fileData (400 error set _fileDataStripped)
-        const fbParts = _fileDataStripped
-          ? [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)]
-          : [{ text: promptText }, ...cleanFileParts];
-        const fbGenConfig = { temperature: 0.2, maxOutputTokens: brainDef.maxTokens || 16384 };
+        const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
+        const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
         if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
-        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: uploadKeyName ? lastKeySlot : brainDef.id % 18 };
+        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % 18 };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
         const ctrl = new AbortController();
         const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
-        const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: this._authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(fbBody), signal: ctrl.signal });
+        const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fbBody), signal: ctrl.signal });
         clearTimeout(tmr);
         if (!fbResp.ok) {
             throw new Error(`Fallback HTTP ${fbResp.status}: ${fbResp.statusText}`);
@@ -1295,14 +817,11 @@ const SmartBrains = {
         }
         if (fbText && fbText.length >= 20) {
           console.log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
-          APIHealthMonitor.record(brainDef.id % 18, { success: true, status: 200, latencyMs: Date.now() - _callStartTime, model: fbModel, brain: brainDef.name });
           return fbText;
         }
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty`);
-        APIHealthMonitor.record(brainDef.id % 18, { success: false, status: 204, latencyMs: Date.now() - _callStartTime, model: fbModel, brain: brainDef.name });
       } catch (fbErr) {
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} failed: ${fbErr.message}`);
-        APIHealthMonitor.record(brainDef.id % 18, { success: false, status: 500, latencyMs: Date.now() - _callStartTime, model: fbModel, brain: brainDef.name });
       }
     }
 
@@ -1310,10 +829,7 @@ const SmartBrains = {
     if (brainDef.useProModel && modelName !== this.config.model) {
       console.warn(`[Brain:${brainDef.name}] All fallbacks failed — last attempt with ${this.config.model}`);
       try {
-        // Strip fileData for 3.1-pro-preview — it doesn't support File API
-        const fbParts = this.config.model.includes('3.1-pro-preview')
-          ? [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)]
-          : [{ text: promptText }, ...cleanFileParts];
+        const fbParts = [{ text: promptText }, ...cleanFileParts];
         const fbGenConfig = {
           temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
           maxOutputTokens: brainDef.maxTokens,
@@ -1336,7 +852,7 @@ const SmartBrains = {
         const timer = setTimeout(() => controller.abort(), this.config.timeout);
         const response = await fetch(url, {
           method: 'POST',
-          headers: this._authHeaders({ 'Content-Type': 'application/json' }),
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(fbBody),
           signal: controller.signal,
         });
@@ -1583,7 +1099,6 @@ const SmartBrains = {
     PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
     OVERLAP_DETECTOR: ['overlapping_areas', 'potential_duplicates'],
     ESTIMATE_CORRECTOR: ['corrected_categories', 'correction_log'],
-    DEVICE_LOCATOR: ['devices', 'sheet_device_map'],
     // REPORT_WRITER returns markdown, no JSON schema
   },
 
@@ -1634,8 +1149,6 @@ PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'U
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Scan EVERY sheet and count EVERY device symbol. Be exhaustive.
-
-DISAMBIGUATION RULE: Dome cameras and motion detectors often use similar circular symbols. Always cross-reference with the legend to verify. If a symbol is ambiguous and the legend doesn't clarify, flag it as "AMBIGUOUS" with your best guess. Do NOT count motion detectors as cameras or vice versa.
 
 WHAT TO COUNT BY DISCIPLINE:
 ${(context.disciplines || []).includes('Structured Cabling') ? '- CABLING: Data outlets, voice outlets, WAPs, fiber outlets, combo outlets' : ''}
@@ -1884,41 +1397,7 @@ PROJECT: ${context.projectName} | Type: ${context.projectType}
 LOCATION: ${context.projectLocation || 'Not specified'}
 PREVAILING WAGE: ${context.prevailingWage || 'Not specified'}
 WORK SHIFT: ${context.workShift || 'Standard'}
-${context.isTransitRailroad ? `⚠️ TRANSIT/RAILROAD PROJECT — THE FOLLOWING LINE ITEMS ARE MANDATORY. YOU MUST INCLUDE ALL OF THEM:
-
-══ MANDATORY TRANSIT LINE ITEMS (from real Amtrak winning bids) ══
-These are NOT optional. Every transit/railroad project requires ALL of these. Omitting any one of them will result in a losing bid or cost overrun.
-
-CRITICAL PRICING NOTE — BENCHMARK PRICES ARE SELL PRICES:
-The prices below are from Amtrak PRICING SCHEDULES — they are SELL prices that ALREADY include markup. When you put these items in your estimate as subcontractor costs, you must price them at 87% of the benchmark value (divide by 1.15) because the system will automatically add 15% subcontractor markup on top. If you use the full benchmark price as your base cost, the final bid will be 15-26% too high.
-Example: Trenching benchmark = $281/LF (sell price). Your base cost = $281 / 1.15 = $244/LF.
-Example: UPS benchmark = $186,320 (sell price). Your base cost = $186,320 / 1.15 = $162,017.
-
-1. STATION-SIZED UPS/INVERTER: BASE COST $139,000-$163,000 per station (sell $160K-$188K). This is NOT a rack UPS — it is a station-sized inverter/charger system with battery bank. MANDATORY on every station project.
-2. TRENCHING/SAW CUT: BASE COST $83-$244 per linear foot (sell $95-$281/LF). Measure EVERY conduit run on the plans. Typical station projects have 500-2,500+ LF of trenching.
-3. POWER CIRCUITS: BASE COST $2,087-$29,556 PER CIRCUIT (sell $2,400-$34,000). Count every new power circuit shown on plans. Typical: 5-8 circuits per station.
-4. RRPLI (Railroad Protective Liability Insurance): MANDATORY on every railroad project. Formula: $4,500 base + $500-5,000 per 1,000 LF of track-adjacent conduit. For typical Amtrak station CCTV project: budget $25,000-$50,000. (Insurance is NOT marked up — use full amount.)
-5. PERFORMANCE & PAYMENT BONDS: $21,740-$40,986 (approximately 2% of contract value). MANDATORY. (Bonds are NOT marked up — use full amount.)
-6. GENERAL INSURANCE (excluding RRPLI): $9,750-$20,493. MANDATORY. (Insurance is NOT marked up — use full amount.)
-7. MOBILIZATION/DEMOBILIZATION: $17,920-$22,400 lump sum. MANDATORY. (Pass-through — NOT marked up.)
-8. RWIC FLAGMAN: BASE COST $1,300/day (sell $1,500-$2,000/day depending on railroad/union) × number of track-side work days (minimum 25 days).
-9. CONSTRUCTION SURVEY: $20,000 allowance. MANDATORY. (Pass-through.)
-10. UTILITY LOCATION: $10,000 allowance. MANDATORY. (Pass-through.)
-11. NEW POLE & FOUNDATION: $25,847 per pole (if shown on plans).
-12. HANDHOLES: $1,680 each (count all on plans).
-13. ENCLOSURE FOUNDATIONS: $3,500 each for remote network enclosures.
-14. MINI-SPLIT HVAC: $16,000 per telecom room (if plans show dedicated cooling).
-
-DO NOT use a small rack-mount UPS when the plans call for station power. DO NOT estimate trenching at less than $95/LF for railroad projects. DO NOT omit bonds, insurance, or RRPLI.
-
-AMTRAK-PROVIDED EQUIPMENT (DO NOT PRICE AS MATERIALS):
-Amtrak provides their own network switches — 3D does NOT buy or sell these.
-- Cisco 9200 PoE switches — PROVIDED BY AMTRAK, labor only ($448-$758/switch)
-- Cisco 9300 fiber switches — PROVIDED BY AMTRAK, labor only ($448-$758/switch)
-- Cisco 3300 hardened PoE switches — PROVIDED BY AMTRAK, labor only ($448-$758/switch)
-- Cisco IE-series industrial switches — PROVIDED BY AMTRAK, labor only
-DO NOT include Cisco switch material costs in your estimate. Include ONLY the labor to install them.
-If you see switches on the plans, list them as labor-only line items at $448-$758 per switch.` : ''}
+${context.isTransitRailroad ? `⚠️ TRANSIT/RAILROAD PROJECT — MANDATORY: Include ALL transit-specific costs (RWIC flagman, RPL insurance, TWIC/TSA, safety training, railroad escort, track-rated PPE, FRA approval, ROW permits, station coordination, specialty tools). Do NOT skip these — they are REAL costs that add 20-40% to project budget.` : ''}
 
 YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment rental, civil work, traffic control, site preparation, and specialty item needed to COMPLETE this installation from start to finish.
 
@@ -2333,19 +1812,6 @@ CRITICAL RULES:
 11. Do NOT price OFCI (Owner Furnished) items as materials — include labor only for installation
 12. NEVER exceed the pricing guardrail maximums listed above — clamp to the max if your calculation is higher
 
-═══ ANTI-DUPLICATION RULES (CRITICAL — VIOLATIONS CAUSE DOUBLE-BILLING) ═══
-EVERY ITEM MUST APPEAR IN EXACTLY ONE CATEGORY. Before adding any item, check if it already exists elsewhere:
-
-13. UPS/INVERTER: Include in MDF/IDF category ONLY — do NOT also list in Structured Cabling or Infrastructure
-14. VIDEO SERVER (NVR/VMS): Include in CCTV category ONLY — do NOT also list in MDF equipment
-15. REMOTE IDF ENCLOSURES: Include in MDF/IDF category ONLY — do NOT duplicate in Structured Cabling
-16. KVM CONSOLE: Include in MDF/IDF category ONLY — do NOT duplicate in Communications
-17. PDU: Include in MDF/IDF category ONLY — do NOT duplicate
-18. PATCH PANELS: Include in MDF/IDF category ONLY — do NOT duplicate in Structured Cabling
-19. TRAVEL/PER DIEM: Do NOT include travel costs in Subcontractor category — travel is handled separately by the system on Stage 6/7. If you put hotel/per diem/mileage in subs, it will be DOUBLE-COUNTED.
-20. FIBER CABLE: Price at $0.85-$1.23/ft for 12-strand SM OS2 — NOT $33/ft. Check your unit price.
-21. Before finalizing, SCAN your entire output for any item name that appears in more than one category. If found, REMOVE the duplicate — keep only the one in the most logical category.
-
 ═══ UPS, INVERTERS & POWER EQUIPMENT (MANDATORY) ═══
 You MUST check ALL sources (schedules, plans, specs) for power equipment and price them:
 - UPS units — price based on kVA rating and form factor (rack-mount, tower)
@@ -2382,7 +1848,31 @@ RULES FOR PART NUMBERS (MANDATORY — items without these are REJECTED):
 - If you don't know the exact part number, use the manufacturer's common model series (e.g., "P3245-V" for Axis dome, "iCLASS SE R10" for HID reader)
 - BLANK mfg or partNumber is a FATAL ERROR — the system will REJECT your output
 
-═══ MANDATORY SELF-CHECK (do this before returning) ═══
+${context.isTransitRailroad ? `═══ TRANSIT / RAILROAD MANDATORY SCOPE (CHECK EVERY ITEM) ═══
+This is a transit/railroad project. These scope items are COMMONLY REQUIRED and frequently missed.
+Check the plans and specs for EACH — if present, you MUST price them:
+
+1. VEHICULAR BOLLARDS (anti-ram): Check site plans for bollard locations.
+   - M30 rated bollard: $3,250-$13,717 each (material + foundation)
+   - TYPICAL: 25-60 bollards per transit station = $80K-$820K scope
+
+2. BLAST MITIGATION / SECURITY FILM: Check window schedules.
+   - Security film per window: $200-$550 installed
+   - TYPICAL: 80-200 windows per station = $16K-$110K scope
+
+3. TRENCHING & UNDERGROUND CONDUIT: Check site plans for underground routes.
+   - Railroad heavy-duty: $160-$420 per LF ALL-IN
+   - TYPICAL: 500-2000 LF = $80K-$840K scope
+   - Price as SUBCONTRACTOR category
+
+4. RWIC / FLAGMAN: Required for all trackside work.
+   - $1,750/day per flagman, minimum 25 days = $43,750 minimum
+
+5. SPECIAL FOUNDATIONS: Camera pole bases, equipment pads.
+   - Camera pole foundation (drilled pier): $2,000-$8,000 each
+
+DO NOT skip these. Missing bollards alone can be 20%+ of the total bid.
+` : ''}═══ MANDATORY SELF-CHECK (do this before returning) ═══
 Before responding, verify:
 1. Your output includes a category for EACH selected discipline listed above
 2. EVERY item has a non-empty "mfg" field (manufacturer name)
@@ -2464,7 +1954,7 @@ ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 800
 
 NECA LABOR UNIT GUIDELINES:
 - Cat6A drop (install+terminate+test): 0.45-0.55 hrs/drop
-- Camera install (mount+wire+aim): 3.0-4.0 hrs/camera (standard commercial), 6-8 hrs/camera (transit/railroad with restricted access, platform work, or pole-mount)
+- Camera install (mount+wire+aim): 2.0-3.5 hrs/camera
 - Card reader (mount+wire+program): 2.5-4.0 hrs/door
 - Fire alarm device: 0.5-1.5 hrs/device depending on type
 - Rack build-out: 8-16 hrs/rack
@@ -2502,33 +1992,7 @@ CRITICAL RULES:
 7. You MUST include conduit installation labor if Special Conditions or Cable Pathway shows conduit runs
 8. Apply shift differential if work shift is not Standard
 9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
-10. If project requires prevailing wage (any state), multiply ALL labor hours by 1.15-1.20 for prevailing wage productivity overhead (documentation, certified payroll, compliance)
 10. You MUST include all NON-INSTALLATION phases below — these are real labor costs
-${context.isTransitRailroad ? `
-══ MANDATORY AMTRAK/RAILROAD LABOR RULES ══
-This is a transit/railroad project. Use these labor rates and structure from REAL Amtrak winning bids:
-
-LABOR RATES (MANDATORY):
-  ELV Technician: $80/hr | Electrical Technician: $95/hr
-  Project Manager: $85/hr | Admin/Engineer: $65/hr
-
-LABOR HOURS PER TASK:
-  Camera install (cable pull + mount + terminate): 8 hrs/camera @ $80/hr
-  Conduit install per camera: 4 hrs @ $95/hr (NOT 8 — only exterior/long runs need 8)
-  Head-end/MDF build: 16 hrs per MDF | IDF install: 16 hrs per IDF
-  Testing & programming: 16 hrs per system | Training: 8 hrs
-  Mobilization: 8 hrs per trip
-
-OVERHEAD PERCENTAGES (apply to field hours):
-  NPT: 8% | Coordination/idle: 10% | Railroad productivity loss: 20%
-  PM: 8% of field hours @ $85/hr | Admin/Eng: 4% @ $65/hr
-
-LABOR TARGETS (from real winning bids — your total should be in this range):
-  Target: 2,200-2,500 total hours for a 60-70 camera station project
-  Target: 2,800-3,200 total hours for a 100 camera station project
-  Target labor BASE cost: $3,500-$4,000 per camera
-  If your hours are BELOW these targets, add coordination and rough-in hours.
-  If your hours are ABOVE these targets by more than 15%, reduce overhead percentages.` : ''}
 
 Calculate labor by PROJECT PHASE:
 1. Rough-In (35-40% of field labor) — pathway, CONDUIT INSTALLATION, cable pulling, backboxes
@@ -2640,34 +2104,32 @@ CRITICAL RULES:
 3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total — all values must be SELL PRICES (with markup applied)
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total
-6. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
-7. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
-8. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
-9. Include a separate SOV line item for "Civil Work & Site Restoration" if underground/exterior work exists
+6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + G&A + profit + warranty + contingency
+7. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
+8. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
+9. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
+10. Include a separate SOV line item for "Civil Work & Site Restoration" if underground/exterior work exists
+11. G&A OVERHEAD is MANDATORY: Apply 15% to (materials + labor + equipment + subcontractors) subtotal. This covers company overhead (office, trucks, insurance, admin staff). This is separate from markup.
+12. PROFIT MARGIN is MANDATORY: Apply 10% to the subtotal after G&A. This is the company's profit. Without this, you are bidding at cost.
+13. WARRANTY RESERVE: Add 1.5% of total project cost for warranty callback labor during the 1-year warranty period.
 
-═══ IMPORTANT: DO NOT COMPUTE GRAND TOTAL ═══
-The system computes the final bid price deterministically using this formula:
-  Materials × (1 + material_markup%) + Labor × (1 + labor_markup%) +
-  Equipment × (1 + equipment_markup%) + Subs × (1 + sub_markup%) +
-  Burden (35% of labor base) + Travel (user-configured) + Contingency (10%)
-
-Your job is to provide ACCURATE RAW COST COMPONENTS only:
-- total_materials: from Material Pricer (BASE cost, before markup)
-- total_labor: from Labor Calculator (BASE cost, before markup)
-- total_equipment: rental equipment from Special Conditions
-- total_subcontractors: all subcontractor costs from Special Conditions
-- total_travel: set to 0 (user configures this separately)
-- total_transit_costs: railroad-specific costs (RWIC, RPL, safety training)
-- total_insurance: project insurance costs
-
-Set grand_total to 0 — the system calculates the final bid price. Do NOT apply G&A, profit, warranty, or contingency — those are handled by the deterministic markup engine.
+═══ COST BUILD-UP ORDER (follow this EXACTLY) ═══
+1. Direct Costs: total_materials + total_labor + total_equipment + total_subcontractors
+2. Add: total_travel + total_transit_costs + total_insurance
+3. = PROJECT DIRECT COST SUBTOTAL
+4. Add: G&A Overhead (15% of direct costs) → this covers company operating expenses
+5. = TOTAL COST WITH OVERHEAD
+6. Add: Profit (10% of cost with overhead) → this is the company's earnings
+7. Add: Warranty Reserve (1.5% of total)
+8. Add: Contingency (10% of total) → for unknowns and scope changes
+9. = GRAND TOTAL (this is the BID PRICE)
 
 GENERATE:
 1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
-2. Travel & Per Diem identification — flag if project is 60+ miles from Rancho Cordova, CA (user configures amounts)
+2. Travel & Per Diem calculation — MANDATORY if project is 60+ miles from Rancho Cordova, CA
 3. Transit/Railroad costs — MANDATORY if project involves Amtrak, BNSF, transit authority, railroad, airport, or DOT
 4. Prevailing wage determination (if applicable)
-5. Raw cost component summary (materials, labor, equipment, subcontractors, transit, insurance)
+5. Complete project cost summary with G&A, profit, warranty, and contingency
 
 ═══ TRAVEL & PER DIEM CALCULATION RULES ═══
 If the project location is 60+ miles from Rancho Cordova, CA (Sacramento area):
@@ -2682,59 +2144,10 @@ If the project location is 60+ miles from Rancho Cordova, CA (Sacramento area):
 
 ═══ TRANSIT / RAILROAD COST RULES ═══
 If Special Conditions flagged transit/railroad work:
-- RWIC/Flagman costs: $1,500-$2,000/day × number of track-side work days (min 25 days) → add to Subcontractor column
+- RWIC/Flagman costs: $1,000-$1,500/day × number of track-side work days → add to Subcontractor column
 - RPL Insurance: $15,000-$50,000+ → add to project_summary
 - Safety training: $200-$500/worker → add to Labor column
 - Work window premium: 20-30% increase to labor hours (reduced productivity) → should already be in Labor Calculator
-
-═══ AMTRAK-SPECIFIC ESTIMATING RULES (from 7 real winning bids across 3 stations) ═══
-If this is an Amtrak project, apply these REAL labor and overhead rules from 3D Technology's actual bids:
-
-LABOR RATES:
-- ELV Tech: $80/hr | Electrical Tech: $95/hr (conduit, circuits, panels)
-- PM: $85/hr (8% of tech hrs) | Admin/Eng: $65/hr (4% of tech hrs)
-- NPT: 8% of productive tech hours at $80/hr
-
-CAMERA LABOR (from Emeryville internal takeoff):
-- Full install (cable pull + mount + terminate): 8 hrs/camera
-- Simple install (mount + terminate, short run): 4 hrs/camera
-- Conduit per camera: 4 hrs @ $95/hr (only exterior/long runs need 8)
-- Head-end: 16 hrs | IDF: 16 hrs each | Testing: 16 hrs | Training: 8 hrs
-- Total labor targets: 2,200-2,500 hrs for 60-70 cameras, 2,800-3,200 for 100 cameras
-- Labor base cost target: $3,500-$4,000 per camera
-
-OVERHEAD:
-- Material Support: 2% | Shipping: 1% | Warranty: 2% | Gen Conditions: 3%
-- Div 1 should be 4-8% of total contract (mob/demob + insurance + bonds + RRPLI)
-
-COST STRUCTURE (52% of Amtrak bids is electrical/civil — NOT camera materials):
-- Electrical (Div 26): typically 40-55% of total (trenching + UPS + power circuits)
-- Communications (Div 27): typically 8-12% (racks, switches, fiber, CAT6A)
-- Security (Div 28 cameras + access): typically 20-25%
-- Gen Conditions (Div 1): typically 4-8%
-- The AI MUST NOT inflate camera material costs to fill the gap — use subcontractors for electrical/civil
-
-TRAVEL: Per Diem $38/day | Mileage $0.65/mi (minus 40mi base)
-
-MARKUP: Cost-to-Price multiplier: 1.392x (competitive) to 1.506x (standard), average 1.476x
-
-PER-CAMERA ALL-IN PRICING (camera+mount+conduit+CAT6+license+labor+markup):
-- Fixed 8M: $4,700-$6,650 | Fixed 8M w/mic: $5,050-$6,795
-- 2-lens 8M: $4,700-$6,200 | 360 4-lens: $5,580-$6,965
-- BAFO discount: typically 3-7% reduction from original pricing
-
-CRITICAL LINE ITEMS:
-- CAT6A per camera: $1,045-$1,300 | Fiber backbone: $37.59/ft
-- Camera server: $16,920-$41,057 | Station rack: $5,000-$19,267
-- Access control/door: $6,270-$8,175 | Access panel: $8,580-$11,478
-- Trenching: $95-$281/LF | Station UPS: $160K-$188K | Power Circuits: $2,400-$34K/ea
-- Bollards M30: $13,650-$13,717/ea | Window film: $350-$5,644/ea
-- RRPLI: $1,828-$61,479 (varies by track proximity) | Bonds: $21K-$41K
-
-SANITY CHECKS (from ALL 7 actual bids):
-- Emeryville (61 cam): $1.30M original, $1.03M VE | Sacramento (100 cam): $1.73-1.81M
-- Martinez (69 cam): $2.04M original, $1.73M VE, $1.97M BAFO
-- General conditions typically 4-8% of total | Camera line items typically 25-35% of total
 
 Return ONLY valid JSON:
 {
@@ -2760,7 +2173,7 @@ Return ONLY valid JSON:
   },
   "transit_infrastructure": {
     "applicable": false,
-    "rwic_flagman": { "days": 0, "daily_rate": 1750, "total": 0 },
+    "rwic_flagman": { "days": 0, "daily_rate": 1200, "total": 0 },
     "rpl_insurance": 0,
     "safety_training": { "workers": 0, "cost_per": 350, "total": 0 },
     "work_window_premium": 0,
@@ -2782,6 +2195,15 @@ Return ONLY valid JSON:
     "total_transit_costs": 0,
     "total_insurance": 0,
     "direct_cost_subtotal": 0,
+    "ga_overhead_pct": 15,
+    "ga_overhead": 0,
+    "cost_with_overhead": 0,
+    "profit_pct": 10,
+    "profit": 0,
+    "warranty_reserve_pct": 1.5,
+    "warranty_reserve": 0,
+    "contingency_pct": 10,
+    "contingency": 0,
     "grand_total": 0
   },
   "payment_terms": "Net 30, 10% retainage until substantial completion",
@@ -2878,19 +2300,12 @@ Maximum unit costs (premium × 2.5 for transit/ruggedized):
 CORRECTION RULES:
 1. QUANTITY FIX: If Devil's Advocate says "13 phantom cameras" — REDUCE the camera count by 13
 2. PRICE FIX: If any unit cost exceeds the guardrail max — CLAMP it to the max
-3. MISSING ITEMS: If Devil's Advocate says "missing camera poles" or "missing concrete foundations" — ADD them ONLY to an EXISTING category. NEVER create a new category.
+3. MISSING ITEMS: If Devil's Advocate says "missing camera poles" or "missing concrete foundations" — ADD them
 4. OFCI: If an item is marked "owner furnished, contractor install" — set unit_cost to 0 (labor only)
 5. DOUBLE-COUNT: If the same devices were counted from both schedule AND symbols — use the LOWER count (schedule preferred)
 6. MATH: Recalculate ext_cost = qty × unit_cost for every row you change
 7. SUBTOTALS: Recalculate category subtotals after corrections
 8. Do NOT remove legitimate items — only correct quantities and prices that are wrong
-
-ABSOLUTE PROHIBITIONS — VIOLATING THESE INVALIDATES YOUR ENTIRE OUTPUT:
-9. Do NOT create arbitrary new categories. Your output must contain ONLY the categories from the original Material Pricer. If you need to add an item, add it to the most appropriate EXISTING category. EXCEPTION: If the Devil's Advocate identified significant missing scope with no matching category, you may create ONE category named "Corrections — Missing Scope" for those items only.
-10. NEVER INCREASE the corrected_grand_total above the original_grand_total by more than 5%. Your job is to CORRECT errors (reduce phantom items, fix prices), not to ADD scope.
-11. NET DIRECTION MUST BE DOWN. If the Devil's Advocate found phantom items, your total_adjustment MUST be NEGATIVE. The whole point of correction is to remove inflated pricing.
-12. Cisco/Juniper network switches on transit/railroad projects are OWNER-FURNISHED — set unit_cost to 0 (labor only at $448-$758 per switch).
-13. Do NOT add categories like "Cabling & Pathways", "Architectural/Glazing", "Site Work", or similar broad categories. These are either already covered in existing categories or are subcontractor scope.
 
 Return ONLY valid JSON:
 {
@@ -3121,7 +2536,7 @@ ${context._missingDisciplines?.length > 0 ? `
 These disciplines have devices in the consensus counts but ZERO materials/labor were allocated.
 You MUST calculate and add materials + labor for ALL missing disciplines using the consensus counts and pricing database.
 ` : ''}
-1. **MISSING SCOPE**: ${context.isTransitRailroad ? 'For transit/railroad projects: Do NOT add new scope. Report ONLY what the Material Pricer and Estimate Corrector produced. The BOM is final.' : 'If the Cross Validator or Devil\'s Advocate reports that a discipline (e.g., Access Control, Data Outlets, AV) is MISSING from the Material Pricer, you MUST add those materials and labor to the bid. Use the consensus device counts and pricing database to calculate costs.'}
+1. **MISSING SCOPE**: If the Cross Validator or Devil's Advocate reports that a discipline (e.g., Access Control, Data Outlets, AV) is MISSING from the Material Pricer, you MUST add those materials and labor to the bid. Use the consensus device counts and pricing database to calculate costs.
 
 2. **QUANTITY CORRECTIONS**: If the validator found quantity mismatches (e.g., 25 cameras in consensus but 24 in pricer), use the HIGHER count from the consensus. Include all exterior/outdoor devices identified.
 
@@ -3133,19 +2548,6 @@ You MUST calculate and add materials + labor for ALL missing disciplines using t
 
 The final bid MUST incorporate ALL corrections. Do NOT just report the errors — FIX them in the actual tables and totals.
 
-${context.isTransitRailroad ? `
-═══ ⚠️ TRANSIT/RAILROAD PRICING GUARDRAILS ═══
-This is a Transit/Railroad project. Actual winning bid prices for similar Amtrak station CCTV projects range from $1.0M to $2.1M for 60-100 cameras. Your material BOM MUST stay within the range implied by the Material Pricer output.
-
-CRITICAL RULES FOR TRANSIT:
-- Do NOT add new material categories beyond what the Material Pricer provided
-- Do NOT inflate infrastructure costs beyond what the plans show
-- Cisco/Juniper network switches are OWNER-FURNISHED (Amtrak-provided) — labor only ($448-$758/switch)
-- Use the CORRECTED Material Pricer data if available — it has already been audited
-- Do NOT add "Cabling & Pathways", "Architectural/Glazing", "Site Work" or other broad categories that were not in the Material Pricer
-- The Material Pricer and Estimate Corrector already account for all scope — your job is to FORMAT it, not to ADD to it
-- If your Project Cost Summary material total is more than 15% above the Material Pricer grand total, you have added phantom scope. REMOVE IT.
-` : ''}
 Generate the COMPLETE BID REPORT now. Every section must have real data with real dollar amounts. This is not a template — it is an actual bid.`;
       },
 
@@ -3428,21 +2830,12 @@ CONSENSUS RULES:
 2. If 2+ reads agree within 5% → MODERATE CONFIDENCE. Use the agreeing group's average.
 3. If ALL reads disagree by >10% → DISPUTE. Flag for targeted re-scan.
 4. For disputed items, identify WHICH sheets/areas likely caused the disagreement.
-5. When multiple conflicting counts exist with no clear majority, use the MEDIAN value (middle value when sorted). Do NOT default to the highest count — over-counting inflates bids.
-
-═══ LOW-CONFIDENCE DEVICE RULE ═══
-Devices appearing in fewer than 3 of the 6 reads are LOW CONFIDENCE:
-- Do NOT include them in consensus_counts unless the Detail Verifier or Annotation Reader explicitly confirms them
-- Flag them in the disputes array with confidence: "low"
-- These are likely false positives (misread symbols, one-off annotations, or legend interpretation errors)
-- Exception: if a device appears in only 1-2 reads but matches an equipment schedule exactly, include it
 
 ═══ CRITICAL: TYPICAL NOTE MULTIPLICATION ═══
 When an annotation says "TYP" or "TYPICAL" (e.g., "Card reader TYP at each secure door"):
-- Check the Per-Floor Analyzer for the count of matching locations
-- MULTIPLY the device ONLY by locations that match the SPECIFIC attribute mentioned (e.g., "secure doors" — NOT all doors, only ones marked as secure/access-controlled)
+- Check the Per-Floor Analyzer for the count of matching locations (e.g., how many "secure doors" exist)
+- MULTIPLY the device by the number of matching locations
 - If the TYPICAL count is HIGHER than the symbol count, USE THE TYPICAL COUNT (the symbols may not be drawn on every door)
-- Do NOT multiply a TYP note against a broader category than specified — match at the correct level of specificity
 - Document each TYPICAL multiplication in the output
 
 ═══ CRITICAL: EQUIPMENT SCHEDULE CROSS-CHECK ═══
@@ -3712,7 +3105,7 @@ ${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substrin
 6. Apply detail verifier corrections (from Read 4)
 7. Produce FINAL AUTHORITATIVE COUNTS — these are the numbers that go into the bid
 
-CRITICAL: This is the LAST CHANCE to get counts right. The bid price depends on these numbers. If you are uncertain about any count, use the MEDIAN of all 6 reads. Do NOT systematically round up — over-counting inflates bids and loses competitive advantage.
+CRITICAL: This is the LAST CHANCE to get counts right. The bid price depends on these numbers. If you are uncertain about any count, round UP slightly (it's better to over-quote than under-quote).
 
 Return ONLY valid JSON:
 {
@@ -3859,7 +3252,6 @@ When you find "TYP" or "TYPICAL" notes:
 - Example: "Card reader TYP at each secure door" → count all secure doors on all floors
 - Example: "Smoke detector TYP in each office" → count all offices across all sheets
 - Example: "Data outlet TYP 2 per office" → count offices × 2
-- EXCEPTION PARSING: "TYP except [location]" means count all matching locations MINUS the excluded ones. Example: "Card reader TYP at each door except main entrance" → total doors minus 1.
 - Provide the multiplication calculation in the output
 
 Return ONLY valid JSON:
@@ -3930,87 +3322,6 @@ Return ONLY valid JSON:
   ],
   "network_topology": "star",
   "total_backbone_cost_items": 0
-}`,
-
-      // ── BRAIN 28: Device Locator (Wave 1) ───────────────────────
-      DEVICE_LOCATOR: () => `You are a DEVICE POSITION MAPPER for ELV/low voltage construction plans. Your job is to identify the APPROXIMATE POSITION of every low-voltage device on each floor plan sheet.
-
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
-DISCIPLINES: ${(context.disciplines || []).join(', ')}
-
-LEGEND (symbol identification):
-${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 3000)}
-
-SPATIAL LAYOUT (sheet scales and dimensions):
-${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 2000)}
-
-YOUR MISSION: For every low-voltage device symbol on each floor plan sheet, record its approximate position as a percentage of the sheet (0-100 from left edge for X, 0-100 from top edge for Y). This data will be used to calculate cable run lengths from each device back to its home-run IDF/MDF.
-
-DEVICE TYPES TO LOCATE:
-- CCTV: dome cameras, bullet cameras, PTZ cameras, panoramic cameras, LPR cameras
-- Access Control: card readers, keypads, REX buttons, door contacts, electric strikes/mag locks
-- Structured Cabling: data outlets, voice outlets, WAPs (wireless access points)
-- Fire Alarm: pull stations, smoke detectors, heat detectors, horn/strobes, speaker/strobes, NAC panels, FACP
-- AV/Paging: speakers, amplifiers, displays, projectors
-- Infrastructure: IDF closets, MDF rooms, telecom rooms (TR), head-end rooms, junction boxes, pull boxes
-
-CRITICAL RULES:
-1. Position accuracy: aim for +/- 5% of actual position on the sheet
-2. For CLUSTERS of identical devices (e.g., 6 data outlets in one office), record as ONE entry with qty > 1 and the centroid position
-3. Mark IDF, MDF, TR, head-end rooms, FACP, and access control panels as is_home_run: true
-4. Do NOT count devices — that is SYMBOL_SCANNER's job. Focus ONLY on positions.
-5. Include the room name, floor level, and sheet ID for each device
-6. If a device is near a sheet boundary, note it — it may appear on adjacent sheets
-
-Return ONLY valid JSON:
-{
-  "devices": [
-    {
-      "id": "DEV-001",
-      "type": "dome_camera",
-      "subtype": "indoor_fixed",
-      "sheet_id": "E4.01",
-      "floor": "1",
-      "room": "Main Lobby",
-      "x_pct": 45.2,
-      "y_pct": 23.8,
-      "qty": 1,
-      "is_home_run": false,
-      "notes": "Wall-mount above entrance door D-101"
-    },
-    {
-      "id": "DEV-002",
-      "type": "data_outlet",
-      "subtype": "cat6a",
-      "sheet_id": "E4.01",
-      "floor": "1",
-      "room": "Office 105",
-      "x_pct": 62.0,
-      "y_pct": 55.3,
-      "qty": 4,
-      "is_home_run": false,
-      "notes": "Cluster of 4 outlets in open office area"
-    },
-    {
-      "id": "DEV-003",
-      "type": "idf",
-      "subtype": "telecom_room",
-      "sheet_id": "E4.01",
-      "floor": "1",
-      "room": "TR-1",
-      "x_pct": 15.0,
-      "y_pct": 50.0,
-      "qty": 1,
-      "is_home_run": true,
-      "notes": "Main telecom room adjacent to elevator core"
-    }
-  ],
-  "sheet_device_map": {
-    "E4.01": { "device_count": 45, "has_positions": true, "home_run_points": ["DEV-003"] },
-    "E4.02": { "device_count": 38, "has_positions": true, "home_run_points": [] }
-  },
-  "position_confidence": "medium",
-  "notes": "Positions estimated from symbol locations on floor plan sheets. Dense areas may have +/-8% accuracy."
 }`,
 
       // ── BRAIN 24: Zoom Scanner (Wave 1.5) ───────────────────────
@@ -4149,7 +3460,7 @@ Return ONLY valid JSON:
     const projectText = `${state.projectName || ''} ${state.projectType || ''}`.toLowerCase();
     let projectTypeKey = 'commercial_standard';
 
-    if (state.isTransitRailroad || /amtrak|bnsf|union\s+pacific|transit|railroad|railway|metro|bart|caltrain|light\s+rail|commuter\s+rail|rail\s+station|train\s+station/.test(projectText)) {
+    if (state.isTransitRailroad || /amtrak|bnsf|union pacific|transit|railroad|railway|metro|bart|caltrain|light rail|commuter rail|rail station|train station/.test(projectText)) {
       projectTypeKey = 'transit_railroad';
     } else if (/government|federal|state|county|municipal|courthouse|city hall|military|dod|va hospital|gsa/.test(projectText)) {
       projectTypeKey = 'government_institutional';
@@ -4171,77 +3482,6 @@ Return ONLY valid JSON:
       ctx += `  MINIMUM SWITCH COST: $${ptMult.min_switch_cost}/each (do NOT price switches below this)\n`;
       ctx += `  NOTE: ${ptMult.notes}\n`;
       ctx += `  THIS IS MANDATORY — prices BELOW these minimums will result in a losing bid.\n\n`;
-
-      // ── Inject Amtrak benchmarks for transit/railroad projects ──
-      if (projectTypeKey === 'transit_railroad' && PRICING_DB.amtrakBenchmarks) {
-        const ab = PRICING_DB.amtrakBenchmarks;
-        ctx += `\n=== MANDATORY AMTRAK/RAILROAD PRICING RULES (from REAL winning bids) ===\n`;
-        ctx += `These are ACTUAL bid numbers from 3D Technology's Amtrak station projects (2025).\n`;
-        ctx += `YOU MUST USE THESE PRICES — do NOT estimate freely. These are proven winning prices.\n\n`;
-        ctx += `LABOR RATES: Tech=$${ab.laborRates.technician}/hr | PM=$${ab.laborRates.projectManager}/hr (${ab.laborStructure.pm_pct}% of tech hrs) | Admin=$${ab.laborRates.adminEngineer}/hr (${ab.laborStructure.admin_eng_pct}% of tech hrs)\n`;
-        ctx += `NPT: ${ab.laborStructure.npt_pct}% of productive hours | Camera install: ${ab.laborStructure.camera_install_hrs} hrs/camera avg\n`;
-        ctx += `MATERIAL EXTRAS: ${ab.materialExtras.material_support_pct}% material support + ${ab.materialExtras.shipping_pct}% shipping\n`;
-        ctx += `OVERHEAD: ${ab.overhead.warranty_pct}% warranty + ${ab.overhead.gen_conditions_pct}% gen conditions\n`;
-        ctx += `OVERALL MARKUP: ${((ab.markup.cost_to_price_multiplier - 1) * 100).toFixed(1)}% (cost-to-sell multiplier: ${ab.markup.cost_to_price_multiplier}x)\n`;
-        ctx += `TRAVEL: Per diem $${ab.travel.per_diem_daily}/day | Mileage $${ab.travel.mileage_rate}/mi (minus ${ab.travel.mileage_base_mi}mi base)\n\n`;
-        ctx += `PER-CAMERA ALL-IN UNIT PRICES (includes camera+mount+conduit+CAT6+license+labor+markup):\n`;
-        for (const [k, v] of Object.entries(ab.cameraUnitPrices)) {
-          ctx += `  ${v.description}: $${v.low}-$${v.high} (mid: $${v.mid})\n`;
-        }
-        ctx += `\nACTUAL WINNING BID TOTALS (your estimate MUST be within 15% of these for similar scope):\n`;
-        for (const [station, data] of Object.entries(ab.actualBids)) {
-          ctx += `  ${station}: ${data.cameras} cameras = $${data.total.toLocaleString()} total ($${Math.round(data.total / data.cameras).toLocaleString()}/cam avg)\n`;
-        }
-        ctx += `\nMANDATORY LINE ITEM PRICES (these are SELL prices — divide by 1.15 for base cost when placing in subcontractor categories):\n`;
-        for (const [k, v] of Object.entries(ab.lineItemBenchmarks)) {
-          const baseMid = Math.round(v.mid / 1.15);
-          ctx += `  ${v.description}: sell $${v.low.toLocaleString()}-$${v.high.toLocaleString()} | BASE COST: $${baseMid.toLocaleString()}\n`;
-        }
-        ctx += `\nCRITICAL: For transit/railroad projects, your BOM MUST include these items as separate line items:\n`;
-        ctx += `  - Station-sized UPS/Inverter ($160K-$188K) — NOT a rack UPS\n`;
-        ctx += `  - Trenching/Sawcut at $95-$281/LF — count EVERY linear foot on plans\n`;
-        ctx += `  - Power Circuits at $2,400-$34K/ea — count EVERY circuit on plans\n`;
-        ctx += `  - RRPLI Insurance, Bonds, General Insurance as separate line items\n`;
-        ctx += `  - Mob/Demob, Construction Survey, Utility Location\n`;
-        ctx += `  If any of these are missing from your estimate, it WILL lose the bid.\n\n`;
-        ctx += `MATERIAL COST TARGETS (from real winning bids — use these to calibrate):\n`;
-        ctx += `  ELV materials (cameras + cabling + racks + infrastructure): $3,800-$4,500 per camera\n`;
-        ctx += `  Example: 69 cameras × $4,000 = $276,000 for ELV materials\n`;
-        ctx += `  IMPORTANT: Electrical/civil items (UPS, trenching, power circuits) should be in SUBCONTRACTOR\n`;
-        ctx += `  costs, NOT in materials. Only include items 3D installs directly as materials.\n`;
-        ctx += `  Real bid targets: Emeryville 61 cam = $425K total mat | Sacramento 100 cam = $400K total mat\n`;
-        ctx += `  If your material total is below $3,500/camera, you may be missing items.\n`;
-        ctx += `  If your material total is above $6,000/camera, you may be double-counting or inflating.\n\n`;
-      }
-
-      // ── Inject commercial benchmarks for NON-transit projects ──
-      if (projectTypeKey !== 'transit_railroad' && PRICING_DB.commercialBenchmarks) {
-        const cb = PRICING_DB.commercialBenchmarks;
-        const isPW = context.prevailingWage && context.prevailingWage !== 'No' && context.prevailingWage !== 'no';
-        const rates = isPW ? cb.laborRates.prevailing_wage : cb.laborRates.non_prevailing_wage;
-        const margins = isPW ? cb.markup.prevailing_wage : cb.markup.non_prevailing_wage;
-
-        ctx += `\n=== COMMERCIAL BID BENCHMARKS (from 15 real 3D Technology winning bids) ===\n`;
-        ctx += `Prevailing Wage: ${isPW ? 'YES' : 'NO'}\n\n`;
-        ctx += `MARKUP TARGETS:\n`;
-        ctx += `  Material markup: ${margins.material_markup_pct.low}-${margins.material_markup_pct.high}% (target: ${margins.material_markup_pct.mid}%)\n`;
-        ctx += `  Labor markup: ${margins.labor_markup_pct.low}-${margins.labor_markup_pct.high}% (target: ${margins.labor_markup_pct.mid}%)\n`;
-        ctx += `  Overall multiplier: ${margins.overall_multiplier.low}x-${margins.overall_multiplier.high}x (target: ${margins.overall_multiplier.mid}x)\n`;
-        ctx += `  Target gross margin: ${margins.target_gross_margin_pct.low}-${margins.target_gross_margin_pct.high}%\n\n`;
-        ctx += `LABOR RATES (${isPW ? 'Prevailing Wage' : 'Non-PW'}):\n`;
-        for (const [role, rate] of Object.entries(rates)) {
-          ctx += `  ${rate.description}: cost $${rate.cost}/hr, sell $${rate.sell}/hr\n`;
-        }
-        ctx += `\nOVERHEAD:\n`;
-        ctx += `  Material Support: ${cb.overhead.material_support_pct.mid}% | Shipping: ${cb.overhead.shipping_pct.mid}%\n`;
-        ctx += `  NPT/Travel: ${cb.overhead.npt_travel_pct.mid}% | PM: ${cb.overhead.pm_pct.mid}% | Admin: ${cb.overhead.admin_eng_pct.mid}%\n`;
-        ctx += `  Warranty: ${cb.overhead.warranty_pct.mid}% | Gen Conditions: ${cb.overhead.gen_conditions_pct}% | Commission: ${cb.overhead.commission_pct}%\n\n`;
-        ctx += `PER-DEVICE INSTALLED PRICES (standard commercial — NOT Amtrak):\n`;
-        for (const [k, v] of Object.entries(cb.deviceUnitPrices)) {
-          ctx += `  ${v.description}: $${v.low}-$${v.high} (mid: $${v.mid})\n`;
-        }
-        ctx += `\n`;
-      }
     }
 
     const categories = {
@@ -4377,18 +3617,13 @@ Return ONLY valid JSON:
       progressCallback(pct, `✅ ${brain.name} complete`, this._brainStatus);
 
     } catch (err) {
-      const CRITICAL_BRAINS_LIST = ['SYMBOL_SCANNER', 'MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE', 'CONSENSUS_ARBITRATOR', 'ESTIMATE_CORRECTOR', 'REPORT_WRITER'];
-      const isCritical = CRITICAL_BRAINS_LIST.includes(key);
-      if (isCritical) {
-        console.error(`[SmartBrains] ⛔ CRITICAL brain ${key} FAILED all retries — bid accuracy may be compromised`);
-      }
       console.error(`[Brain:${brain.name}] FAILED:`, err.message);
       this._brainStatus[key] = { status: 'failed', progress: 0, result: null, error: err.message };
-      results[key] = { _error: err.message, _failed: true, _critical: isCritical };
+      results[key] = { _error: err.message, _failed: true };
       const completed = incrementCompleted();
 
       const pct = baseProgress + (completed / totalBrains) * (endProgress - baseProgress);
-      progressCallback(pct, `${isCritical ? '🚨' : '⚠️'} ${brain.name} failed${isCritical ? ' (CRITICAL)' : ''} — continuing…`, this._brainStatus);
+      progressCallback(pct, `⚠️ ${brain.name} failed — continuing…`, this._brainStatus);
     }
   },
 
@@ -4461,9 +3696,6 @@ Return ONLY valid JSON:
   // ═══════════════════════════════════════════════════════════
 
   async runFullAnalysis(state, progressCallback) {
-    // ── Health monitor: reset abort controller for new analysis ──
-    APIHealthMonitor.resetAbort();
-
     console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
     console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
     console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
@@ -4497,10 +3729,10 @@ Return ONLY valid JSON:
         progressCallback(4, '🧠 Creating context cache (saves 90% on API costs)…', this._brainStatus);
         const cacheResp = await fetch('/api/ai/cache', {
           method: 'POST',
-          headers: this._authHeaders({ 'Content-Type': 'application/json' }),
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             fileUris,
-            model: 'models/gemini-2.5-flash',
+            model: 'models/gemini-2.5-pro',
             systemInstruction: 'You are an expert low-voltage ELV construction estimator analyzing construction drawings and specifications. Extract precise device counts, material quantities, and cost data.',
             ttl: '3600s',
             _uploadKeyName: uploadKeyName,
@@ -4508,9 +3740,7 @@ Return ONLY valid JSON:
         });
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
-          // Strip 'models/' prefix — invoke.js constructs 'models/${model}' so we need the plain name
-          const cacheModel = (cacheData.model || 'gemini-2.5-flash').replace(/^models\//, '');
-          _contextCache = { name: cacheData.cacheName, model: cacheModel, keyName: cacheData._usedKeyName };
+          _contextCache = { name: cacheData.cacheName, model: 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
           console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
           console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error || cacheData._debug);
@@ -4569,7 +3799,7 @@ Return ONLY valid JSON:
 
     // ═══ WAVE 1: First Read — Document Intelligence (8 parallel brains) ═══
     progressCallback(12, '🔍 Wave 1: First Read — 8 brains scanning…', this._brainStatus);
-    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR'];
+    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER'];
     const wave1Results = await this._runWave(1, wave1Keys, encodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
     console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
@@ -4662,62 +3892,12 @@ Return ONLY valid JSON:
       console.warn('[SmartBrains] Report Writer will be instructed to add missing scope');
       context._missingDisciplines = missingDisciplines;
     }
-    // ═══ POST-PRICER: Code-enforced price guardrails ═══
-    // The prompt tells the AI to clamp prices, but we verify in code
-    const _pricer = wave2Results.MATERIAL_PRICER;
-    if (_pricer && (_pricer.categories || _pricer.material_categories)) {
-      const _pricerCats = _pricer.categories || _pricer.material_categories || [];
-      const _maxPrices = {
-        'camera': 7000, 'dome': 5000, 'bullet': 3500, 'ptz': 9000, 'fisheye': 4000,
-        'panoram': 6000, 'multi-sensor': 6000, 'nvr': 18000, 'server': 20000,
-        'switch': 6000, 'reader': 2000, 'panel': 5000, 'controller': 4000,
-        'ups': 8000, 'patch panel': 800, 'jack': 50, 'faceplate': 25, 'cable': 1500,
-      };
-      let _clampCount = 0;
-      for (const cat of _pricerCats) {
-        for (const item of (cat.items || [])) {
-          const iName = (item.item || item.name || '').toLowerCase();
-          const iCost = item.unit_cost || item.unitCost || 0;
-          for (const [keyword, maxPrice] of Object.entries(_maxPrices)) {
-            if (iName.includes(keyword) && iCost > maxPrice) {
-              console.warn(`[SmartBrains] ⚠️ CLAMPED ${item.item || item.name}: $${iCost} → $${maxPrice} (max for ${keyword})`);
-              item.unit_cost = maxPrice;
-              item.unitCost = maxPrice;
-              item.ext_cost = (item.qty || 1) * maxPrice;
-              item.extCost = (item.qty || 1) * maxPrice;
-              _clampCount++;
-              break;
-            }
-          }
-        }
-        cat.subtotal = (cat.items || []).reduce((s, i) => s + (i.ext_cost || i.extCost || 0), 0);
-      }
-      if (_clampCount > 0) {
-        _pricer.grand_total = _pricerCats.reduce((s, c) => s + (c.subtotal || 0), 0);
-        console.log(`[SmartBrains] Price guardrails: clamped ${_clampCount} item(s)`);
-      }
-    }
     console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
 
     // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
     progressCallback(62, '👷 Wave 2.25: Labor Calculator — computing labor hours…', this._brainStatus);
     const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], encodedFiles, state, context, progressCallback);
     context.wave2_25 = wave225Results;
-
-    // ═══ POST-LABOR: Bounds check — catch $0 or wildly high labor ═══
-    const _labCalc = wave225Results.LABOR_CALCULATOR;
-    const _matTotal = _pricer?.grand_total || 0;
-    if (_labCalc && _matTotal > 0) {
-      const _labTotal = _labCalc.total_base_cost || 0;
-      const _labRatio = _labTotal / _matTotal;
-      if (_labTotal <= 0) {
-        console.error('[SmartBrains] ⛔ LABOR IS $0 — Labor Calculator returned no cost. Bid will use fallback (100% of materials).');
-      } else if (_labRatio < 0.10 && _matTotal > 50000) {
-        console.warn(`[SmartBrains] ⚠️ LABOR UNUSUALLY LOW: $${_labTotal.toLocaleString()} = ${(_labRatio * 100).toFixed(0)}% of materials ($${_matTotal.toLocaleString()}). Check conduit/cable labor.`);
-      } else if (_labRatio > 2.0) {
-        console.warn(`[SmartBrains] ⚠️ LABOR UNUSUALLY HIGH: $${_labTotal.toLocaleString()} = ${(_labRatio * 100).toFixed(0)}% of materials. Check for inflated hours.`);
-      }
-    }
     console.log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
 
     // ═══ WAVE 2.5: Financial Engine (runs AFTER both to sum their outputs) ═══
@@ -4770,55 +3950,16 @@ Return ONLY valid JSON:
       // If corrections were produced, log the summary and inject into context
       const corrector = wave385Results.ESTIMATE_CORRECTOR;
       if (corrector && !corrector._failed && !corrector._parseFailed && corrector.corrected_categories) {
-        // ═══ CODE-LEVEL ENFORCEMENT: Strip phantom categories ═══
-        // The AI ignores instructions and adds new categories. We only allow
-        // categories that existed in the original Material Pricer output.
-        const origPricer = context.wave2?.MATERIAL_PRICER;
-        if (origPricer && corrector.corrected_categories) {
-          const origCatNames = new Set();
-          const origCats = origPricer.categories || origPricer.material_categories || [];
-          for (const oc of origCats) {
-            origCatNames.add((oc.name || oc.category || '').toLowerCase().trim());
-          }
-          const beforeCount = corrector.corrected_categories.length;
-          corrector.corrected_categories = corrector.corrected_categories.filter(cc => {
-            const ccName = (cc.name || '').toLowerCase().trim();
-            // Check if this category matches any original category (exact 15-char prefix match)
-            // FIX: Was too loose — "database".includes("data") allowed phantom categories through
-            const ccShort = ccName.replace(/[^a-z]/g, '').substring(0, 15);
-            const isOriginal = [...origCatNames].some(on => {
-              const onShort = on.replace(/[^a-z]/g, '').substring(0, 15);
-              return ccShort === onShort;
-            });
-            if (!isOriginal) {
-              console.warn(`[SmartBrains] ⛔ STRIPPED phantom category from Estimate Corrector: "${cc.name}" ($${(cc.subtotal || 0).toLocaleString()}) — not in original Material Pricer`);
-            }
-            return isOriginal;
-          });
-          if (corrector.corrected_categories.length < beforeCount) {
-            console.warn(`[SmartBrains] Removed ${beforeCount - corrector.corrected_categories.length} phantom categories from Estimate Corrector output`);
-            // Recalculate corrected_grand_total
-            corrector.corrected_grand_total = corrector.corrected_categories.reduce((s, c) => s + (c.subtotal || 0), 0);
-            corrector.total_adjustment = corrector.corrected_grand_total - (corrector.original_grand_total || 0);
-          }
+        const log = corrector.correction_log || [];
+        console.log(`[SmartBrains] ═══ Wave 3.85 Complete — ${log.length} correction(s) applied ═══`);
+        for (const entry of log) {
+          console.log(`[SmartBrains]   🔧 ${entry.action}: ${entry.item} — ${entry.reason} (${entry.cost_impact >= 0 ? '+' : ''}$${entry.cost_impact?.toLocaleString()})`);
         }
-
-        // ═══ ENFORCEMENT: Reject if corrector INCREASED total by >5% ═══
-        if (corrector.original_grand_total > 0 && corrector.corrected_grand_total > corrector.original_grand_total * 1.05) {
-          console.warn(`[SmartBrains] ⛔ REJECTED Estimate Corrector — increased total by ${(((corrector.corrected_grand_total / corrector.original_grand_total) - 1) * 100).toFixed(1)}% (from $${corrector.original_grand_total.toLocaleString()} to $${corrector.corrected_grand_total.toLocaleString()}). Using original pricer data.`);
-          context._correctedPricer = null;
-        } else {
-          const log = corrector.correction_log || [];
-          console.log(`[SmartBrains] ═══ Wave 3.85 Complete — ${log.length} correction(s) applied ═══`);
-          for (const entry of log) {
-            console.log(`[SmartBrains]   🔧 ${entry.action}: ${entry.item} — ${entry.reason} (${entry.cost_impact >= 0 ? '+' : ''}$${entry.cost_impact?.toLocaleString()})`);
-          }
-          if (corrector.total_adjustment) {
-            console.log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
-          }
-          // Inject corrected data so Report Writer uses it
-          context._correctedPricer = corrector;
+        if (corrector.total_adjustment) {
+          console.log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
         }
+        // Inject corrected data so Report Writer uses it
+        context._correctedPricer = corrector;
       } else {
         console.warn('[SmartBrains] Estimate Corrector returned no corrections — Report Writer will use original pricer data');
       }
@@ -4916,9 +4057,6 @@ Return ONLY valid JSON:
 
     progressCallback(100, '🎯 Analysis complete — 27 brains finished!', this._brainStatus);
 
-    // ── Health monitor: mark analysis complete ──
-    APIHealthMonitor.analysisComplete();
-
     return {
       report: finalReport,
       brainResults: {
@@ -4937,7 +4075,6 @@ Return ONLY valid JSON:
         consensusDisputes: disputes.length,
         devilRiskScore: devil?.risk_score || null,
         reverseVerificationScore: reverseV?.verification_score || null,
-        apiHealth: APIHealthMonitor.getSummary(),
       },
     };
   },

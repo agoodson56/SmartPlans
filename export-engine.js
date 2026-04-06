@@ -223,16 +223,12 @@ const SmartPlansExport = {
 
     // ─── Classify BOM categories into material/equipment/subs/labor ──
     _classifyBOM(bom) {
-        let materials = 0, equipment = 0, subs = 0, labor = 0, travel = 0;
+        let materials = 0, equipment = 0, subs = 0, labor = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
-            if (/travel|per\s*diem|incidental|lodging|hotel|mileage|flight/i.test(n)) {
-                // Travel is pass-through — NO markup, not counted as materials
-                travel += (cat.subtotal || 0);
-                console.log(`[Export] BOM category "${cat.name}" classified as TRAVEL (pass-through) — $${(cat.subtotal || 0).toLocaleString()}`);
-            } else if (/subcontract|civil|traffic|insurance|parking/i.test(n)) {
+            if (/subcontract|civil|traffic|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
-            } else if (/equipment|air.?condition|hvac.?condition|scissor|boom|excavat|tugger|drill|saw|scanner|ups|generator|battery.?backup|power.?supply/i.test(n)) {
+            } else if (/equipment|air.?condition|hvac.?condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
             } else if (/labor|install|rough.?in|trim|commission|program|test|mobiliz|phase\s*\d/i.test(n)) {
                 // Labor categories that leaked past the BOM parser filter —
@@ -243,13 +239,13 @@ const SmartPlansExport = {
                 materials += (cat.subtotal || 0);
             }
         }
-        return { materials, equipment, subs, labor, travel };
+        return { materials, equipment, subs, labor };
     },
 
     // ─── Compute full bid price breakdown with all markups ──
     // SINGLE SOURCE OF TRUTH: Every output reads from this.
     _computeFullBreakdown(state, bom) {
-        const { materials, equipment, subs, labor: bomLabor, travel: bomTravel } = this._classifyBOM(bom);
+        const { materials, equipment, subs, labor: bomLabor } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
         const matPct = (cfg.material ?? 50) / 100;
         const labPct = (cfg.labor ?? 50) / 100;
@@ -259,8 +255,6 @@ const SmartPlansExport = {
         const burdenRate = rawBurden > 1 ? rawBurden / 100 : rawBurden;
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         const contingencyPct = 0.10;
-
-        console.log(`[Export] _classifyBOM: materials=$${materials.toLocaleString()}, equipment=$${equipment.toLocaleString()}, subs=$${subs.toLocaleString()}, bomLabor=$${bomLabor.toLocaleString()}, bomTravel=$${bomTravel.toLocaleString()}`);
 
         // ── Labor: use REAL data from Labor Calculator brain when available ──
         // Previously this always used materials × 1.0 which doubled labor when
@@ -285,346 +279,67 @@ const SmartPlansExport = {
         const labSell = this._round(laborBase * (1 + labPct));
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
-        // Burden = payroll taxes, workers comp, insurance, benefits — applied to BASE labor cost
-        // NOT the sell price (sell includes profit margin; burden should not compound with profit)
         const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
-        // Travel: use Stage 6 deterministic travel if configured, otherwise BOM travel
-        // Travel is PASS-THROUGH — no markup applied (it's already at cost)
-        const stage6Travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
+        const travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
             ? this._round(computeTravelIncidentals().grandTotal || 0) : 0;
-        const travel = stage6Travel > 0 ? stage6Travel : this._round(bomTravel);
-        if (bomTravel > 0 && stage6Travel > 0) {
-            console.log(`[Export] Travel: Stage 6 $${stage6Travel.toLocaleString()} (BOM had $${bomTravel.toLocaleString()} — using Stage 6, BOM travel excluded from materials)`);
-        } else if (bomTravel > 0) {
-            console.log(`[Export] Travel: BOM pass-through $${bomTravel.toLocaleString()} (no Stage 6 configured)`);
-        }
 
-        // Contingency applies to profit-bearing items only — NOT travel (pass-through)
-        let profitSubtotal = this._round(matSell + labSell + eqSell + subSell + burden);
-        let contingency = this._round(profitSubtotal * contingencyPct);
-        let subtotal = this._round(profitSubtotal + travel);
-        let grandTotal = this._round(subtotal + contingency);
-
-        // ═══ TRANSIT/RAILROAD BENCHMARK CALIBRATION ═══
-        // The AI Material Pricer consistently produces raw material costs 2-3x too high
-        // because it prices at near-sell levels, then our formula adds markups on top.
-        // Instead of capping the output, we CALIBRATE the material input using actual
-        // bid data and the known 1.485x cost-to-sell multiplier.
-        //
-        // How it works:
-        // 1. Find closest Amtrak bid by camera count
-        // 2. Compute target grand total from that benchmark
-        // 3. If our formula's output exceeds target by >15%, scale materials to hit target
-        //
-        // This is based on REAL winning bid data, not guesses.
-        if (state.isTransitRailroad && typeof PRICING_DB !== 'undefined' && PRICING_DB.amtrakBenchmarks?.actualBids) {
-            const bids = PRICING_DB.amtrakBenchmarks.actualBids;
-            const consensus = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts;
-            const finalRecon = state.brainResults?.wave3_75?.FINAL_RECONCILIATION?.final_counts;
-
-            // Get camera count — CONSENSUS is the primary source (6-read engine designed for counting).
-            // BOM count is unreliable because it matches accessories (licenses, mounts, SD cards).
-            const camRegex = /camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i;
-            const camAccessoryExclude = /mount|bracket|license|sd\s*card|memory|cable|adapter|mic|audio|housing|heater|sunshield|pendant|pole|arm|power|surge|injector|midspan|splitter|software|warranty|maintenance|accessori/i;
-
-            let consensusCount = 0;
-            const countSource = finalRecon || consensus;
-            if (countSource) {
-                for (const [key, val] of Object.entries(countSource)) {
-                    if (camRegex.test(key) && !camAccessoryExclude.test(key)) {
-                        consensusCount += (typeof val === 'number' ? val : val?.count || val?.qty || 0);
-                    }
-                }
-            }
-
-            // BOM count as fallback only — with strict accessory exclusion
-            let bomCamCount = 0;
-            for (const cat of (bom?.categories || [])) {
-                if (/cctv|camera|surveillance/i.test(cat.name || '')) {
-                    for (const item of (cat.items || [])) {
-                        const itemName = item.item || item.name || '';
-                        if (camRegex.test(itemName) && !camAccessoryExclude.test(itemName)) {
-                            bomCamCount += (item.qty || 0);
-                        }
-                    }
-                }
-            }
-
-            // Use CONSENSUS as primary (designed for counting). BOM only if consensus unavailable.
-            let cameraCount = consensusCount >= 5 ? consensusCount : bomCamCount;
-            console.log(`[Export]   Camera counts — Consensus: ${consensusCount}, BOM (filtered): ${bomCamCount}, Using: ${cameraCount}`);
-
-            // Check if project is infrastructure-heavy (subs dominate the BOM)
-            // Per-camera calibration is unreliable when subs > 40% of raw BOM because
-            // the project cost is driven by civil/electrical work, not camera count.
-            // Example: Sacramento — 32 cameras but $721K subs (77% of BOM) = infrastructure project
-            const rawBomTotal = bom?.categories?.reduce((sum, c) => sum + (c.subtotal || 0), 0) || 0;
-            const subPctOfBom = rawBomTotal > 0 ? (subs / rawBomTotal) : 0;
-            if (subPctOfBom > 0.40) {
-                console.log(`[Export] ⚠️ SKIPPING per-camera calibration — subs are ${(subPctOfBom * 100).toFixed(0)}% of BOM ($${subs.toLocaleString()} / $${rawBomTotal.toLocaleString()})`);
-                console.log(`[Export]   Infrastructure-heavy project — formula total $${grandTotal.toLocaleString()} is more reliable than per-camera benchmark`);
-                // Skip calibration — fall through to the non-calibrated return
-            } else if (cameraCount >= 5) {
-                // Find closest bid by camera count
-                const bidArray = Object.entries(bids)
-                    .map(([k, v]) => ({ key: k, ...v }))
-                    .filter(b => b.cameras > 0 && b.total > 0);
-
-                let closest = null;
-                let closestDiff = Infinity;
-                for (const b of bidArray) {
-                    const diff = Math.abs(b.cameras - cameraCount);
-                    if (diff < closestDiff) { closestDiff = diff; closest = b; }
-                }
-
-                // If we have BAFO bids, prefer those over original/VE for same camera count
-                const sameCamBids = bidArray.filter(b => b.cameras === closest.cameras);
-                const bafo = sameCamBids.find(b => b.type === 'bafo');
-                const original = sameCamBids.find(b => b.type === 'original');
-                const benchmark = bafo || original || closest;
-
-                // Compute per-camera sell price from benchmark and scale to our camera count
-                const perCameraSell = benchmark.total / benchmark.cameras;
-                const targetGrandTotal = this._round(cameraCount * perCameraSell);
-
-                console.log(`[Export] ═══ TRANSIT CALIBRATION ═══`);
-                console.log(`[Export]   Camera count: ${cameraCount} (from ${finalRecon ? 'Final Reconciliation' : consensus ? 'Consensus' : 'BOM'})`);
-                console.log(`[Export]   Benchmark: ${benchmark.key} — ${benchmark.cameras} cameras, $${benchmark.total.toLocaleString()} (${benchmark.type})`);
-                console.log(`[Export]   Per-camera sell: $${Math.round(perCameraSell).toLocaleString()}`);
-                console.log(`[Export]   Target grand total: $${targetGrandTotal.toLocaleString()}`);
-                console.log(`[Export]   Formula grand total: $${grandTotal.toLocaleString()}`);
-
-                const deviation = grandTotal / targetGrandTotal;
-                // Calibrate if formula output is >8% ABOVE or >8% BELOW benchmark
-                // The AI is wildly inconsistent ($1.5M one run, $3M the next).
-                // Benchmark data from actual winning bids is the anchor.
-                const needsCalibration = deviation > 1.06 || deviation < 0.94;
-                if (needsCalibration) {
-                    const direction = deviation > 1 ? 'OVER' : 'UNDER';
-                    const pctOff = Math.round(Math.abs(deviation - 1) * 100);
-                    // For BAFO bids target the exact price; for originals add 2% buffer
-                    const targetMultiplier = benchmark.type === 'bafo' ? 1.00 : 1.02;
-                    const calibratedTarget = this._round(targetGrandTotal * targetMultiplier);
-                    const scaleFactor = calibratedTarget / grandTotal;
-
-                    console.warn(`[Export] ⚠️ CALIBRATING ${direction}: formula is ${pctOff}% ${direction.toLowerCase()} benchmark`);
-                    console.warn(`[Export]   Scale factor: ${(scaleFactor * 100).toFixed(1)}% → target $${calibratedTarget.toLocaleString()}`);
-
-                    // Scale all raw costs proportionally
-                    const sMat = this._round(materials * scaleFactor);
-                    const sLab = this._round(laborBase * scaleFactor);
-                    const sEq = this._round(equipment * scaleFactor);
-                    const sSub = this._round(subs * scaleFactor);
-
-                    const sMatSell = this._round(sMat * (1 + matPct));
-                    const sLabSell = this._round(sLab * (1 + labPct));
-                    const sEqSell = this._round(sEq * (1 + eqPct));
-                    const sSubSell = this._round(sSub * (1 + subPct));
-                    const sBurden = includeBurden ? this._round(sLab * burdenRate) : 0;
-
-                    // Match non-calibrated path: contingency on profit items only, travel excluded
-                    const sProfitSubtotal = this._round(sMatSell + sLabSell + sEqSell + sSubSell + sBurden);
-                    contingency = this._round(sProfitSubtotal * contingencyPct);
-                    subtotal = this._round(sProfitSubtotal + travel);
-                    grandTotal = this._round(subtotal + contingency);
-
-                    console.warn(`[Export]   Calibrated grand total: $${grandTotal.toLocaleString()} (target was $${calibratedTarget.toLocaleString()})`);
-                    const cCommPct = (state.commissionPct || 0) / 100;
-                    const cTaxPct = (state.salesTaxPct || 0) / 100;
-                    const cEscPct = (state.escalationPct || 0) / 100;
-                    const cComm = this._round(grandTotal * cCommPct);
-                    const cTax = this._round(sMat * cTaxPct);
-                    const cEsc = this._round(sMat * cEscPct);
-                    const cFinal = this._round(grandTotal + cComm + cTax + cEsc);
-                    return {
-                        materials: sMat, equipment: sEq, subs: sSub, laborBase: sLab,
-                        matPct, labPct, eqPct, subPct,
-                        matSell: sMatSell, labSell: sLabSell, eqSell: sEqSell, subSell: sSubSell,
-                        burden: sBurden, burdenRate: includeBurden ? burdenRate : 0,
-                        travel, subtotal, contingency, contingencyPct, grandTotal,
-                        commission: cComm, commissionPct: cCommPct, salesTax: cTax, salesTaxPct: cTaxPct,
-                        escalation: cEsc, escalationPct: cEscPct, finalTotal: cFinal,
-                        _benchmarkCalibrated: true, _scaleFactor: scaleFactor,
-                        _calibrationDirection: direction,
-                        _cameraCount: cameraCount, _benchmarkKey: benchmark.key,
-                        _targetGrandTotal: calibratedTarget
-                    };
-                } else {
-                    console.log(`[Export]   ✅ Within ±8% of benchmark — no calibration needed`);
-                }
-            }
-        }
-
-        // ═══ Commission, Sales Tax & Escalation ═══
-        const commissionPct = (state.commissionPct || 0) / 100;
-        const salesTaxPct = (state.salesTaxPct || 0) / 100;
-        const escalationPct = (state.escalationPct || 0) / 100;
-        const commission = this._round(grandTotal * commissionPct);
-        const salesTax = this._round(materials * salesTaxPct); // Tax on materials only
-        const escalation = this._round(materials * escalationPct); // Escalation on materials
-        const finalTotal = this._round(grandTotal + commission + salesTax + escalation);
-
-        // ── Historical bid intelligence validation (advisory only) ──
-        this._validateLaborWithHistorical(laborBase, state, bom);
+        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
+        const contingency = this._round(subtotal * contingencyPct);
+        const grandTotal = this._round(subtotal + contingency);
 
         return {
             materials, equipment, subs, laborBase,
             matPct, labPct, eqPct, subPct,
             matSell, labSell, eqSell, subSell,
             burden, burdenRate: includeBurden ? burdenRate : 0,
-            travel, subtotal, contingency, contingencyPct, grandTotal,
-            commission, commissionPct, salesTax, salesTaxPct,
-            escalation, escalationPct, finalTotal
+            travel, subtotal, contingency, contingencyPct, grandTotal
         };
-    },
-
-    // ─── Historical labor validation (advisory — does NOT override) ──
-    // Compares AI-calculated labor against historical productivity benchmarks
-    // extracted from 13 real 3D Technology Services bids (2022-2026).
-    _validateLaborWithHistorical(laborBase, state, bom) {
-        try {
-            const hist = (typeof PRICING_DB !== 'undefined') && PRICING_DB.historicalBidIntelligence;
-            if (!hist || !hist.taskProductivity || !hist.estimatingRules) return;
-
-            const prod = hist.taskProductivity;
-            const rules = hist.estimatingRules;
-            let estimatedHours = 0;
-            const details = [];
-
-            // Walk BOM categories/items and estimate labor from productivity rates
-            for (const cat of (bom?.categories || [])) {
-                const catName = (cat.name || '').toLowerCase();
-                for (const item of (cat.items || [])) {
-                    const desc = (item.description || '').toLowerCase();
-                    const qty = item.qty || 0;
-                    if (qty <= 0) continue;
-
-                    // Cable runs (pull + terminate + test)
-                    if (/cat\s*[56]|cable.*run|data.*drop|network.*drop|voice.*drop/.test(desc) &&
-                        !/patch|cord|jumper|jack|panel|faceplate|plate/.test(desc)) {
-                        const pullHrs = qty * prod.pull_cat6_cable.min_per_unit / 60;
-                        const termHrs = qty * 2 * prod.terminate_cable.min_per_unit / 60; // 2 ends
-                        const testHrs = qty * prod.test_cable.min_per_unit / 60;
-                        const cableHrs = pullHrs + termHrs + testHrs;
-                        estimatedHours += cableHrs;
-                        details.push(`Cable runs (${qty}): ${cableHrs.toFixed(1)} hrs`);
-                    }
-                    // Cameras
-                    else if (/camera|cctv|ip\s*cam|dome|bullet|ptz|turret/.test(desc)) {
-                        const hrs = qty * rules.camera_install_hours;
-                        estimatedHours += hrs;
-                        details.push(`Cameras (${qty}): ${hrs.toFixed(1)} hrs`);
-                    }
-                    // Access control readers/locks
-                    else if (/rfid|lock|electronic.*lock|schlage|access.*lock/.test(desc)) {
-                        const hrs = qty * rules.rfid_lock_install_hours;
-                        estimatedHours += hrs;
-                        details.push(`Electronic locks (${qty}): ${hrs.toFixed(1)} hrs`);
-                    }
-                    else if (/reader|card.*reader|hid|proximity/.test(desc)) {
-                        const hrs = qty * prod.install_device.min_per_unit / 60;
-                        estimatedHours += hrs;
-                        details.push(`Readers (${qty}): ${hrs.toFixed(1)} hrs`);
-                    }
-                    // WAPs
-                    else if (/wap|wireless.*access|access.*point|wi-?fi/.test(desc)) {
-                        const hrs = qty * prod.install_wap.min_per_unit / 60;
-                        estimatedHours += hrs;
-                        details.push(`WAPs (${qty}): ${hrs.toFixed(1)} hrs`);
-                    }
-                    // Speakers, clocks, intercoms, devices
-                    else if (/speaker|clock|intercom|paging|strobe|horn/.test(desc)) {
-                        const hrs = qty * prod.install_device.min_per_unit / 60;
-                        estimatedHours += hrs;
-                        details.push(`Devices (${qty}): ${hrs.toFixed(1)} hrs`);
-                    }
-                    // MDF/IDF rooms
-                    else if (/mdf|idf|telecom.*room|server.*room|rack.*build/.test(desc)) {
-                        const hrs = qty * rules.mdf_idf_build_hours;
-                        estimatedHours += hrs;
-                        details.push(`MDF/IDF rooms (${qty}): ${hrs.toFixed(1)} hrs`);
-                    }
-                    // Head-end / servers
-                    else if (/server|head.?end|workstation|nvr|dvr/.test(desc)) {
-                        const hrs = qty * rules.head_end_install_hours;
-                        estimatedHours += hrs;
-                        details.push(`Head-end/servers (${qty}): ${hrs.toFixed(1)} hrs`);
-                    }
-                }
-            }
-
-            if (estimatedHours <= 0) {
-                console.log('[Export][HistValidation] No recognizable tasks in BOM — skipping historical validation');
-                return;
-            }
-
-            // Add PM overhead and NPT
-            const pmHours = estimatedHours * (rules.pm_pct_of_field_hours / 100);
-            const nptHours = estimatedHours * (rules.npt_pct / 100);
-            const totalEstHours = estimatedHours + pmHours + nptHours;
-
-            // Estimate labor cost using blended average rate
-            // Weighted average of observed base rates by hour distribution
-            const rates = hist.laborRatesObserved;
-            const dist = hist.laborHourDistribution;
-            const blendedRate = (
-                (rates.tech_iii?.base_avg || 37.31) * ((dist.tech_iii || 24.6) / 100) +
-                (rates.cable_installer?.base_avg || 43.38) * ((dist.cable_installer || 22.5) / 100) +
-                (rates.tech_ii?.base_avg || 32.95) * ((dist.tech_ii || 18.0) / 100) +
-                (rates.foreman?.base_avg || 37.40) * ((dist.foreman || 7.1) / 100) +
-                (rates.project_manager?.base_avg || 50.49) * ((dist.project_manager || 5.6) / 100) +
-                (rates.cad_drafter?.base_avg || 38.00) * ((dist.cad_drafter || 4.2) / 100) +
-                (rates.engineer_estimator?.base_avg || 40.11) * ((dist.engineer_estimator || 1.5) / 100) +
-                (rates.warehouse?.base_avg || 28.00) * ((dist.warehouse || 1.2) / 100) +
-                (rates.administration?.base_avg || 32.31) * ((dist.administration || 2.8) / 100)
-            ) / ((24.6 + 22.5 + 18.0 + 7.1 + 5.6 + 4.2 + 1.5 + 1.2 + 2.8) / 100);
-
-            const historicalLaborCost = this._round(totalEstHours * blendedRate);
-
-            // Compare
-            const diff = laborBase > 0 ? Math.abs(laborBase - historicalLaborCost) / laborBase * 100 : 0;
-
-            console.log(`[Export][HistValidation] Historical estimate: ${totalEstHours.toFixed(1)} hrs × $${blendedRate.toFixed(2)}/hr = $${historicalLaborCost.toLocaleString()}`);
-            console.log(`[Export][HistValidation] AI labor: $${laborBase.toLocaleString()} | Historical: $${historicalLaborCost.toLocaleString()} | Δ ${diff.toFixed(1)}%`);
-            if (details.length > 0) {
-                console.log(`[Export][HistValidation] Breakdown: ${details.join(', ')}`);
-            }
-
-            if (diff > 40) {
-                console.warn(`[Export][HistValidation] ⚠ Labor differs by ${diff.toFixed(1)}% from historical benchmarks — review recommended`);
-                console.warn(`[Export][HistValidation]   AI calculated: $${laborBase.toLocaleString()} vs Historical estimate: $${historicalLaborCost.toLocaleString()}`);
-            }
-        } catch (e) {
-            console.warn(`[Export][HistValidation] Validation skipped — ${e.message}`);
-        }
     },
 
     // ─── Get fully loaded bid total ──
     _getFullyLoadedTotal(state, bom) {
-        // ═══ UNIFIED GRAND TOTAL — Single Source of Truth ═══
-        // _computeFullBreakdown() is the ONLY formula used for the grand total.
-        // This ensures Master Report, BOM Export, JSON Export, and Proposals
-        // all show the SAME number using the SAME deterministic formula:
-        //   Materials × markup + Labor × markup + Equipment × markup +
-        //   Subs × markup + Burden (35% of labor) + Travel + Contingency (10%)
-        //
-        // The Financial Engine AI provides raw cost COMPONENTS (materials, labor,
-        // equipment, subs) but does NOT compute the grand total — that's our job.
-
+        // DEBUG: Log what brain results we have
         console.log(`[Export] brainResults available: ${!!state.brainResults}`);
-
-        // Priority 1: Deterministic breakdown (ALWAYS preferred)
-        if (bom?.categories?.length > 0) {
-            const breakdown = this._computeFullBreakdown(state, bom);
-            if (breakdown.grandTotal > 1000) {
-                // Use finalTotal if commission/tax/escalation were applied
-                const displayTotal = (breakdown.finalTotal > breakdown.grandTotal) ? breakdown.finalTotal : breakdown.grandTotal;
-                console.log(`[Export] ✅ Grand total from deterministic breakdown: $${displayTotal.toLocaleString()}${breakdown._benchmarkCalibrated ? ` (transit calibrated from ${breakdown._benchmarkKey}, ${breakdown._cameraCount} cams)` : ''}${breakdown.finalTotal > breakdown.grandTotal ? ` (incl. commission/tax/escalation from base $${breakdown.grandTotal.toLocaleString()})` : ''}`);
-                return displayTotal;
+        if (state.brainResults) {
+            console.log(`[Export] wave3_85_corrected: ${!!state.brainResults.wave3_85_corrected}, corrected_grand_total: ${state.brainResults.wave3_85_corrected?.corrected_grand_total}`);
+            console.log(`[Export] wave2_5_fin: ${!!state.brainResults.wave2_5_fin}, FINANCIAL_ENGINE: ${!!state.brainResults.wave2_5_fin?.FINANCIAL_ENGINE}`);
+            if (state.brainResults.wave2_5_fin?.FINANCIAL_ENGINE) {
+                const fe = state.brainResults.wave2_5_fin.FINANCIAL_ENGINE;
+                console.log(`[Export] Financial Engine project_summary: ${JSON.stringify(fe.project_summary || 'MISSING').substring(0, 500)}`);
             }
         }
 
-        // Priority 2: Bid strategy if user applied one
+        // Compute deterministic travel/incidentals from Stage 6 (overrides AI travel)
+        let stage6Travel = 0;
+        if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
+            const tCosts = computeTravelIncidentals();
+            stage6Travel = this._round(tCosts.grandTotal || 0);
+            console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
+        }
+
+        // Priority 1: Financial Engine brain (fully-loaded bid price with labor, overhead, profit, contingency)
+        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+        if (finEngine?.project_summary?.grand_total > 1000) {
+            let val = this._round(finEngine.project_summary.grand_total);
+            // Replace AI-computed travel with deterministic Stage 6 travel
+            if (stage6Travel > 0) {
+                const aiTravel = this._round(finEngine.project_summary.total_travel || 0);
+                val = this._round(val - aiTravel + stage6Travel);
+                console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()})`);
+            }
+            console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
+            return val;
+        }
+
+        // Priority 2: Estimate Corrector's corrected grand total (raw BOM only — fallback)
+        const corrector = state.brainResults?.wave3_85_corrected;
+        if (corrector?.corrected_grand_total > 1000) {
+            const val = this._round(corrector.corrected_grand_total);
+            console.log(`[Export] ⚠️ Using Estimate Corrector total (raw BOM, no markups): $${val.toLocaleString()}`);
+            return val;
+        }
+
+        // Priority 3: Bid strategy if user applied one
         if (state.bidStrategy?.applied) {
             const result = this.applyBidStrategy?.(state);
             if (result?.grandTotalWithStrategy > 1000) {
@@ -633,27 +348,23 @@ const SmartPlansExport = {
             }
         }
 
-        // Priority 3: Financial Engine AI total (legacy fallback only)
-        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
-        if (finEngine?.project_summary?.grand_total > 1000) {
-            let val = this._round(finEngine.project_summary.grand_total);
-            // Replace AI-computed travel with deterministic Stage 6 travel
-            let stage6Travel = 0;
-            if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
-                const tCosts = computeTravelIncidentals();
-                stage6Travel = this._round(tCosts.grandTotal || 0);
+        // Priority 4: Compute with full markups from BOM (fallback)
+        if (bom?.categories?.length > 0) {
+            const breakdown = this._computeFullBreakdown(state, bom);
+            if (breakdown.grandTotal > 1000) {
+                console.log(`[Export] Grand total from BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
+                return breakdown.grandTotal;
             }
-            if (stage6Travel > 0) {
-                const aiTravel = this._round(finEngine.project_summary.total_travel || 0);
-                val = this._round(val - aiTravel + stage6Travel);
-            }
-            console.log(`[Export] ⚠️ Fallback to Financial Engine AI total: $${val.toLocaleString()}`);
-            return val;
         }
 
-        // Priority 4: Raw BOM with 10% buffer (last resort)
+        // Priority 5: Raw BOM — use _computeFullBreakdown if grandTotal is 0 or very small
         const rawTotal = bom?.grandTotal || 0;
-        console.warn(`[Export] ⚠️ Last resort: raw BOM $${rawTotal} + 10%`);
+        if (rawTotal <= 0 && bom?.categories?.length > 0) {
+            const breakdown = this._computeFullBreakdown(state, bom);
+            console.warn(`[Export] Grand total fallback: computed from breakdown $${breakdown.grandTotal}`);
+            return breakdown.grandTotal;
+        }
+        console.warn(`[Export] Grand total fallback: raw BOM $${rawTotal} + 10%`);
         return this._round(rawTotal * 1.1);
     },
 
@@ -1280,8 +991,12 @@ const SmartPlansExport = {
                         // Skip total/subtotal rows
                         const firstCell = cells[0] || '';
                         if (/^(total|subtotal|grand total|sum|markup|margin|tax)/i.test(firstCell.replace(/\*+/g, '').trim())) {
-                            // Skip subtotal/total rows — we compute subtotals from item sums (line 1398+)
-                            // DO NOT trust AI-reported subtotals — they can be wrong
+                            // Try to capture subtotal value
+                            const lastCell = cells[cells.length - 1];
+                            const subtMatch = lastCell.match(/\$?([\d,]+\.?\d*)/);
+                            if (subtMatch) {
+                                currentCategory.subtotal = parseFloat(subtMatch[1].replace(/,/g, ''));
+                            }
                             continue;
                         }
                         if (firstCell.includes('continue') || firstCell.includes('...') || firstCell.replace(/\*+/g, '').trim() === '') continue;
@@ -1431,92 +1146,6 @@ const SmartPlansExport = {
                     return false;
                 }
                 return true;
-            });
-
-            // ═══ DEDUPLICATION & MISCLASSIFICATION FIX ═══
-            // The AI ignores prompt instructions and puts items in wrong categories.
-            // This code ENFORCES correct classification regardless of what the AI does.
-
-            // 1. HIGH-VALUE ITEMS — only keep first occurrence across all categories
-            const seenItems = new Map();
-            const highValueDupPatterns = /ups|inverter|video.*server|vms.*server|surveillance.*server|security\s*center|genetec.*server|bcd.*server|network.*enclosure|remote.*enclosure|idf.*enclosure|nema.*enclosure|kvm|console.*kvm|pdu|managed.*pdu|patch\s*panel|fiber\s*panel/i;
-
-            // 2. TRAVEL — remove from ANY non-travel category (catches all formats)
-            const travelDupPatterns = /hotel|per\s*diem|lodging|mileage|rental.*car|travel.*home|tolls.*parking|workers?\s*[x×]\s*\d+\s*days?\s*@|crew\s*[x×]\s*\d+\s*days?\s*@|\d+\s*night|\d+\s*day.*\$\d+/i;
-
-            // 3. MISCLASSIFIED ITEMS — items that should NOT be in certain categories
-            const notCCTV = /bollard|m30|window.*film|blast.*film|(?<!\bin)door(?!.*cam)|electric\s*strike|latch|signage|paint|ceiling|masonry|concrete|hvac|mini.?split|trench|saw\s*cut|power\s*circuit|panel\s*board|conduit.*install/i;
-            const isCameraItem = /camera|dome|bullet|ptz|fisheye|panoram|varifocal|8mp|5mp|4mp|lpr|turret|nvr|vms|genetec|axis|hikvision|dahua|milestone/i;
-            const notStructCabling = /ups|inverter|station.*power|battery.*bank|video.*server|surveillance.*server|security\s*center|bollard/i;
-
-            realCategories.forEach((cat, ci) => {
-                const catName = (cat.name || '').toLowerCase();
-                const isCCTV = /cctv|camera|video|surveillance/i.test(cat.name);
-                const isCabling = /cabling|structured|cable\s*mat/i.test(cat.name);
-                const isTravel = /travel|per\s*diem|incidental/i.test(cat.name);
-                const isSub = /subcontract|sub\s*cost/i.test(cat.name);
-
-                cat.items = cat.items.filter((item, ii) => {
-                    const name = (item.item || item.name || '').trim();
-                    const nameLower = name.toLowerCase();
-                    const ext = item.extCost || 0;
-                    if (!name || ext <= 0) return true;
-
-                    // Remove travel from non-travel categories
-                    if (travelDupPatterns.test(nameLower) && !isTravel) {
-                        console.warn(`[Dedup] REMOVED travel from "${cat.name}": "${name}" ($${ext.toLocaleString()})`);
-                        return false;
-                    }
-
-                    // Remove misclassified items from CCTV (but NEVER remove actual camera items)
-                    if (isCCTV && notCCTV.test(nameLower) && !isCameraItem.test(nameLower)) {
-                        console.warn(`[Dedup] REMOVED non-camera item from CCTV: "${name}" ($${ext.toLocaleString()})`);
-                        return false;
-                    }
-
-                    // Remove misclassified items from Structured Cabling
-                    if (isCabling && notStructCabling.test(nameLower)) {
-                        console.warn(`[Dedup] REMOVED misclassified item from Cabling: "${name}" ($${ext.toLocaleString()})`);
-                        return false;
-                    }
-
-                    // Deduplicate high-value items across categories (first occurrence wins)
-                    if (highValueDupPatterns.test(nameLower) && ext >= 1000) {
-                        // Normalize key: remove special chars, take first 30 chars
-                        const key = nameLower.replace(/[^a-z0-9]/g, '').substring(0, 30);
-                        // Also check by cost — same item at same price in different category = duplicate
-                        const costKey = `${key}_${Math.round(ext)}`;
-                        if (seenItems.has(key) || seenItems.has(costKey)) {
-                            const prev = seenItems.get(key) || seenItems.get(costKey);
-                            console.warn(`[Dedup] REMOVED duplicate: "${name}" ($${ext.toLocaleString()}) in "${cat.name}" — already in "${prev.catName}"`);
-                            return false;
-                        }
-                        seenItems.set(key, { catIdx: ci, catName: cat.name, ext });
-                        seenItems.set(costKey, { catIdx: ci, catName: cat.name, ext });
-                    }
-
-                    // Deduplicate by EXACT COST — if two items in different categories have
-                    // the exact same extCost > $10K AND similar names, they're likely duplicates.
-                    // FIX: Require name similarity — NVR ($10K) and Server ($10K) are NOT duplicates.
-                    if (ext >= 10000) {
-                        const priceKey = `price_${Math.round(ext)}`;
-                        if (seenItems.has(priceKey)) {
-                            const prev = seenItems.get(priceKey);
-                            // Only dedup if different category AND names are similar (first 8 alpha chars match)
-                            const curNorm = name.toLowerCase().replace(/[^a-z]/g, '').substring(0, 8);
-                            const prevNorm = (prev.itemName || '').toLowerCase().replace(/[^a-z]/g, '').substring(0, 8);
-                            const namesSimilar = curNorm === prevNorm || curNorm.includes(prevNorm) || prevNorm.includes(curNorm);
-                            if (prev.catIdx !== ci && namesSimilar) {
-                                console.warn(`[Dedup] REMOVED likely duplicate (same cost $${ext.toLocaleString()}, similar name): "${name}" in "${cat.name}" — matches "${prev.itemName}" in "${prev.catName}"`);
-                                return false;
-                            }
-                        }
-                        seenItems.set(priceKey, { catIdx: ci, catName: cat.name, ext, itemName: name });
-                    }
-
-                    return true;
-                });
-                cat.subtotal = cat.items.reduce((s, i) => s + (i.extCost || 0), 0);
             });
 
             // Also remove "Not in Scope" placeholder categories with $0 totals
@@ -1873,273 +1502,6 @@ const SmartPlansExport = {
         }
     },
 
-
-    // ═══════════════════════════════════════════════════════════
-    // CABLE SCHEDULE EXPORT
-    // ═══════════════════════════════════════════════════════════
-    exportCableSchedule(state) {
-        if (typeof CableAnalyzer === 'undefined') {
-            alert('Cable Analyzer not loaded.');
-            return;
-        }
-
-        const schedule = CableAnalyzer.buildCableSchedule(state, state.cableAssumptions || {});
-        if (!schedule || schedule.assignments.length === 0) {
-            alert('No cable schedule data available. Run an analysis first.');
-            return;
-        }
-
-        try {
-            if (typeof XLSX === 'undefined') {
-                // CSV fallback
-                const rows = [['Device ID','Type','Room','Floor','IDF','Cable Type','Run (ft)','Qty','Total w/ Waste (ft)','Cost/ft','Total Cost','TIA Flag','Basis']];
-                schedule.assignments.forEach(a => {
-                    rows.push([a.deviceId, a.deviceType, a.room, a.floor, a.idfAssigned, a.cableTypeLabel, a.runFt, a.qty, a.totalFtWithWaste, a.costPerFt, a.totalCost, a.tiaViolation ? 'YES' : '', a.basis]);
-                });
-                const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-                this._download(csv, `SmartPlans_Cable_Schedule_${this._safeName(state)}.csv`, 'text/csv');
-                return;
-            }
-
-            const wb = XLSX.utils.book_new();
-            const t = schedule.totals;
-            const cfg = schedule.config;
-
-            // ── Sheet 1: Summary ──
-            const summaryData = [
-                ['CABLE SCHEDULE SUMMARY'],
-                ['Project', state.projectName || 'Unknown'],
-                ['Generated', new Date().toLocaleString()],
-                ['Mode', schedule.mode],
-                [],
-                ['TOTALS'],
-                ['Total Devices', t.totalDevices],
-                ['Total Cable (ft)', t.totalFt],
-                ['Total Cable Cost', t.totalCost],
-                ['Average Run (ft)', t.avgRunFt],
-                ['Max Run (ft)', t.maxRunFt],
-                ['Min Run (ft)', t.minRunFt],
-                ['TIA Violations', t.tiaViolationCount],
-                ['IDF/MDF Count', schedule.idfCount],
-                [],
-                ['ASSUMPTIONS'],
-                ['Slack / Termination (ft)', cfg.slackFt],
-                ['Waste Factor (%)', cfg.wastePct],
-                ['Ceiling Height (ft)', cfg.ceilingHeightFt],
-                ['Floor-to-Floor (ft)', cfg.floorToFloorFt],
-                ['Stub-Up Height (ft)', cfg.stubUpFt],
-                ['TIA Max (ft)', cfg.tiaMaxFt],
-                [],
-                ['CABLE TOTALS BY TYPE'],
-            ];
-            Object.entries(schedule.byCableType).forEach(([type, data]) => {
-                summaryData.push([CableAnalyzer._cableLabel(type), `${data.totalFt} ft`, `${data.deviceCount} devices`, `$${data.totalCost.toFixed(2)}`]);
-            });
-            summaryData.push([], ['3D CONFIDENTIAL']);
-            const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
-            ws1['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 16 }];
-            XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
-
-            // ── Sheet 2: Full Cable Schedule ──
-            const schedData = [['Device ID', 'Type', 'Subtype', 'Room', 'Floor', 'Sheet', 'IDF Assigned', 'Cable Type', 'Run (ft)', 'Horizontal (ft)', 'Vertical (ft)', 'Slack (ft)', 'Qty', 'Total w/ Waste (ft)', 'Cost/ft', 'Total Cost', 'TIA Violation', 'Basis']];
-            schedule.assignments.forEach(a => {
-                schedData.push([a.deviceId, a.deviceType, a.deviceSubtype, a.room, a.floor, a.sheetId, a.idfAssigned, a.cableTypeLabel, a.runFt, a.horizontal, a.vertical, a.slack, a.qty, a.totalFtWithWaste, a.costPerFt, a.totalCost, a.tiaViolation ? 'YES' : '', a.basis]);
-            });
-            const ws2 = XLSX.utils.aoa_to_sheet(schedData);
-            ws2['!cols'] = [{ wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 6 }, { wch: 10 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 6 }, { wch: 14 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 20 }];
-            XLSX.utils.book_append_sheet(wb, ws2, 'Cable Schedule');
-
-            // ── Sheet 3: By IDF Summary ──
-            const idfData = [['IDF / MDF', 'Device Count', 'Total Cable (ft)', 'Total Cost']];
-            Object.entries(schedule.byIdf).forEach(([label, data]) => {
-                idfData.push([label, data.deviceCount, data.totalFt, data.totalCost]);
-            });
-            idfData.push([], ['TOTAL', t.totalDevices, t.totalFt, t.totalCost]);
-            const ws3 = XLSX.utils.aoa_to_sheet(idfData);
-            ws3['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 18 }, { wch: 14 }];
-            XLSX.utils.book_append_sheet(wb, ws3, 'By IDF');
-
-            // ── Sheet 4: TIA Violations ──
-            const tiaData = [['Device ID', 'Type', 'Room', 'Floor', 'IDF', 'Cable', 'Run (ft)', 'TIA Limit (ft)', 'Over By (ft)']];
-            schedule.tiaViolations.forEach(a => {
-                tiaData.push([a.deviceId, a.deviceType, a.room, a.floor, a.idfAssigned, a.cableTypeLabel, a.runFt, cfg.tiaMaxFt, a.runFt - cfg.tiaMaxFt]);
-            });
-            if (schedule.tiaViolations.length === 0) {
-                tiaData.push(['No TIA violations detected']);
-            }
-            const ws4 = XLSX.utils.aoa_to_sheet(tiaData);
-            ws4['!cols'] = [{ wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 6 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 14 }, { wch: 10 }];
-            XLSX.utils.book_append_sheet(wb, ws4, 'TIA Violations');
-
-            // Write and download
-            const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-            const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-            this._download(blob, `SmartPlans_Cable_Schedule_${this._safeName(state)}.xlsx`);
-        } catch (err) {
-            console.error('[SmartPlans] Cable schedule export failed:', err);
-            alert('Cable schedule export failed: ' + err.message);
-        }
-    },
-
-    // ═══════════════════════════════════════════════════════════
-    // AMTRAK PRICING SCHEDULE EXPORT — CSI Division Format
-    // ═══════════════════════════════════════════════════════════
-    exportAmtrakPricingSchedule(state) {
-        if (typeof XLSX === 'undefined') { alert('SheetJS library not loaded.'); return; }
-
-        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
-        if (!bom?.categories?.length) { alert('No BOM data available. Run analysis first.'); return; }
-
-        const ab = (typeof PRICING_DB !== 'undefined') ? PRICING_DB.amtrakBenchmarks : null;
-        const rows = this._mapBOMToCSIDivisions(state, bom, ab);
-        const grandTotal = rows.reduce((s, r) => s + (r.extPrice || 0), 0);
-
-        // Build Excel
-        const wb = XLSX.utils.book_new();
-        const data = [
-            [`Station Security Enhancements — ${state.projectName || 'Project'}`],
-            ['Construction Services - Pricing Schedule'],
-            [`RFP #: ${state.rfpNumber || '_______________'}`],
-            [` Contractor Name: 3D Technology Services, Inc.`, '', 'Percentage of Work to be Completed by Prime:', 'Contractor Planned Subcontracting Percentage:'],
-            [` Authorized Signature: _____________________________________________`, '', '25% Minimum', ''],
-            ['***Enter cost in orange highlighted cells ONLY. Additional Notes may be entered in last column as necessary.***'],
-            ['Pricing Schedule'],
-            ['Division', 'Division Title', 'Title', 'Qty', 'Unit', 'Unit Cost', 'Ext Price', 'Notes'],
-        ];
-
-        let currentDiv = '';
-        rows.forEach(r => {
-            data.push([
-                r.division !== currentDiv ? `DIVISION ${r.division}` : '',
-                r.division !== currentDiv ? r.divisionTitle : '',
-                r.title,
-                r.qty || '',
-                r.unit || '',
-                r.unitCost || '',
-                r.extPrice || '',
-                r.notes || ''
-            ]);
-            currentDiv = r.division;
-        });
-
-        // Total row
-        data.push([]);
-        data.push(['', '', '', 'Total ->', '', '', grandTotal, '']);
-        data.push([]);
-        data.push([' - Offeror shall provide a full and detailed breakdown of any rate or lump sum value if requested by Amtrak']);
-        data.push([' - All amounts indicated on this pricing schedule shall include all necessary items to accomplish the work.']);
-        data.push([' - Spreadsheet user is responsible for accuracy of all formulas and calculations.']);
-        data.push([]);
-        data.push(['Generated by SmartPlans AI — 3D Technology Services Inc. | 3D CONFIDENTIAL']);
-
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        ws['!cols'] = [{ wch: 14 }, { wch: 22 }, { wch: 55 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
-        XLSX.utils.book_append_sheet(wb, ws, 'Summary');
-
-        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        this._download(blob, `SmartPlans_Amtrak_Pricing_Schedule_${this._safeName(state)}.xlsx`);
-    },
-
-    _mapBOMToCSIDivisions(state, bom, ab) {
-        const items = [];
-
-        // CSI division keyword map — order matters (first match wins)
-        const CSI = [
-            { div: 1,  title: 'GENERAL CONDITIONS',            kw: /mobiliz|demob|insurance|bond|rrpli|rpl|general\s*req|general\s*cond|div.*1/i },
-            { div: 2,  title: 'Existing Conditions',           kw: /survey|utility\s*locat|saw\s*cut.*pavement|exist.*cond/i },
-            { div: 3,  title: 'Concrete',                      kw: /bollard.*concrete|concrete.*foundation|concrete.*dispos|reinforc/i },
-            { div: 4,  title: 'Masonry',                       kw: /masonry|infill/i },
-            { div: 8,  title: 'Openings',                      kw: /door(?!.*access)|blast.*mitigation|hardening.*film|window.*film|electric\s*strike|latch|glazing/i },
-            { div: 9,  title: 'Finishes',                      kw: /paint|ceiling\s*tile|gypsum|drywall|stucco|touchup|finish/i },
-            { div: 10, title: 'Specialties',                   kw: /signage|sign.*door/i },
-            { div: 23, title: 'HVAC',                          kw: /hvac|mini.?split|air\s*condition/i },
-            { div: 26, title: 'Electrical',                    kw: /ups|inverter|power\s*circuit|panel\s*board|panelboard|new\s*pole|handhole|foundation.*enclosure|electrical|saw\s*cut.*conduit|trench.*conduit|conduit.*trench|misc.*electr/i },
-            { div: 27, title: 'Communications',                kw: /network|rack|mdf|pdu|kvm|patch\s*panel|cisco|switch.*poe|switch.*fiber|server|fiber|cat6a|viewing\s*station|remote.*enclosure|enclosure.*network/i },
-            { div: 28, title: 'Electronic Safety and Security', kw: /camera|cam|dome|ptz|bullet|fisheye|360|panoram|access\s*control|card\s*reader|door.*cr|lenel|control\s*panel.*access/i },
-            { div: 31, title: 'Earthwork',                     kw: /earthwork|excavat|backfill|soil.*reloc/i },
-            { div: 32, title: 'Exterior Improvements',         kw: /exterior\s*improv|landscape|concrete\s*pav|misc.*concrete/i },
-            { div: 34, title: 'Transportation',                kw: /bollard(?!.*concrete)|vehicular|traffic.*barricad/i },
-        ];
-
-        // Classify each BOM item into a division
-        const classified = new Map(); // div -> items[]
-
-        (bom.categories || []).forEach(cat => {
-            (cat.items || []).forEach(item => {
-                const name = item.item || item.name || cat.name || '';
-                let matched = false;
-                for (const d of CSI) {
-                    if (d.kw.test(name) || d.kw.test(cat.name || '')) {
-                        if (!classified.has(d.div)) classified.set(d.div, { title: d.title, items: [] });
-                        classified.get(d.div).items.push({
-                            title: name,
-                            qty: item.qty || 1,
-                            unit: item.unit || 'EA',
-                            unitCost: item.unitCost || 0,
-                            extPrice: item.extCost || (item.qty || 1) * (item.unitCost || 0),
-                            notes: '',
-                        });
-                        matched = true;
-                        break;
-                    }
-                }
-                // Unmatched → put in Div 27 (Communications) as catch-all for ELV
-                if (!matched && (item.extCost || 0) > 0) {
-                    if (!classified.has(27)) classified.set(27, { title: 'Communications', items: [] });
-                    classified.get(27).items.push({
-                        title: name,
-                        qty: item.qty || 1,
-                        unit: item.unit || 'EA',
-                        unitCost: item.unitCost || 0,
-                        extPrice: item.extCost || 0,
-                        notes: 'Auto-classified',
-                    });
-                }
-            });
-        });
-
-        // Add mandatory Div 1 items from benchmarks if missing
-        if (ab && state.isTransitRailroad) {
-            const ensure = (div, title, label, benchmark, unit) => {
-                if (!classified.has(div)) classified.set(div, { title, items: [] });
-                const divItems = classified.get(div).items;
-                const exists = divItems.some(i => new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').substring(0, 15), 'i').test(i.title));
-                if (!exists && benchmark) {
-                    divItems.push({ title: label, qty: 1, unit: unit || 'LS', unitCost: benchmark.mid || 0, extPrice: benchmark.mid || 0, notes: 'From Amtrak benchmark' });
-                }
-            };
-            const lb = ab.lineItemBenchmarks;
-            if (lb) {
-                ensure(1, 'GENERAL CONDITIONS', 'Mobilization/Demobilization', lb.mob_demob, 'LS');
-                ensure(1, 'GENERAL CONDITIONS', 'All insurance Requirements (excluding RRPLI)', lb.insurance_excl_rrpli, 'LS');
-                ensure(1, 'GENERAL CONDITIONS', 'Railroad Protective Liability Insurance (RRPLI)', lb.rrpli, 'LS');
-                ensure(1, 'GENERAL CONDITIONS', 'Bonds (performance & payment)', lb.bonds_perf_payment, 'LS');
-                ensure(1, 'GENERAL CONDITIONS', 'All other requirements for Division 1', lb.div1_other_requirements, 'LS');
-                ensure(2, 'Existing Conditions', 'Construction Survey', lb.construction_survey, 'Allowance');
-                ensure(2, 'Existing Conditions', 'Utility location', lb.utility_location, 'Allowance');
-            }
-        }
-
-        // Convert to flat sorted array
-        const sortedDivs = [...classified.entries()].sort((a, b) => a[0] - b[0]);
-        sortedDivs.forEach(([div, data]) => {
-            data.items.forEach(item => {
-                items.push({
-                    division: div,
-                    divisionTitle: data.title,
-                    title: item.title,
-                    qty: item.qty,
-                    unit: item.unit,
-                    unitCost: item.unitCost,
-                    extPrice: item.extPrice,
-                    notes: item.notes,
-                });
-            });
-        });
-
-        return items;
-    },
 
     // ═══════════════════════════════════════════════════════════
     // JSON EXPORT
@@ -3148,14 +2510,14 @@ Return ONLY the JSON array. No other text.`;
                     }
 
                     // Header detection keywords
-                    const headerKeywords = ['item', 'description', 'title', 'qty', 'quantity', 'unit cost', 'unit price', 'total', 'amount', 'extended', 'ext cost', 'ext price'];
+                    const headerKeywords = ['item', 'description', 'qty', 'quantity', 'unit cost', 'unit price', 'total', 'amount', 'extended', 'ext cost'];
 
                     // Column mapping keyword sets
-                    const nameKeys = ['item/description', 'item', 'description', 'desc', 'title', 'name', 'material', 'product', 'scope', 'line item'];
+                    const nameKeys = ['item', 'description', 'desc', 'name', 'material', 'product'];
                     const qtyKeys = ['qty', 'quantity', 'count', 'units'];
                     const unitCostKeys = ['unit cost', 'unit price', 'price', 'rate', '$/unit', 'cost/ea'];
-                    const extKeys = ['ext cost', 'ext price', 'ext.cost', 'ext. cost', 'total cost', 'total price', 'extended cost', 'extended price', 'line total', 'total', 'amount', 'extended', 'ext'];
-                    const categoryKeys = ['category', 'section', 'division', 'group', 'csi', 'division title'];
+                    const extKeys = ['total', 'amount', 'extended', 'ext cost', 'ext', 'line total', 'extended cost'];
+                    const categoryKeys = ['category', 'section', 'division', 'group', 'csi'];
 
                     // Auto-detect header row
                     let headerRowIdx = -1;
