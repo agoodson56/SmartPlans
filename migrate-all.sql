@@ -146,3 +146,30 @@ CREATE TABLE IF NOT EXISTS rate_limits (
     expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires_at);
+
+-- SmartPM — Daily Progress Logs (required for SmartPM time tracking features)
+CREATE TABLE IF NOT EXISTS pm_daily_logs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL DEFAULT 'default',
+    module_id TEXT NOT NULL,
+    item TEXT NOT NULL,
+    unit TEXT DEFAULT 'EA',
+    qty_installed REAL NOT NULL DEFAULT 0,
+    hours_used REAL NOT NULL DEFAULT 0,
+    logged_at TEXT DEFAULT (datetime('now')),
+    notes TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pm_logs_project ON pm_daily_logs(project_id);
+CREATE INDEX IF NOT EXISTS idx_pm_logs_date ON pm_daily_logs(logged_at DESC);
+
+-- SmartPM — App Settings (key-value config store)
+CREATE TABLE IF NOT EXISTS pm_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Performance indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_revisions_created ON estimate_revisions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_supplier_quotes_created ON supplier_quotes(created_at DESC);

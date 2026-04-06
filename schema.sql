@@ -204,3 +204,8 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires_at);
+
+-- Performance indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_revisions_created ON estimate_revisions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_supplier_quotes_created ON supplier_quotes(created_at DESC);
