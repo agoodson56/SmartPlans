@@ -144,7 +144,7 @@ export async function onRequestPost(context) {
         });
 
     } catch (err) {
-        console.error('[Auth] Login error:', err);
-        return Response.json({ error: 'Login failed' }, { status: 500 });
+        console.error('[Auth] Login error:', err.message, err.stack);
+        return Response.json({ error: 'Login failed', _debug: err.message }, { status: 500 });
     }
 }
