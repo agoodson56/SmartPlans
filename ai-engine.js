@@ -125,6 +125,7 @@ const APIHealthMonitor = {
     let activeSlots = 0;
     let failingSlots = 0;
     let healthySlots = 0;
+    const failingBrains = new Set(); // Track unique brains that have failures
 
     for (let i = 0; i < this.TOTAL_SLOTS; i++) {
       const slot = this._slots[i];
@@ -136,6 +137,7 @@ const APIHealthMonitor = {
 
       activeSlots++;
       const successes = recent.filter(r => r.success).length;
+      const failures = recent.filter(r => !r.success);
       const rate = successes / recent.length;
       totalCalls += recent.length;
       totalSuccess += successes;
@@ -144,6 +146,10 @@ const APIHealthMonitor = {
         healthySlots++;
       } else if (rate < this.YELLOW_THRESHOLD) {
         failingSlots++;
+        // Track which brains are actually failing
+        for (const r of failures) {
+          if (r.brain) failingBrains.add(r.brain);
+        }
       }
 
       // Latency from successful calls only
@@ -157,27 +163,31 @@ const APIHealthMonitor = {
     // Determine status
     let newStatus = 'GREEN';
 
-    if (activeSlots === 0 || totalCalls < 3) {
-      // Not enough data yet — stay green (need ≥3 calls before judging)
+    if (activeSlots === 0 || totalCalls < 6) {
+      // Not enough data yet — stay green (need ≥6 calls before judging)
+      // This prevents one brain's 3 retries from triggering false RED
       newStatus = 'GREEN';
     } else {
       const overallRate = totalCalls > 0 ? totalSuccess / totalCalls : 1;
       const avgLatency = latencyCount > 0 ? totalLatency / latencyCount : 0;
 
-      // RED conditions (fail-safe: err on side of RED, but require minimum evidence)
+      // RED conditions — require STRONG evidence before aborting analysis
+      // Key insight: one brain retrying across 3 key slots looks like 3 failing slots,
+      // but it's really just one model/endpoint issue. Require multiple BRAINS failing.
+      const multiBrainFailure = failingBrains.size >= 3; // At least 3 different brains failing
       if (
-        (totalCalls >= 8 && overallRate < 0.75) ||     // >25% error rate with sufficient sample
-        (activeSlots >= 3 && failingSlots > activeSlots * 0.5) || // Majority of active keys failing
-        (totalCalls >= 5 && totalSuccess === 0) ||     // 5+ calls, zero success
+        (totalCalls >= 12 && overallRate < 0.5 && multiBrainFailure) || // >50% error rate across multiple brains
+        (activeSlots >= 5 && failingSlots > activeSlots * 0.6 && multiBrainFailure) || // Supermajority of keys failing
+        (totalCalls >= 15 && totalSuccess === 0) ||    // 15+ calls, zero success — API is truly down
         avgLatency > this.LATENCY_CRIT_MS              // Critical latency
       ) {
         newStatus = 'RED';
       }
-      // YELLOW conditions (require ≥5 calls to avoid false alarms from early retries)
+      // YELLOW conditions (require ≥6 calls to avoid false alarms from early retries)
       else if (
-        (totalCalls >= 5 && overallRate < this.GREEN_THRESHOLD) || // 5-25% error rate with data
-        (activeSlots >= 2 && failingSlots > 0) ||                  // Any key failing (2+ active)
-        avgLatency > this.LATENCY_WARN_MS                          // Elevated latency
+        (totalCalls >= 8 && overallRate < this.GREEN_THRESHOLD) || // Degraded with sufficient data
+        (failingBrains.size >= 2 && failingSlots >= 2) ||          // Multiple brains AND keys failing
+        avgLatency > this.LATENCY_WARN_MS                           // Elevated latency
       ) {
         newStatus = 'YELLOW';
       }
@@ -196,7 +206,7 @@ const APIHealthMonitor = {
         successRate: totalCalls > 0 ? (totalSuccess / totalCalls * 100).toFixed(1) + '%' : 'N/A',
       };
       this._transitionLog.push(transition);
-      console.warn(`[HealthMonitor] ${this._status} → ${newStatus} | Active: ${activeSlots} slots, Healthy: ${healthySlots}, Failing: ${failingSlots}, Success rate: ${transition.successRate}`);
+      console.warn(`[HealthMonitor] ${this._status} → ${newStatus} | Active: ${activeSlots} slots, Healthy: ${healthySlots}, Failing: ${failingSlots} (${failingBrains.size} brains), Success rate: ${transition.successRate}`);
 
       this._prevStatus = this._status;
       this._status = newStatus;
