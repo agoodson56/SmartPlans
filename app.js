@@ -46,7 +46,7 @@ const QuotaMonitor = {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch('/api/ai/quota-check', { signal: controller.signal });
+      const res = await fetch('/api/ai/quota-check', { signal: controller.signal, headers: authHeaders() });
       clearTimeout(timer);
 
       if (!res.ok) {
