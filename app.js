@@ -577,6 +577,7 @@ const state = {
   _engine3DResult: null,      // Cached result from FormulaEngine3D.computeBid()
   _scaleCalibration: null,    // ScaleCalibration summary data
   _scaleCalibrationOpen: false,
+  _projectFitnessOpen: true,  // Project fitness card starts expanded
   _cableSchedule: null,       // CableAnalyzer schedule output
   scaleOverrides: {},         // Manual per-sheet scale overrides
 
@@ -5510,6 +5511,8 @@ function renderStep7(container) {
       </div>
     </div>
 
+    ${buildProjectFitnessCard(state)}
+
     ${build3DEngineCard(state)}
 
     ${buildScaleCalibrationCard(state)}
@@ -5853,6 +5856,16 @@ function renderStep7(container) {
     const body = document.getElementById('scale-calibration-body');
     if (body) body.style.display = state._scaleCalibrationOpen ? 'block' : 'none';
     scToggle.querySelector('span').innerHTML = state._scaleCalibrationOpen ? '&#9650; COLLAPSE' : '&#9660; EXPAND';
+  });
+
+  // ── Project Fitness card toggle ──
+  const fitToggle = document.getElementById('fitness-toggle');
+  if (fitToggle) fitToggle.addEventListener('click', () => {
+    state._projectFitnessOpen = !state._projectFitnessOpen;
+    const body = document.getElementById('fitness-collapsible');
+    const icon = document.getElementById('fitness-toggle-icon');
+    if (body) body.style.display = state._projectFitnessOpen ? 'block' : 'none';
+    if (icon) icon.textContent = state._projectFitnessOpen ? '▼' : '▶';
   });
 
   bindBidStrategyEvents(container);
@@ -11278,6 +11291,351 @@ function _updateMapSidebar(globalPageNum) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// PROJECT FITNESS / WHEELHOUSE SCORE
+// ═══════════════════════════════════════════════════════════════
+
+// 3D Technology Services office locations (lat/lng)
+const _3D_OFFICES = [
+  { name: 'Rancho Cordova HQ', lat: 38.5891, lng: -121.3028, city: 'Rancho Cordova', state: 'CA' },
+  { name: 'Livermore Office', lat: 37.6819, lng: -121.7680, city: 'Livermore', state: 'CA' },
+  { name: 'Sparks Office', lat: 39.5349, lng: -119.7527, city: 'Sparks', state: 'NV' },
+  { name: 'McCall Office', lat: 44.7338, lng: -116.0988, city: 'McCall', state: 'ID' },
+];
+
+// Common city coordinates for distance lookup (California + nearby states + nationwide)
+const _CITY_COORDS = {
+  'sacramento': { lat: 38.5816, lng: -121.4944 }, 'rancho cordova': { lat: 38.5891, lng: -121.3028 },
+  'elk grove': { lat: 38.4088, lng: -121.3716 }, 'folsom': { lat: 38.6780, lng: -121.1761 },
+  'roseville': { lat: 38.7521, lng: -121.2880 }, 'rocklin': { lat: 38.7908, lng: -121.2358 },
+  'lincoln': { lat: 38.8916, lng: -121.2930 }, 'davis': { lat: 38.5449, lng: -121.7405 },
+  'woodland': { lat: 38.6785, lng: -121.7733 }, 'west sacramento': { lat: 38.5805, lng: -121.5302 },
+  'citrus heights': { lat: 38.7071, lng: -121.2811 }, 'carmichael': { lat: 38.6257, lng: -121.3283 },
+  'fair oaks': { lat: 38.6447, lng: -121.2722 }, 'orangevale': { lat: 38.6780, lng: -121.2252 },
+  'placerville': { lat: 38.7296, lng: -120.7985 }, 'auburn': { lat: 38.8966, lng: -121.0769 },
+  'grass valley': { lat: 39.2185, lng: -121.0608 }, 'nevada city': { lat: 39.2613, lng: -121.0161 },
+  'stockton': { lat: 37.9577, lng: -121.2908 }, 'lodi': { lat: 38.1302, lng: -121.2724 },
+  'manteca': { lat: 37.7974, lng: -121.2161 }, 'tracy': { lat: 37.7397, lng: -121.4252 },
+  'modesto': { lat: 37.6391, lng: -120.9969 }, 'turlock': { lat: 37.4947, lng: -120.8466 },
+  'merced': { lat: 37.3022, lng: -120.4830 }, 'madera': { lat: 36.9613, lng: -120.0607 },
+  'fresno': { lat: 36.7378, lng: -119.7871 }, 'clovis': { lat: 36.8252, lng: -119.7029 },
+  'visalia': { lat: 36.3302, lng: -119.2921 }, 'bakersfield': { lat: 35.3733, lng: -119.0187 },
+  'san francisco': { lat: 37.7749, lng: -122.4194 }, 'oakland': { lat: 37.8044, lng: -122.2712 },
+  'berkeley': { lat: 37.8716, lng: -122.2727 }, 'emeryville': { lat: 37.8313, lng: -122.2852 },
+  'san jose': { lat: 37.3382, lng: -121.8863 }, 'santa clara': { lat: 37.3541, lng: -121.9552 },
+  'sunnyvale': { lat: 37.3688, lng: -122.0363 }, 'mountain view': { lat: 37.3861, lng: -122.0839 },
+  'palo alto': { lat: 37.4419, lng: -122.1430 }, 'fremont': { lat: 37.5485, lng: -121.9886 },
+  'hayward': { lat: 37.6688, lng: -122.0808 }, 'richmond': { lat: 37.9358, lng: -122.3477 },
+  'martinez': { lat: 38.0194, lng: -122.1341 }, 'concord': { lat: 37.9780, lng: -122.0311 },
+  'walnut creek': { lat: 37.9101, lng: -122.0652 }, 'pleasanton': { lat: 37.6624, lng: -121.8747 },
+  'livermore': { lat: 37.6819, lng: -121.7680 }, 'dublin': { lat: 37.7022, lng: -121.9358 },
+  'san mateo': { lat: 37.5630, lng: -122.3255 }, 'redwood city': { lat: 37.4852, lng: -122.2364 },
+  'daly city': { lat: 37.6879, lng: -122.4702 }, 'south san francisco': { lat: 37.6547, lng: -122.4077 },
+  'san rafael': { lat: 37.9735, lng: -122.5311 }, 'novato': { lat: 38.1074, lng: -122.5697 },
+  'santa rosa': { lat: 38.4404, lng: -122.7141 }, 'napa': { lat: 38.2975, lng: -122.2869 },
+  'vacaville': { lat: 38.3566, lng: -121.9877 }, 'fairfield': { lat: 38.2494, lng: -122.0400 },
+  'vallejo': { lat: 38.1041, lng: -122.2566 }, 'benicia': { lat: 38.0494, lng: -122.1586 },
+  'antioch': { lat: 38.0049, lng: -121.8058 }, 'brentwood': { lat: 37.9317, lng: -121.6958 },
+  'san ramon': { lat: 37.7799, lng: -121.9780 }, 'danville': { lat: 37.8216, lng: -121.9999 },
+  'santa cruz': { lat: 36.9741, lng: -122.0308 }, 'monterey': { lat: 36.6002, lng: -121.8947 },
+  'salinas': { lat: 36.6777, lng: -121.6555 }, 'san luis obispo': { lat: 35.2828, lng: -120.6596 },
+  'santa barbara': { lat: 34.4208, lng: -119.6982 }, 'ventura': { lat: 34.2805, lng: -119.2945 },
+  'los angeles': { lat: 34.0522, lng: -118.2437 }, 'long beach': { lat: 33.7701, lng: -118.1937 },
+  'pasadena': { lat: 34.1478, lng: -118.1445 }, 'burbank': { lat: 34.1808, lng: -118.3090 },
+  'glendale': { lat: 34.1425, lng: -118.2551 }, 'torrance': { lat: 33.8358, lng: -118.3406 },
+  'anaheim': { lat: 33.8366, lng: -117.9143 }, 'irvine': { lat: 33.6846, lng: -117.8265 },
+  'santa ana': { lat: 33.7455, lng: -117.8677 }, 'costa mesa': { lat: 33.6412, lng: -117.9187 },
+  'huntington beach': { lat: 33.6595, lng: -117.9988 }, 'newport beach': { lat: 33.6189, lng: -117.9289 },
+  'ontario': { lat: 34.0633, lng: -117.6509 }, 'riverside': { lat: 33.9533, lng: -117.3962 },
+  'san bernardino': { lat: 34.1083, lng: -117.2898 }, 'palm springs': { lat: 33.8303, lng: -116.5453 },
+  'temecula': { lat: 33.4936, lng: -117.1484 }, 'murrieta': { lat: 33.5539, lng: -117.2139 },
+  'san diego': { lat: 32.7157, lng: -117.1611 }, 'chula vista': { lat: 32.6401, lng: -117.0842 },
+  'carlsbad': { lat: 33.1581, lng: -117.3506 }, 'oceanside': { lat: 33.1959, lng: -117.3795 },
+  'escondido': { lat: 33.1192, lng: -117.0864 }, 'el cajon': { lat: 32.7948, lng: -116.9625 },
+  'redding': { lat: 40.5865, lng: -122.3917 }, 'chico': { lat: 39.7285, lng: -121.8375 },
+  'yuba city': { lat: 39.1404, lng: -121.6169 }, 'marysville': { lat: 39.1457, lng: -121.5914 },
+  // Nevada
+  'reno': { lat: 39.5296, lng: -119.8138 }, 'sparks': { lat: 39.5349, lng: -119.7527 },
+  'carson city': { lat: 39.1638, lng: -119.7674 }, 'fernley': { lat: 39.6080, lng: -119.2518 },
+  'fallon': { lat: 39.4735, lng: -118.7774 }, 'elko': { lat: 40.8324, lng: -115.7631 },
+  'winnemucca': { lat: 40.9730, lng: -117.7357 }, 'minden': { lat: 38.9541, lng: -119.7657 },
+  'gardnerville': { lat: 38.9413, lng: -119.7496 }, 'dayton': { lat: 39.2372, lng: -119.5930 },
+  'las vegas': { lat: 36.1699, lng: -115.1398 }, 'henderson': { lat: 36.0395, lng: -114.9817 },
+  'north las vegas': { lat: 36.1989, lng: -115.1175 }, 'boulder city': { lat: 35.9788, lng: -114.8325 },
+  'mesquite': { lat: 36.8055, lng: -114.0672 }, 'pahrump': { lat: 36.2083, lng: -115.9839 },
+  // Idaho
+  'boise': { lat: 43.6150, lng: -116.2023 }, 'mccall': { lat: 44.7338, lng: -116.0988 },
+  'nampa': { lat: 43.5407, lng: -116.5635 }, 'meridian': { lat: 43.6121, lng: -116.3915 },
+  'caldwell': { lat: 43.6629, lng: -116.6874 }, 'twin falls': { lat: 42.5558, lng: -114.4701 },
+  'idaho falls': { lat: 43.4917, lng: -112.0339 }, 'pocatello': { lat: 42.8713, lng: -112.4455 },
+  'coeur d\'alene': { lat: 47.6777, lng: -116.7805 }, 'lewiston': { lat: 46.4165, lng: -117.0177 },
+  'moscow': { lat: 46.7324, lng: -117.0002 }, 'sandpoint': { lat: 48.2766, lng: -116.5533 },
+  'sun valley': { lat: 43.6977, lng: -114.3514 }, 'ketchum': { lat: 43.6808, lng: -114.3637 },
+  'eagle': { lat: 43.6955, lng: -116.3530 }, 'star': { lat: 43.6921, lng: -116.4932 },
+  'emmett': { lat: 43.8735, lng: -116.4993 }, 'cascade': { lat: 44.5163, lng: -116.0419 },
+  'donnelly': { lat: 44.7260, lng: -116.0769 }, 'garden valley': { lat: 44.0882, lng: -115.9630 },
+  // Other out-of-state
+  'portland': { lat: 45.5152, lng: -122.6784 }, 'seattle': { lat: 47.6062, lng: -122.3321 },
+  'phoenix': { lat: 33.4484, lng: -112.0740 }, 'tucson': { lat: 32.2226, lng: -110.9747 },
+  'denver': { lat: 39.7392, lng: -104.9903 }, 'salt lake city': { lat: 40.7608, lng: -111.8910 },
+  'albuquerque': { lat: 35.0844, lng: -106.6504 },
+  'dallas': { lat: 32.7767, lng: -96.7970 }, 'houston': { lat: 29.7604, lng: -95.3698 },
+  'austin': { lat: 30.2672, lng: -97.7431 }, 'san antonio': { lat: 29.4241, lng: -98.4936 },
+  'chicago': { lat: 41.8781, lng: -87.6298 }, 'new york': { lat: 40.7128, lng: -74.0060 },
+  'atlanta': { lat: 33.7490, lng: -84.3880 }, 'miami': { lat: 25.7617, lng: -80.1918 },
+  'boston': { lat: 42.3601, lng: -71.0589 }, 'washington': { lat: 38.9072, lng: -77.0369 },
+  'philadelphia': { lat: 39.9526, lng: -75.1652 }, 'detroit': { lat: 42.3314, lng: -83.0458 },
+  'minneapolis': { lat: 44.9778, lng: -93.2650 }, 'st louis': { lat: 38.6270, lng: -90.1994 },
+  'kansas city': { lat: 39.0997, lng: -94.5786 }, 'nashville': { lat: 36.1627, lng: -86.7816 },
+  'charlotte': { lat: 35.2271, lng: -80.8431 }, 'orlando': { lat: 28.5383, lng: -81.3792 },
+};
+
+function _haversineDistance(lat1, lng1, lat2, lng2) {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function _findProjectCoords(locationStr) {
+  if (!locationStr) return null;
+  const loc = locationStr.toLowerCase().replace(/[,.\-\/\\]+/g, ' ').trim();
+  // Try direct match first
+  for (const [city, coords] of Object.entries(_CITY_COORDS)) {
+    if (loc.includes(city)) return { ...coords, matchedCity: city };
+  }
+  // Try partial word match
+  const words = loc.split(/\s+/).filter(w => w.length > 3);
+  for (const [city, coords] of Object.entries(_CITY_COORDS)) {
+    const cityWords = city.split(/\s+/);
+    if (cityWords.some(cw => words.includes(cw) && cw.length > 3)) return { ...coords, matchedCity: city };
+  }
+  return null;
+}
+
+function _getNearestOfficeDistance(projCoords) {
+  if (!projCoords) return { distance: null, office: null };
+  let minDist = Infinity, nearest = null;
+  _3D_OFFICES.forEach(office => {
+    const d = _haversineDistance(projCoords.lat, projCoords.lng, office.lat, office.lng);
+    if (d < minDist) { minDist = d; nearest = office; }
+  });
+  return { distance: Math.round(minDist), office: nearest };
+}
+
+function computeProjectFitness(st) {
+  const scores = {};
+  const factors = [];
+  const isTransit = st.isTransitRailroad;
+
+  // ── 1. DISTANCE (30 pts for non-transit, 0 pts for transit/Amtrak — no distance limit)
+  const projCoords = _findProjectCoords(st.projectLocation);
+  const { distance, office } = _getNearestOfficeDistance(projCoords);
+
+  if (isTransit) {
+    scores.distance = { score: 30, max: 30, label: 'Service Area', detail: 'Transit/Railroad — no distance limit (nationwide)', icon: 'train', color: '#10B981' };
+    factors.push({ label: 'Transit/Railroad project — 3D serves Amtrak & rail nationwide', positive: true });
+  } else if (distance !== null) {
+    if (distance <= 60) {
+      scores.distance = { score: 30, max: 30, label: 'Service Area', detail: `${distance} mi from ${office.name} — local project`, icon: 'map-pin', color: '#10B981' };
+      factors.push({ label: `${distance} miles from ${office.name} — no travel/per diem needed`, positive: true });
+    } else if (distance <= 100) {
+      scores.distance = { score: 25, max: 30, label: 'Service Area', detail: `${distance} mi from ${office.name} — day-trip range`, icon: 'map-pin', color: '#10B981' };
+      factors.push({ label: `${distance} miles — day-trip range, minimal travel costs`, positive: true });
+    } else if (distance <= 150) {
+      scores.distance = { score: 18, max: 30, label: 'Service Area', detail: `${distance} mi from ${office.name} — travel/per diem required`, icon: 'map-pin', color: '#F59E0B' };
+      factors.push({ label: `${distance} miles — within 150-mile service area but per diem applies`, positive: true });
+    } else {
+      scores.distance = { score: 5, max: 30, label: 'Service Area', detail: `${distance} mi from ${office.name} — OUTSIDE 150-mile range`, icon: 'map-pin', color: '#EF4444' };
+      factors.push({ label: `${distance} miles from nearest office — exceeds 150-mile service area`, positive: false });
+    }
+  } else {
+    scores.distance = { score: 15, max: 30, label: 'Service Area', detail: 'Location not recognized — verify distance manually', icon: 'map-pin', color: '#F59E0B' };
+    factors.push({ label: 'Could not determine distance — enter a city name in Project Location', positive: false });
+  }
+
+  // ── 2. DISCIPLINE FIT (25 pts) — 3D's core = structured cabling, security, fire alarm, access control, AV
+  const coreDisciplines = ['structured cabling', 'data', 'voice', 'security', 'cctv', 'surveillance', 'fire alarm', 'access control', 'av', 'audio', 'video', 'intercom', 'paging', 'nurse call', 'das', 'distributed antenna'];
+  const partialDisciplines = ['electrical', 'lighting', 'power'];
+  const selected = (st.disciplines || []).map(d => d.toLowerCase());
+  let discMatch = 0, discTotal = selected.length || 1;
+  selected.forEach(d => {
+    if (coreDisciplines.some(cd => d.includes(cd))) discMatch++;
+    else if (partialDisciplines.some(pd => d.includes(pd))) discMatch += 0.4;
+  });
+  const discPct = Math.min(discMatch / discTotal, 1);
+  const discScore = Math.round(discPct * 25);
+  scores.discipline = { score: discScore, max: 25, label: 'Discipline Fit', detail: `${Math.round(discPct * 100)}% core low-voltage disciplines`, icon: 'zap', color: discPct >= 0.8 ? '#10B981' : discPct >= 0.5 ? '#F59E0B' : '#EF4444' };
+  if (discPct >= 0.8) factors.push({ label: 'Core low-voltage disciplines — this is 3D\'s wheelhouse', positive: true });
+  else if (discPct >= 0.5) factors.push({ label: 'Mix of core and non-core disciplines', positive: true });
+  else factors.push({ label: 'Mostly non-core disciplines — outside 3D\'s primary expertise', positive: false });
+
+  // ── 3. PROJECT TYPE FIT (20 pts) — commercial, government, education, healthcare = sweet spots
+  const projType = (st.projectType || '').toLowerCase();
+  const sweetSpots = ['commercial', 'office', 'government', 'municipal', 'education', 'school', 'university', 'healthcare', 'hospital', 'medical', 'library', 'courthouse', 'civic', 'transit', 'railroad', 'rail', 'detention', 'correctional', 'jail'];
+  const okTypes = ['retail', 'restaurant', 'warehouse', 'industrial', 'mixed', 'multi-family', 'apartment', 'hotel', 'data center'];
+  let typeScore = 10;
+  if (sweetSpots.some(t => projType.includes(t))) { typeScore = 20; factors.push({ label: `${st.projectType} — strong 3D project type fit`, positive: true }); }
+  else if (okTypes.some(t => projType.includes(t))) { typeScore = 14; factors.push({ label: `${st.projectType} — acceptable project type`, positive: true }); }
+  else if (projType) { typeScore = 8; factors.push({ label: `${st.projectType} — uncommon project type for 3D`, positive: false }); }
+  else { typeScore = 10; factors.push({ label: 'Project type not specified', positive: false }); }
+  scores.projectType = { score: typeScore, max: 20, label: 'Project Type', detail: st.projectType || 'Not specified', icon: 'building-2', color: typeScore >= 16 ? '#10B981' : typeScore >= 12 ? '#F59E0B' : '#EF4444' };
+
+  // ── 4. PROJECT SIZE FIT (15 pts) — based on total BOM value
+  let bomTotal = 0;
+  if (st.aiAnalysis) {
+    try {
+      const bom = getFilteredBOM(st.aiAnalysis, st.disciplines);
+      bomTotal = bom.grandTotal || 0;
+    } catch (e) { /* ignore */ }
+  }
+  let sizeScore = 10;
+  if (bomTotal > 0) {
+    if (bomTotal >= 15000 && bomTotal <= 500000) { sizeScore = 15; factors.push({ label: '$15K-$500K project — 3D sweet spot', positive: true }); }
+    else if (bomTotal >= 5000 && bomTotal <= 1500000) { sizeScore = 12; factors.push({ label: 'Project size within 3D\'s typical range', positive: true }); }
+    else if (bomTotal < 5000) { sizeScore = 5; factors.push({ label: 'Very small project — may not justify overhead', positive: false }); }
+    else { sizeScore = 8; factors.push({ label: 'Large project — verify bonding capacity', positive: false }); }
+  } else {
+    factors.push({ label: 'Project size not yet determined', positive: false });
+  }
+  scores.projectSize = { score: sizeScore, max: 15, label: 'Project Size', detail: bomTotal > 0 ? ('$' + bomTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })) : 'Not determined', icon: 'dollar-sign', color: sizeScore >= 13 ? '#10B981' : sizeScore >= 10 ? '#F59E0B' : '#EF4444' };
+
+  // ── 5. EXPERIENCE / FAMILIARITY (10 pts) — PW familiarity, transit experience
+  let expScore = 5;
+  if (isTransit) { expScore = 10; factors.push({ label: '3D has established Amtrak/transit track record', positive: true }); }
+  else if (st.prevailingWage === 'yes') { expScore = 8; factors.push({ label: 'Prevailing wage — 3D has extensive PW experience', positive: true }); }
+  else { expScore = 7; factors.push({ label: 'Standard commercial project — routine for 3D', positive: true }); }
+  scores.experience = { score: expScore, max: 10, label: 'Experience', detail: isTransit ? 'Transit/Railroad veteran' : st.prevailingWage === 'yes' ? 'PW experienced' : 'Standard commercial', icon: 'award', color: expScore >= 8 ? '#10B981' : '#F59E0B' };
+
+  // ── TOTAL
+  const totalScore = Object.values(scores).reduce((s, v) => s + v.score, 0);
+  const totalMax = Object.values(scores).reduce((s, v) => s + v.max, 0);
+  const pct = Math.round((totalScore / totalMax) * 100);
+
+  let verdict, verdictColor, verdictIcon;
+  if (!isTransit && distance !== null && distance > 150) {
+    verdict = 'OUTSIDE SERVICE AREA';
+    verdictColor = '#EF4444';
+    verdictIcon = 'x-circle';
+  } else if (pct >= 80) {
+    verdict = 'STRONG FIT';
+    verdictColor = '#10B981';
+    verdictIcon = 'check-circle';
+  } else if (pct >= 60) {
+    verdict = 'MODERATE FIT';
+    verdictColor = '#F59E0B';
+    verdictIcon = 'alert-circle';
+  } else {
+    verdict = 'WEAK FIT';
+    verdictColor = '#EF4444';
+    verdictIcon = 'x-circle';
+  }
+
+  return { scores, factors, totalScore, totalMax, pct, verdict, verdictColor, verdictIcon, distance, office, isTransit, projCoords };
+}
+
+function buildProjectFitnessCard(st) {
+  const fit = computeProjectFitness(st);
+  const { scores, factors, pct, verdict, verdictColor, verdictIcon, distance, isTransit } = fit;
+
+  // Gauge bar for each factor
+  const gaugeBar = (sc) => {
+    const pct = Math.round((sc.score / sc.max) * 100);
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(0,0,0,0.04);">
+        <div style="width:28px;text-align:center;"><i data-lucide="${sc.icon}" style="width:16px;height:16px;color:${sc.color};"></i></div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-primary);">${esc(sc.label)}</span>
+            <span style="font-size:11px;font-weight:600;color:${sc.color};">${sc.score}/${sc.max}</span>
+          </div>
+          <div style="height:6px;background:rgba(0,0,0,0.06);border-radius:3px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:${sc.color};border-radius:3px;transition:width 0.5s ease;"></div>
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${esc(sc.detail)}</div>
+        </div>
+      </div>`;
+  };
+
+  const factorRows = factors.map(f => `
+    <div style="display:flex;align-items:flex-start;gap:6px;padding:3px 0;">
+      <span style="font-size:13px;line-height:1;">${f.positive ? '✅' : '⚠️'}</span>
+      <span style="font-size:12px;color:var(--text-primary);line-height:1.4;">${esc(f.label)}</span>
+    </div>
+  `).join('');
+
+  // Distance warning banner for non-transit over 150 miles
+  let distWarning = '';
+  if (!isTransit && distance !== null && distance > 150) {
+    distWarning = `
+      <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
+        <i data-lucide="alert-triangle" style="width:20px;height:20px;color:#EF4444;flex-shrink:0;"></i>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#EF4444;">Outside 150-Mile Service Area</div>
+          <div style="font-size:12px;color:rgba(0,0,0,0.6);margin-top:2px;">This project is ${distance} miles from ${fit.office?.name || 'nearest office'}. Non-transit projects beyond 150 miles require management approval. Consider travel costs, per diem, mobilization, and reduced supervision capacity.</div>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div>
+    <div class="info-card" id="project-fitness-card" style="border-left:3px solid ${verdictColor};">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="fitness-toggle">
+        <h3 class="info-card-title" style="margin:0;">
+          <i data-lucide="target" style="width:16px;height:16px;"></i>
+          PROJECT FITNESS — 3D WHEELHOUSE
+          <span style="font-size:12px;font-weight:700;color:${verdictColor};margin-left:10px;padding:2px 10px;background:${verdictColor}15;border-radius:10px;">${pct}% — ${verdict}</span>
+        </h3>
+        <span id="fitness-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">${st._projectFitnessOpen ? '▼' : '▶'}</span>
+      </div>
+      <div id="fitness-collapsible" style="display:${st._projectFitnessOpen ? 'block' : 'none'};margin-top:14px;">
+        ${distWarning}
+
+        <!-- Score Ring + Verdict -->
+        <div style="display:flex;align-items:center;gap:24px;margin-bottom:20px;">
+          <div style="position:relative;width:90px;height:90px;flex-shrink:0;">
+            <svg viewBox="0 0 100 100" style="transform:rotate(-90deg);width:90px;height:90px;">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="8"/>
+              <circle cx="50" cy="50" r="42" fill="none" stroke="${verdictColor}" stroke-width="8" stroke-dasharray="${pct * 2.64} ${264 - pct * 2.64}" stroke-linecap="round"/>
+            </svg>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;">
+              <span style="font-size:22px;font-weight:900;color:${verdictColor};">${pct}%</span>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+              <i data-lucide="${verdictIcon}" style="width:20px;height:20px;color:${verdictColor};"></i>
+              <span style="font-size:16px;font-weight:800;color:${verdictColor};">${verdict}</span>
+            </div>
+            <p style="font-size:12px;color:var(--text-muted);line-height:1.5;margin:0;">
+              ${pct >= 80 ? 'This project is a strong match for 3D Technology Services. Competitive bid recommended.' :
+                pct >= 60 ? 'This project has a moderate fit. Review the factors below before committing resources.' :
+                'This project has limited alignment with 3D\'s typical work. Consider carefully before bidding.'}
+            </p>
+          </div>
+        </div>
+
+        <!-- Score Breakdown -->
+        <div style="margin-bottom:16px;">
+          ${Object.values(scores).map(sc => gaugeBar(sc)).join('')}
+        </div>
+
+        <!-- Factors -->
+        <div style="background:rgba(0,0,0,0.02);border-radius:8px;padding:12px 14px;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px;">Fitness Factors</div>
+          ${factorRows}
+        </div>
+
+        ${!isTransit && distance === null && st.projectLocation ? `
+        <div style="margin-top:12px;font-size:11px;color:var(--text-muted);font-style:italic;">
+          <i data-lucide="info" style="width:12px;height:12px;display:inline;vertical-align:middle;"></i>
+          Could not determine distance for "${esc(st.projectLocation)}". Try entering just the city name (e.g., "Modesto" or "San Francisco").
+        </div>` : ''}
+      </div>
+    </div>`;
+}
+
 // POTENTIAL CHANGE ORDERS — Extract from existing brain data
 // ═══════════════════════════════════════════════════════════════
 

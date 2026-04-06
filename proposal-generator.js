@@ -160,7 +160,7 @@ Write a compelling closing (3-4 paragraphs) covering:
 - 24/7/365 emergency service and support
 - Comprehensive post-installation training (we don't just install and leave)
 - Technology refresh planning and future-proof infrastructure design
-- Local presence in Rancho Cordova with projects throughout California and nationwide
+- Four office locations: Rancho Cordova CA (HQ), Livermore CA, Sparks NV, and McCall ID — serving California, Nevada, Idaho, and nationwide transit/railroad
 - Client references available upon request
 - "When you choose ${co.name}, you're choosing a partner, not just a contractor"
 
@@ -182,7 +182,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     try {
       response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(requestBody),
         _timeout: 300000, // 5 minutes for Pro model
         _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
@@ -195,7 +195,7 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
       requestBody._brainSlot = 0;
       response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(requestBody),
         _timeout: 180000,
         _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
@@ -1197,7 +1197,7 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The 
 
       const response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(requestBody),
         _timeout: 60000,
         _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
