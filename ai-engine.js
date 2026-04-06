@@ -1152,6 +1152,8 @@ DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 YOUR MISSION: Scan EVERY sheet and count EVERY device symbol. Be exhaustive.
 
+DISAMBIGUATION RULE: Dome cameras and motion detectors often use similar circular symbols. Always cross-reference with the legend to verify. If a symbol is ambiguous and the legend doesn't clarify, flag it as "AMBIGUOUS" with your best guess. Do NOT count motion detectors as cameras or vice versa.
+
 WHAT TO COUNT BY DISCIPLINE:
 ${(context.disciplines || []).includes('Structured Cabling') ? '- CABLING: Data outlets, voice outlets, WAPs, fiber outlets, combo outlets' : ''}
 ${(context.disciplines || []).includes('CCTV') ? '- CCTV: Fixed cameras, PTZ cameras, dome cameras, bullet cameras, multi-sensor cameras' : ''}
@@ -1412,7 +1414,7 @@ Example: UPS benchmark = $186,320 (sell price). Your base cost = $186,320 / 1.15
 1. STATION-SIZED UPS/INVERTER: BASE COST $139,000-$163,000 per station (sell $160K-$188K). This is NOT a rack UPS — it is a station-sized inverter/charger system with battery bank. MANDATORY on every station project.
 2. TRENCHING/SAW CUT: BASE COST $83-$244 per linear foot (sell $95-$281/LF). Measure EVERY conduit run on the plans. Typical station projects have 500-2,500+ LF of trenching.
 3. POWER CIRCUITS: BASE COST $2,087-$29,556 PER CIRCUIT (sell $2,400-$34,000). Count every new power circuit shown on plans. Typical: 5-8 circuits per station.
-4. RRPLI (Railroad Protective Liability Insurance): $1,828-$61,479 depending on track proximity. MANDATORY on every railroad project. (Insurance is NOT marked up — use full amount.)
+4. RRPLI (Railroad Protective Liability Insurance): MANDATORY on every railroad project. Formula: $4,500 base + $500-5,000 per 1,000 LF of track-adjacent conduit. For typical Amtrak station CCTV project: budget $25,000-$50,000. (Insurance is NOT marked up — use full amount.)
 5. PERFORMANCE & PAYMENT BONDS: $21,740-$40,986 (approximately 2% of contract value). MANDATORY. (Bonds are NOT marked up — use full amount.)
 6. GENERAL INSURANCE (excluding RRPLI): $9,750-$20,493. MANDATORY. (Insurance is NOT marked up — use full amount.)
 7. MOBILIZATION/DEMOBILIZATION: $17,920-$22,400 lump sum. MANDATORY. (Pass-through — NOT marked up.)
@@ -2401,7 +2403,7 @@ CORRECTION RULES:
 8. Do NOT remove legitimate items — only correct quantities and prices that are wrong
 
 ABSOLUTE PROHIBITIONS — VIOLATING THESE INVALIDATES YOUR ENTIRE OUTPUT:
-9. NEVER CREATE NEW CATEGORIES. Your output must contain ONLY the categories from the original Material Pricer. If you need to add an item, add it to the most appropriate EXISTING category.
+9. Do NOT create arbitrary new categories. Your output must contain ONLY the categories from the original Material Pricer. If you need to add an item, add it to the most appropriate EXISTING category. EXCEPTION: If the Devil's Advocate identified significant missing scope with no matching category, you may create ONE category named "Corrections — Missing Scope" for those items only.
 10. NEVER INCREASE the corrected_grand_total above the original_grand_total by more than 5%. Your job is to CORRECT errors (reduce phantom items, fix prices), not to ADD scope.
 11. NET DIRECTION MUST BE DOWN. If the Devil's Advocate found phantom items, your total_adjustment MUST be NEGATIVE. The whole point of correction is to remove inflated pricing.
 12. Cisco/Juniper network switches on transit/railroad projects are OWNER-FURNISHED — set unit_cost to 0 (labor only at $448-$758 per switch).
@@ -3374,6 +3376,7 @@ When you find "TYP" or "TYPICAL" notes:
 - Example: "Card reader TYP at each secure door" → count all secure doors on all floors
 - Example: "Smoke detector TYP in each office" → count all offices across all sheets
 - Example: "Data outlet TYP 2 per office" → count offices × 2
+- EXCEPTION PARSING: "TYP except [location]" means count all matching locations MINUS the excluded ones. Example: "Card reader TYP at each door except main entrance" → total doors minus 1.
 - Provide the multiplication calculation in the output
 
 Return ONLY valid JSON:

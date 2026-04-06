@@ -128,7 +128,7 @@
         Sentry.init({
           dsn: "https://60b02e5d7804fc77476c97324b9039e5@o4511099720957952.ingest.us.sentry.io/4511099752284160",
           environment: location.hostname.includes('localhost') ? 'development' : 'production',
-          release: 'smartplans@5.0.0',
+          release: 'smartplans@5.62.0',
           integrations: [Sentry.browserTracingIntegration()],
           tracesSampleRate: 0.1,
           initialScope: { tags: { app: 'smartplans' } },
@@ -216,7 +216,7 @@
                 console.log('[SmartPlans] Service Worker registered');
 
                 // Check for updates every 60 seconds (was 5 min)
-                setInterval(() => reg.update(), 60 * 1000);
+                setInterval(() => reg.update(), 300 * 1000); // Check for updates every 5 min (was 60s)
 
                 // When a new SW is found, auto-apply it
                 reg.addEventListener('updatefound', () => {
