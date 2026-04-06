@@ -11297,8 +11297,9 @@ function extractPotentialChangeOrders(st) {
   }
 
   // Helper to push a CO if not duplicate
-  function addCO(desc, cost, severity, source, justification) {
+  function addCO(desc, cost, severity, source, opts) {
     if (!desc || cos.some(c => c.description === desc)) return;
+    const o = opts || {};
     cos.push({
       id: `CO-${String(id++).padStart(3, '0')}`,
       description: desc,
@@ -11306,7 +11307,11 @@ function extractPotentialChangeOrders(st) {
       estimatedCost: cost,
       severity: severity || 'medium',
       source,
-      recommendation: justification || '',
+      justification: o.justification || '',
+      recommendation: o.recommendation || '',
+      costBreakdown: o.costBreakdown || '',
+      discipline: o.discipline || '',
+      contractRef: o.contractRef || '',
     });
   }
 
@@ -11320,7 +11325,13 @@ function extractPotentialChangeOrders(st) {
   if (da?.true_change_orders && Array.isArray(da.true_change_orders)) {
     da.true_change_orders.forEach(co => {
       const desc = co.description || co.item || '';
-      addCO(desc, parseImpact(co.estimated_impact), co.severity, "Devil's Advocate", co.justification || '');
+      addCO(desc, parseImpact(co.estimated_impact), co.severity, "Devil's Advocate", {
+        justification: co.justification || co.why || '',
+        recommendation: co.recommendation || co.action || '',
+        costBreakdown: co.cost_breakdown || co.cost_detail || '',
+        discipline: co.discipline || '',
+        contractRef: co.contract_reference || co.spec_section || '',
+      });
     });
   }
 
@@ -11329,7 +11340,13 @@ function extractPotentialChangeOrders(st) {
   if (scr?.true_change_orders && Array.isArray(scr.true_change_orders)) {
     scr.true_change_orders.forEach(co => {
       const desc = co.description || co.item || '';
-      addCO(desc, parseImpact(co.estimated_impact), co.severity, 'Spec Cross-Ref', co.justification || '');
+      addCO(desc, parseImpact(co.estimated_impact), co.severity, 'Spec Cross-Ref', {
+        justification: co.justification || co.why || '',
+        recommendation: co.recommendation || co.action || '',
+        costBreakdown: co.cost_breakdown || co.cost_detail || '',
+        discipline: co.discipline || '',
+        contractRef: co.contract_reference || co.spec_section || '',
+      });
     });
   }
 
@@ -11340,7 +11357,13 @@ function extractPotentialChangeOrders(st) {
   if (sc?.true_change_orders && Array.isArray(sc.true_change_orders)) {
     sc.true_change_orders.forEach(co => {
       const desc = co.description || co.item || '';
-      addCO(desc, parseImpact(co.estimated_impact || co.cost), co.severity, 'Special Conditions', co.justification || '');
+      addCO(desc, parseImpact(co.estimated_impact || co.cost), co.severity, 'Special Conditions', {
+        justification: co.justification || co.why || '',
+        recommendation: co.recommendation || co.action || '',
+        costBreakdown: co.cost_breakdown || co.cost_detail || '',
+        discipline: co.discipline || '',
+        contractRef: co.contract_reference || co.spec_section || '',
+      });
     });
   }
 
@@ -11358,7 +11381,11 @@ function buildChangeOrderCard(st) {
   const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const sevBadge = s => {
     const colors = { critical: '#DC2626', high: '#EA580C', medium: '#D97706', low: '#65A30D' };
-    return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:white;background:${colors[s] || colors.medium};">${esc(s)}</span>`;
+    return `<span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:white;background:${colors[s] || colors.medium};">${esc(s)}</span>`;
+  };
+  const sevLabel = s => {
+    const labels = { critical: 'Almost certain to occur — budget for this.', high: 'Highly likely — strong probability of occurring.', medium: 'Possible — depends on site conditions or owner decisions.', low: 'Low probability but worth documenting.' };
+    return labels[s] || '';
   };
 
   const included = cos.filter(c => !st._excludedCOs.has(c.id));
@@ -11366,22 +11393,68 @@ function buildChangeOrderCard(st) {
   const bySev = {};
   included.forEach(c => { bySev[c.severity] = (bySev[c.severity] || 0) + 1; });
 
-  let rows = '';
-  cos.forEach(c => {
+  // Build individual detailed CO cards instead of a simple table
+  let coCards = '';
+  cos.forEach((c, idx) => {
     const excluded = st._excludedCOs.has(c.id);
-    rows += `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);${excluded ? 'opacity:0.4;' : ''}">
-      <td style="padding:8px 10px;text-align:center;">
-        <input type="checkbox" class="co-include-cb" data-co-id="${esc(c.id)}" ${excluded ? '' : 'checked'} style="width:14px;height:14px;accent-color:#0D9488;">
-      </td>
-      <td style="padding:8px 10px;font-size:11px;font-weight:600;color:var(--text-muted);white-space:nowrap;">${esc(c.id)}</td>
-      <td style="padding:8px 10px;font-size:12px;color:var(--text-primary);max-width:300px;">
-        ${esc(c.description)}
-        ${c.recommendation ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic;">${esc(c.recommendation)}</div>` : ''}
-      </td>
-      <td style="padding:8px 10px;text-align:center;">${sevBadge(c.severity)}</td>
-      <td style="padding:8px 10px;font-size:12px;font-weight:600;text-align:right;color:var(--text-primary);">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : '<span style="color:var(--text-muted);font-weight:400;">TBD</span>'}</td>
-      <td style="padding:8px 10px;font-size:10px;color:var(--text-muted);white-space:nowrap;">${esc(c.source)}</td>
-    </tr>`;
+    const sevColors = { critical: '#DC2626', high: '#EA580C', medium: '#D97706', low: '#65A30D' };
+    const borderColor = sevColors[c.severity] || '#D97706';
+
+    coCards += `
+      <div class="co-detail-card" style="border:1px solid rgba(0,0,0,0.08);border-left:4px solid ${borderColor};margin-bottom:12px;padding:0;background:${excluded ? 'rgba(0,0,0,0.02)' : '#FFFFFF'};${excluded ? 'opacity:0.45;' : ''}">
+        <!-- CO Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px 16px;border-bottom:1px solid rgba(0,0,0,0.04);">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <input type="checkbox" class="co-include-cb" data-co-id="${esc(c.id)}" ${excluded ? '' : 'checked'} style="width:16px;height:16px;accent-color:#0D9488;cursor:pointer;">
+            <span style="font-size:14px;font-weight:800;color:${borderColor};letter-spacing:1px;">${esc(c.id)}</span>
+            ${sevBadge(c.severity)}
+            <span style="font-size:11px;color:rgba(0,0,0,0.35);font-style:italic;">${esc(sevLabel(c.severity))}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:16px;font-weight:800;color:${c.estimatedCost > 0 ? borderColor : 'rgba(0,0,0,0.3)'};">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'TBD'}</span>
+            <button class="co-pdf-single" data-co-idx="${idx}" style="padding:5px 10px;border:1px solid rgba(234,88,12,0.25);background:rgba(234,88,12,0.04);color:#EA580C;cursor:pointer;font-size:10px;font-weight:700;letter-spacing:0.5px;display:flex;align-items:center;gap:4px;" title="Print this Change Order to PDF">
+              <i data-lucide="printer" style="width:12px;height:12px;"></i> PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- CO Body -->
+        <div style="padding:14px 16px;">
+          <!-- What -->
+          <div style="margin-bottom:10px;">
+            <div style="font-size:10px;font-weight:700;color:#EA580C;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">What Is This Change Order?</div>
+            <div style="font-size:13px;color:var(--text-primary);line-height:1.5;">${esc(c.description)}</div>
+          </div>
+
+          <!-- Why -->
+          ${c.justification ? `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:10px;font-weight:700;color:#EA580C;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Why This May Be Needed</div>
+            <div style="font-size:12px;color:var(--text-primary);line-height:1.5;background:rgba(234,88,12,0.03);padding:8px 12px;border-radius:6px;border:1px solid rgba(234,88,12,0.08);">${esc(c.justification)}</div>
+          </div>` : ''}
+
+          <!-- Recommendation -->
+          ${c.recommendation ? `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:10px;font-weight:700;color:#0D9488;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Recommendation</div>
+            <div style="font-size:12px;color:var(--text-primary);line-height:1.5;background:rgba(13,148,136,0.03);padding:8px 12px;border-radius:6px;border:1px solid rgba(13,148,136,0.08);">${esc(c.recommendation)}</div>
+          </div>` : ''}
+
+          <!-- Cost Breakdown if available -->
+          ${c.costBreakdown ? `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:10px;font-weight:700;color:#6366F1;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Cost Breakdown</div>
+            <div style="font-size:12px;color:var(--text-primary);line-height:1.5;background:rgba(99,102,241,0.03);padding:8px 12px;border-radius:6px;border:1px solid rgba(99,102,241,0.08);">${esc(c.costBreakdown)}</div>
+          </div>` : ''}
+
+          <!-- Footer: source & category -->
+          <div style="display:flex;gap:16px;align-items:center;margin-top:6px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.04);">
+            <span style="font-size:10px;color:var(--text-muted);"><strong>Source:</strong> ${esc(c.source)}</span>
+            ${c.discipline ? `<span style="font-size:10px;color:var(--text-muted);"><strong>Discipline:</strong> ${esc(c.discipline)}</span>` : ''}
+            ${c.contractRef ? `<span style="font-size:10px;color:var(--text-muted);"><strong>Ref:</strong> ${esc(c.contractRef)}</span>` : ''}
+          </div>
+        </div>
+      </div>`;
   });
 
   return `
@@ -11391,52 +11464,119 @@ function buildChangeOrderCard(st) {
         <h3 class="info-card-title" style="margin:0;">
           <i data-lucide="alert-triangle" style="width:16px;height:16px;"></i>
           POTENTIAL CHANGE ORDERS
-          <span style="font-size:11px;font-weight:400;color:rgba(0,0,0,0.4);margin-left:8px;">(${cos.length} items | ${fmt(totalValue)} estimated)</span>
+          <span style="font-size:11px;font-weight:400;color:rgba(0,0,0,0.4);margin-left:8px;">(${cos.length} items | ${fmt(totalValue)} estimated exposure)</span>
         </h3>
         <span id="co-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">${st._changeOrdersOpen ? '▼' : '▶'}</span>
       </div>
       <div id="co-collapsible" style="display:${st._changeOrdersOpen ? 'block' : 'none'};margin-top:12px;">
-        <p style="color:rgba(0,0,0,0.5);font-size:12px;margin-bottom:16px;">
-          Items NOT in the plans or specifications that may arise during construction. These are legitimate change order risks — ambiguous scope, owner-requested additions, code requirements not addressed in contract documents, or conditions that can't be known until construction begins. Items that ARE on the plans or specs are already included in your bid.
+        <p style="color:rgba(0,0,0,0.5);font-size:12px;margin-bottom:16px;line-height:1.5;">
+          These are items <strong>NOT</strong> in the plans or specifications that may arise during construction. Each represents a legitimate change order risk — ambiguous scope, owner-requested additions, code requirements not addressed in contract documents, or site conditions that can't be known until construction begins. Items that ARE shown on the plans or in the specs are already included in your bid.
         </p>
 
-        <!-- Severity Summary -->
-        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <!-- Severity Summary Bar -->
+        <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center;padding:10px 14px;background:rgba(234,88,12,0.04);border:1px solid rgba(234,88,12,0.1);border-radius:8px;">
           ${Object.entries(bySev).map(([sev, count]) => `
             <div style="display:flex;align-items:center;gap:4px;">${sevBadge(sev)} <span style="font-size:12px;font-weight:600;">×${count}</span></div>
           `).join('')}
-          <div style="margin-left:auto;font-size:14px;font-weight:700;color:#EA580C;">Total: ${fmt(totalValue)}</div>
+          <div style="margin-left:auto;font-size:16px;font-weight:800;color:#EA580C;">Total Exposure: ${fmt(totalValue)}</div>
         </div>
 
-        <!-- Table -->
-        <div style="overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:12px;">
-            <thead>
-              <tr style="background:rgba(234,88,12,0.06);">
-                <th style="padding:8px 10px;width:36px;border-bottom:2px solid rgba(234,88,12,0.15);"></th>
-                <th style="padding:8px 10px;text-align:left;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">CO#</th>
-                <th style="padding:8px 10px;text-align:left;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">Description</th>
-                <th style="padding:8px 10px;text-align:center;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">Severity</th>
-                <th style="padding:8px 10px;text-align:right;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">Est. Impact</th>
-                <th style="padding:8px 10px;text-align:left;font-size:10px;color:#EA580C;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(234,88,12,0.15);">Source</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
+        <!-- Individual CO Detail Cards -->
+        ${coCards}
 
         <!-- Actions -->
-        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
-          <button id="co-copy-btn" style="padding:8px 16px;border:1px solid rgba(234,88,12,0.3);background:rgba(234,88,12,0.06);color:#EA580C;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
-            📋 Copy to Clipboard
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;flex-wrap:wrap;">
+          <button id="co-copy-btn" style="padding:8px 16px;border:1px solid rgba(234,88,12,0.3);background:rgba(234,88,12,0.06);color:#EA580C;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:6px;">
+            <i data-lucide="clipboard-copy" style="width:14px;height:14px;"></i> Copy All to Clipboard
           </button>
-          <button id="co-pdf-btn" style="padding:8px 16px;border:1px solid rgba(234,88,12,0.3);background:rgba(234,88,12,0.06);color:#EA580C;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
-            📄 Save as PDF
+          <button id="co-pdf-all-btn" style="padding:8px 16px;border:1px solid rgba(234,88,12,0.3);background:rgba(234,88,12,0.06);color:#EA580C;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:6px;">
+            <i data-lucide="file-text" style="width:14px;height:14px;"></i> Print All to PDF
           </button>
           <span id="co-copy-status" style="font-size:11px;color:var(--accent-emerald);display:none;">Copied!</span>
         </div>
       </div>
     </div>`;
+}
+
+function _buildCOPdfHtml(co, projectName, preparedFor) {
+  const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const sevColors = { critical: '#DC2626', high: '#EA580C', medium: '#D97706', low: '#65A30D' };
+  const sevLabels = { critical: 'Almost certain to occur — budget for this.', high: 'Highly likely — strong probability of occurring.', medium: 'Possible — depends on site conditions or owner decisions.', low: 'Low probability but worth documenting.' };
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const bc = sevColors[co.severity] || '#D97706';
+
+  return `<!DOCTYPE html><html><head><title>${co.id} — ${projectName || 'Project'}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;padding:40px;max-width:850px;margin:0 auto}
+      @media print{body{padding:20px}button{display:none!important}}
+      .section{margin-bottom:18px}
+      .section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #eee}
+      .section-body{font-size:13px;line-height:1.65;color:#333}
+      .meta-row{display:flex;gap:24px;flex-wrap:wrap;font-size:12px;color:#555}
+      .meta-item strong{color:#333}
+    </style></head><body>
+    <!-- Header -->
+    <div style="border-bottom:3px solid ${bc};padding-bottom:16px;margin-bottom:28px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:${bc};text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;">Potential Change Order</div>
+          <h1 style="font-size:28px;font-weight:800;color:#1a1a2e;margin-bottom:6px;">${co.id}</h1>
+          <div style="font-size:15px;font-weight:600;color:#333;margin-bottom:2px;">${projectName || 'Project'}</div>
+          ${preparedFor ? `<div style="font-size:12px;color:#666;">Prepared for: ${preparedFor}</div>` : ''}
+          <div style="font-size:12px;color:#666;">Date: ${date}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:32px;font-weight:900;color:${bc};">${co.estimatedCost > 0 ? fmt(co.estimatedCost) : 'TBD'}</div>
+          <div style="margin-top:4px;">
+            <span style="display:inline-block;padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;color:white;background:${bc};text-transform:uppercase;letter-spacing:1px;">${co.severity}</span>
+          </div>
+          <div style="font-size:10px;color:#888;margin-top:4px;font-style:italic;">${sevLabels[co.severity] || ''}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- What -->
+    <div class="section">
+      <div class="section-label" style="color:${bc};">What Is This Change Order?</div>
+      <div class="section-body">${co.description}</div>
+    </div>
+
+    <!-- Why -->
+    ${co.justification ? `<div class="section">
+      <div class="section-label" style="color:${bc};">Why This May Be Needed</div>
+      <div class="section-body" style="background:#FFF8F3;padding:12px 16px;border-radius:6px;border-left:3px solid ${bc};">${co.justification}</div>
+    </div>` : ''}
+
+    <!-- Recommendation -->
+    ${co.recommendation ? `<div class="section">
+      <div class="section-label" style="color:#0D9488;">Recommendation</div>
+      <div class="section-body" style="background:#F0FDFA;padding:12px 16px;border-radius:6px;border-left:3px solid #0D9488;">${co.recommendation}</div>
+    </div>` : ''}
+
+    <!-- Cost Breakdown -->
+    ${co.costBreakdown ? `<div class="section">
+      <div class="section-label" style="color:#6366F1;">Cost Breakdown</div>
+      <div class="section-body" style="background:#F5F3FF;padding:12px 16px;border-radius:6px;border-left:3px solid #6366F1;">${co.costBreakdown}</div>
+    </div>` : ''}
+
+    <!-- Metadata -->
+    <div style="margin-top:24px;padding-top:16px;border-top:2px solid #eee;">
+      <div class="meta-row">
+        <div class="meta-item"><strong>Source:</strong> ${co.source}</div>
+        ${co.discipline ? `<div class="meta-item"><strong>Discipline:</strong> ${co.discipline}</div>` : ''}
+        ${co.contractRef ? `<div class="meta-item"><strong>Contract Reference:</strong> ${co.contractRef}</div>` : ''}
+        <div class="meta-item"><strong>Severity:</strong> ${co.severity.toUpperCase()}</div>
+        <div class="meta-item"><strong>Estimated Impact:</strong> ${co.estimatedCost > 0 ? fmt(co.estimatedCost) : 'To Be Determined'}</div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="margin-top:32px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;color:#999;text-align:center;">
+      Generated by SmartPlans AI — 3D Technology Services Inc. | 3D CONFIDENTIAL
+    </div>
+    <script>window.onload=function(){window.print();}</script>
+  </body></html>`;
 }
 
 function bindChangeOrderEvents(container) {
@@ -11451,6 +11591,7 @@ function bindChangeOrderEvents(container) {
     });
   }
 
+  // Checkboxes to include/exclude individual COs
   document.querySelectorAll('.co-include-cb').forEach(cb => {
     cb.addEventListener('change', () => {
       const coId = cb.dataset.coId;
@@ -11460,21 +11601,43 @@ function bindChangeOrderEvents(container) {
     });
   });
 
+  // Individual PDF button per change order
+  document.querySelectorAll('.co-pdf-single').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.coIdx);
+      const cos = extractPotentialChangeOrders(state);
+      const co = cos[idx];
+      if (!co) return;
+      const html = _buildCOPdfHtml(co, state.projectName, state.preparedFor);
+      const win = window.open('', '_blank');
+      if (win) { win.document.write(html); win.document.close(); }
+    });
+  });
+
+  // Copy All to Clipboard
   const copyBtn = document.getElementById('co-copy-btn');
   if (copyBtn) {
     copyBtn.addEventListener('click', () => {
       const cos = extractPotentialChangeOrders(state).filter(c => !state._excludedCOs.has(c.id));
       const fmt = n => '$' + (n || 0).toLocaleString('en-US');
       let text = `POTENTIAL CHANGE ORDERS — ${state.projectName || 'Project'}\n`;
-      text += '─'.repeat(80) + '\n';
-      text += 'CO#\tSeverity\tEst. Impact\tDescription\n';
-      text += '─'.repeat(80) + '\n';
+      text += '═'.repeat(90) + '\n\n';
       cos.forEach(c => {
-        text += `${c.id}\t${c.severity.toUpperCase()}\t${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'TBD'}\t${c.description}\n`;
+        text += `${c.id}  |  ${c.severity.toUpperCase()}  |  ${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'TBD'}\n`;
+        text += '─'.repeat(60) + '\n';
+        text += `WHAT: ${c.description}\n`;
+        if (c.justification) text += `WHY:  ${c.justification}\n`;
+        if (c.recommendation) text += `REC:  ${c.recommendation}\n`;
+        if (c.costBreakdown) text += `COST: ${c.costBreakdown}\n`;
+        text += `Source: ${c.source}`;
+        if (c.discipline) text += `  |  Discipline: ${c.discipline}`;
+        if (c.contractRef) text += `  |  Ref: ${c.contractRef}`;
+        text += '\n\n';
       });
       const total = cos.reduce((s, c) => s + c.estimatedCost, 0);
-      text += '─'.repeat(80) + '\n';
-      text += `TOTAL ESTIMATED IMPACT: ${fmt(total)} (${cos.length} items)\n`;
+      text += '═'.repeat(90) + '\n';
+      text += `TOTAL ESTIMATED EXPOSURE: ${fmt(total)} (${cos.length} items)\n`;
 
       navigator.clipboard.writeText(text).then(() => {
         const status = document.getElementById('co-copy-status');
@@ -11483,63 +11646,70 @@ function bindChangeOrderEvents(container) {
     });
   }
 
-  // PDF Export
-  const pdfBtn = document.getElementById('co-pdf-btn');
-  if (pdfBtn) {
-    pdfBtn.addEventListener('click', () => {
+  // Print All COs to PDF
+  const pdfAllBtn = document.getElementById('co-pdf-all-btn');
+  if (pdfAllBtn) {
+    pdfAllBtn.addEventListener('click', () => {
       const cos = extractPotentialChangeOrders(state).filter(c => !state._excludedCOs.has(c.id));
       const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
       const total = cos.reduce((s, c) => s + c.estimatedCost, 0);
       const sevColors = { critical: '#DC2626', high: '#EA580C', medium: '#D97706', low: '#65A30D' };
+      const sevLabels = { critical: 'Almost certain to occur — budget for this.', high: 'Highly likely — strong probability.', medium: 'Possible — depends on conditions.', low: 'Low probability but documented.' };
       const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-      const rows = cos.map(c => `
-        <tr>
-          <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;font-size:11px;">${c.id}</td>
-          <td style="padding:8px 10px;border:1px solid #ddd;font-size:12px;">${c.description}${c.recommendation ? '<br><em style="font-size:10px;color:#666;">' + c.recommendation + '</em>' : ''}</td>
-          <td style="padding:8px 10px;border:1px solid #ddd;text-align:center;">
-            <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:white;background:${sevColors[c.severity] || '#D97706'};">${c.severity.toUpperCase()}</span>
-          </td>
-          <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;font-weight:600;">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'TBD'}</td>
-          <td style="padding:8px 10px;border:1px solid #ddd;font-size:10px;color:#666;">${c.source}</td>
-        </tr>`).join('');
+      let coSections = '';
+      cos.forEach((c, i) => {
+        const bc = sevColors[c.severity] || '#D97706';
+        coSections += `
+          ${i > 0 ? '<div style="page-break-before:auto;border-top:2px solid #eee;margin:28px 0 20px 0;"></div>' : ''}
+          <div style="margin-bottom:24px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:16px;font-weight:800;color:${bc};">${c.id}</span>
+                <span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10px;font-weight:700;color:white;background:${bc};text-transform:uppercase;">${c.severity}</span>
+                <span style="font-size:10px;color:#888;font-style:italic;">${sevLabels[c.severity] || ''}</span>
+              </div>
+              <span style="font-size:18px;font-weight:800;color:${bc};">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'TBD'}</span>
+            </div>
+            <div style="margin-bottom:8px;">
+              <div style="font-size:10px;font-weight:700;color:${bc};text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">What Is This Change Order?</div>
+              <div style="font-size:12px;line-height:1.55;color:#333;">${c.description}</div>
+            </div>
+            ${c.justification ? `<div style="margin-bottom:8px;">
+              <div style="font-size:10px;font-weight:700;color:${bc};text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Why This May Be Needed</div>
+              <div style="font-size:12px;line-height:1.55;color:#333;background:#FFF8F3;padding:8px 12px;border-radius:4px;border-left:3px solid ${bc};">${c.justification}</div>
+            </div>` : ''}
+            ${c.recommendation ? `<div style="margin-bottom:8px;">
+              <div style="font-size:10px;font-weight:700;color:#0D9488;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Recommendation</div>
+              <div style="font-size:12px;line-height:1.55;color:#333;background:#F0FDFA;padding:8px 12px;border-radius:4px;border-left:3px solid #0D9488;">${c.recommendation}</div>
+            </div>` : ''}
+            ${c.costBreakdown ? `<div style="margin-bottom:8px;">
+              <div style="font-size:10px;font-weight:700;color:#6366F1;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Cost Breakdown</div>
+              <div style="font-size:12px;line-height:1.55;color:#333;background:#F5F3FF;padding:8px 12px;border-radius:4px;border-left:3px solid #6366F1;">${c.costBreakdown}</div>
+            </div>` : ''}
+            <div style="font-size:10px;color:#888;margin-top:6px;">Source: ${c.source}${c.discipline ? ' | Discipline: ' + c.discipline : ''}${c.contractRef ? ' | Ref: ' + c.contractRef : ''}</div>
+          </div>`;
+      });
 
       const html = `<!DOCTYPE html><html><head><title>Potential Change Orders — ${state.projectName || 'Project'}</title>
         <style>
           *{margin:0;padding:0;box-sizing:border-box}
-          body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;padding:40px;max-width:1000px;margin:0 auto}
+          body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;padding:40px;max-width:900px;margin:0 auto}
           @media print{body{padding:20px}}
         </style></head><body>
-        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #EA580C;padding-bottom:16px;margin-bottom:24px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;border-bottom:3px solid #EA580C;padding-bottom:16px;margin-bottom:28px;">
           <div>
             <h1 style="font-size:22px;color:#EA580C;margin-bottom:4px;">Potential Change Orders</h1>
-            <div style="font-size:14px;font-weight:600;">${state.projectName || 'Project'}</div>
+            <div style="font-size:15px;font-weight:600;">${state.projectName || 'Project'}</div>
             <div style="font-size:12px;color:#666;">${state.preparedFor ? 'Prepared for: ' + state.preparedFor + ' | ' : ''}${date}</div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:24px;font-weight:800;color:#EA580C;">${fmt(total)}</div>
-            <div style="font-size:11px;color:#666;">${cos.length} items identified</div>
+            <div style="font-size:28px;font-weight:900;color:#EA580C;">${fmt(total)}</div>
+            <div style="font-size:11px;color:#666;">${cos.length} items — total estimated exposure</div>
           </div>
         </div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;">
-          <thead>
-            <tr style="background:#EA580C;color:white;">
-              <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;border:1px solid #EA580C;">CO#</th>
-              <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;border:1px solid #EA580C;">DESCRIPTION</th>
-              <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;border:1px solid #EA580C;">SEVERITY</th>
-              <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;border:1px solid #EA580C;">EST. IMPACT</th>
-              <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;border:1px solid #EA580C;">SOURCE</th>
-            </tr>
-          </thead>
-          <tbody>${rows}
-            <tr style="background:#FFF7ED;">
-              <td colspan="3" style="padding:10px;border:1px solid #ddd;font-weight:700;text-align:right;font-size:13px;">TOTAL ESTIMATED IMPACT</td>
-              <td style="padding:10px;border:1px solid #ddd;text-align:right;font-weight:800;font-size:14px;color:#EA580C;">${fmt(total)}</td>
-              <td style="border:1px solid #ddd;"></td>
-            </tr>
-          </tbody>
-        </table>
-        <div style="margin-top:24px;font-size:10px;color:#999;text-align:center;">
+        ${coSections}
+        <div style="margin-top:32px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;color:#999;text-align:center;">
           Generated by SmartPlans AI — 3D Technology Services Inc. | 3D CONFIDENTIAL
         </div>
         <script>window.onload=function(){window.print();}</script>

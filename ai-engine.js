@@ -1676,8 +1676,8 @@ Return ONLY valid JSON:
     { "risk": "Pre-1980 building — potential asbestos", "mitigation": "Environmental survey before penetrations", "severity": "high" }
   ],
   "true_change_orders": [
-    { "description": "Owner may require additional conduit pathway not shown on plans for future AV rough-in", "estimated_impact": "$3,000-$6,000", "severity": "medium", "justification": "Specs mention 'future AV provisions' but no conduit pathways are shown on drawings — this scope is not in the contract documents and will likely be added during construction" },
-    { "description": "Unforeseen underground utility conflict at north parking lot crossing", "estimated_impact": "$5,000-$12,000", "severity": "high", "justification": "Site plans show an approximate utility crossing but no potholing or survey was performed — actual conditions cannot be known until excavation begins, making this a legitimate change order risk" }
+    { "description": "Owner may require additional conduit pathway not shown on plans for future AV rough-in", "estimated_impact": "$3,000-$6,000", "severity": "medium", "justification": "Specs mention 'future AV provisions' but no conduit pathways are shown on drawings — this scope is not in the contract documents and will likely be added during construction", "recommendation": "Submit RFI asking owner to confirm AV rough-in scope before bid — if confirmed, price as add-alternate", "cost_breakdown": "100ft EMT conduit + fittings: $800, pull boxes (3): $450, labor 12hrs @ $145/hr: $1,740, overhead: $1,010", "discipline": "Structured Cabling", "contract_reference": "Spec Section 27 41 00 — Audio-Visual Systems" },
+    { "description": "Unforeseen underground utility conflict at north parking lot crossing", "estimated_impact": "$5,000-$12,000", "severity": "high", "justification": "Site plans show an approximate utility crossing but no potholing or survey was performed — actual conditions cannot be known until excavation begins, making this a legitimate change order risk", "recommendation": "Include exclusion in proposal stating 'Bid assumes no underground utility conflicts — relocations or reroutes will be billed as change order'", "cost_breakdown": "Potholing/survey: $2,000, reroute labor 24hrs: $3,480, additional boring/trenching: $2,000-$6,500", "discipline": "Site/Civil", "contract_reference": "Site Plan Sheet C-1" }
   ]
 }
 
@@ -1689,7 +1689,15 @@ These are ONLY items that are NOT in the plans, NOT in the specs, and NOT in the
 - Code requirements discovered during construction that were not addressed in design
 - Design gaps where the plans show something but lack sufficient detail to bid accurately
 Do NOT put items here that ARE on the plans or in the specs — those belong in the bid estimate.
-Each item MUST have: description, estimated_impact (dollar range), severity (critical/high/medium/low), and justification (why this is a change order, not part of the base bid).`,
+Each item MUST have ALL of these fields:
+- description: Clear statement of what the change order IS
+- estimated_impact: Dollar range (e.g. "$3,000-$6,000")
+- severity: critical/high/medium/low
+- justification: Detailed explanation of WHY this will become a change order — what's missing, what code requires it, what site condition triggers it
+- recommendation: Actionable advice — what should 3D do about it (submit RFI, add exclusion, price as alternate, etc.)
+- cost_breakdown: Itemized breakdown of material, labor hours, rates, and overhead that make up the estimated impact
+- discipline: Which trade/discipline this falls under (Structured Cabling, Fire Alarm, Security, Access Control, Site/Civil, etc.)
+- contract_reference: Spec section number, drawing sheet, or code reference where the gap or conflict exists`,
 
       // ── BRAIN 6: Material Pricer ─────────────────────────────
       MATERIAL_PRICER: () => {
@@ -3000,8 +3008,8 @@ Return ONLY valid JSON:
   "pricing_flags": [],
   "overall_assessment": "string",
   "true_change_orders": [
-    { "description": "No grounding bus bar specified for MDF rack — NEC 250.94 requires intersystem bonding termination", "estimated_impact": "$800-$1,500", "severity": "medium", "justification": "Code requirement not addressed in the contract documents — this will be discovered during inspection and result in a change order to add compliant grounding" },
-    { "description": "Fire-rated backboard and barrier required above drop ceiling at fire wall penetrations — not shown on plans", "estimated_impact": "$2,000-$5,000", "severity": "high", "justification": "Fire code requires rated barriers at all penetrations through fire-rated assemblies — drawings show cable pathways crossing fire walls but no firestopping details are provided, making this a guaranteed change order" }
+    { "description": "No grounding bus bar specified for MDF rack — NEC 250.94 requires intersystem bonding termination", "estimated_impact": "$800-$1,500", "severity": "medium", "justification": "Code requirement not addressed in the contract documents — this will be discovered during inspection and result in a change order to add compliant grounding", "recommendation": "Include grounding bus bar in bid as a line item with note 'Required per NEC 250.94 — not shown on plans' — positions 3D for approved CO if GC pushes back", "cost_breakdown": "TMGB bus bar: $250, #6 AWG bonding conductor (50ft): $120, Cadweld/clamps: $80, labor 4hrs @ $145/hr: $580", "discipline": "Structured Cabling", "contract_reference": "NEC 250.94 / TIA-607-C — not referenced in spec or drawings" },
+    { "description": "Fire-rated backboard and barrier required above drop ceiling at fire wall penetrations — not shown on plans", "estimated_impact": "$2,000-$5,000", "severity": "high", "justification": "Fire code requires rated barriers at all penetrations through fire-rated assemblies — drawings show cable pathways crossing fire walls but no firestopping details are provided, making this a guaranteed change order", "recommendation": "Submit RFI requesting firestopping details at all fire-rated wall/floor penetrations — add exclusion to proposal: 'Firestopping by others unless shown on plans'", "cost_breakdown": "Firestop pillows/putty per penetration (est. 8): $640, fire-rated backboards (4): $480, labor 16hrs @ $145/hr: $2,320, fire marshal inspection coordination: $500", "discipline": "Structured Cabling / Fire Alarm", "contract_reference": "IBC 714, NFPA 101 — no firestopping detail on drawings" }
   ]
 }
 
@@ -3013,7 +3021,15 @@ These are REAL change orders — items NOT in the plans or specs that WILL cost 
 - Conditions that cannot be verified until construction begins
 - Items where the plans are silent but field conditions will demand action
 Do NOT include items that are already on the plans or in the specs — those are bid corrections, not change orders.
-Each item MUST have: description, estimated_impact (dollar range), severity (critical/high/medium/low), and justification (why this is a change order and not part of the base bid).`,
+Each item MUST have ALL of these fields:
+- description: Clear statement of what the change order IS
+- estimated_impact: Dollar range (e.g. "$800-$1,500")
+- severity: critical/high/medium/low
+- justification: Detailed explanation of WHY this will become a change order — what code requires it, what's missing from the documents, what will trigger it during construction
+- recommendation: Actionable advice for 3D — submit RFI, add exclusion to proposal, price as alternate, include in bid with note, etc.
+- cost_breakdown: Itemized breakdown showing material costs, labor hours × rate, and overhead that justify the estimated impact
+- discipline: Which trade this falls under (Structured Cabling, Fire Alarm, Security, Access Control, AV, Site/Civil, etc.)
+- contract_reference: The specific code section, spec section, or drawing sheet where the gap exists`,
 
       // ── BRAIN 18: Detail Verifier (Wave 3.5 — 4th Read) ──────
       DETAIL_VERIFIER: () => {
@@ -3227,8 +3243,8 @@ Return ONLY valid JSON:
   "spec_sections_reviewed": ["27 10 00", "28 13 00", "28 23 00"],
   "overall_spec_drawing_alignment": 85,
   "true_change_orders": [
-    { "description": "Spec section 28 23 00 calls for tamper switches on all camera housings but no tamper switches are shown on drawings or included in any schedule", "estimated_impact": "$1,500-$3,000", "severity": "medium", "justification": "The specification requires this item but it is not detailed in the contract drawings — this gap between specs and drawings will likely result in a change order when the installer discovers the requirement during construction" },
-    { "description": "Specs require Cat6A shielded cable but drawings show standard Cat6 — if owner enforces spec, material cost increase is significant", "estimated_impact": "$8,000-$15,000", "severity": "high", "justification": "Direct conflict between specifications and drawings creates ambiguity in the contract documents — the contractor cannot be held to both requirements, and resolution will require a change order" }
+    { "description": "Spec section 28 23 00 calls for tamper switches on all camera housings but no tamper switches are shown on drawings or included in any schedule", "estimated_impact": "$1,500-$3,000", "severity": "medium", "justification": "The specification requires this item but it is not detailed in the contract drawings — this gap between specs and drawings will likely result in a change order when the installer discovers the requirement during construction", "recommendation": "Submit RFI: 'Spec 28 23 00 requires tamper switches but none shown on drawings or in device schedule — please clarify if required.' If required, submit CO for additional material and labor.", "cost_breakdown": "Tamper switches (est. 12 cameras × $45 ea): $540, additional wiring per camera (15ft × $0.35/ft × 12): $63, labor 6hrs @ $145/hr: $870, commissioning/testing: $300", "discipline": "Security / CCTV", "contract_reference": "Spec 28 23 00 vs. Drawing Sheet T-3 Device Schedule" },
+    { "description": "Specs require Cat6A shielded cable but drawings show standard Cat6 — if owner enforces spec, material cost increase is significant", "estimated_impact": "$8,000-$15,000", "severity": "high", "justification": "Direct conflict between specifications and drawings creates ambiguity in the contract documents — the contractor cannot be held to both requirements, and resolution will require a change order", "recommendation": "Submit RFI immediately: 'Spec 27 15 00 calls for Cat6A shielded but drawing notes reference Cat6 UTP — please confirm cable type.' Bid to the drawing (Cat6 UTP) and note the spec conflict as exclusion.", "cost_breakdown": "Cat6A shielded vs Cat6 UTP delta: ~$0.35/ft × est. 25,000ft = $8,750, shielded patch panels (6 × $180 delta): $1,080, additional grounding/bonding: $800, labor premium for shielded termination: $2,400", "discipline": "Structured Cabling", "contract_reference": "Spec 27 15 00 Section 2.1 vs. Drawing T-1 General Notes" }
   ]
 }
 
@@ -3239,7 +3255,15 @@ These are ONLY scope items where the SPECS and DRAWINGS CONFLICT or where scope 
 - Spec sections that reference standards or codes requiring additional work not shown on plans
 - Equipment specified but with no installation detail, location, or pathway shown
 - Ambiguities between spec language and drawing intent that will require clarification (and cost) during construction
-Each item MUST have: description, estimated_impact (dollar range), severity (critical/high/medium/low), and justification.`,
+Each item MUST have ALL of these fields:
+- description: Clear statement of the conflict or gap
+- estimated_impact: Dollar range (e.g. "$1,500-$3,000")
+- severity: critical/high/medium/low
+- justification: Detailed explanation of WHY this is a change order — what the spec says vs. what the drawing shows, and why it can't be resolved without additional cost
+- recommendation: Actionable advice — submit RFI, add exclusion, bid to drawings with spec conflict noted, etc.
+- cost_breakdown: Itemized material, labor, and overhead breakdown justifying the estimated impact
+- discipline: Which trade (Structured Cabling, Fire Alarm, Security, Access Control, AV, etc.)
+- contract_reference: The specific spec section AND drawing sheet where the conflict exists`,
 
       // ── BRAIN 22: Annotation Reader (Wave 1) ────────────────────
       ANNOTATION_READER: () => `You are a CONSTRUCTION ANNOTATION & CALLOUT EXPERT. Your job is to read EVERY text annotation, note, callout bubble, detail reference, and schedule on the ELV plan drawings.
