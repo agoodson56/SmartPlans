@@ -1089,7 +1089,7 @@ const SmartBrains = {
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
-    SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits', 'true_change_orders'],
+    SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits', 'true_change_orders', 'transit_railroad_checklist'],
     SHADOW_SCANNER: ['sheets', 'totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
     QUADRANT_SCANNER: ['quadrants', 'totals'],
@@ -1696,24 +1696,102 @@ Return ONLY valid JSON:
     "travel_subtotal": 54800,
     "note": "5 crew × 40 days out of town"
   },
-  "transit_railroad": {
+  "transit_railroad_checklist": {
     "applicable": ${context.isTransitRailroad ? 'true' : 'false'},
-    "rwic_flagman_days": 0,
-    "rwic_daily_rate": 1200,
-    "rwic_total": 0,
-    "safety_training_cost": 0,
-    "rpl_insurance": 0,
-    "work_window_premium_pct": 0,
-    "twic_tsa_cost": 0,
-    "railroad_escort_days": 0,
-    "railroad_escort_daily_rate": 1000,
-    "railroad_escort_total": 0,
-    "track_rated_ppe_cost": 0,
-    "fra_approval_fee": 0,
-    "row_permit_cost": 0,
-    "station_coordination_fee": 0,
-    "specialty_tools_total": 0,
-    "note": ""
+    "_instructions": "For EVERY item below, set checked=true and fill qty/cost if the item applies to this project. Set checked=false ONLY if you verified it is truly not needed. Do NOT skip items — check ALL 40+.",
+
+    "crew_compliance": {
+      "crew_size": 0,
+      "twic_cards":          { "checked": false, "qty": 0, "unit_cost": 124,  "total": 0, "note": "" },
+      "erailsafe_screening": { "checked": false, "qty": 0, "unit_cost": 70,   "total": 0, "note": "" },
+      "rwp_training":        { "checked": false, "qty": 0, "unit_cost": 225,  "total": 0, "note": "" },
+      "drug_alcohol_test":   { "checked": false, "qty": 0, "unit_cost": 120,  "total": 0, "note": "" },
+      "safety_vests":        { "checked": false, "qty": 0, "unit_cost": 45,   "total": 0, "note": "" },
+      "hard_hats":           { "checked": false, "qty": 0, "unit_cost": 35,   "total": 0, "note": "" }
+    },
+    "rwic_flagman": {
+      "checked": false, "days": 0, "daily_rate": 1000, "total": 0,
+      "note": "1 RWIC per day for full project duration — mandatory for all trackside work"
+    },
+    "insurance": {
+      "rrpli":               { "checked": false, "pct": 0.03, "base_value": 0, "total": 0, "note": "3% of contract — mandatory" },
+      "additional_insured":  { "checked": false, "pct": 0.01, "base_value": 0, "total": 0, "note": "1% of contract" },
+      "builders_risk":       { "checked": false, "est_cost": 0, "note": "" },
+      "umbrella_excess":     { "checked": false, "est_cost": 0, "note": "" }
+    },
+    "equipment": {
+      "hirail_vehicle":      { "checked": false, "days": 0, "daily_rate": 1000, "total": 0, "note": "Required for trackside work" },
+      "scissor_lift":        { "checked": false, "days": 0, "daily_rate": 285,  "total": 0, "note": "" },
+      "boom_lift_40_60":     { "checked": false, "days": 0, "daily_rate": 425,  "total": 0, "note": "" },
+      "boom_lift_60_80":     { "checked": false, "days": 0, "daily_rate": 700,  "total": 0, "note": "" },
+      "generator":           { "checked": false, "days": 0, "daily_rate": 325,  "total": 0, "note": "Trackside power" },
+      "fall_protection":     { "checked": false, "est_cost": 500, "note": "" }
+    },
+    "material_premiums": {
+      "vandal_housings_ik10":    { "checked": false, "qty": 0, "unit_cost": 500,   "total": 0, "note": "IK10 vandal-resistant camera housings" },
+      "nema4x_enclosures":       { "checked": false, "qty": 0, "unit_cost": 850,   "total": 0, "note": "Outdoor/trackside enclosures" },
+      "seismic_bracing":         { "checked": false, "qty": 0, "unit_cost": 1150,  "total": 0, "note": "Per rack/cabinet" },
+      "emergency_phones":        { "checked": false, "qty": 0, "unit_cost": 18500, "total": 0, "note": "Blue light tower stations" },
+      "blast_film":              { "checked": false, "qty": 0, "unit_cost": 590,   "total": 0, "note": "Security film per window" },
+      "tamper_proof_hardware":   { "checked": false, "pct_adder": 0.03, "base_material": 0, "total": 0, "note": "" },
+      "rigid_conduit_premium":   { "checked": false, "pct_adder": 0.15, "base_material": 0, "total": 0, "note": "Transit mandates rigid over EMT" },
+      "uv_cable_premium":        { "checked": false, "pct_adder": 0.08, "base_material": 0, "total": 0, "note": "UV-rated outdoor cable" },
+      "cable_tray_covered":      { "checked": false, "qty_lf": 0, "unit_cost": 38,  "total": 0, "note": "Aluminum with covers" }
+    },
+    "labor_premiums": {
+      "work_window_premium":     { "checked": false, "pct": 0.15, "base_labor": 0, "total": 0, "note": "Night/weekend restricted windows" },
+      "standby_escort_time":     { "checked": false, "pct": 0.10, "base_labor": 0, "total": 0, "note": "Waiting for track access" },
+      "daily_safety_briefings":  { "checked": false, "crew_size": 0, "days": 0, "hrs_per_day": 0.5, "hourly_rate": 125, "total": 0 },
+      "multiple_mobilizations":  { "checked": false, "trips": 0, "cost_per_trip": 1500, "total": 0, "note": "1 per 5 work days" }
+    },
+    "civil_work": {
+      "saw_cutting_concrete":    { "checked": false, "qty_lf": 0, "unit_cost": 8.00,  "total": 0 },
+      "saw_cutting_asphalt":     { "checked": false, "qty_lf": 0, "unit_cost": 4.50,  "total": 0 },
+      "trenching_24in":          { "checked": false, "qty_lf": 0, "unit_cost": 18,    "total": 0 },
+      "trenching_36in":          { "checked": false, "qty_lf": 0, "unit_cost": 24,    "total": 0 },
+      "trenching_transit_heavy": { "checked": false, "qty_lf": 0, "unit_cost": 95,    "total": 0, "note": "Railroad corridor" },
+      "directional_bore_2in":    { "checked": false, "qty_lf": 0, "unit_cost": 24,    "total": 0 },
+      "directional_bore_4in":    { "checked": false, "qty_lf": 0, "unit_cost": 34,    "total": 0 },
+      "bore_mobilization":       { "checked": false, "qty": 0,    "unit_cost": 3500,  "total": 0 },
+      "concrete_restoration":    { "checked": false, "qty_sf": 0, "unit_cost": 16,    "total": 0 },
+      "asphalt_restoration":     { "checked": false, "qty_sf": 0, "unit_cost": 12,    "total": 0 },
+      "duct_bank_2way":          { "checked": false, "qty_lf": 0, "unit_cost": 80,    "total": 0 },
+      "handholes":               { "checked": false, "qty": 0,    "unit_cost": 1600,  "total": 0 },
+      "bollards":                { "checked": false, "qty": 0,    "unit_cost": 1000,  "total": 0 },
+      "ada_truncated_domes":     { "checked": false, "qty": 0,    "unit_cost": 475,   "total": 0 },
+      "concrete_pads":           { "checked": false, "qty_cy": 0, "unit_cost": 575,   "total": 0 },
+      "core_drilling":           { "checked": false, "qty": 0,    "unit_cost": 100,   "total": 0 }
+    },
+    "conduit_raceway": {
+      "rigid_075":               { "checked": false, "qty_lf": 0, "unit_cost": 14, "total": 0 },
+      "rigid_100":               { "checked": false, "qty_lf": 0, "unit_cost": 17, "total": 0 },
+      "rigid_125":               { "checked": false, "qty_lf": 0, "unit_cost": 20, "total": 0 },
+      "rigid_200":               { "checked": false, "qty_lf": 0, "unit_cost": 26, "total": 0 }
+    },
+    "testing_documentation": {
+      "otdr_fiber_testing":      { "checked": false, "qty_strands": 0, "unit_cost": 35, "mobilization": 650, "total": 0 },
+      "copper_certification":    { "checked": false, "qty_cables": 0,  "unit_cost": 22, "total": 0 },
+      "asbuilt_drawings":        { "checked": false, "qty_sheets": 0,  "unit_cost": 135, "total": 0 },
+      "om_manuals":              { "checked": false, "qty_systems": 0, "unit_cost": 3500, "total": 0 },
+      "training_sessions":       { "checked": false, "qty_sessions": 0, "hrs_per_session": 4, "total": 0 }
+    },
+    "mobilization": {
+      "initial_mob":             { "checked": false, "pct": 0.04, "base_value": 0, "total": 0 },
+      "performance_bond":        { "checked": false, "pct": 0.02, "base_value": 0, "total": 0 }
+    },
+    "permits": {
+      "row_permit":              { "checked": false, "est_cost": 0, "note": "Railroad right-of-way permit" },
+      "encroachment_permit":     { "checked": false, "est_cost": 0, "note": "" },
+      "building_permit":         { "checked": false, "est_cost": 0, "note": "" },
+      "excavation_permit":       { "checked": false, "est_cost": 0, "note": "" },
+      "fire_marshal_inspection": { "checked": false, "est_cost": 0, "note": "" },
+      "fra_compliance":          { "checked": false, "est_cost": 0, "note": "" },
+      "utility_locates":         { "checked": false, "est_cost": 0, "note": "811/USA North" }
+    },
+    "checklist_grand_total": 0,
+    "checklist_items_checked": 0,
+    "checklist_items_total": 55,
+    "checklist_note": "Every item above MUST be evaluated. If an item doesn't apply, mark checked=false. If it applies, fill in qty and cost. The Formula Engine adds percentage-based items (RRPLI, insurance, mob, labor premiums) automatically — but you MUST identify plan-specific quantities (bollards, trenching LF, camera housings, windows for blast film, conduit LF, etc.) from the drawings."
   },
   "specialty_insurance": {
     "rpl_insurance": 0,

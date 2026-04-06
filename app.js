@@ -3980,6 +3980,11 @@ function build3DEngineCard(st) {
                   <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Documentation (As-builts + O&M Manuals)</td>
                   <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.docsCost)}</td>
                 </tr>
+                ${result.transitCosts.aiPlanSpecificCost > 0 ? `
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);background:rgba(99,102,241,0.03);">
+                  <td style="padding:6px 14px;color:#6366F1;font-weight:700;">AI-Found Plan Items (${result.transitCosts.aiPlanItems.length} items)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;color:#6366F1;">${fmt(result.transitCosts.aiPlanSpecificCost)}</td>
+                </tr>` : ''}
               </tbody>
               <tfoot>
                 <tr style="background:rgba(220,38,38,0.06);">

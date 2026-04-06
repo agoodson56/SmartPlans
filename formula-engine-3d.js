@@ -700,10 +700,43 @@ const FormulaEngine3D = {
             // 14. Documentation (as-builts + O&M)
             const docsCost = this._round(this.testingRates.om_manual_per_system * 2 + this.testingRates.asbuilt_per_sheet * 15);
 
+            // 15. AI-found plan-specific items (bollards, blast film, emergency phones, etc.)
+            // These come from the SPECIAL_CONDITIONS brain's transit_railroad_checklist
+            let aiPlanSpecificCost = 0;
+            const aiPlanItems = [];
+            try {
+                const scBrain = state.brainResults?.wave1?.SPECIAL_CONDITIONS;
+                const checklist = scBrain?.transit_railroad_checklist;
+                if (checklist && checklist.applicable) {
+                    // Scan all checklist subsections for items with checked=true and total > 0
+                    const sections = ['crew_compliance', 'equipment', 'material_premiums', 'civil_work', 'conduit_raceway', 'testing_documentation', 'permits'];
+                    sections.forEach(sectionKey => {
+                        const section = checklist[sectionKey];
+                        if (!section || typeof section !== 'object') return;
+                        Object.entries(section).forEach(([key, item]) => {
+                            if (item && typeof item === 'object' && item.checked && item.total > 0) {
+                                aiPlanItems.push({ key, ...item });
+                                aiPlanSpecificCost += item.total;
+                            }
+                        });
+                    });
+                    // Also check rwic_flagman directly
+                    if (checklist.rwic_flagman?.checked && checklist.rwic_flagman.total > 0) {
+                        aiPlanItems.push({ key: 'rwic_flagman_ai', ...checklist.rwic_flagman });
+                        // Don't double-count RWIC — AI total replaces engine estimate if higher
+                        if (checklist.rwic_flagman.total > rwicCost) {
+                            aiPlanSpecificCost += (checklist.rwic_flagman.total - rwicCost);
+                        }
+                    }
+                }
+            } catch (e) { /* AI data not available yet — engine defaults are used */ }
+            aiPlanSpecificCost = this._round(aiPlanSpecificCost);
+
             const transitTotal = this._round(
                 rrpli + insurance + mobilization + crewCompliance + rwicCost +
                 safetyBriefingCost + workWindowPremium + standbyCost + matPremiums +
-                seismicBracing + hirailCost + multiMobCost + testingMin + docsCost
+                seismicBracing + hirailCost + multiMobCost + testingMin + docsCost +
+                aiPlanSpecificCost
             );
 
             transitCosts = {
@@ -724,6 +757,8 @@ const FormulaEngine3D = {
                 multiMobCost,
                 mobilizations: estMobilizations,
                 testingMin,
+                aiPlanSpecificCost,
+                aiPlanItems,
                 docsCost,
                 total: transitTotal,
             };
