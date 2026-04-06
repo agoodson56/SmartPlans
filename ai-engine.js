@@ -54,7 +54,7 @@ const APIHealthMonitor = {
   YELLOW_THRESHOLD: 0.75,   // ≥75% success = yellow, below = red
   LATENCY_WARN_MS: 30000,   // >30s avg latency = degraded
   LATENCY_CRIT_MS: 90000,   // >90s avg latency = critical
-  AUTO_ABORT: true,          // Auto-abort on RED (configurable)
+  AUTO_ABORT: false,         // DISABLED — let brains retry/fallback on their own
   UPDATE_INTERVAL_MS: 2000,  // UI refresh throttle
 
   // ── State ──
@@ -1000,9 +1000,9 @@ const SmartBrains = {
 
     let _fileDataStripped = false;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      // ── Health monitor: check abort before each attempt ──
-      if (APIHealthMonitor.isAborted() && !APIHealthMonitor._manualOverride) {
-        throw new Error(`Brain "${brainDef.name}" aborted — API health critical`);
+      // ── Health monitor: check abort (only if user manually aborted via UI) ──
+      if (APIHealthMonitor.isAborted() && APIHealthMonitor._manualOverride) {
+        throw new Error(`Brain "${brainDef.name}" aborted by user`);
       }
       _callStartTime = Date.now();
 
