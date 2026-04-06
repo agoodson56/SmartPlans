@@ -34,11 +34,13 @@ export async function onRequest(context) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
-    // SEC: Rate limiting — 60 requests per IP per minute for AI endpoints
-    const ip = request.headers.get('CF-Connecting-IP') ||
-               request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || 'unknown';
+    // SEC: Rate limiting — 60 requests per session per minute for AI endpoints
+    // Uses session token (not IP) to prevent spoofing via X-Forwarded-For
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    const rateLimitKey = sessionToken ? `ai_rate:session:${sessionToken}` :
+        `ai_rate:ip:${request.headers.get('CF-Connecting-IP') || 'unknown'}`;
     try {
-        const blocked = await checkRateLimit(env.DB, `ai_rate:${ip}`, 60, 60);
+        const blocked = await checkRateLimit(env.DB, rateLimitKey, 60, 60);
         if (blocked) {
             return Response.json(
                 { error: 'Rate limit exceeded — please wait before making more AI requests' },
@@ -68,8 +70,8 @@ export async function onRequest(context) {
         }
     }
 
-    // SEC: Fail-closed — if neither auth method succeeds AND a token is configured, reject
-    if (!authenticated && envToken) {
+    // SEC: Fail-closed — ALWAYS require authentication
+    if (!authenticated) {
         return Response.json(
             { error: 'Authentication required — please log in' },
             { status: 401 }

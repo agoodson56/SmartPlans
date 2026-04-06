@@ -48,8 +48,10 @@ export async function onRequest(context) {
         if (timingSafeCompare(appToken, envToken)) authenticated = true;
     }
 
-    // SEC: Fail-closed — reject if token is configured but auth failed
-    if (!authenticated && envToken) {
+    // SEC: Fail-closed — ALWAYS require authentication
+    // Previously only checked when ESTIMATES_TOKEN was configured, leaving
+    // the API open if the env var was missing. Now requires auth unconditionally.
+    if (!authenticated) {
         return Response.json(
             { error: 'Authentication required — please log in' },
             { status: 401 }
