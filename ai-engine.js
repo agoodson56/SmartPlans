@@ -786,8 +786,12 @@ const SmartBrains = {
       if (fbModel === triedModel) continue; // skip the one that already failed
       console.warn(`[Brain:${brainDef.name}] ${triedModel} failed — falling back to ${fbModel}`);
       try {
-        const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
-        const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
+        // Keep fileData for models that support File API (2.5-pro, 2.5-flash, 2.0-flash)
+        // Only strip if Google explicitly rejected fileData (400 error set _fileDataStripped)
+        const fbParts = _fileDataStripped
+          ? [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)]
+          : [{ text: promptText }, ...cleanFileParts];
+        const fbGenConfig = { temperature: 0.2, maxOutputTokens: brainDef.maxTokens || 16384 };
         if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
         const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % 18 };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
