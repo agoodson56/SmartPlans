@@ -12,7 +12,7 @@ async function hashPasswordPBKDF2(password, saltHex) {
     const enc = new TextEncoder();
     const salt = new Uint8Array(saltHex.match(/.{2}/g).map(b => parseInt(b, 16)));
     const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' }, key, 256);
     return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
@@ -31,7 +31,7 @@ async function isRateLimited(db, ip, increment) {
             ).bind(key, now + RATE_LIMIT_WINDOW_SEC).run();
         }
         return false;
-    } catch { return false; }
+    } catch { return true; } // Fail-closed: block on error to prevent brute force during DB issues
 }
 
 export async function onRequestPost(context) {

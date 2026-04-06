@@ -3,15 +3,15 @@
 // Allows SmartPM (smartpm.pages.dev) to call /api/pm/* endpoints.
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin } from '../../_shared/cors.js';
+import { isAllowedOrigin, validateSession, timingSafeCompare } from '../../_shared/cors.js';
 
 export async function onRequest(context) {
-    const { request } = context;
+    const { request, env } = context;
     const origin = request.headers.get('Origin') || '';
 
     // Handle preflight
     if (request.method === 'OPTIONS') {
-        if (!isAllowedOrigin(origin)) {
+        if (!isAllowedOrigin(origin, false)) {
             return new Response(null, { status: 403 });
         }
         return new Response(null, {
@@ -26,8 +26,25 @@ export async function onRequest(context) {
     }
 
     // Block unauthorized origins
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
+    }
+
+    // SEC: Authentication — require session token OR legacy ESTIMATES_TOKEN
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    const appToken = request.headers.get('X-App-Token') || '';
+    const envToken = env.ESTIMATES_TOKEN;
+
+    let authenticated = false;
+    if (sessionToken) {
+        const user = await validateSession(env.DB, sessionToken);
+        if (user) authenticated = true;
+    }
+    if (!authenticated && envToken && appToken) {
+        if (timingSafeCompare(appToken, envToken)) authenticated = true;
+    }
+    if (!authenticated) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
     // Process the actual request

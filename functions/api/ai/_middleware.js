@@ -13,7 +13,7 @@ export async function onRequest(context) {
 
     // Handle preflight
     if (request.method === 'OPTIONS') {
-        if (!isAllowedOrigin(origin, true)) {
+        if (!isAllowedOrigin(origin, false)) {
             return new Response(null, { status: 403 });
         }
         return new Response(null, {
@@ -30,7 +30,7 @@ export async function onRequest(context) {
     // Block unauthorized origins — allow same-origin (missing Origin header is normal
     // for same-origin fetch on Cloudflare Pages), but reject bad Origins.
     // The session/token auth below is the real protection against unauthorized access.
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
@@ -40,7 +40,7 @@ export async function onRequest(context) {
     const rateLimitKey = sessionToken ? `ai_rate:session:${sessionToken}` :
         `ai_rate:ip:${request.headers.get('CF-Connecting-IP') || 'unknown'}`;
     try {
-        const blocked = await checkRateLimit(env.DB, rateLimitKey, 60, 60);
+        const blocked = await checkRateLimit(env.DB, rateLimitKey, 60, 60, true);
         if (blocked) {
             return Response.json(
                 { error: 'Rate limit exceeded — please wait before making more AI requests' },

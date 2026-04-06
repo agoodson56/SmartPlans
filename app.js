@@ -46,7 +46,9 @@ const QuotaMonitor = {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch('/api/ai/quota-check', { signal: controller.signal });
+      const _qHeaders = {};
+      if (_sessionToken) _qHeaders['X-Session-Token'] = _sessionToken;
+      const res = await fetch('/api/ai/quota-check', { headers: _qHeaders, signal: controller.signal });
       clearTimeout(timer);
 
       if (!res.ok) {
@@ -886,6 +888,7 @@ const Auth = {
         if (res.ok) {
           const data = await res.json();
           _currentUser = data.user;
+          if (typeof SmartBrains !== 'undefined') SmartBrains.setAuthToken(_sessionToken);
           this._initialized = true;
           return true;
         }
@@ -1019,6 +1022,7 @@ const Auth = {
       _sessionToken = data.sessionToken;
       _currentUser = data.user;
       sessionStorage.setItem('sp_session_token', _sessionToken);
+      if (typeof SmartBrains !== 'undefined') SmartBrains.setAuthToken(_sessionToken);
       this._startApp();
     } catch (err) {
       this._showError('Network error — check your connection');
@@ -1052,6 +1056,7 @@ const Auth = {
       _sessionToken = data.sessionToken;
       _currentUser = data.user;
       sessionStorage.setItem('sp_session_token', _sessionToken);
+      if (typeof SmartBrains !== 'undefined') SmartBrains.setAuthToken(_sessionToken);
       this._startApp();
     } catch (err) {
       this._showError('Network error — check your connection');

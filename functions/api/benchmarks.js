@@ -15,7 +15,7 @@ function corsHeaders(origin) {
 
 export async function onRequestOptions(context) {
     const origin = context.request.headers.get('Origin') || '';
-    if (!isAllowedOrigin(origin)) {
+    if (!isAllowedOrigin(origin, false)) {
         return new Response(null, { status: 403 });
     }
     return new Response(null, {
@@ -32,7 +32,7 @@ export async function onRequestGet(context) {
     const { env, request } = context;
     const origin = request.headers.get('Origin') || '';
 
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
@@ -82,7 +82,7 @@ export async function onRequestPost(context) {
     const { env, request } = context;
     const origin = request.headers.get('Origin') || '';
 
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 

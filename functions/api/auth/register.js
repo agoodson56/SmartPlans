@@ -9,13 +9,13 @@ import { isAllowedOrigin, checkRateLimit } from '../../_shared/cors.js';
 const ALLOWED_DOMAIN = '3dtsi.com';
 
 /**
- * Hash a password using PBKDF2 with 100,000 iterations + random 16-byte salt.
+ * Hash a password using PBKDF2 with 600,000 iterations + random 16-byte salt.
  */
 async function hashPasswordPBKDF2(password) {
     const enc = new TextEncoder();
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' }, key, 256);
     const hash = Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
     const saltHex = Array.from(new Uint8Array(salt)).map(b => b.toString(16).padStart(2, '0')).join('');
     return { hash, salt: saltHex };
@@ -26,7 +26,7 @@ export async function onRequestPost(context) {
 
     // H3 fix: IP-based rate limiting for registration
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-    const blocked = await checkRateLimit(env.DB, `reg:${ip}`, 5, 3600);
+    const blocked = await checkRateLimit(env.DB, `reg:${ip}`, 5, 3600, true);
     if (blocked) {
         return Response.json({ error: 'Too many registration attempts. Try again later.' }, { status: 429 });
     }
@@ -75,9 +75,12 @@ export async function onRequestPost(context) {
             return Response.json({ error: 'Invalid email format' }, { status: 400 });
         }
 
-        // Password strength
-        if (password.length < 8) {
-            return Response.json({ error: 'Password must be at least 8 characters' }, { status: 400 });
+        // Password strength — require 12+ chars with uppercase, lowercase, digit, and special char
+        if (password.length < 12) {
+            return Response.json({ error: 'Password must be at least 12 characters' }, { status: 400 });
+        }
+        if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+            return Response.json({ error: 'Password must include uppercase, lowercase, number, and special character' }, { status: 400 });
         }
 
         // Ensure accounts table exists

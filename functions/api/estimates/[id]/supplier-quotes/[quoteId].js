@@ -23,7 +23,7 @@ export async function onRequestGet(context) {
     const origin = request.headers.get('Origin') || '';
     const { id, quoteId } = params;
 
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
@@ -55,7 +55,7 @@ export async function onRequestPut(context) {
     const origin = request.headers.get('Origin') || '';
     const { id, quoteId } = params;
 
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
@@ -103,7 +103,7 @@ export async function onRequestDelete(context) {
     const origin = request.headers.get('Origin') || '';
     const { id, quoteId } = params;
 
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 

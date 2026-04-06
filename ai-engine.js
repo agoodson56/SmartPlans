@@ -473,6 +473,21 @@ const SmartBrains = {
     proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
   },
 
+  // ── Auth token for API calls (set by app.js after login) ──
+  _authToken: '',
+
+  // Called by app.js after login to inject session token into all AI fetch calls
+  setAuthToken(token) {
+    this._authToken = token || '';
+  },
+
+  // Build headers with auth for all /api/ai/* fetch calls
+  _authHeaders(extra = {}) {
+    const headers = { ...extra };
+    if (this._authToken) headers['X-Session-Token'] = this._authToken;
+    return headers;
+  },
+
 
   // ═══════════════════════════════════════════════════════════
   // BRAIN REGISTRY — Each brain is a domain specialist
@@ -720,6 +735,8 @@ const SmartBrains = {
     const result = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/ai/upload');
+      // Auth header for middleware
+      if (SmartBrains._authToken) xhr.setRequestHeader('X-Session-Token', SmartBrains._authToken);
 
       // Track upload progress
       if (rawFile.size > 5 * 1024 * 1024) {
@@ -764,7 +781,7 @@ const SmartBrains = {
       while (Date.now() - startTime < maxWaitMs) {
         await new Promise(r => setTimeout(r, pollIntervalMs));
         try {
-          const checkResponse = await fetch(`/api/ai/file-status?name=${encodeURIComponent(result.name)}&key=${encodeURIComponent(result._usedKeyName || '')}`);
+          const checkResponse = await fetch(`/api/ai/file-status?name=${encodeURIComponent(result.name)}&key=${encodeURIComponent(result._usedKeyName || '')}`, { headers: SmartBrains._authHeaders() });
           if (checkResponse.ok) {
             const status = await checkResponse.json();
             if (status.state === 'ACTIVE') {
@@ -994,7 +1011,8 @@ const SmartBrains = {
       // keySlot is still used as fallback if _uploadKeyName is not available
       let keySlot;
       if (hasUploadedFiles && !uploadKeyName) {
-        // Fallback: pin to slot 0 if key name wasn't tracked
+        // Fallback: pin to slot 0 if key name wasn't tracked (should not happen)
+        console.warn(`[Brain:${brainDef.name}] WARNING: Uploaded files but no _usedKeyName — defaulting to slot 0`);
         keySlot = 0;
       } else {
         // No uploaded files — safe to rotate across all keys
@@ -1038,7 +1056,7 @@ const SmartBrains = {
 
         const response = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this._authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(body),
           signal: controller.signal,
         });
@@ -1236,11 +1254,11 @@ const SmartBrains = {
           : [{ text: promptText }, ...cleanFileParts];
         const fbGenConfig = { temperature: 0.2, maxOutputTokens: brainDef.maxTokens || 16384 };
         if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
-        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % 18 };
+        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: uploadKeyName ? keySlot : brainDef.id % 18 };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
         const ctrl = new AbortController();
         const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
-        const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fbBody), signal: ctrl.signal });
+        const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: this._authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(fbBody), signal: ctrl.signal });
         clearTimeout(tmr);
         if (!fbResp.ok) {
             throw new Error(`Fallback HTTP ${fbResp.status}: ${fbResp.statusText}`);
@@ -1303,7 +1321,7 @@ const SmartBrains = {
         const timer = setTimeout(() => controller.abort(), this.config.timeout);
         const response = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this._authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(fbBody),
           signal: controller.signal,
         });
@@ -4464,7 +4482,7 @@ Return ONLY valid JSON:
         progressCallback(4, '🧠 Creating context cache (saves 90% on API costs)…', this._brainStatus);
         const cacheResp = await fetch('/api/ai/cache', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this._authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             fileUris,
             model: 'models/gemini-2.5-pro',
@@ -4475,7 +4493,9 @@ Return ONLY valid JSON:
         });
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
-          _contextCache = { name: cacheData.cacheName, model: 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
+          // Strip 'models/' prefix — invoke.js constructs 'models/${model}' so we need the plain name
+          const cacheModel = (cacheData.model || 'gemini-2.5-pro').replace(/^models\//, '');
+          _contextCache = { name: cacheData.cacheName, model: cacheModel, keyName: cacheData._usedKeyName };
           console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
           console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error || cacheData._debug);

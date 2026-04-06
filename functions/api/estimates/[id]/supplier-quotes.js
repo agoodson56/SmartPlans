@@ -22,7 +22,7 @@ export async function onRequestGet(context) {
     const origin = request.headers.get('Origin') || '';
     const id = params.id;
 
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
@@ -52,7 +52,7 @@ export async function onRequestPost(context) {
     const origin = request.headers.get('Origin') || '';
     const id = params.id;
 
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 

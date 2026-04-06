@@ -43,7 +43,7 @@ function jsonResp(data, status, origin) {
 // ─── OPTIONS — CORS Preflight ────────────────────────────────
 export async function onRequestOptions({ request }) {
     const origin = request.headers.get('Origin') || '';
-    if (!isAllowedOrigin(origin)) {
+    if (!isAllowedOrigin(origin, false)) {
         return new Response(null, { status: 403 });
     }
     return new Response(null, { headers: corsHeaders(origin) });

@@ -11,7 +11,7 @@ export async function onRequest(context) {
 
     // Handle preflight
     if (request.method === 'OPTIONS') {
-        if (!isAllowedOrigin(origin)) {
+        if (!isAllowedOrigin(origin, false)) {
             return new Response(null, { status: 403 });
         }
         return new Response(null, {
@@ -26,7 +26,7 @@ export async function onRequest(context) {
     }
 
     // Block unauthorized origins
-    if (!isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 

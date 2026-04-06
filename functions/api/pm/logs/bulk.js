@@ -45,7 +45,7 @@ export async function onRequestPost(context) {
 // Handle CORS preflight for cross-domain DELETE-all calls
 export async function onRequestOptions(context) {
     const origin = context.request.headers.get('Origin') || '';
-    if (!isAllowedOrigin(origin)) {
+    if (!isAllowedOrigin(origin, false)) {
         return new Response(null, { status: 403 });
     }
     return new Response(null, {
