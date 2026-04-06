@@ -306,6 +306,223 @@ textarea:focus {
   /* visible by default, hidden on mobile */
 }
 
+/* ─── API Health Traffic Light ─── */
+.api-health-indicator {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.api-health-light {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.api-health-light__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #10b981;
+  transition: background 0.4s ease, box-shadow 0.4s ease;
+  z-index: 1;
+}
+
+.api-health-light__pulse {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #10b981;
+  opacity: 0;
+  z-index: 0;
+}
+
+/* GREEN state */
+.api-health-light[data-status="GREEN"] .api-health-light__dot {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+}
+
+/* YELLOW state */
+.api-health-light[data-status="YELLOW"] .api-health-light__dot {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+}
+.api-health-light[data-status="YELLOW"] .api-health-light__pulse {
+  background: #f59e0b;
+  animation: healthPulse 2s ease-in-out infinite;
+}
+
+/* RED state */
+.api-health-light[data-status="RED"] .api-health-light__dot {
+  background: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+}
+.api-health-light[data-status="RED"] .api-health-light__pulse {
+  background: #ef4444;
+  animation: healthPulse 1s ease-in-out infinite;
+}
+
+@keyframes healthPulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+/* Tooltip (dropdown panel) */
+.api-health-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 260px;
+  background: #1a1a2e;
+  border: 1px solid rgba(180, 140, 20, 0.3);
+  border-radius: 10px;
+  padding: 14px 16px;
+  z-index: 200;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.api-health-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: #1a1a2e;
+  border-top: 1px solid rgba(180, 140, 20, 0.3);
+  border-left: 1px solid rgba(180, 140, 20, 0.3);
+}
+
+.api-health-indicator--open .api-health-tooltip {
+  display: block;
+  animation: tooltipFadeIn 0.2s ease-out;
+}
+
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.api-health-tooltip__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.api-health-tooltip__title {
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.api-health-tooltip__badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.8px;
+}
+
+.api-health-tooltip__badge[data-status="GREEN"] {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+.api-health-tooltip__badge[data-status="YELLOW"] {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+.api-health-tooltip__badge[data-status="RED"] {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.api-health-tooltip__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.api-health-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.api-health-row strong {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+}
+
+.api-health-row--bad strong { color: #ef4444; }
+.api-health-row--warn strong { color: #f59e0b; }
+
+.api-health-tooltip__footer {
+  margin-top: 10px;
+}
+
+.api-health-abort-msg {
+  font-size: 11px;
+  color: #ef4444;
+  font-weight: 600;
+  padding: 6px 0;
+  text-align: center;
+}
+
+.api-health-warn-msg {
+  font-size: 11px;
+  color: #f59e0b;
+  padding: 6px 0;
+  text-align: center;
+}
+
+.api-health-override-msg {
+  font-size: 11px;
+  color: #f59e0b;
+  font-weight: 600;
+  padding: 6px 0;
+  text-align: center;
+}
+
+.api-health-override-btn {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 12px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #f59e0b;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.api-health-override-btn:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+}
+
 /* ─── Step Navigation ─── */
 #step-nav {
   display: flex;

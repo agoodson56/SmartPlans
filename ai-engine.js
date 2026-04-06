@@ -37,6 +37,411 @@
    └─────────────────────────────────────────────────────────┘
    ═══════════════════════════════════════════════════════════════ */
 
+// ═══════════════════════════════════════════════════════════════
+// API HEALTH MONITOR — Real-time traffic-light system health
+// ═══════════════════════════════════════════════════════════════
+// Tracks per-key success/failure/latency in a rolling window.
+// Aggregates into GREEN/YELLOW/RED status with abort control.
+// Designed for extensibility — any API provider can be added.
+// ═══════════════════════════════════════════════════════════════
+
+const APIHealthMonitor = {
+
+  // ── Configuration ──
+  WINDOW_SIZE: 20,          // Rolling window per key slot
+  TOTAL_SLOTS: 18,          // GEMINI_KEY_0 … GEMINI_KEY_17
+  GREEN_THRESHOLD: 0.95,    // ≥95% success = green
+  YELLOW_THRESHOLD: 0.75,   // ≥75% success = yellow, below = red
+  LATENCY_WARN_MS: 30000,   // >30s avg latency = degraded
+  LATENCY_CRIT_MS: 90000,   // >90s avg latency = critical
+  AUTO_ABORT: true,          // Auto-abort on RED (configurable)
+  UPDATE_INTERVAL_MS: 2000,  // UI refresh throttle
+
+  // ── State ──
+  _slots: {},                // Per-key rolling metrics: { [slot]: { results: [], lastSeen: Date } }
+  _status: 'GREEN',         // Current aggregate: GREEN | YELLOW | RED
+  _prevStatus: 'GREEN',     // Previous status (for transition logging)
+  _abortController: null,    // Shared AbortController for analysis abort
+  _analysisActive: false,    // Whether an analysis is currently running
+  _updateTimer: null,        // UI update debounce timer
+  _listeners: [],            // Status change callbacks
+  _lastUIUpdate: 0,          // Timestamp of last DOM update
+  _manualOverride: false,    // User override to continue despite RED
+  _transitionLog: [],        // State transition history
+
+  // ── Initialize ──
+  init() {
+    for (let i = 0; i < this.TOTAL_SLOTS; i++) {
+      this._slots[i] = { results: [], lastSeen: 0 };
+    }
+    this._abortController = new AbortController();
+    this._renderUI();
+    console.log('[HealthMonitor] Initialized — monitoring 18 key slots');
+  },
+
+  // ── Record an API call result ──
+  // Called after every _invokeBrain attempt (success or failure)
+  record(slot, { success, status, latencyMs, model, brain }) {
+    if (slot == null || slot < 0) return;
+    const key = Math.floor(slot) % this.TOTAL_SLOTS;
+    if (!this._slots[key]) {
+      this._slots[key] = { results: [], lastSeen: 0 };
+    }
+    const entry = {
+      ts: Date.now(),
+      success: !!success,
+      status: status || (success ? 200 : 500),
+      latencyMs: latencyMs || 0,
+      model: model || 'unknown',
+      brain: brain || 'unknown',
+    };
+    const results = this._slots[key].results;
+    results.push(entry);
+    // Trim to rolling window
+    if (results.length > this.WINDOW_SIZE) {
+      results.splice(0, results.length - this.WINDOW_SIZE);
+    }
+    this._slots[key].lastSeen = entry.ts;
+
+    // Re-evaluate aggregate health
+    this._evaluate();
+  },
+
+  // ── Evaluate aggregate health from all slots ──
+  _evaluate() {
+    const now = Date.now();
+    let totalCalls = 0;
+    let totalSuccess = 0;
+    let totalLatency = 0;
+    let latencyCount = 0;
+    let activeSlots = 0;
+    let failingSlots = 0;
+    let healthySlots = 0;
+
+    for (let i = 0; i < this.TOTAL_SLOTS; i++) {
+      const slot = this._slots[i];
+      if (!slot || slot.results.length === 0) continue;
+
+      // Only consider recent results (last 10 minutes)
+      const recent = slot.results.filter(r => now - r.ts < 600000);
+      if (recent.length === 0) continue;
+
+      activeSlots++;
+      const successes = recent.filter(r => r.success).length;
+      const rate = successes / recent.length;
+      totalCalls += recent.length;
+      totalSuccess += successes;
+
+      if (rate >= this.GREEN_THRESHOLD) {
+        healthySlots++;
+      } else if (rate < this.YELLOW_THRESHOLD) {
+        failingSlots++;
+      }
+
+      // Latency from successful calls only
+      const successLatencies = recent.filter(r => r.success && r.latencyMs > 0);
+      for (const r of successLatencies) {
+        totalLatency += r.latencyMs;
+        latencyCount++;
+      }
+    }
+
+    // Determine status
+    let newStatus = 'GREEN';
+
+    if (activeSlots === 0) {
+      // No data yet — stay green (neutral)
+      newStatus = 'GREEN';
+    } else {
+      const overallRate = totalCalls > 0 ? totalSuccess / totalCalls : 1;
+      const avgLatency = latencyCount > 0 ? totalLatency / latencyCount : 0;
+
+      // RED conditions (fail-safe: err on side of RED)
+      if (
+        overallRate < (1 - 0.25) ||                    // >25% error rate
+        failingSlots > activeSlots * 0.5 ||            // Majority of active keys failing
+        (totalCalls >= 5 && totalSuccess === 0) ||     // 5+ calls, zero success
+        avgLatency > this.LATENCY_CRIT_MS              // Critical latency
+      ) {
+        newStatus = 'RED';
+      }
+      // YELLOW conditions
+      else if (
+        overallRate < this.GREEN_THRESHOLD ||           // 5-25% error rate
+        failingSlots > 0 ||                             // Any key failing
+        avgLatency > this.LATENCY_WARN_MS               // Elevated latency
+      ) {
+        newStatus = 'YELLOW';
+      }
+    }
+
+    // Log state transitions
+    if (newStatus !== this._status) {
+      const transition = {
+        from: this._status,
+        to: newStatus,
+        ts: now,
+        activeSlots,
+        healthySlots,
+        failingSlots,
+        totalCalls,
+        successRate: totalCalls > 0 ? (totalSuccess / totalCalls * 100).toFixed(1) + '%' : 'N/A',
+      };
+      this._transitionLog.push(transition);
+      console.warn(`[HealthMonitor] ${this._status} → ${newStatus} | Active: ${activeSlots} slots, Healthy: ${healthySlots}, Failing: ${failingSlots}, Success rate: ${transition.successRate}`);
+
+      this._prevStatus = this._status;
+      this._status = newStatus;
+
+      // Fire listeners
+      for (const fn of this._listeners) {
+        try { fn(newStatus, transition); } catch (e) { /* ignore */ }
+      }
+
+      // Auto-abort on RED
+      if (newStatus === 'RED' && this.AUTO_ABORT && this._analysisActive && !this._manualOverride) {
+        console.error('[HealthMonitor] RED status — triggering analysis abort');
+        this.abortAnalysis('API health critical — majority of keys failing');
+      }
+    }
+
+    // Throttled UI update
+    this._scheduleUIUpdate();
+  },
+
+  // ── Abort control ──
+  abortAnalysis(reason) {
+    if (this._abortController && !this._abortController.signal.aborted) {
+      console.error(`[HealthMonitor] ABORT: ${reason}`);
+      this._abortController.abort(reason);
+    }
+    this._updateUI();
+  },
+
+  // Reset abort controller (call before starting new analysis)
+  resetAbort() {
+    this._abortController = new AbortController();
+    this._manualOverride = false;
+    this._analysisActive = true;
+  },
+
+  // Mark analysis as complete
+  analysisComplete() {
+    this._analysisActive = false;
+    this._updateUI();
+  },
+
+  // Check if aborted
+  isAborted() {
+    return this._abortController?.signal?.aborted || false;
+  },
+
+  // Get the signal for fetch calls
+  getSignal() {
+    return this._abortController?.signal;
+  },
+
+  // Manual override — user wants to continue despite RED
+  setManualOverride(enabled) {
+    this._manualOverride = !!enabled;
+    if (enabled) {
+      console.warn('[HealthMonitor] Manual override ENABLED — continuing despite RED status');
+    }
+    this._updateUI();
+  },
+
+  // ── Status accessors ──
+  getStatus() { return this._status; },
+
+  getSummary() {
+    const now = Date.now();
+    let active = 0, healthy = 0, failing = 0, degraded = 0;
+    let totalCalls = 0, totalSuccess = 0;
+
+    for (let i = 0; i < this.TOTAL_SLOTS; i++) {
+      const slot = this._slots[i];
+      if (!slot || slot.results.length === 0) continue;
+      const recent = slot.results.filter(r => now - r.ts < 600000);
+      if (recent.length === 0) continue;
+
+      active++;
+      const successes = recent.filter(r => r.success).length;
+      const rate = successes / recent.length;
+      totalCalls += recent.length;
+      totalSuccess += successes;
+
+      if (rate >= this.GREEN_THRESHOLD) healthy++;
+      else if (rate < this.YELLOW_THRESHOLD) failing++;
+      else degraded++;
+    }
+
+    return {
+      status: this._status,
+      active, healthy, failing, degraded,
+      successRate: totalCalls > 0 ? Math.round(totalSuccess / totalCalls * 100) : 100,
+      totalCalls,
+      analysisActive: this._analysisActive,
+      isAborted: this.isAborted(),
+      manualOverride: this._manualOverride,
+    };
+  },
+
+  // ── Event listeners ──
+  onStatusChange(fn) {
+    this._listeners.push(fn);
+  },
+
+  // ── UI Rendering ──
+  _scheduleUIUpdate() {
+    const now = Date.now();
+    if (now - this._lastUIUpdate < this.UPDATE_INTERVAL_MS) {
+      if (!this._updateTimer) {
+        this._updateTimer = setTimeout(() => {
+          this._updateTimer = null;
+          this._updateUI();
+        }, this.UPDATE_INTERVAL_MS);
+      }
+      return;
+    }
+    this._updateUI();
+  },
+
+  _renderUI() {
+    // Create the traffic light container in the header
+    const header = document.getElementById('app-header');
+    if (!header) return;
+
+    // Insert after logo, before usage-stats
+    let indicator = document.getElementById('api-health-indicator');
+    if (indicator) return; // Already rendered
+
+    indicator = document.createElement('div');
+    indicator.id = 'api-health-indicator';
+    indicator.className = 'api-health-indicator';
+    indicator.innerHTML = `
+      <div class="api-health-light" id="api-health-light" data-status="GREEN">
+        <div class="api-health-light__dot"></div>
+        <div class="api-health-light__pulse"></div>
+      </div>
+      <div class="api-health-tooltip" id="api-health-tooltip">
+        <div class="api-health-tooltip__header">
+          <span class="api-health-tooltip__title">API Health</span>
+          <span class="api-health-tooltip__badge" id="api-health-badge">HEALTHY</span>
+        </div>
+        <div class="api-health-tooltip__body" id="api-health-body">
+          All systems operational
+        </div>
+        <div class="api-health-tooltip__footer" id="api-health-footer"></div>
+      </div>
+    `;
+
+    // Insert after .header-logo
+    const logo = header.querySelector('.header-logo');
+    if (logo) {
+      logo.after(indicator);
+    } else {
+      header.prepend(indicator);
+    }
+
+    // Click to toggle tooltip
+    const light = indicator.querySelector('.api-health-light');
+    light.addEventListener('click', (e) => {
+      e.stopPropagation();
+      indicator.classList.toggle('api-health-indicator--open');
+    });
+
+    // Close tooltip on outside click
+    document.addEventListener('click', (e) => {
+      if (!indicator.contains(e.target)) {
+        indicator.classList.remove('api-health-indicator--open');
+      }
+    });
+  },
+
+  _updateUI() {
+    this._lastUIUpdate = Date.now();
+    const summary = this.getSummary();
+
+    const light = document.getElementById('api-health-light');
+    const badge = document.getElementById('api-health-badge');
+    const body = document.getElementById('api-health-body');
+    const footer = document.getElementById('api-health-footer');
+    if (!light) return;
+
+    // Update light color
+    light.setAttribute('data-status', summary.status);
+
+    // Update badge
+    const badgeMap = {
+      GREEN: 'HEALTHY',
+      YELLOW: 'DEGRADED',
+      RED: summary.isAborted ? 'ABORTED' : 'CRITICAL',
+    };
+    if (badge) {
+      badge.textContent = badgeMap[summary.status] || summary.status;
+      badge.setAttribute('data-status', summary.status);
+    }
+
+    // Update body
+    if (body) {
+      if (summary.totalCalls === 0) {
+        body.innerHTML = `<span style="color:var(--text-muted);">Waiting for API activity...</span>`;
+      } else {
+        const lines = [];
+        lines.push(`<div class="api-health-row"><span>Active Keys</span><strong>${summary.healthy}/${summary.active} healthy</strong></div>`);
+        if (summary.failing > 0) lines.push(`<div class="api-health-row api-health-row--bad"><span>Failing Keys</span><strong>${summary.failing}</strong></div>`);
+        if (summary.degraded > 0) lines.push(`<div class="api-health-row api-health-row--warn"><span>Degraded Keys</span><strong>${summary.degraded}</strong></div>`);
+        lines.push(`<div class="api-health-row"><span>Success Rate</span><strong>${summary.successRate}%</strong></div>`);
+        lines.push(`<div class="api-health-row"><span>Total Calls</span><strong>${summary.totalCalls}</strong></div>`);
+        body.innerHTML = lines.join('');
+      }
+    }
+
+    // Update footer with abort controls
+    if (footer) {
+      if (summary.status === 'RED' && summary.analysisActive) {
+        if (summary.isAborted) {
+          footer.innerHTML = `<div class="api-health-abort-msg">Analysis aborted — API health critical</div>`;
+        } else if (summary.manualOverride) {
+          footer.innerHTML = `<div class="api-health-override-msg">⚠️ Override active — running despite failures</div>`;
+        } else if (this.AUTO_ABORT) {
+          footer.innerHTML = `
+            <div class="api-health-abort-msg">Auto-abort triggered</div>
+            <button class="api-health-override-btn" id="api-health-override-btn">Override & Continue</button>
+          `;
+          const overrideBtn = document.getElementById('api-health-override-btn');
+          if (overrideBtn) {
+            overrideBtn.addEventListener('click', () => {
+              this.setManualOverride(true);
+            });
+          }
+        }
+      } else if (summary.status === 'YELLOW' && summary.analysisActive) {
+        footer.innerHTML = `<div class="api-health-warn-msg">Some keys degraded — retries may be slower</div>`;
+      } else {
+        footer.innerHTML = '';
+      }
+    }
+  },
+
+  // ── Debug: dump full state to console ──
+  dump() {
+    console.group('[HealthMonitor] Full State Dump');
+    console.log('Status:', this._status);
+    console.log('Summary:', this.getSummary());
+    console.log('Transitions:', this._transitionLog);
+    for (let i = 0; i < this.TOTAL_SLOTS; i++) {
+      const slot = this._slots[i];
+      if (slot && slot.results.length > 0) {
+        const rate = slot.results.filter(r => r.success).length / slot.results.length;
+        console.log(`  Slot ${i}: ${slot.results.length} calls, ${(rate * 100).toFixed(0)}% success, last: ${new Date(slot.lastSeen).toLocaleTimeString()}`);
+      }
+    }
+    console.groupEnd();
+  },
+};
+
+
 const SmartBrains = {
 
   VERSION: '5.0.0',
@@ -512,6 +917,7 @@ const SmartBrains = {
   async _invokeBrain(brainKey, brainDef, promptText, fileParts, useJsonMode) {
     const maxRetries = this.config.maxRetries;
     let lastError = null;
+    let _callStartTime = 0; // Track latency per attempt
 
     // Determine model and URL up front (accessible in fallback block)
     let modelName = brainDef.useProModel ? (this.config.proModel || this.config.model) : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
@@ -551,6 +957,12 @@ const SmartBrains = {
 
     let _fileDataStripped = false;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+      // ── Health monitor: check abort before each attempt ──
+      if (APIHealthMonitor.isAborted() && !APIHealthMonitor._manualOverride) {
+        throw new Error(`Brain "${brainDef.name}" aborted — API health critical`);
+      }
+      _callStartTime = Date.now();
+
       // If a previous attempt got 400 with fileData, strip file references and use inline only
       let activeParts = cleanFileParts;
       if (_fileDataStripped) {
@@ -628,6 +1040,13 @@ const SmartBrains = {
         // Errors come through as _proxyError events in the stream.
         // Non-proxy responses (direct API) may still return error codes.
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
+          // ── Health monitor: record HTTP-level failure ──
+          APIHealthMonitor.record(keySlot, {
+            success: false, status: response.status,
+            latencyMs: Date.now() - _callStartTime,
+            model: useCache ? this._contextCache.model : modelName,
+            brain: brainDef.name,
+          });
           const nextSlot = (brainDef.id + attempt + 1) % 18;
           const delay = this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500;
           console.warn(`[Brain:${brainDef.name}] API ${response.status}, rotating to key slot ${nextSlot}, retrying in ${Math.round(delay)}ms`);
@@ -758,10 +1177,24 @@ const SmartBrains = {
         }
 
         console.log(`[Brain:${brainDef.name}] ✓ Complete (${text.length} chars, attempt ${attempt + 1})`);
+        // ── Health monitor: record success ──
+        APIHealthMonitor.record(keySlot, {
+          success: true, status: 200,
+          latencyMs: Date.now() - _callStartTime,
+          model: useCache ? this._contextCache.model : modelName,
+          brain: brainDef.name,
+        });
         return text;
 
       } catch (err) {
         lastError = err;
+        // ── Health monitor: record failure ──
+        APIHealthMonitor.record(keySlot, {
+          success: false, status: err.status || (err.name === 'AbortError' ? 504 : 500),
+          latencyMs: Date.now() - _callStartTime,
+          model: useCache ? this._contextCache.model : modelName,
+          brain: brainDef.name,
+        });
         if (err._retryable) {
           if (err._stripFileData && !_fileDataStripped) {
             _fileDataStripped = true;
@@ -822,11 +1255,14 @@ const SmartBrains = {
         }
         if (fbText && fbText.length >= 20) {
           console.log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
+          APIHealthMonitor.record(brainDef.id % 18, { success: true, status: 200, latencyMs: Date.now() - _callStartTime, model: fbModel, brain: brainDef.name });
           return fbText;
         }
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty`);
+        APIHealthMonitor.record(brainDef.id % 18, { success: false, status: 204, latencyMs: Date.now() - _callStartTime, model: fbModel, brain: brainDef.name });
       } catch (fbErr) {
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} failed: ${fbErr.message}`);
+        APIHealthMonitor.record(brainDef.id % 18, { success: false, status: 500, latencyMs: Date.now() - _callStartTime, model: fbModel, brain: brainDef.name });
       }
     }
 
@@ -3982,6 +4418,9 @@ Return ONLY valid JSON:
   // ═══════════════════════════════════════════════════════════
 
   async runFullAnalysis(state, progressCallback) {
+    // ── Health monitor: reset abort controller for new analysis ──
+    APIHealthMonitor.resetAbort();
+
     console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
     console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
     console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
@@ -4432,6 +4871,9 @@ Return ONLY valid JSON:
 
     progressCallback(100, '🎯 Analysis complete — 27 brains finished!', this._brainStatus);
 
+    // ── Health monitor: mark analysis complete ──
+    APIHealthMonitor.analysisComplete();
+
     return {
       report: finalReport,
       brainResults: {
@@ -4450,6 +4892,7 @@ Return ONLY valid JSON:
         consensusDisputes: disputes.length,
         devilRiskScore: devil?.risk_score || null,
         reverseVerificationScore: reverseV?.verification_score || null,
+        apiHealth: APIHealthMonitor.getSummary(),
       },
     };
   },

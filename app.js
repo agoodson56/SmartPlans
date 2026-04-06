@@ -1084,6 +1084,7 @@ const Auth = {
 
     render();
     QuotaMonitor.start();
+    if (typeof APIHealthMonitor !== 'undefined') APIHealthMonitor.init();
     UsageStats.start();
     SecurityDashboard.init();
   },
@@ -8584,6 +8585,7 @@ async function runGeminiAnalysis(updateProgress) {
 
   } catch (err) {
     console.error("[SmartBrains] Multi-Brain Analysis Error:", err);
+    if (typeof APIHealthMonitor !== 'undefined') APIHealthMonitor.analysisComplete();
 
     // ─── FALLBACK: Try legacy single-brain call ───
     console.warn('[SmartPlans] Falling back to legacy single-brain analysis…');
@@ -12830,6 +12832,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.debug('[SmartPlans] Session restored — user:', _currentUser?.name || _currentUser?.email || 'unknown');
     render();
     QuotaMonitor.start();
+    if (typeof APIHealthMonitor !== 'undefined') APIHealthMonitor.init();
     UsageStats.start();
     SecurityDashboard.init();
   } else {
