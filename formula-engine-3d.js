@@ -65,6 +65,20 @@ const FormulaEngine3D = {
             "25_warehouse":        { base: 28.00, pti: 0.59,   burdened: 44.52,  sell: 65 },
             "30_admin":            { base: 30.00, pti: 0.57,   burdened: 47.10,  sell: 70 },
         },
+        // PW General (Stanislaus County / Modesto — higher jurisdiction rates)
+        pw_general: {
+            "01_project_manager":  { base: 48.00, pti: 0.59,   burdened: 76.32,  sell: 112 },
+            "02_foreman":          { base: 80.80, pti: 0.35,   burdened: 109.08, sell: 150 },
+            "05_cable_installer":  { base: 73.78, pti: 0.35,   burdened: 99.60,  sell: 145 },
+            "06_data_tech_i":      { base: 73.78, pti: 0.35,   burdened: 99.60,  sell: 145 },
+            "07_data_tech_ii":     { base: 73.78, pti: 0.35,   burdened: 99.60,  sell: 145 },
+            "08_data_tech_iii":    { base: 73.78, pti: 0.35,   burdened: 99.60,  sell: 145 },
+            "09_data_tech_iv":     { base: 73.78, pti: 0.35,   burdened: 99.60,  sell: 145 },
+            "10_cad":              { base: 38.00, pti: 0.55,   burdened: 58.90,  sell: 85 },
+            "20_engineer":         { base: 40.00, pti: 0.55,   burdened: 62.00,  sell: 90 },
+            "25_warehouse":        { base: 28.00, pti: 0.59,   burdened: 44.52,  sell: 65 },
+            "30_admin":            { base: 30.00, pti: 0.57,   burdened: 47.10,  sell: 70 },
+        },
         // SAGE ERP sell rates (Emeryville/Martinez transit — different model)
         sage_transit: {
             // SAGE uses cost × 1.39240 for labor sell
@@ -95,19 +109,22 @@ const FormulaEngine3D = {
         },
     },
 
-    // ─── Material Markup (Format A — verified from actual bids) ──
-    // Standard M/U = 0.42 on cost (= 29.6% margin)
-    // SAGE ERP transit uses flat 1.51424× factor instead
+    // ─── Material Markup (verified from actual bids) ──
+    // NPW jobs: 42% markup (SAC JC, 500 Capitol, Indians)
+    // PW jobs: 51.5% markup (Modesto Library TELEDATA)
+    // SAGE ERP transit: flat 1.51424× factor (Emeryville/Martinez)
     materialMarkup: {
-        standard:       0.42,   // Standard markup on cost (Format A)
+        npw:            0.42,   // Non-Prevailing Wage markup on cost
+        pw:             0.515,  // Prevailing Wage markup on cost (Modesto Library verified)
         sage_factor:    1.51424, // SAGE ERP material sell factor (Emeryville/Martinez)
         formatB_margin: 0.30,   // Format B uses 30% margin (= cost / 0.70 = 1.4286× factor)
     },
 
     // ─── Commission by System Type (verified across all bids) ──
     commissionRates: {
-        card_access: 0.04,  // 4% — SAC JC, Sam Brennan templates
-        cctv:        0.04,  // 4% — Sam Brennan CCTV template
+        card_access: 0.04,  // 4% — SAC JC, Sam Brennan, Modesto Library
+        cctv:        0.04,  // 4% — Sam Brennan, Modesto Library
+        intrusion:   0.04,  // 4% — Modesto Library confirmed
         _default:    0.03,  // 3% — everything else (teledata, backbone, fire alarm, etc.)
     },
 
@@ -119,6 +136,17 @@ const FormulaEngine3D = {
     materialSlush: 50,        // $50 flat buffer per system
     warrantyFlat: { cost: 295, sell: 354 },  // Flat warranty per system (verified all bids)
     bondsPct: 0.02,           // 2% bonds (verified all bids)
+
+    // ─── Other Cost Markups (verified from Modesto Library + all prior bids) ──
+    otherCostMarkups: {
+        subcontractor:   0.20,  // 20% markup on subs
+        licensepermit:   0.15,  // 15% markup on licenses/permits
+        lift:            0.25,  // 25% markup on lift/equipment rental
+        container:       0.20,  // 20% markup on on-site container
+        mileageRate:     0.63,  // $/mile
+        parkingRate:     15.00, // $/day
+        perDiemRate:     42.00, // $/day
+    },
 
     // ─── Overhead Percentages (verified from Emeryville/Martinez/CHP) ──
     overhead: {
@@ -282,15 +310,25 @@ const FormulaEngine3D = {
     _getRateTable(state) {
         const isPW = (state.prevailingWage === 'yes' || state.prevailingWage === true);
         if (!isPW) return this.laborRates.npw;
-        // Use Sacramento PW rates as default
-        return this.laborRates.pw_sacramento;
+        // PW rate selection: Sacramento-specific jurisdictions use pw_sacramento,
+        // otherwise use pw_general (higher rates = safer default for PW bids)
+        const loc = (state.projectLocation || '').toLowerCase();
+        if (/sacramento|rancho\s*cordova|elk\s*grove|citrus\s*heights|folsom|roseville/i.test(loc)) {
+            return this.laborRates.pw_sacramento;
+        }
+        if (/1515\s*s\s*st/i.test(state.projectName || '')) {
+            return this.laborRates.pw_1515;
+        }
+        return this.laborRates.pw_general;
     },
 
-    _getMaterialMarkup(systemType, isTransit) {
+    _getMaterialMarkup(systemType, isTransit, isPW) {
         // Transit/SAGE projects use the 1.51424 factor (51.4% markup)
         if (isTransit) return this.materialMarkup.sage_factor - 1; // 0.51424
-        // Standard Format A: 42% on cost
-        return this.materialMarkup.standard;
+        // PW jobs use higher 51.5% markup (verified from Modesto Library)
+        if (isPW) return this.materialMarkup.pw;
+        // NPW jobs use 42% markup (verified from SAC JC, 500 Capitol, Indians)
+        return this.materialMarkup.npw;
     },
 
     _getCommissionRate(systemType) {
@@ -383,7 +421,7 @@ const FormulaEngine3D = {
         };
 
         for (const [sysType, sys] of Object.entries(systems)) {
-            const markup = this._getMaterialMarkup(sysType, isTransit);
+            const markup = this._getMaterialMarkup(sysType, isTransit, isPW);
             const commRate = this._getCommissionRate(sysType);
 
             // Material: cost + 1% misc + $50 slush
