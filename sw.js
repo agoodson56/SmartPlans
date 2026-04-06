@@ -1,4 +1,4 @@
-const CACHE_NAME = 'smartplans-v5.64.0';
+const CACHE_NAME = 'smartplans-v5.65.0';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -6,6 +6,8 @@ const APP_SHELL = [
     '/ai-engine.js',
     '/export-engine.js',
     '/formula-engine-3d.js',
+    '/cable-analyzer.js',
+    '/scale-calibration.js',
     '/pricing-database.js',
     '/prevailing-wages-ca.js',
     '/prevailing-wages-national.js',

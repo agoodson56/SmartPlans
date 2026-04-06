@@ -379,6 +379,22 @@ const CableAnalyzer = {
         dims[sh.sheet_id] = { w: sh.sheet_area_width_ft, d: sh.sheet_area_depth_ft };
       }
     });
+    // Merge manual scale overrides from ScaleCalibration module
+    if (typeof ScaleCalibration !== 'undefined') {
+      const sheets = ScaleCalibration._sheets || {};
+      Object.keys(sheets).forEach(sheetId => {
+        const sc = sheets[sheetId];
+        const resolved = sc.manualScale || sc.aiScale || sc.doorScale;
+        if (resolved && sc.pixelWidth && sc.pixelHeight) {
+          // Convert pixel dimensions to feet using resolved scale (px/ft)
+          const wFt = sc.pixelWidth / resolved;
+          const dFt = sc.pixelHeight / resolved;
+          if (wFt > 0 && dFt > 0) {
+            dims[sheetId] = { w: wFt, d: dFt };
+          }
+        }
+      });
+    }
     return dims;
   },
 

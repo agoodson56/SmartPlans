@@ -86,6 +86,7 @@ const SmartBrains = {
     SPEC_CROSS_REF: { id: 21, name: 'Spec Cross-Reference', wave: 1, emoji: '📑', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     ANNOTATION_READER: { id: 22, name: 'Annotation Reader', wave: 1, emoji: '💬', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     RISER_DIAGRAM_ANALYZER: { id: 23, name: 'Riser Diagram Analyzer', wave: 1, emoji: '📶', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
+    DEVICE_LOCATOR: { id: 28, name: 'Device Locator', wave: 1, emoji: '📍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 1.5: Second Read — Independent Verification (all Gemini 3.1 Pro) ──
     SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
@@ -1106,6 +1107,7 @@ const SmartBrains = {
     SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies', 'true_change_orders'],
     ANNOTATION_READER: ['annotations', 'referenced_details'],
     RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
+    DEVICE_LOCATOR: ['devices'],
     ZOOM_SCANNER: ['quadrant_counts', 'zoom_findings'],
     PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
     OVERLAP_DETECTOR: ['overlapping_areas', 'potential_duplicates'],
@@ -2676,6 +2678,14 @@ Return ONLY valid JSON:
       "notes": "No scale bar — derived from 36-inch door opening"
     }
   ],
+  "pixel_calibration": {
+    "description": "Reference measurement for pixel-to-feet conversion (from scale bar, dimension line, or door)",
+    "point1": { "x_px": 100, "y_px": 500 },
+    "point2": { "x_px": 340, "y_px": 500 },
+    "distance_ft": 30,
+    "pixels_per_ft": 8.0,
+    "source": "dimension_line"
+  },
   "building_dimensions": {
     "overall_width_ft": 450,
     "overall_depth_ft": 300,
@@ -2703,6 +2713,13 @@ Return ONLY valid JSON:
   "multi_building": false,
   "notes": []
 }
+
+PIXEL CALIBRATION (IMPORTANT for automated cable measurement):
+- If you detect a scale bar, dimension line, or door on ANY sheet, record two pixel coordinates on the image that correspond to a known real-world distance.
+- Include "pixel_calibration" in your output with point1 (x_px, y_px), point2 (x_px, y_px), and distance_ft.
+- pixels_per_ft = pixel_distance_between_points / distance_ft
+- This enables automated device-to-device distance measurement from the uploaded images.
+- Pixel coordinates are relative to the full uploaded image (0,0 = top-left).
 
 RULES:
 - "scale_method" MUST be one of: "title_block", "scale_bar", "dimension_line", "door_reference", "unable"
@@ -3350,6 +3367,91 @@ Return ONLY valid JSON:
   "total_backbone_cost_items": 0
 }`,
 
+      // ── BRAIN 28: Device Locator (Wave 1) ───────────────────────
+      DEVICE_LOCATOR: () => `You are a DEVICE POSITION MAPPER for ELV construction plan sheets.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+LEGEND (decoded symbols):
+${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 2000)}
+
+SPATIAL LAYOUT (sheet data):
+${JSON.stringify((context.wave0?.SPATIAL_LAYOUT?.sheets || []).map(s => ({ sheet_id: s.sheet_id, scale: s.scale, width_ft: s.sheet_area_width_ft, depth_ft: s.sheet_area_depth_ft })), null, 2).substring(0, 2000)}
+
+YOUR MISSION: For every ELV device symbol on every plan sheet, record its PIXEL POSITION on the image.
+This data is used for automated cable run length measurement.
+
+INSTRUCTIONS:
+1. For each sheet, identify ALL device symbols (cameras, readers, WAPs, speakers, detectors, panels, etc.)
+2. Record the pixel coordinates (x_px, y_px) of each device's CENTER POINT on the uploaded image
+3. Mark IDF/MDF/telecom rooms/FACP panels as "is_home_run: true" — these are cable destination points
+4. Assign each device a unique ID using its label from the drawing (e.g., "CAM-01", "CR-3", "WAP-2F-01")
+5. Also detect DOOR SWINGS and record the hinge point and latch edge coordinates for scale calibration
+
+SCALE CALIBRATION SUPPORT:
+- Look for door swings (quarter-circle arcs with straight door leaf line)
+- Record the hinge point (x1_px, y1_px) and latch edge (x2_px, y2_px) of each door
+- Standard commercial door = 36" wide (3 feet)
+- This data enables automatic scale calibration from door measurements
+
+Return ONLY valid JSON:
+{
+  "devices": [
+    {
+      "id": "CAM-01",
+      "type": "camera",
+      "sheet_id": "E1.01",
+      "x_px": 1432,
+      "y_px": 890,
+      "x_pct": 45.2,
+      "y_pct": 62.1,
+      "floor": 1,
+      "is_home_run": false,
+      "home_run_id": "IDF-1",
+      "mount_type": "ceiling",
+      "label": "Camera C-1"
+    }
+  ],
+  "home_runs": [
+    {
+      "id": "IDF-1",
+      "type": "idf",
+      "sheet_id": "E1.01",
+      "x_px": 200,
+      "y_px": 450,
+      "x_pct": 6.3,
+      "y_pct": 31.5,
+      "floor": 1,
+      "is_home_run": true,
+      "label": "Telecom Room 101"
+    }
+  ],
+  "doors": [
+    {
+      "sheet_id": "E1.01",
+      "x1_px": 500,
+      "y1_px": 300,
+      "x2_px": 530,
+      "y2_px": 300,
+      "type": "commercial_single",
+      "arc_radius_px": 30
+    }
+  ],
+  "image_dimensions": {
+    "width_px": 3200,
+    "height_px": 2400
+  }
+}
+
+CRITICAL RULES:
+- Pixel coordinates must be relative to the FULL uploaded image (0,0 = top-left corner)
+- Also provide x_pct/y_pct as percentage positions (0-100) for compatibility with existing systems
+- Include ALL devices, not just one type — cameras, readers, WAPs, speakers, detectors, EVERYTHING
+- For multi-sheet uploads, include sheet_id on every device so positions map to the correct sheet
+- home_run_id should reference the nearest IDF/MDF/panel the device would cable back to
+- mount_type: "ceiling" for ceiling devices, "wall" for wall-mount, "floor" for floor/desk mount`,
+
       // ── BRAIN 24: Zoom Scanner (Wave 1.5) ───────────────────────
       ZOOM_SCANNER: () => `You are a HIGH-MAGNIFICATION ZOOM SCANNER for ELV device symbols. Divide each sheet into 4 quadrants and count with extreme precision.
 
@@ -3825,7 +3927,7 @@ Return ONLY valid JSON:
 
     // ═══ WAVE 1: First Read — Document Intelligence (8 parallel brains) ═══
     progressCallback(12, '🔍 Wave 1: First Read — 8 brains scanning…', this._brainStatus);
-    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER'];
+    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR'];
     const wave1Results = await this._runWave(1, wave1Keys, encodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
     console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');

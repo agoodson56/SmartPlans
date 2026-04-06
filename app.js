@@ -575,6 +575,10 @@ const state = {
   isTransitRailroad: false,  // Explicit toggle — triggers higher markups, RWIC, RPL, etc.
   _engine3DOpen: false,       // 3D engine card expanded state
   _engine3DResult: null,      // Cached result from FormulaEngine3D.computeBid()
+  _scaleCalibration: null,    // ScaleCalibration summary data
+  _scaleCalibrationOpen: false,
+  _cableSchedule: null,       // CableAnalyzer schedule output
+  scaleOverrides: {},         // Manual per-sheet scale overrides
 
   // Travel & Per Diem (configured on Stage 6 after analysis)
   travel: {
@@ -3714,6 +3718,100 @@ function renderStep5(container) {
 }
 
 
+// ─── Scale Calibration & Distance Measurement Card ───
+function buildScaleCalibrationCard(st) {
+  if (typeof ScaleCalibration === 'undefined') return '';
+  const summary = st._scaleCalibration || ScaleCalibration.getSummary();
+  if (!summary?.sheets?.length) return '';
+
+  const isOpen = st._scaleCalibrationOpen || false;
+  const cable = st._cableSchedule;
+
+  const confColor = (c) => c >= 80 ? '#10B981' : c >= 50 ? '#F59E0B' : '#EF4444';
+  const srcLabel = (s) => s === 'ai' ? 'AI Detected' : s === 'door' ? 'Door Calibration' : s === 'manual' ? 'Manual Override' : 'None';
+  const srcBadge = (s) => {
+    const colors = { ai: 'rgba(99,102,241,0.1);color:#6366F1', door: 'rgba(245,158,11,0.1);color:#D97706', manual: 'rgba(16,185,129,0.1);color:#10B981' };
+    return `<span style="display:inline-block;padding:2px 6px;background:${colors[s] || 'rgba(0,0,0,0.05);color:#666'};font-size:10px;font-weight:700;border-radius:3px;">${srcLabel(s)}</span>`;
+  };
+
+  const sheetRows = summary.sheets.map(sh => `
+    <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+      <td style="padding:6px 10px;font-weight:600;font-size:12px;">${esc(sh.sheetId)}</td>
+      <td style="padding:6px 10px;font-size:12px;">${srcBadge(sh.scaleSource)}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;">${sh.pixelsPerFoot ? sh.pixelsPerFoot.toFixed(1) + ' px/ft' : '—'}</td>
+      <td style="padding:6px 10px;text-align:center;">
+        <span style="display:inline-block;width:40px;height:6px;background:rgba(0,0,0,0.08);border-radius:3px;overflow:hidden;">
+          <span style="display:block;width:${sh.confidence}%;height:100%;background:${confColor(sh.confidence)};border-radius:3px;"></span>
+        </span>
+        <span style="font-size:10px;color:${confColor(sh.confidence)};margin-left:4px;">${sh.confidence}%</span>
+      </td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;">${sh.deviceCount}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;">${sh.homeRunCount}</td>
+    </tr>
+  `).join('');
+
+  const cableSummary = cable ? `
+    <div style="display:flex;gap:12px;margin-top:12px;">
+      <div style="flex:1;padding:10px 14px;background:rgba(14,165,233,0.06);border:1px solid rgba(14,165,233,0.15);border-radius:8px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.45);font-weight:600;">Total Cable</div>
+        <div style="font-size:18px;font-weight:800;color:#0EA5E9;margin-top:2px;">${cable.totals.totalFt.toLocaleString()} ft</div>
+      </div>
+      <div style="flex:1;padding:10px 14px;background:rgba(14,165,233,0.06);border:1px solid rgba(14,165,233,0.15);border-radius:8px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.45);font-weight:600;">Devices</div>
+        <div style="font-size:18px;font-weight:800;color:#0EA5E9;margin-top:2px;">${cable.totals.totalDevices}</div>
+      </div>
+      <div style="flex:1;padding:10px 14px;background:rgba(14,165,233,0.06);border:1px solid rgba(14,165,233,0.15);border-radius:8px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.45);font-weight:600;">Avg Run</div>
+        <div style="font-size:18px;font-weight:800;color:#0EA5E9;margin-top:2px;">${cable.totals.avgRunFt} ft</div>
+      </div>
+      <div style="flex:1;padding:10px 14px;background:${cable.totals.tiaViolationCount > 0 ? 'rgba(239,68,68,0.06)' : 'rgba(14,165,233,0.06)'};border:1px solid ${cable.totals.tiaViolationCount > 0 ? 'rgba(239,68,68,0.15)' : 'rgba(14,165,233,0.15)'};border-radius:8px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.45);font-weight:600;">TIA Violations</div>
+        <div style="font-size:18px;font-weight:800;color:${cable.totals.tiaViolationCount > 0 ? '#EF4444' : '#10B981'};margin-top:2px;">${cable.totals.tiaViolationCount}</div>
+      </div>
+    </div>` : '';
+
+  return `
+    <div class="info-card" id="scale-calibration-card" style="border-left:3px solid #0EA5E9;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="scale-calibration-toggle">
+        <h3 class="info-card-title" style="margin:0;">
+          <i data-lucide="ruler" style="width:16px;height:16px;"></i> SCALE CALIBRATION & CABLE MEASUREMENT
+          <span style="display:inline-block;padding:2px 8px;background:rgba(14,165,233,0.1);color:#0EA5E9;font-size:10px;font-weight:700;border-radius:4px;margin-left:8px;">${summary.sheets.length} SHEETS</span>
+        </h3>
+        <span style="font-size:11px;color:rgba(0,0,0,0.4);text-transform:uppercase;letter-spacing:1px;">${isOpen ? '&#9650; COLLAPSE' : '&#9660; EXPAND'}</span>
+      </div>
+
+      ${cableSummary}
+
+      <div id="scale-calibration-body" style="display:${isOpen ? 'block' : 'none'};margin-top:16px;">
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-family:var(--font-sans);">
+            <thead>
+              <tr style="background:rgba(14,165,233,0.06);border-bottom:2px solid rgba(14,165,233,0.15);">
+                <th style="padding:6px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Sheet</th>
+                <th style="padding:6px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Scale Source</th>
+                <th style="padding:6px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Resolution</th>
+                <th style="padding:6px 10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Confidence</th>
+                <th style="padding:6px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Devices</th>
+                <th style="padding:6px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">IDFs</th>
+              </tr>
+            </thead>
+            <tbody>${sheetRows}</tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:12px;padding:10px 14px;background:rgba(14,165,233,0.04);border:1px solid rgba(14,165,233,0.1);border-radius:6px;">
+          <div style="font-size:11px;font-weight:700;color:rgba(0,0,0,0.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">How It Works</div>
+          <div style="font-size:12px;color:rgba(0,0,0,0.6);line-height:1.8;">
+            <strong>Pass 1:</strong> AI reads title block scale notation, graphic scale bars, and dimension lines.<br>
+            <strong>Pass 2:</strong> Door-swing calibration — measures door leaf pixels vs. standard 36" width as fallback.<br>
+            <strong>Manual:</strong> Click two points on any sheet and enter the known distance to override.<br>
+            <strong>Cable Runs:</strong> Pixel-measured distances × routing factor (1.15×) + vertical drop + slack, rounded up to 5 ft.
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 // ─── 3D Formula Engine Breakdown Card ───
 function build3DEngineCard(st) {
   if (!st.aiAnalysis) return '';
@@ -5414,6 +5512,8 @@ function renderStep7(container) {
 
     ${build3DEngineCard(state)}
 
+    ${buildScaleCalibrationCard(state)}
+
     ${buildBidStrategyCard(state)}
 
     ${buildCablePathwayCard(state)}
@@ -5744,6 +5844,15 @@ function renderStep7(container) {
     const body = document.getElementById('engine3d-body');
     if (body) body.style.display = state._engine3DOpen ? 'block' : 'none';
     e3dToggle.querySelector('span').innerHTML = state._engine3DOpen ? '&#9650; COLLAPSE' : '&#9660; EXPAND';
+  });
+
+  // ── Scale Calibration card toggle ──
+  const scToggle = document.getElementById('scale-calibration-toggle');
+  if (scToggle) scToggle.addEventListener('click', () => {
+    state._scaleCalibrationOpen = !state._scaleCalibrationOpen;
+    const body = document.getElementById('scale-calibration-body');
+    if (body) body.style.display = state._scaleCalibrationOpen ? 'block' : 'none';
+    scToggle.querySelector('span').innerHTML = state._scaleCalibrationOpen ? '&#9650; COLLAPSE' : '&#9660; EXPAND';
   });
 
   bindBidStrategyEvents(container);
@@ -8159,6 +8268,46 @@ async function runGeminiAnalysis(updateProgress) {
         state.travel.techCount = state.travel.aiRecommendedTechs;
         state.travel.projectDays = state.travel.aiRecommendedDays;
       }
+      // ── Scale Calibration: Ingest spatial layout for per-sheet scale data ──
+      if (typeof ScaleCalibration !== 'undefined') {
+        const spatialData = result.brainResults?.wave0?.SPATIAL_LAYOUT;
+        if (spatialData) ScaleCalibration.ingestSpatialLayout(spatialData);
+        const deviceData = result.brainResults?.wave1?.DEVICE_LOCATOR;
+        if (deviceData) {
+          ScaleCalibration.ingestDeviceLocator(deviceData);
+          // Auto-calibrate from detected doors
+          if (deviceData.doors?.length > 0) {
+            const sheetIds = [...new Set(deviceData.doors.map(d => d.sheet_id).filter(Boolean))];
+            for (const sid of sheetIds) {
+              const doors = deviceData.doors.filter(d => d.sheet_id === sid).map(d => ({
+                x1: d.x1_px, y1: d.y1_px, x2: d.x2_px, y2: d.y2_px,
+                arcRadius: d.arc_radius_px, type: d.type || 'commercial_single'
+              }));
+              ScaleCalibration.calibrateFromDoors(sid, doors);
+            }
+          }
+        }
+        state._scaleCalibration = ScaleCalibration.getSummary();
+        console.log(`[ScaleCalibration] Ingested — ${state._scaleCalibration.sheets.length} sheets calibrated`);
+      }
+
+      // ── Cable Analyzer: Build cable schedule if data available ──
+      if (typeof CableAnalyzer !== 'undefined' && state.brainResults) {
+        try {
+          const schedule = CableAnalyzer.buildCableSchedule(state);
+          if (schedule) {
+            // Enhance with pixel-measured distances
+            if (typeof ScaleCalibration !== 'undefined') {
+              ScaleCalibration.enhanceCableSchedule(schedule);
+            }
+            state._cableSchedule = schedule;
+            console.log(`[CableAnalyzer] Schedule built: ${schedule.totals.totalDevices} devices, ${schedule.totals.totalFt.toLocaleString()} ft total cable`);
+          }
+        } catch (caErr) {
+          console.warn('[CableAnalyzer] Schedule build failed:', caErr.message);
+        }
+      }
+
       state.currentStep = 6; // Go to Travel & Costs stage
       render();
       scrollContentTop();
