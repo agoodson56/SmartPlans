@@ -1571,33 +1571,82 @@ YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment r
     - This is often 15-25% OF TOTAL PROJECT COST on out-of-town work
 
 16. TRANSIT / RAILROAD / INFRASTRUCTURE-SPECIFIC (for Amtrak, BNSF, UP, light rail, metro, airport, DOT):
-    - Railroad flagmen/RWIC (Railroad Worker in Charge): $1,000-$1,500/DAY — MANDATORY for any track-side work
-    - Railroad safety orientation/training: 4-8 hrs per worker, $200-$500/person
-    - TSA/TWIC background checks: $100-$200/worker, 2-4 week lead time
-    - Railroad Protective Liability (RPL) insurance: $15,000-$50,000+ per project
-    - Restricted work windows: track time limited to 2-4 hour windows (dramatically increases duration)
-    - Night/weekend shift differential: 15-25% labor premium
-    - Right-of-Way access agreements and permits
-    - Safety equipment: track-rated PPE, flagging equipment, radio communication
-    - Escort requirements: railroad escort may be required at $800-$1,200/day
-    - Station shutdowns/platform closures: coordination fees
-    - DOT/transit authority review and approval fees
-    - Long conduit corridor runs typical in railroad/transit work (1,000-10,000+ LF)
+    CREW COMPLIANCE (per person × entire crew):
+    - TWIC Card: $124/person (TSA credential, mandatory)
+    - eRailSafe screening: $70/person (background + badge)
+    - RWP Training (Roadway Worker Protection): $225/person
+    - Drug & alcohol testing (DOT 10-panel): $120/person
+    - Railroad safety vest (Class 3 hi-vis): $45/person
+    - Railroad hard hat (color-coded): $35/person
+    - TOTAL PER PERSON: $619 × crew size
+
+    RWIC / FLAGMAN:
+    - $125/hr billed rate, 4-hour minimum per day
+    - $1,000/day typical (8-hour day)
+    - Budget 1 RWIC per day for FULL project duration
+    - TYPICAL: 30-60 days = $30,000-$60,000
+
+    INSURANCE:
+    - RRPLI (Railroad Protective Liability): 3% of contract value — MANDATORY
+    - Additional insured endorsements: 1% of contract value
+    - Railroad will NOT issue NTP without active RRPLI policy
+
+    EQUIPMENT:
+    - Hi-rail vehicle: $1,000/day (trackside work, ~40% of project days)
+    - Scissor lift: $285/day, Boom 40-60': $425/day, Boom 60-80': $700/day
+    - Generator (trackside power): $325/day + $250 delivery
+    - Fall protection equipment: $500/project
+
+    MATERIAL PREMIUMS:
+    - Vandal-resistant IK10 camera housings: $500/each
+    - NEMA 4X outdoor enclosures: $850/each
+    - Seismic bracing per rack/cabinet: $1,150/each
+    - Emergency blue light phone: $18,500/each installed
+    - Tamper-proof hardware: 3% adder on material
+    - Rigid conduit premium (transit mandates rigid over EMT): 15% material adder
+    - UV-rated outdoor cable: 8% material adder
+    - Cable tray with covers: $38/LF installed
+
+    LABOR PREMIUMS:
+    - Restricted work window premium (nights/weekends): 15% of field labor
+    - Standby / escort wait time: 10% of field labor cost
+    - Daily safety briefings: 30 min per crew per day (paid time)
+    - Multiple mobilizations: $1,500 per trip (1 per 5 work days)
+
+    TESTING & DOCUMENTATION:
+    - OTDR fiber testing: $35/strand ($650 min mobilization)
+    - Copper cable certification: $22/cable (Fluke DSX)
+    - As-built drawing preparation: $135/sheet
+    - O&M manual preparation: $3,500/system
+    - Training: multiple sessions for railroad operations staff
+
+    CIVIL / SITE WORK (all subcontracted):
+    - Saw cutting concrete: $8/LF, asphalt: $4.50/LF ($350 min callout)
+    - Trenching 24": $18/LF, 36": $24/LF (transit heavy: $95-$281/LF)
+    - Directional boring 2": $24/LF, 4": $34/LF ($3,500 mob)
+    - Concrete restoration: $16/SF, asphalt: $12/SF
+    - Duct bank 2-way: $80/LF, handhole: $1,600/each
+    - Bollard install: $1,000/each, ADA dome: $475/each
+    - Concrete pad: $575/CY, core drill 4": $100/hole
+
+    MOBILIZATION / DEMOBILIZATION:
+    - 4% of contract value (standard)
+    - Multiple mob trips: ~$1,500/trip × 1 per 5 work days
 
 17. SPECIALTY INSURANCE & BONDING:
-    - Railroad Protective Liability (RPL) insurance
+    - Railroad Protective Liability (RPL/RRPLI): 3% of contract — MANDATORY for rail
     - Owners Protective Liability (OPL)
-    - Additional insured endorsements
-    - Performance bond (if required, typically 1-3% of contract)
+    - Additional insured endorsements: 1% of contract
+    - Performance bond (typically 2% of contract)
     - Payment bond
     - Builder's risk insurance
-    - Umbrella/excess liability (if project requires higher limits)
+    - Umbrella/excess liability (railroad minimums are high)
 
 CRITICAL: Be EXHAUSTIVE. If you see ANY exterior conduit runs, underground pathways, parking lot crossings, road crossings, or rooftop equipment on the plans, you MUST include the associated civil work, trenching, boring, traffic control, and restoration. Missing these items leads to MASSIVE cost overruns.
 
-CRITICAL — OUT-OF-TOWN PROJECTS: If the project location is NOT within 60 miles of Rancho Cordova, CA, travel & per diem is MANDATORY. Calculate: crew_size × daily_rate × project_duration_days. This is typically $150K-$400K+ on large out-of-town projects and is the #1 reason estimates come in too low.
+CRITICAL — OUT-OF-TOWN PROJECTS: If the project location is NOT within 60 miles of a 3D office (Rancho Cordova CA, Livermore CA, Sparks NV, McCall ID), travel & per diem is MANDATORY. Calculate: crew_size × daily_rate × project_duration_days.
 
-CRITICAL — TRANSIT/RAILROAD PROJECTS: If the project is for Amtrak, BNSF, a transit authority, or any railroad, you MUST include RWIC/flagman costs, RPL insurance, safety training, and work window restrictions. Railroad flagmen alone can cost $30,000-$80,000+ on a multi-week project.
+CRITICAL — TRANSIT/RAILROAD PROJECTS: If the project is for Amtrak, BNSF, a transit authority, or any railroad, you MUST include ALL of the above transit costs. Transit adders typically add 25-45% to the base bid. Missing RWIC alone = $30K-$80K. Missing RRPLI = $15K-$50K. Missing crew compliance = $3K-$5K. Missing hi-rail = $10K-$30K. DO NOT leave money on the table.
 
 Return ONLY valid JSON:
 {
@@ -1878,32 +1927,96 @@ Check the plans and specs for EACH — if present, you MUST price them:
    - TYPICAL: 25-60 bollards per transit station = $80K-$820K scope
 
 2. BLAST MITIGATION / SECURITY FILM: Check window schedules.
-   - Security film per window: $200-$550 installed
-   - TYPICAL: 80-200 windows per station = $16K-$110K scope
+   - Security film per window: $590 installed (verified Emeryville)
+   - TYPICAL: 80-200 windows per station = $47K-$118K scope
 
 3. TRENCHING & UNDERGROUND CONDUIT: Check site plans for underground routes.
-   - Railroad heavy-duty: $160-$420 per LF ALL-IN
-   - TYPICAL: 500-2000 LF = $80K-$840K scope
-   - Price as SUBCONTRACTOR category
+   - Railroad heavy-duty trenching: $95-$281 per LF ALL-IN
+   - Concrete saw cutting: $8/LF, asphalt saw cutting: $4.50/LF
+   - Surface restoration: concrete $16/SF, asphalt $12/SF
+   - Duct bank (2-way, concrete encased): $80/LF
+   - Directional boring 2": $24/LF, 4": $34/LF
+   - Handhole/pullbox installation: $1,600 each
+   - TYPICAL: 500-2000 LF = $47K-$562K scope
+   - Price as SUBCONTRACTOR category — 3D does NOT self-perform
 
-4. RWIC / FLAGMAN: Required for all trackside work.
-   - $1,750/day per flagman, minimum 25 days = $43,750 minimum
+4. RWIC / FLAGMAN: Required for ALL trackside work.
+   - $1,000/day per RWIC (billed $125/hr, 4-hr minimum)
+   - Budget 1 RWIC per day for FULL project duration
+   - TYPICAL: 30-60 days = $30,000-$60,000
 
-5. SPECIAL FOUNDATIONS: Camera pole bases, equipment pads.
+5. CREW COMPLIANCE (per person — budget for entire crew):
+   - TWIC Card: $124/person (TSA credential)
+   - eRailSafe screening: $70/person
+   - RWP (Roadway Worker Protection) training: $225/person
+   - Drug & alcohol testing: $120/person
+   - Railroad safety vest (Class 3): $45/person
+   - Railroad hard hat: $35/person
+   - TOTAL: ~$619/person × crew size (typically 4-8 workers)
+
+6. INSURANCE (transit-specific):
+   - RRPLI (Railroad Protective Liability): 3% of contract value
+   - Additional insured endorsements: 1% of contract value
+   - These are MANDATORY — railroad will not issue NTP without RRPLI
+
+7. EQUIPMENT (transit-specific):
+   - Hi-rail vehicle: $1,000/day (required for trackside work, ~40% of project days)
+   - Scissor lift: $285/day, Boom lift 40-60': $425/day, Boom 60-80': $700/day
+   - Generator (trackside power): $325/day
+
+8. MATERIAL PREMIUMS (transit-specific):
+   - Vandal-resistant IK10 camera housings: $500/each
+   - NEMA 4X outdoor enclosures: $850/each
+   - Seismic bracing per rack: $1,150/each
+   - Tamper-proof hardware: 3% adder on material
+   - Rigid conduit premium (transit mandates rigid over EMT): 15% material adder
+   - UV-rated outdoor cable: 8% material adder
+   - Emergency blue light phone station: $18,500 each installed
+
+9. SPECIAL FOUNDATIONS: Camera pole bases, equipment pads.
    - Camera pole foundation (drilled pier): $2,000-$8,000 each
+   - Concrete pad pour: $575/CY
+   - Core drill 4" hole: $100/hole
+   - ADA truncated dome mat: $475/each
 
-DO NOT skip these. Missing bollards alone can be 20%+ of the total bid.
+10. LABOR PREMIUMS (transit-specific):
+    - Restricted work window premium: 15% labor adder (nights/weekends)
+    - Standby / escort wait time: 10% of field labor cost
+    - Daily safety briefings: 30 min per crew per day (paid time)
+    - Multiple mobilizations: transit = many short work windows, not one long trip
+
+11. TESTING & DOCUMENTATION:
+    - OTDR fiber testing: $35/strand (min mobilization $650)
+    - Copper cable certification: $22/cable (Fluke DSX)
+    - As-built drawing preparation: $135/sheet (CAD conversion)
+    - O&M manual preparation: $3,500/system
+    - Multiple training sessions for railroad staff
+
+12. MOBILIZATION / DEMOBILIZATION:
+    - 4% of contract value standard
+    - Multiple mobilization trips: ~$1,500 per trip (budget 1 per 5 work days)
+
+DO NOT skip ANY of these items. On Amtrak projects, transit-specific costs typically add 25-45% to the base bid. Missing RWIC alone can be $30K-$80K. Missing RRPLI can be $15K-$50K. Missing crew compliance can be $3K-$5K.
 ` : ''}═══ SUBCONTRACTED CIVIL WORK (ALWAYS INCLUDE WHEN APPLICABLE) ═══
 3D Technology does NOT self-perform trenching, directional boring, or saw cutting.
 When plans show underground conduit runs, outdoor cable pathways, or exterior routing:
 - ALWAYS add a "Subcontractor — Civil / Trenching" category
-- Price trenching as SUBCONTRACTOR line items (3D subs this out):
-  • Dirt trenching (24" deep): $9-$12/LF (use $12 for PW)
-  • Asphalt saw cut + trench + patch: $28-$35/LF (use $35 for PW)
-  • Concrete saw cut + trench + patch: $32-$42/LF (use $42 for PW)
-  • Directional boring 2" conduit: $12/LF ($20 for PW)
-  • Directional boring 4" conduit: $16/LF ($20 for PW)
-  • Bore mobilization: $2,500 flat fee per bore setup
+- Price trenching as SUBCONTRACTOR line items (3D subs this out, CA upper-mid pricing):
+  • Saw cutting concrete: $8.00/LF (4" depth, $350 minimum callout)
+  • Saw cutting asphalt: $4.50/LF (3" depth, $350 minimum callout)
+  • Trenching 24" deep (urban CA): $18/LF ($22 for PW)
+  • Trenching 36" deep (urban CA): $24/LF ($28 for PW)
+  • Concrete patching/restoration: $16/SF
+  • Asphalt patching: $12/SF
+  • Directional boring 2" conduit: $24/LF
+  • Directional boring 4" conduit: $34/LF
+  • Bore mobilization: $3,500 flat fee per bore setup
+  • Concrete pad pour: $575/CY
+  • Core drill 4" in concrete: $100/hole
+  • Handhole/pullbox install (24x36): $1,600/each
+  • Duct bank 2-way (concrete encased): $80/LF
+  • Bollard install (6" steel, filled): $1,000/each
+  • ADA truncated dome mat: $475/each
 - Estimate linear footage from site plans (measure cable routes between buildings, to poles, etc.)
 - Include conduit material in the subcontractor line item cost
 - These are COST prices — the engine applies 20% markup automatically

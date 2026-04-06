@@ -3915,7 +3915,80 @@ function build3DEngineCard(st) {
 
         ${result.bonds > 0 ? `<div style="margin-top:12px;padding:8px 12px;background:rgba(0,0,0,0.02);border-radius:6px;font-size:12px;color:rgba(0,0,0,0.6);">
           <strong>Bonds:</strong> ${fmt(result.bonds)} (2% of sell)
-          ${result.transitCosts ? ` &nbsp;|&nbsp; <strong>RRPLI:</strong> ${fmt(result.transitCosts.rrpli)} &nbsp;|&nbsp; <strong>Insurance:</strong> ${fmt(result.transitCosts.insurance)} &nbsp;|&nbsp; <strong>Mobilization:</strong> ${fmt(result.transitCosts.mobilization)}` : ''}
+        </div>` : ''}
+
+        ${result.transitCosts ? `
+        <div style="margin-top:16px;border:1px solid rgba(220,38,38,0.15);border-radius:8px;overflow:hidden;">
+          <div style="background:rgba(220,38,38,0.06);padding:10px 14px;border-bottom:1px solid rgba(220,38,38,0.1);">
+            <div style="font-size:11px;font-weight:700;color:#DC2626;text-transform:uppercase;letter-spacing:1.5px;">
+              🚂 Transit / Railroad Cost Breakdown
+            </div>
+            <div style="font-size:10px;color:rgba(0,0,0,0.45);margin-top:2px;">Est. crew: ${result.transitCosts.crewSize} workers × ${result.transitCosts.projectDays} days</div>
+          </div>
+          <div style="padding:8px 0;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <tbody>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">RRPLI (Railroad Protective Liability)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.rrpli)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Additional Insurance</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.insurance)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Mobilization / Demobilization (${result.transitCosts.mobilizations} trips)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.mobilization + result.transitCosts.multiMobCost)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Crew Compliance (TWIC, eRailSafe, RWP, drug test × ${result.transitCosts.crewSize})</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.crewCompliance)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">RWIC / Flagman (${result.transitCosts.projectDays} days × $1,000/day)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.rwicCost)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Daily Safety Briefings</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.safetyBriefingCost)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Restricted Work Window Premium (15% labor)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.workWindowPremium)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Standby / Escort Wait Time (10% labor)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.standbyCost)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Transit Material Premiums (tamper-proof, rigid, UV cable)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.matPremiums)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Seismic Bracing (${Math.max(1, Math.ceil(result.totalMaterialCost / 50000))} racks)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.seismicBracing)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Hi-Rail Vehicle (${result.transitCosts.hirailDays} days × $1,000/day)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.hirailCost)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Testing (OTDR + Copper Certification)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.testingMin)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Documentation (As-builts + O&M Manuals)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.docsCost)}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr style="background:rgba(220,38,38,0.06);">
+                  <td style="padding:10px 14px;font-weight:800;font-size:13px;color:#DC2626;">TOTAL TRANSIT ADDERS</td>
+                  <td style="padding:10px 14px;text-align:right;font-weight:800;font-size:14px;color:#DC2626;">${fmt(result.transitCosts.total)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>` : ''}
 
         <div style="margin-top:12px;padding:10px 14px;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1);border-radius:6px;">

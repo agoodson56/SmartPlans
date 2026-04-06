@@ -149,24 +149,101 @@ const FormulaEngine3D = {
     },
 
     // ─── Subcontracted Civil Work (ALWAYS subbed out — 3D does NOT self-perform) ──
-    // Costs are subcontractor rates per LF; marked up 20% for bid
+    // California upper-mid pricing 2024-2026. Marked up 20% for bid.
     subCivilRates: {
-        // Trenching (open-cut, 24" deep, dirt/grass, with conduit)
-        trench_dirt_per_lf:         9,    // $9/LF — standard dirt trench
-        trench_dirt_pw_per_lf:      12,   // $12/LF — PW projects (higher end)
-        // Saw cutting + trenching + patching (concrete or asphalt surface)
-        sawcut_asphalt_per_lf:      28,   // $28/LF — asphalt sawcut + trench + patch
-        sawcut_concrete_per_lf:     32,   // $32/LF — concrete sawcut + trench + patch
-        sawcut_pw_asphalt_per_lf:   35,   // $35/LF — PW asphalt (higher end)
-        sawcut_pw_concrete_per_lf:  42,   // $42/LF — PW concrete (higher end)
-        // Directional boring (small diameter 2-4" conduit)
-        bore_2in_per_lf:            12,   // $12/LF — 2" bore
-        bore_4in_per_lf:            16,   // $16/LF — 4" bore
-        bore_pw_per_lf:             20,   // $20/LF — PW projects
-        bore_mobilization:          2500, // $2,500 flat mobilization fee
-        // Transit/Amtrak (verified from actual bids — much higher due to railroad requirements)
-        trench_transit_per_lf:      95,   // $95/LF (Emeryville)
-        trench_transit_heavy_per_lf: 281, // $281/LF (Martinez — heavy scope)
+        // ── Saw Cutting (subcontracted, CA upper-mid) ──
+        sawcut_concrete_per_lf:     8.00,    // $8/LF — concrete 4" depth
+        sawcut_asphalt_per_lf:      4.50,    // $4.50/LF — asphalt 3" depth
+        sawcut_minimum:             350,      // $350 minimum callout
+
+        // ── Trenching (open-cut, subcontracted, CA upper-mid) ──
+        trench_24in_per_lf:         18,      // $18/LF — 24" deep, urban CA
+        trench_36in_per_lf:         24,      // $24/LF — 36" deep, urban CA
+        trench_pw_24in_per_lf:      22,      // $22/LF — PW projects
+        trench_pw_36in_per_lf:      28,      // $28/LF — PW projects
+
+        // ── Surface Restoration (subcontracted, CA upper-mid) ──
+        concrete_patch_per_sf:      16,      // $16/SF — sawcut, remove, pour, finish
+        asphalt_patch_per_sf:       12,      // $12/SF — hot-patch replacement
+
+        // ── Directional Boring (subcontracted, CA upper-mid) ──
+        bore_2in_per_lf:            24,      // $24/LF — 2" conduit bore
+        bore_4in_per_lf:            34,      // $34/LF — 4" conduit bore
+        bore_mobilization:          3500,    // $3,500 flat mobilization
+
+        // ── Transit/Amtrak Civil (verified from actual Amtrak bids) ──
+        trench_transit_per_lf:      95,      // $95/LF (Emeryville)
+        trench_transit_heavy_per_lf: 281,    // $281/LF (Martinez — heavy scope)
+
+        // ── Concrete & Site Work (subcontracted, CA upper-mid) ──
+        concrete_pad_per_cy:        575,     // $575/CY — formed, finished pad
+        core_drill_4in_per_hole:    100,     // $100/hole — 4" in concrete
+        handhole_install_each:      1600,    // $1,600/ea — 24x36 polymer, installed
+        duct_bank_2way_per_lf:      80,      // $80/LF — concrete encased, 2 conduits
+        bollard_install_each:       1000,    // $1,000/ea — 6" steel pipe, filled, painted
+        ada_truncated_dome_each:    475,     // $475/ea — surface-applied mat installed
+    },
+
+    // ─── Equipment Rental Rates (CA upper-mid, per day, NOT including operator) ──
+    equipmentRates: {
+        scissor_lift_per_day:       285,     // $285/day — 26-32' indoor
+        boom_40_60_per_day:         425,     // $425/day — 40-60' articulating
+        boom_60_80_per_day:         700,     // $700/day — 60-80'
+        generator_per_day:          325,     // $325/day — portable 20-50kW diesel
+        hirail_vehicle_per_day:     1000,    // $1,000/day — hi-rail truck (railroad only)
+        delivery_roundtrip:         250,     // $250 delivery/pickup
+    },
+
+    // ─── Conduit Rates (rigid/RMC installed, CA upper-mid per LF) ──
+    rigidConduitRates: {
+        rigid_075_per_lf:           14,      // $14/LF — 3/4" GRC installed
+        rigid_100_per_lf:           17,      // $17/LF — 1" GRC installed
+        rigid_125_per_lf:           20,      // $20/LF — 1-1/4" GRC installed
+        rigid_200_per_lf:           26,      // $26/LF — 2" GRC installed
+        cable_tray_covered_per_lf:  38,      // $38/LF — aluminum w/ cover, installed
+    },
+
+    // ─── Testing & Documentation Rates (CA upper-mid) ──
+    testingRates: {
+        otdr_per_strand:            35,      // $35/strand — Tier 2 OTDR certification
+        otdr_mobilization:          650,     // $650 minimum mobilization
+        copper_cert_per_cable:      22,      // $22/cable — Fluke DSX certification
+        asbuilt_per_sheet:          135,     // $135/sheet — field markup to CAD
+        om_manual_per_system:       3500,    // $3,500/system — compiled O&M docs
+    },
+
+    // ─── Transit/Railroad Compliance Costs (per-person, CA 2024-2026) ──
+    transitComplianceCosts: {
+        twic_card_per_person:       124,     // $124 — TSA fee (includes background check)
+        erailsafe_per_person:       70,      // $70 — eRailSafe screening + badge
+        rwp_training_per_person:    225,     // $225 — Roadway Worker Protection cert
+        drug_test_per_person:       120,     // $120 — DOT 10-panel + breath alcohol
+        safety_vest_per_person:     45,      // $45 — Class 3 railroad hi-vis vest
+        hardhat_per_person:         35,      // $35 — Railroad color-coded hard hat
+        // Total per-person compliance cost
+        get total_per_person() {
+            return this.twic_card_per_person + this.erailsafe_per_person +
+                   this.rwp_training_per_person + this.drug_test_per_person +
+                   this.safety_vest_per_person + this.hardhat_per_person;
+        },
+        // RWIC / Flagman
+        rwic_hourly_rate:           125,     // $125/hr billed rate (CA upper-mid)
+        rwic_minimum_hours:         4,       // 4-hour minimum per day
+        rwic_daily_cost:            1000,    // $1,000/day (8-hr day, typical billing)
+        // Daily safety briefing cost (paid crew time)
+        daily_safety_briefing_hrs:  0.5,     // 30 min per crew per day
+    },
+
+    // ─── Transit-Specific Material Premiums (over standard commercial) ──
+    transitMaterialPremiums: {
+        vandal_housing_each:        500,     // $500/ea — IK10 vandal-resistant housing
+        blast_film_per_window:      590,     // $590/window (Emeryville verified)
+        nema4x_enclosure_each:      850,     // $850/ea — NEMA 4X outdoor enclosure
+        seismic_bracing_per_rack:   1150,    // $1,150/ea — rack seismic kit installed
+        emergency_phone_station:    18500,   // $18,500/ea — blue light tower, installed
+        tamper_proof_hardware_pct:  0.03,    // 3% adder on material for security fasteners
+        rigid_conduit_premium_pct:  0.15,    // 15% premium — transit mandates rigid over EMT
+        uv_cable_premium_pct:       0.08,    // 8% premium for UV-rated outdoor cable
     },
 
     // ─── Overhead Percentages (verified from Emeryville/Martinez/CHP) ──
@@ -562,21 +639,96 @@ const FormulaEngine3D = {
         grandSELL += bonds;
         grandCOS += this._round(bonds * 0.70);
 
-        // ── Step 5: Transit/Railroad adders ──
+        // ── Step 5: Transit/Railroad adders (comprehensive) ──
         let transitCosts = null;
         if (isTransit) {
-            const rrpli = this._round(grandSELL * this.transitPricing.rrpli_pct);
-            const insurance = this._round(grandSELL * this.transitPricing.insurance_pct);
-            const mobilization = this._round(grandSELL * this.transitPricing.mobilization_pct);
+            const tc = this.transitComplianceCosts;
+            const tp = this.transitPricing;
+
+            // Estimate crew size from labor hours (assume 8-hr days)
+            const estCrewSize = Math.max(4, Math.ceil(totalLaborHours / 400));
+            const estProjectDays = Math.max(10, Math.ceil(totalLaborHours / (estCrewSize * 8)));
+
+            // 1. RRPLI Insurance (3% of contract)
+            const rrpli = this._round(grandSELL * tp.rrpli_pct);
+
+            // 2. General liability / additional insured (1% of contract)
+            const insurance = this._round(grandSELL * tp.insurance_pct);
+
+            // 3. Mobilization / demobilization (4% of contract)
+            const mobilization = this._round(grandSELL * tp.mobilization_pct);
+
+            // 4. Crew compliance (per-person certifications × crew size)
+            const crewCompliance = this._round(tc.total_per_person * estCrewSize);
+
+            // 5. RWIC / Flagman costs (1 RWIC per day, full project duration)
+            const rwicCost = this._round(tc.rwic_daily_cost * estProjectDays);
+
+            // 6. Daily safety briefings (paid crew time)
+            const safetyBriefingHrs = this._round(tc.daily_safety_briefing_hrs * estCrewSize * estProjectDays);
+            const avgHourlyRate = isPW ? 145 : 80;
+            const safetyBriefingCost = this._round(safetyBriefingHrs * avgHourlyRate);
+
+            // 7. Restricted work window premium (night/weekend differential — 15% labor adder)
+            const workWindowPremium = this._round(totalLaborHours * avgHourlyRate * 0.15);
+
+            // 8. Standby / escort wait time (10% of field labor)
+            const standbyCost = this._round(totalLaborHours * 0.10 * avgHourlyRate);
+
+            // 9. Material premiums (tamper-proof hardware, rigid conduit, UV cable)
+            const matPremiums = this._round(
+                totalMaterialCost * this.transitMaterialPremiums.tamper_proof_hardware_pct +
+                totalMaterialCost * this.transitMaterialPremiums.rigid_conduit_premium_pct +
+                totalMaterialCost * this.transitMaterialPremiums.uv_cable_premium_pct
+            );
+
+            // 10. Seismic bracing (estimate 1 rack per 30 cameras/devices minimum 1)
+            const estRacks = Math.max(1, Math.ceil(totalMaterialCost / 50000));
+            const seismicBracing = this._round(this.transitMaterialPremiums.seismic_bracing_per_rack * estRacks);
+
+            // 11. Hi-rail vehicle (trackside work days — estimate 40% of project days)
+            const hirailDays = Math.ceil(estProjectDays * 0.40);
+            const hirailCost = this._round(this.equipmentRates.hirail_vehicle_per_day * hirailDays);
+
+            // 12. Multiple mobilizations (transit = many short work windows)
+            const estMobilizations = Math.max(3, Math.ceil(estProjectDays / 5));
+            const multiMobCost = this._round(estMobilizations * 1500);
+
+            // 13. Testing premium (OTDR + copper cert minimum)
+            const testingMin = this._round(this.testingRates.otdr_mobilization + 2000);
+
+            // 14. Documentation (as-builts + O&M)
+            const docsCost = this._round(this.testingRates.om_manual_per_system * 2 + this.testingRates.asbuilt_per_sheet * 15);
+
+            const transitTotal = this._round(
+                rrpli + insurance + mobilization + crewCompliance + rwicCost +
+                safetyBriefingCost + workWindowPremium + standbyCost + matPremiums +
+                seismicBracing + hirailCost + multiMobCost + testingMin + docsCost
+            );
 
             transitCosts = {
                 rrpli,
                 insurance,
                 mobilization,
-                total: this._round(rrpli + insurance + mobilization),
+                crewCompliance,
+                crewSize: estCrewSize,
+                projectDays: estProjectDays,
+                rwicCost,
+                safetyBriefingCost,
+                workWindowPremium,
+                standbyCost,
+                matPremiums,
+                seismicBracing,
+                hirailCost,
+                hirailDays,
+                multiMobCost,
+                mobilizations: estMobilizations,
+                testingMin,
+                docsCost,
+                total: transitTotal,
             };
-            grandSELL += transitCosts.total;
-            grandCOS += this._round(transitCosts.total * 0.85);
+            grandSELL += transitTotal;
+            grandCOS += this._round(transitTotal * 0.82); // ~18% margin on transit adders
         }
 
         // ── Final ──
