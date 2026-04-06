@@ -1090,9 +1090,11 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
 
     // Fallback: use cached value only if fresh BOM computation failed
     if (state._bomGrandTotal && state._bomGrandTotal > 1000) {
+      console.warn('[ProposalGen] Using cached grand total — fresh computation failed');
       return state._bomGrandTotal;
     }
 
+    console.error('[ProposalGen] ⛔ No valid grand total available — proposal will have no price. Check that BOM has categories and SmartPlansExport is loaded.');
     return null;
   },
 

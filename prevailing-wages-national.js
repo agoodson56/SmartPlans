@@ -304,6 +304,8 @@ const NATIONAL_PREVAILING_WAGES = {
 
     const installerTotal = rates.comm_installer.total;
     const techTotal = rates.comm_tech.total;
+    // Foreman = technician rate + foreman premium (10%)
+    // Based on higher classification (tech) since foreman has technical oversight role
     const foremanTotal = rates.comm_tech.total * (1 + rates.foreman_pct / 100);
     const apprenticeTotal = rates.comm_installer.total * (rates.apprentice_pct / 100);
 

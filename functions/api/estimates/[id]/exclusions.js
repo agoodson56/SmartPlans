@@ -79,8 +79,11 @@ export async function onRequestPost(context) {
     try {
         const body = await request.json();
 
-        // Support batch insert (array of items)
+        // Support batch insert (array of items) — limit to 100 per request
         const items = Array.isArray(body) ? body : [body];
+        if (items.length > 100) {
+            return Response.json({ error: 'Too many items — max 100 per request' }, { status: 400, headers: corsHeaders(origin) });
+        }
         const results = [];
 
         for (const item of items) {

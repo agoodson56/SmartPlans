@@ -498,6 +498,9 @@ const CA_PREVAILING_WAGES = {
 
     const installerTotal = rates.comm_installer.total;
     const techTotal = rates.comm_tech.total;
+    // Foreman = technician rate + foreman premium (10%)
+    // In CA IBEW, foreman is based on the HIGHER classification (tech, not installer)
+    // because foreman responsibilities include technical oversight
     const foremanTotal = rates.comm_tech.total * (1 + rates.foreman_pct / 100);
     const apprenticeTotal = rates.comm_installer.total * (rates.apprentice_pct / 100);
 

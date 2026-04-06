@@ -53,7 +53,9 @@ export async function checkRateLimit(db, key, maxRequests, windowSec) {
  * so we allow missing Origin ONLY for GET requests (read-only) by default.
  */
 export function isAllowedOrigin(origin, allowMissing = true) {
-    if (!origin) return allowMissing; // Same-origin or non-browser — allowed by default, pass false to reject
+    // allowMissing=true for same-origin Cloudflare Pages requests (no Origin header)
+    // Callers should pass allowMissing=false for state-changing operations
+    if (!origin) return allowMissing;
 
     let hostname;
     try {

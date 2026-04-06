@@ -67,6 +67,12 @@ export async function onRequestPost(context) {
     }
 
     try {
+        // SEC: Verify estimate exists (ownership enforced by middleware session)
+        const estimate = await env.DB.prepare('SELECT id FROM estimates WHERE id = ?').bind(id).first();
+        if (!estimate) {
+            return Response.json({ error: 'Estimate not found' }, { status: 404 });
+        }
+
         const body = await request.json();
         const quoteId = crypto.randomUUID().replace(/-/g, '');
 
