@@ -177,6 +177,23 @@ const SmartPlansExport = {
                     .map(c => ({ id: c.id, description: c.description, category: c.category, estimatedCost: c.estimatedCost, severity: c.severity, source: c.source }))
                 : [],
 
+            // 3D Formula Engine breakdown — deterministic bid using 3D Technology Services formulas
+            engine3D: (typeof FormulaEngine3D !== 'undefined' && state._engine3DResult)
+                ? {
+                    engine: state._engine3DResult._engine,
+                    isTransit: state._engine3DResult._isTransit,
+                    isPW: state._engine3DResult._isPW,
+                    rateTable: state._engine3DResult._rateTable,
+                    systems: state._engine3DResult.systems,
+                    grandTotalSELL: state._engine3DResult.grandTotalSELL,
+                    grandTotalCOS: state._engine3DResult.grandTotalCOS,
+                    grossMargin: state._engine3DResult.grossMargin,
+                    grossMarginPct: state._engine3DResult.grossMarginPct,
+                    bonds: state._engine3DResult.bonds,
+                    transitCosts: state._engine3DResult.transitCosts,
+                }
+                : null,
+
             // Structured MDF/IDF data for SmartPM Infrastructure module
             // AI-generated budgets — locked from field manipulation
             infrastructure: this._extractInfrastructure(state),
@@ -315,6 +332,28 @@ const SmartPlansExport = {
             const tCosts = computeTravelIncidentals();
             stage6Travel = this._round(tCosts.grandTotal || 0);
             console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
+        }
+
+        // Priority 0: 3D Formula Engine — deterministic bid using 3D Technology Services actual formulas
+        // This is the PRIMARY pricing engine. It handles transit/SAGE vs commercial/Format A automatically.
+        if (typeof FormulaEngine3D !== 'undefined' && bom?.categories?.length > 0) {
+            try {
+                const result3D = FormulaEngine3D.computeBid(state, bom);
+                if (result3D?.grandTotalSELL > 1000) {
+                    let val = this._round(result3D.grandTotalSELL);
+                    // Add deterministic Stage 6 travel on top
+                    if (stage6Travel > 0) {
+                        val = this._round(val + stage6Travel);
+                        console.log(`[Export] Added Stage 6 travel ($${stage6Travel.toLocaleString()}) to 3D Engine total`);
+                    }
+                    console.log(`[Export] ✅ Grand total from 3D Formula Engine: $${val.toLocaleString()} (GM: ${result3D.grossMarginPct}%)`);
+                    // Store result for UI card rendering
+                    state._engine3DResult = result3D;
+                    return val;
+                }
+            } catch (err) {
+                console.warn(`[Export] 3D Formula Engine error, falling back: ${err.message}`);
+            }
         }
 
         // Priority 1: Financial Engine brain (fully-loaded bid price with labor, overhead, profit, contingency)

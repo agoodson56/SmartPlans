@@ -573,6 +573,8 @@ const state = {
   workShift: "",
   priorEstimate: "",
   isTransitRailroad: false,  // Explicit toggle — triggers higher markups, RWIC, RPL, etc.
+  _engine3DOpen: false,       // 3D engine card expanded state
+  _engine3DResult: null,      // Cached result from FormulaEngine3D.computeBid()
 
   // Travel & Per Diem (configured on Stage 6 after analysis)
   travel: {
@@ -3712,6 +3714,126 @@ function renderStep5(container) {
 }
 
 
+// ─── 3D Formula Engine Breakdown Card ───
+function build3DEngineCard(st) {
+  if (!st.aiAnalysis) return '';
+  if (typeof FormulaEngine3D === 'undefined') return '';
+
+  const bom = SmartPlansExport._extractBOMFromAnalysis(st.aiAnalysis);
+  if (!bom || !bom.categories || bom.categories.length === 0) return '';
+
+  // Run the 3D engine
+  let result;
+  try {
+    result = FormulaEngine3D.computeBid(st, bom);
+    st._engine3DResult = result;
+  } catch (err) {
+    console.warn('[3D Engine Card] Error:', err.message);
+    return '';
+  }
+  if (!result || result.grandTotalSELL <= 0) return '';
+
+  const isOpen = st._engine3DOpen || false;
+  const fmt = (v) => '$' + (v || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmtPct = (v) => (v || 0).toFixed(1) + '%';
+
+  // System rows
+  const sysRows = Object.entries(result.systems).map(([key, sys]) => {
+    const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const sevColor = sys.grossMarginPct >= 30 ? '#10B981' : sys.grossMarginPct >= 20 ? '#F59E0B' : '#EF4444';
+    return `<tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+      <td style="padding:8px 10px;font-weight:600;font-size:12px;">${label}</td>
+      <td style="padding:8px 10px;font-size:12px;text-align:right;">${fmt(sys.materialCost)}</td>
+      <td style="padding:8px 10px;font-size:12px;text-align:right;">${fmt(sys.materialSell)}</td>
+      <td style="padding:8px 10px;font-size:12px;text-align:right;">${sys.totalHours.toFixed(1)} hrs</td>
+      <td style="padding:8px 10px;font-size:12px;text-align:right;">${fmt(sys.laborSell)}</td>
+      <td style="padding:8px 10px;font-size:12px;text-align:right;font-weight:700;">${fmt(sys.totalSELL)}</td>
+      <td style="padding:8px 10px;font-size:12px;text-align:right;"><span style="color:${sevColor};font-weight:700;">${fmtPct(sys.grossMarginPct)}</span></td>
+    </tr>`;
+  }).join('');
+
+  const transitBadge = result._isTransit
+    ? '<span style="display:inline-block;padding:2px 8px;background:rgba(220,38,38,0.1);color:#DC2626;font-size:10px;font-weight:700;border-radius:4px;margin-left:8px;">SAGE/TRANSIT</span>'
+    : '<span style="display:inline-block;padding:2px 8px;background:rgba(13,148,136,0.1);color:#0D9488;font-size:10px;font-weight:700;border-radius:4px;margin-left:8px;">FORMAT A</span>';
+
+  const pwBadge = result._isPW
+    ? '<span style="display:inline-block;padding:2px 8px;background:rgba(245,158,11,0.1);color:#D97706;font-size:10px;font-weight:700;border-radius:4px;margin-left:4px;">PREVAILING WAGE</span>'
+    : '';
+
+  return `
+    <div class="info-card" id="engine3d-card" style="border-left:3px solid #6366F1;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="engine3d-toggle">
+        <h3 class="info-card-title" style="margin:0;">
+          <i data-lucide="calculator" style="width:16px;height:16px;"></i> 3D FORMULA ENGINE BREAKDOWN
+          ${transitBadge}${pwBadge}
+        </h3>
+        <span style="font-size:11px;color:rgba(0,0,0,0.4);text-transform:uppercase;letter-spacing:1px;">${isOpen ? '&#9650; COLLAPSE' : '&#9660; EXPAND'}</span>
+      </div>
+
+      <div style="display:flex;gap:16px;margin-top:12px;">
+        <div style="flex:1;padding:12px 16px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:8px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.45);font-weight:600;">Total Sell</div>
+          <div style="font-size:22px;font-weight:800;color:#6366F1;margin-top:2px;">${fmt(result.grandTotalSELL)}</div>
+        </div>
+        <div style="flex:1;padding:12px 16px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:8px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.45);font-weight:600;">Gross Margin</div>
+          <div style="font-size:22px;font-weight:800;color:#10B981;margin-top:2px;">${fmtPct(result.grossMarginPct)}</div>
+          <div style="font-size:11px;color:rgba(0,0,0,0.4);margin-top:2px;">${fmt(result.grossMargin)}</div>
+        </div>
+        <div style="flex:1;padding:12px 16px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:8px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.45);font-weight:600;">Total COS</div>
+          <div style="font-size:22px;font-weight:800;color:#D97706;margin-top:2px;">${fmt(result.grandTotalCOS)}</div>
+        </div>
+      </div>
+
+      <div id="engine3d-body" style="display:${isOpen ? 'block' : 'none'};margin-top:16px;">
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-family:var(--font-sans);">
+            <thead>
+              <tr style="background:rgba(99,102,241,0.06);border-bottom:2px solid rgba(99,102,241,0.15);">
+                <th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">System</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Mat Cost</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Mat Sell</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Hours</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Labor Sell</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">Total Sell</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(0,0,0,0.5);font-weight:700;">GM%</th>
+              </tr>
+            </thead>
+            <tbody>${sysRows}</tbody>
+            <tfoot>
+              <tr style="border-top:2px solid rgba(99,102,241,0.3);background:rgba(99,102,241,0.04);">
+                <td style="padding:10px;font-weight:800;font-size:12px;" colspan="2">TOTALS</td>
+                <td style="padding:10px;text-align:right;font-weight:700;font-size:12px;">${fmt(result.totalMaterialCost)}</td>
+                <td style="padding:10px;text-align:right;font-weight:700;font-size:12px;">${result.totalFieldHours.toFixed(1)} hrs</td>
+                <td style="padding:10px;text-align:right;font-weight:700;font-size:12px;"></td>
+                <td style="padding:10px;text-align:right;font-weight:800;font-size:13px;color:#6366F1;">${fmt(result.grandTotalSELL)}</td>
+                <td style="padding:10px;text-align:right;font-weight:800;font-size:13px;color:#10B981;">${fmtPct(result.grossMarginPct)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        ${result.bonds > 0 ? `<div style="margin-top:12px;padding:8px 12px;background:rgba(0,0,0,0.02);border-radius:6px;font-size:12px;color:rgba(0,0,0,0.6);">
+          <strong>Bonds:</strong> ${fmt(result.bonds)} (2% of sell)
+          ${result.transitCosts ? ` &nbsp;|&nbsp; <strong>RRPLI:</strong> ${fmt(result.transitCosts.rrpli)} &nbsp;|&nbsp; <strong>Insurance:</strong> ${fmt(result.transitCosts.insurance)} &nbsp;|&nbsp; <strong>Mobilization:</strong> ${fmt(result.transitCosts.mobilization)}` : ''}
+        </div>` : ''}
+
+        <div style="margin-top:12px;padding:10px 14px;background:rgba(99,102,241,0.04);border:1px solid rgba(99,102,241,0.1);border-radius:6px;">
+          <div style="font-size:11px;font-weight:700;color:rgba(0,0,0,0.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Engine Details</div>
+          <div style="font-size:12px;color:rgba(0,0,0,0.6);line-height:1.8;">
+            Pricing Model: <strong>${result._isTransit ? 'SAGE ERP (1.51424x mat / 1.39240x labor)' : 'Format A (42% material markup)'}</strong><br>
+            Rate Table: <strong>${result._rateTable === 'npw' ? 'Non-Prevailing Wage' : 'Prevailing Wage (Sacramento)'}</strong><br>
+            Systems: <strong>${result.systemCount}</strong> &nbsp;|&nbsp;
+            Material Cost: <strong>${fmt(result.totalMaterialCost)}</strong> &nbsp;|&nbsp;
+            Field Hours: <strong>${result.totalFieldHours.toFixed(1)}</strong> &nbsp;|&nbsp;
+            Subs: <strong>${fmt(result.subcontractorCost)}</strong>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 // ─── Bid Strategy Card Builder ───
 function buildBidStrategyCard(st) {
   if (!st.aiAnalysis) return '';
@@ -5290,6 +5412,8 @@ function renderStep7(container) {
       </div>
     </div>
 
+    ${build3DEngineCard(state)}
+
     ${buildBidStrategyCard(state)}
 
     ${buildCablePathwayCard(state)}
@@ -5613,6 +5737,15 @@ function renderStep7(container) {
 
   // ── Exclusions & Assumptions ──
   initExclusionsPanel(container);
+  // ── 3D Engine card toggle ──
+  const e3dToggle = document.getElementById('engine3d-toggle');
+  if (e3dToggle) e3dToggle.addEventListener('click', () => {
+    state._engine3DOpen = !state._engine3DOpen;
+    const body = document.getElementById('engine3d-body');
+    if (body) body.style.display = state._engine3DOpen ? 'block' : 'none';
+    e3dToggle.querySelector('span').innerHTML = state._engine3DOpen ? '&#9650; COLLAPSE' : '&#9660; EXPAND';
+  });
+
   bindBidStrategyEvents(container);
   bindCablePathwayEvents(container);
   bindBidPhasesEvents(container);
