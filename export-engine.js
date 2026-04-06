@@ -464,6 +464,9 @@ const SmartPlansExport = {
         const escalation = this._round(materials * escalationPct); // Escalation on materials
         const finalTotal = this._round(grandTotal + commission + salesTax + escalation);
 
+        // ── Historical bid intelligence validation (advisory only) ──
+        this._validateLaborWithHistorical(laborBase, state, bom);
+
         return {
             materials, equipment, subs, laborBase,
             matPct, labPct, eqPct, subPct,
@@ -473,6 +476,127 @@ const SmartPlansExport = {
             commission, commissionPct, salesTax, salesTaxPct,
             escalation, escalationPct, finalTotal
         };
+    },
+
+    // ─── Historical labor validation (advisory — does NOT override) ──
+    // Compares AI-calculated labor against historical productivity benchmarks
+    // extracted from 13 real 3D Technology Services bids (2022-2026).
+    _validateLaborWithHistorical(laborBase, state, bom) {
+        try {
+            const hist = (typeof PRICING_DB !== 'undefined') && PRICING_DB.historicalBidIntelligence;
+            if (!hist || !hist.taskProductivity || !hist.estimatingRules) return;
+
+            const prod = hist.taskProductivity;
+            const rules = hist.estimatingRules;
+            let estimatedHours = 0;
+            const details = [];
+
+            // Walk BOM categories/items and estimate labor from productivity rates
+            for (const cat of (bom?.categories || [])) {
+                const catName = (cat.name || '').toLowerCase();
+                for (const item of (cat.items || [])) {
+                    const desc = (item.description || '').toLowerCase();
+                    const qty = item.qty || 0;
+                    if (qty <= 0) continue;
+
+                    // Cable runs (pull + terminate + test)
+                    if (/cat\s*[56]|cable.*run|data.*drop|network.*drop|voice.*drop/.test(desc) &&
+                        !/patch|cord|jumper|jack|panel|faceplate|plate/.test(desc)) {
+                        const pullHrs = qty * prod.pull_cat6_cable.min_per_unit / 60;
+                        const termHrs = qty * 2 * prod.terminate_cable.min_per_unit / 60; // 2 ends
+                        const testHrs = qty * prod.test_cable.min_per_unit / 60;
+                        const cableHrs = pullHrs + termHrs + testHrs;
+                        estimatedHours += cableHrs;
+                        details.push(`Cable runs (${qty}): ${cableHrs.toFixed(1)} hrs`);
+                    }
+                    // Cameras
+                    else if (/camera|cctv|ip\s*cam|dome|bullet|ptz|turret/.test(desc)) {
+                        const hrs = qty * rules.camera_install_hours;
+                        estimatedHours += hrs;
+                        details.push(`Cameras (${qty}): ${hrs.toFixed(1)} hrs`);
+                    }
+                    // Access control readers/locks
+                    else if (/rfid|lock|electronic.*lock|schlage|access.*lock/.test(desc)) {
+                        const hrs = qty * rules.rfid_lock_install_hours;
+                        estimatedHours += hrs;
+                        details.push(`Electronic locks (${qty}): ${hrs.toFixed(1)} hrs`);
+                    }
+                    else if (/reader|card.*reader|hid|proximity/.test(desc)) {
+                        const hrs = qty * prod.install_device.min_per_unit / 60;
+                        estimatedHours += hrs;
+                        details.push(`Readers (${qty}): ${hrs.toFixed(1)} hrs`);
+                    }
+                    // WAPs
+                    else if (/wap|wireless.*access|access.*point|wi-?fi/.test(desc)) {
+                        const hrs = qty * prod.install_wap.min_per_unit / 60;
+                        estimatedHours += hrs;
+                        details.push(`WAPs (${qty}): ${hrs.toFixed(1)} hrs`);
+                    }
+                    // Speakers, clocks, intercoms, devices
+                    else if (/speaker|clock|intercom|paging|strobe|horn/.test(desc)) {
+                        const hrs = qty * prod.install_device.min_per_unit / 60;
+                        estimatedHours += hrs;
+                        details.push(`Devices (${qty}): ${hrs.toFixed(1)} hrs`);
+                    }
+                    // MDF/IDF rooms
+                    else if (/mdf|idf|telecom.*room|server.*room|rack.*build/.test(desc)) {
+                        const hrs = qty * rules.mdf_idf_build_hours;
+                        estimatedHours += hrs;
+                        details.push(`MDF/IDF rooms (${qty}): ${hrs.toFixed(1)} hrs`);
+                    }
+                    // Head-end / servers
+                    else if (/server|head.?end|workstation|nvr|dvr/.test(desc)) {
+                        const hrs = qty * rules.head_end_install_hours;
+                        estimatedHours += hrs;
+                        details.push(`Head-end/servers (${qty}): ${hrs.toFixed(1)} hrs`);
+                    }
+                }
+            }
+
+            if (estimatedHours <= 0) {
+                console.log('[Export][HistValidation] No recognizable tasks in BOM — skipping historical validation');
+                return;
+            }
+
+            // Add PM overhead and NPT
+            const pmHours = estimatedHours * (rules.pm_pct_of_field_hours / 100);
+            const nptHours = estimatedHours * (rules.npt_pct / 100);
+            const totalEstHours = estimatedHours + pmHours + nptHours;
+
+            // Estimate labor cost using blended average rate
+            // Weighted average of observed base rates by hour distribution
+            const rates = hist.laborRatesObserved;
+            const dist = hist.laborHourDistribution;
+            const blendedRate = (
+                (rates.tech_iii?.base_avg || 37.31) * ((dist.tech_iii || 24.6) / 100) +
+                (rates.cable_installer?.base_avg || 43.38) * ((dist.cable_installer || 22.5) / 100) +
+                (rates.tech_ii?.base_avg || 32.95) * ((dist.tech_ii || 18.0) / 100) +
+                (rates.foreman?.base_avg || 37.40) * ((dist.foreman || 7.1) / 100) +
+                (rates.project_manager?.base_avg || 50.49) * ((dist.project_manager || 5.6) / 100) +
+                (rates.cad_drafter?.base_avg || 38.00) * ((dist.cad_drafter || 4.2) / 100) +
+                (rates.engineer_estimator?.base_avg || 40.11) * ((dist.engineer_estimator || 1.5) / 100) +
+                (rates.warehouse?.base_avg || 28.00) * ((dist.warehouse || 1.2) / 100) +
+                (rates.administration?.base_avg || 32.31) * ((dist.administration || 2.8) / 100)
+            ) / ((24.6 + 22.5 + 18.0 + 7.1 + 5.6 + 4.2 + 1.5 + 1.2 + 2.8) / 100);
+
+            const historicalLaborCost = this._round(totalEstHours * blendedRate);
+
+            // Compare
+            const diff = laborBase > 0 ? Math.abs(laborBase - historicalLaborCost) / laborBase * 100 : 0;
+
+            console.log(`[Export][HistValidation] Historical estimate: ${totalEstHours.toFixed(1)} hrs × $${blendedRate.toFixed(2)}/hr = $${historicalLaborCost.toLocaleString()}`);
+            console.log(`[Export][HistValidation] AI labor: $${laborBase.toLocaleString()} | Historical: $${historicalLaborCost.toLocaleString()} | Δ ${diff.toFixed(1)}%`);
+            if (details.length > 0) {
+                console.log(`[Export][HistValidation] Breakdown: ${details.join(', ')}`);
+            }
+
+            if (diff > 40) {
+                console.warn(`[Export][HistValidation] ⚠ Labor differs by ${diff.toFixed(1)}% from historical benchmarks — review recommended`);
+                console.warn(`[Export][HistValidation]   AI calculated: $${laborBase.toLocaleString()} vs Historical estimate: $${historicalLaborCost.toLocaleString()}`);
+            }
+        } catch (e) {
+            console.warn(`[Export][HistValidation] Validation skipped — ${e.message}`);
+        }
     },
 
     // ─── Get fully loaded bid total ──

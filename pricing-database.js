@@ -359,12 +359,16 @@ const PRICING_DB = {
     // ═══════════════════════════════════════════════════════════
     laborRates: {
         standard: {
-            journeyman: { rate: 38.00, description: "Journeyman Technician" },
-            lead: { rate: 45.00, description: "Lead Technician" },
-            foreman: { rate: 52.00, description: "Foreman" },
-            apprentice: { rate: 22.00, description: "Apprentice" },
-            pm: { rate: 65.00, description: "Project Manager (on-site)" },
-            programmer: { rate: 55.00, description: "Programmer / Commissioning Tech" },
+            journeyman: { rate: 37.31, description: "Journeyman Tech III (primary worker)" },
+            lead: { rate: 43.38, description: "Lead Tech / Cable Installer" },
+            foreman: { rate: 37.40, description: "Foreman" },
+            tech_ii: { rate: 32.95, description: "Tech II" },
+            apprentice: { rate: 32.66, description: "Tech I / Apprentice" },
+            pm: { rate: 50.49, description: "Project Manager (on-site)" },
+            programmer: { rate: 40.11, description: "Engineer / Commissioning Tech" },
+            cad: { rate: 38.00, description: "CAD Drafter" },
+            warehouse: { rate: 28.00, description: "Warehouse / Staging" },
+            admin: { rate: 32.31, description: "Administration / Coordination" },
         },
         burden: {
             rate: 35, // percentage on top of base rate
@@ -380,8 +384,8 @@ const PRICING_DB = {
             },
         },
         markup: {
-            material: 50, // percentage markup
-            labor: 50,
+            material: 50, // percentage markup (observed range: 30-69%, avg 50%)
+            labor: 50,    // percentage markup (observed GM: 30-40%)
             equipment: 15,
             subcontractor: 10,
         },
@@ -972,6 +976,123 @@ const PRICING_DB = {
         extendedRange: ['los angeles', 'san diego', 'bakersfield', 'riverside', 'long beach',
                          'anaheim', 'irvine', 'santa barbara', 'portland', 'seattle',
                          'phoenix', 'tucson', 'salt lake city', 'las vegas', 'denver'],
+    },
+
+    // ═══════════════════════════════════════════════════════════════
+    // HISTORICAL BID INTELLIGENCE — Extracted from 13 real 3D bids
+    // Used by AI brains and export engine for validation/calibration
+    // DO NOT EDIT — Generated from bid analysis 2026-04-06
+    // ═══════════════════════════════════════════════════════════════
+    historicalBidIntelligence: {
+        source: "13 historical bids, 3D Technology Services, 2022-2026",
+
+        // ── Labor rates observed across all bids (Sacramento region) ──
+        laborRatesObserved: {
+            project_manager:    { base_avg: 50.49, burdened_avg: 75.54, sell_avg: 111.42, gm_pct: 32.2 },
+            foreman:            { base_avg: 37.40, burdened_avg: 55.76, sell_avg: 84.38,  gm_pct: 33.9 },
+            cable_installer:    { base_avg: 43.38, burdened_avg: 55.79, sell_avg: 86.81,  gm_pct: 35.7 },
+            tech_iii:           { base_avg: 37.31, burdened_avg: 57.21, sell_avg: 83.74,  gm_pct: 31.7 },
+            tech_ii:            { base_avg: 32.95, burdened_avg: 50.13, sell_avg: 83.88,  gm_pct: 40.2 },
+            tech_i:             { base_avg: 32.66, burdened_avg: 50.25, sell_avg: 83.74,  gm_pct: 40.0 },
+            cad_drafter:        { base_avg: 38.00, burdened_avg: 58.90, sell_avg: 85.00,  gm_pct: 30.7 },
+            engineer_estimator: { base_avg: 40.11, burdened_avg: 61.36, sell_avg: 89.89,  gm_pct: 31.7 },
+            warehouse:          { base_avg: 28.00, burdened_avg: 44.52, sell_avg: 65.00,  gm_pct: 31.5 },
+            administration:     { base_avg: 32.31, burdened_avg: 48.09, sell_avg: 70.75,  gm_pct: 32.0 },
+        },
+
+        // ── Task productivity rates (minutes per unit) ──
+        // Extracted from detailed task breakdowns in TELEDATA/CCTV/AC sheets
+        taskProductivity: {
+            pull_cat6_cable:        { min_per_unit: 16.6, hours_per_100: 27.7, observations: 22, notes: "Per cable run, includes routing" },
+            terminate_cable:        { min_per_unit: 5.9,  hours_per_100: 9.9,  observations: 17, notes: "Per termination (jack or patch panel)" },
+            test_cable:             { min_per_unit: 5.1,  hours_per_100: 8.5,  observations: 18, notes: "Per cable, Fluke certification" },
+            install_faceplate:      { min_per_unit: 5.6,  hours_per_100: 9.4,  observations: 8,  notes: "Includes labeling" },
+            install_ceiling_support:{ min_per_unit: 3.8,  hours_per_100: 6.4,  observations: 9,  notes: "J-hook or bridle ring" },
+            fire_stopping:          { min_per_unit: 4.7,  hours_per_100: 7.8,  observations: 6,  notes: "Per penetration" },
+            install_sleeve:         { min_per_unit: 7.5,  hours_per_100: 12.5, observations: 4,  notes: "Core + sleeve install" },
+            install_wap:            { min_per_unit: 28.3, hours_per_100: 47.2, observations: 3,  notes: "Mount + cable + config" },
+            install_device:         { min_per_unit: 55.0, hours_per_100: 91.7, observations: 3,  notes: "Speaker, clock, intercom station" },
+            build_mdf_idf:          { min_per_unit: 110.6,hours_per_100: 184.3,observations: 9,  notes: "Per room, rack + patch + ground" },
+            install_raceway:        { min_per_unit: 15.0, hours_per_100: 25.0, observations: 3,  notes: "Per stick (5ft section)" },
+            install_camera:         { min_per_unit: 80.0, hours_per_100: 133.3,observations: 2,  notes: "Mount + cable + aim + config" },
+            install_access_lock:    { min_per_unit: 240.0,hours_per_100: 400.0,observations: 2,  notes: "RFID lock: wire, mount, program" },
+            install_phone:          { min_per_unit: 15.0, hours_per_100: 25.0, observations: 1,  notes: "Wall mount + connect" },
+            grounding:              { min_per_unit: 75.0, hours_per_100: 125.0,observations: 4,  notes: "Per TGB/ground point" },
+            dress_cables:           { min_per_unit: 60.0, hours_per_100: 100.0,observations: 5,  notes: "Per bundle/tray section" },
+            fish_cable_wall:        { min_per_unit: 5.0,  hours_per_100: 8.3,  observations: 1,  notes: "Per cable, existing wall" },
+            install_switch:         { min_per_unit: 30.0, hours_per_100: 50.0, observations: 1,  notes: "Network switch, rack mount + patch" },
+            demo_scs:               { min_per_unit: 480.0,hours_per_100: 800.0,observations: 2,  notes: "Per room, full structured cabling demo" },
+        },
+
+        // ── Labor hour allocation percentages (observed averages) ──
+        laborHourDistribution: {
+            tech_iii:           24.6,   // Primary worker — carries the most hours
+            cable_installer:    22.5,
+            tech_ii:            18.0,
+            foreman:            7.1,
+            project_manager:    5.6,    // Overhead — typically 2.6-6.2% of field hours
+            cad_drafter:        4.2,
+            tech_iv:            3.6,
+            administration:     2.8,
+            engineer_estimator: 1.5,
+            warehouse:          1.2,
+        },
+
+        // ── Markup patterns observed ──
+        markupPatterns: {
+            material_large_bid_avg: 43.5,   // 30-54% range on template bids
+            material_small_bid_avg: 54.5,   // 30-69% range on takeoff bids
+            material_small_bid_median: 56.6,
+            labor_margin_target: 50,         // Standard labor margin (sell rate)
+            gm_target_standard: 35,          // Frank Pedersen directive: 35% GM
+            gm_target_pw: 47.5,              // PW projects: 45-50% margin target
+        },
+
+        // ── Estimating rules (heuristics from real estimators) ──
+        estimatingRules: {
+            cable_pull_rate_ft_per_manhour: 200,
+            cables_per_day_field_team: 30,
+            npt_pct: 12,                        // Non-productive time as % of labor
+            mobilization_min_hours: 8,
+            material_support_pct: 2,            // % of material cost for misc support
+            shipping_pct: 1,                    // % of material cost for shipping
+            commission_pct: 3.5,                // % of total sell
+            head_end_install_hours: 8,          // Per server/workstation setup
+            camera_install_hours: 1.33,         // Per camera (mount + cable + aim)
+            rfid_lock_install_hours: 4,         // Per electronic lock
+            mdf_idf_build_hours: 2,             // Per room
+            testing_hours_per_cable: 0.085,     // ~5.1 min per cable
+            pm_pct_of_field_hours: 4.7,         // Average PM overhead
+        },
+
+        // ── Material unit costs from real bids (contractor cost, not sell) ──
+        materialCostsObserved: {
+            camera_avg: 652,          // Axis mid-range dome/bullet average
+            camera_range: [64, 1714], // From recessed mount to panoramic
+            vms_server_avg: 3142,     // Camera Station rack server
+            vms_license_avg: 64,      // Per-camera VMS license
+            monitor_avg: 442,         // 32-50" display
+            cat6_jack_avg: 5.54,      // Leviton Extreme Quickport
+            cat6_cable_per_1000ft: 260,// Berktek CMR
+            cat6a_cable_per_1000ft: 300,
+            patch_cord_3ft: 3.90,
+            access_panel_avg: 1874,   // S2 Netbox/controller
+            access_reader_avg: 517,   // HID/S2 readers
+            electronic_lock_avg: 1267,// Schlage AD400 series
+            conduit_emt_half_per_ft: 1.00,
+        },
+
+        // ── Risk flags for bid validation ──
+        riskFlags: [
+            { id: "RF01", flag: "PW projects need 35-59% PT&I burden on base rates", impact: "high" },
+            { id: "RF02", flag: "After-hours (2nd shift) adds 30-50% to labor", impact: "high" },
+            { id: "RF03", flag: "Large intercom/nurse call systems are extremely labor-intensive", impact: "high" },
+            { id: "RF04", flag: "Demo scope can equal or exceed new install labor hours", impact: "medium" },
+            { id: "RF05", flag: "Camera systems with 8+ device types need per-unit cost validation", impact: "medium" },
+            { id: "RF06", flag: "Fence detection systems carry 60-69% material markups", impact: "medium" },
+            { id: "RF07", flag: "35% GM floor per company directive", impact: "high" },
+            { id: "RF08", flag: "45-50% GM target for prevailing wage projects", impact: "high" },
+        ],
     },
 };
 
