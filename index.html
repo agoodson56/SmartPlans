@@ -155,7 +155,7 @@
                 function () {
                     console.warn('[SmartPlans] Primary SheetJS CDN failed, trying fallback…');
                     loadScript(
-                        'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+                        'https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js',
                         'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw',
                         function () { console.log('[SmartPlans] SheetJS loaded (fallback CDN)'); },
                         function () { console.error('[SmartPlans] SheetJS failed to load from all CDNs — Excel export will use CSV fallback'); }

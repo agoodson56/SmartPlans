@@ -3236,3 +3236,16 @@ textarea:focus {
   background: rgba(99, 102, 241, 0.25);
   color: rgba(99, 102, 241, 1);
 }
+
+/* ─── Print Styles ─── */
+@media print {
+  .bg-grid, .bg-orb, .bg-grid-lines { display: none !important; }
+  #app-header, #step-nav, #step-footer { display: none !important; }
+  #sp-update-banner, .sp-toast { display: none !important; }
+  .saved-panel, .saved-panel-backdrop { display: none !important; }
+  #app-shell { border: none !important; box-shadow: none !important; background: white !important; }
+  body { background: white !important; color: black !important; }
+  #step-content { padding: 0 !important; }
+  * { box-shadow: none !important; text-shadow: none !important; }
+  a { color: inherit !important; text-decoration: none !important; }
+}
