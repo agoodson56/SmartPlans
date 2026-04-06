@@ -285,8 +285,9 @@ const SmartPlansExport = {
         const labSell = this._round(laborBase * (1 + labPct));
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
-        // Burden covers payroll taxes, insurance, benefits — applied to BILLED labor rate, not raw cost
-        const burden = includeBurden ? this._round(labSell * burdenRate) : 0;
+        // Burden = payroll taxes, workers comp, insurance, benefits — applied to BASE labor cost
+        // NOT the sell price (sell includes profit margin; burden should not compound with profit)
+        const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
         // Travel: use Stage 6 deterministic travel if configured, otherwise BOM travel
         // Travel is PASS-THROUGH — no markup applied (it's already at cost)
         const stage6Travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
@@ -419,10 +420,12 @@ const SmartPlansExport = {
                     const sLabSell = this._round(sLab * (1 + labPct));
                     const sEqSell = this._round(sEq * (1 + eqPct));
                     const sSubSell = this._round(sSub * (1 + subPct));
-                    const sBurden = includeBurden ? this._round(sLabSell * burdenRate) : 0;
+                    const sBurden = includeBurden ? this._round(sLab * burdenRate) : 0;
 
-                    subtotal = this._round(sMatSell + sLabSell + sEqSell + sSubSell + sBurden + travel);
-                    contingency = this._round(subtotal * contingencyPct);
+                    // Match non-calibrated path: contingency on profit items only, travel excluded
+                    const sProfitSubtotal = this._round(sMatSell + sLabSell + sEqSell + sSubSell + sBurden);
+                    contingency = this._round(sProfitSubtotal * contingencyPct);
+                    subtotal = this._round(sProfitSubtotal + travel);
                     grandTotal = this._round(subtotal + contingency);
 
                     console.warn(`[Export]   Calibrated grand total: $${grandTotal.toLocaleString()} (target was $${calibratedTarget.toLocaleString()})`);
