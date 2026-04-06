@@ -506,9 +506,10 @@ const SmartBrains = {
   BRAINS: {
     // ── Wave 0: Legend Pre-Processing + Spatial Layout (Gemini 3.1 Pro) ──
     LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 65536, useProModel: true },
-    SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
+    SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true, preferProForFiles: true },
     // ── Wave 1: First Read — Document Intelligence ──
-    SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
+    // preferProForFiles: counting/visual brains use gemini-2.5-pro for accuracy, fall back to flash
+    SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
     CODE_COMPLIANCE: { id: 2, name: 'Code Compliance', wave: 1, emoji: '📋', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     MDF_IDF_ANALYZER: { id: 3, name: 'MDF/IDF Analyzer', wave: 1, emoji: '🏗️', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     CABLE_PATHWAY: { id: 4, name: 'Cable & Pathway', wave: 1, emoji: '🔌', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
@@ -516,16 +517,17 @@ const SmartBrains = {
     SPEC_CROSS_REF: { id: 21, name: 'Spec Cross-Reference', wave: 1, emoji: '📑', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     ANNOTATION_READER: { id: 22, name: 'Annotation Reader', wave: 1, emoji: '💬', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     RISER_DIAGRAM_ANALYZER: { id: 23, name: 'Riser Diagram Analyzer', wave: 1, emoji: '📶', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
-    DEVICE_LOCATOR: { id: 28, name: 'Device Locator', wave: 1, emoji: '📍', needsFiles: ['plans', 'legends'], maxTokens: 65536, useProModel: true },
-    // ── Wave 1.5: Second Read — Independent Verification (all Gemini 3.1 Pro) ──
-    SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
+    DEVICE_LOCATOR: { id: 28, name: 'Device Locator', wave: 1, emoji: '📍', needsFiles: ['plans', 'legends'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    // ── Wave 1.5: Second Read — Independent Verification ──
+    // Counting/verification brains use Pro for accuracy; others use Flash
+    SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
     DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
-    QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
-    ZOOM_SCANNER: { id: 24, name: 'Zoom Scanner', wave: 1.5, emoji: '🔭', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
-    PER_FLOOR_ANALYZER: { id: 25, name: 'Per-Floor Analyzer', wave: 1.5, emoji: '🏢', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
+    QUADRANT_SCANNER: { id: 8, name: 'Quadrant Scanner', wave: 1.5, emoji: '📐', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    ZOOM_SCANNER: { id: 24, name: 'Zoom Scanner', wave: 1.5, emoji: '🔭', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    PER_FLOOR_ANALYZER: { id: 25, name: 'Per-Floor Analyzer', wave: 1.5, emoji: '🏢', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
     // ── Wave 1.75: Consensus Resolution (Gemini 3.1 Pro deep reasoning) ──
     CONSENSUS_ARBITRATOR: { id: 9, name: 'Consensus Arbitrator', wave: 1.75, emoji: '⚖️', needsFiles: [], maxTokens: 65536, useProModel: true },
-    TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
+    TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
     // ── Wave 2: Material Pricing (must run BEFORE labor so labor can use material qtys) ──
     MATERIAL_PRICER: { id: 11, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 65536, useProModel: true },
     // ── Wave 2.25: Labor Calculator (runs AFTER Material Pricer to use its quantities) ──
@@ -533,16 +535,16 @@ const SmartBrains = {
     // ── Wave 2.5: Financial Engine (runs AFTER both Pricer & Labor to sum their outputs) ──
     FINANCIAL_ENGINE: { id: 13, name: 'Financial Engine', wave: 2.5, emoji: '📊', needsFiles: [], maxTokens: 65536, useProModel: true },
     // ── Wave 2.75: Reverse Verification (Gemini 3.1 Pro) ──
-    REVERSE_VERIFIER: { id: 14, name: 'Reverse Verifier', wave: 2.75, emoji: '🔄', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
+    REVERSE_VERIFIER: { id: 14, name: 'Reverse Verifier', wave: 2.75, emoji: '🔄', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
     // ── Wave 3: Adversarial Audit (Gemini 3.1 Pro deep reasoning) ──
     CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 65536, useProModel: true },
     DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 3.5: 4th, 5th, 6th Read — Deep Accuracy Pass (3 brains, Pro model) ──
-    DETAIL_VERIFIER: { id: 18, name: 'Detail Verifier', wave: 3.5, emoji: '🔎', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
-    CROSS_SHEET_ANALYZER: { id: 19, name: 'Cross-Sheet Analyzer', wave: 3.5, emoji: '📊', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
-    OVERLAP_DETECTOR: { id: 26, name: 'Overlap Detector', wave: 3.5, emoji: '🔗', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
+    DETAIL_VERIFIER: { id: 18, name: 'Detail Verifier', wave: 3.5, emoji: '🔎', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    CROSS_SHEET_ANALYZER: { id: 19, name: 'Cross-Sheet Analyzer', wave: 3.5, emoji: '📊', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
+    OVERLAP_DETECTOR: { id: 26, name: 'Overlap Detector', wave: 3.5, emoji: '🔗', needsFiles: ['plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
     // ── Wave 3.75: Final Reconciliation (1 brain, Pro deep reasoning) ──
-    FINAL_RECONCILIATION: { id: 20, name: 'Final Reconciliation', wave: 3.75, emoji: '🏁', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
+    FINAL_RECONCILIATION: { id: 20, name: 'Final Reconciliation', wave: 3.75, emoji: '🏁', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true, preferProForFiles: true },
     // ── Wave 3.85: Estimate Correction (1 brain, Pro — corrects pricing/quantities based on verification findings) ──
     ESTIMATE_CORRECTOR: { id: 27, name: 'Estimate Corrector', wave: 3.85, emoji: '🔧', needsFiles: [], maxTokens: 65536, useProModel: true },
     // ── Wave 4: Final Report (Gemini 3.1 Pro for comprehensive bid generation) ──
@@ -962,11 +964,16 @@ const SmartBrains = {
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
 
     // ── Model compatibility: gemini-3.1-pro-preview does NOT support fileData (File API) ──
-    // Auto-downgrade to gemini-2.5-flash for brains that reference uploaded files
-    // Flash is preferred over Pro: higher rate limits, faster, and more reliable for file processing
+    // Counting/visual brains (preferProForFiles) → gemini-2.5-pro for accuracy, flash fallback
+    // All other file brains → gemini-2.5-flash for speed and reliability
     if (hasUploadedFiles && modelName.includes('3.1-pro-preview')) {
-      console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-flash (3.1 preview doesn't support File API references)`);
-      modelName = 'gemini-2.5-flash';
+      if (brainDef.preferProForFiles) {
+        console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (counting brain — Pro for accuracy)`);
+        modelName = 'gemini-2.5-pro';
+      } else {
+        console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-flash (3.1 preview doesn't support File API)`);
+        modelName = 'gemini-2.5-flash';
+      }
     }
 
     // ── Key Selection (resolved once, used by both retry loop AND fallback) ──
@@ -1030,10 +1037,11 @@ const SmartBrains = {
         keySlot = (brainDef.id + attempt) % 18;
       }
 
-      // If context cache is available, use it instead of sending files
-      // Remove fileData parts since they're already in the cache
+      // If context cache is available AND model matches, use it instead of sending files
+      // Context caches are model-specific — a cache created with gemini-2.5-pro can't be used with flash
       let finalParts = parts;
-      const useCache = this._contextCache && hasUploadedFiles;
+      const cacheModelMatch = this._contextCache && modelName === this._contextCache.model;
+      const useCache = cacheModelMatch && hasUploadedFiles;
       if (useCache) {
         finalParts = parts.filter(p => !p.fileData); // Strip file references — they're in the cache
       }
@@ -4496,7 +4504,7 @@ Return ONLY valid JSON:
           headers: this._authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             fileUris,
-            model: 'models/gemini-2.5-flash',
+            model: 'models/gemini-2.5-pro',
             systemInstruction: 'You are an expert low-voltage ELV construction estimator analyzing construction drawings and specifications. Extract precise device counts, material quantities, and cost data.',
             ttl: '3600s',
             _uploadKeyName: uploadKeyName,
@@ -4505,7 +4513,7 @@ Return ONLY valid JSON:
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
           // Strip 'models/' prefix — invoke.js constructs 'models/${model}' so we need the plain name
-          const cacheModel = (cacheData.model || 'gemini-2.5-flash').replace(/^models\//, '');
+          const cacheModel = (cacheData.model || 'gemini-2.5-pro').replace(/^models\//, '');
           _contextCache = { name: cacheData.cacheName, model: cacheModel, keyName: cacheData._usedKeyName };
           console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
