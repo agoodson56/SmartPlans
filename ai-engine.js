@@ -964,16 +964,11 @@ const SmartBrains = {
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
 
     // ── Model compatibility: gemini-3.1-pro-preview does NOT support fileData (File API) ──
-    // Counting/visual brains (preferProForFiles) → gemini-2.5-pro for accuracy, flash fallback
-    // All other file brains → gemini-2.5-flash for speed and reliability
+    // Use gemini-2.5-flash for ALL file-based brains — reliable and fast
+    // gemini-2.5-pro is currently returning 500 errors on File API calls
     if (hasUploadedFiles && modelName.includes('3.1-pro-preview')) {
-      if (brainDef.preferProForFiles) {
-        console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (counting brain — Pro for accuracy)`);
-        modelName = 'gemini-2.5-pro';
-      } else {
-        console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-flash (3.1 preview doesn't support File API)`);
-        modelName = 'gemini-2.5-flash';
-      }
+      console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-flash (File API)`);
+      modelName = 'gemini-2.5-flash';
     }
 
     // ── Key Selection (resolved once, used by both retry loop AND fallback) ──
@@ -1037,11 +1032,9 @@ const SmartBrains = {
         keySlot = (brainDef.id + attempt) % 18;
       }
 
-      // If context cache is available AND model matches, use it instead of sending files
-      // Context caches are model-specific — a cache created with gemini-2.5-pro can't be used with flash
+      // If context cache is available, use it instead of sending files
       let finalParts = parts;
-      const cacheModelMatch = this._contextCache && modelName === this._contextCache.model;
-      const useCache = cacheModelMatch && hasUploadedFiles;
+      const useCache = this._contextCache && hasUploadedFiles;
       if (useCache) {
         finalParts = parts.filter(p => !p.fileData); // Strip file references — they're in the cache
       }
@@ -1260,7 +1253,7 @@ const SmartBrains = {
     }
 
     // ── Model Fallback: If primary model failed, try alternative models ──
-    const fallbackModels = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
+    const fallbackModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
     const triedModel = modelName;
     for (const fbModel of fallbackModels) {
       if (fbModel === triedModel) continue; // skip the one that already failed
@@ -4504,7 +4497,7 @@ Return ONLY valid JSON:
           headers: this._authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             fileUris,
-            model: 'models/gemini-2.5-pro',
+            model: 'models/gemini-2.5-flash',
             systemInstruction: 'You are an expert low-voltage ELV construction estimator analyzing construction drawings and specifications. Extract precise device counts, material quantities, and cost data.',
             ttl: '3600s',
             _uploadKeyName: uploadKeyName,
@@ -4513,7 +4506,7 @@ Return ONLY valid JSON:
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
           // Strip 'models/' prefix — invoke.js constructs 'models/${model}' so we need the plain name
-          const cacheModel = (cacheData.model || 'gemini-2.5-pro').replace(/^models\//, '');
+          const cacheModel = (cacheData.model || 'gemini-2.5-flash').replace(/^models\//, '');
           _contextCache = { name: cacheData.cacheName, model: cacheModel, keyName: cacheData._usedKeyName };
           console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
