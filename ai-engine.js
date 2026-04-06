@@ -962,10 +962,11 @@ const SmartBrains = {
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
 
     // ── Model compatibility: gemini-3.1-pro-preview does NOT support fileData (File API) ──
-    // Auto-downgrade to gemini-2.5-pro for brains that reference uploaded files
+    // Auto-downgrade to gemini-2.5-flash for brains that reference uploaded files
+    // Flash is preferred over Pro: higher rate limits, faster, and more reliable for file processing
     if (hasUploadedFiles && modelName.includes('3.1-pro-preview')) {
-      console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (3.1 preview doesn't support File API references)`);
-      modelName = 'gemini-2.5-pro';
+      console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-flash (3.1 preview doesn't support File API references)`);
+      modelName = 'gemini-2.5-flash';
     }
 
     // ── Key Selection (resolved once, used by both retry loop AND fallback) ──
@@ -1251,7 +1252,7 @@ const SmartBrains = {
     }
 
     // ── Model Fallback: If primary model failed, try alternative models ──
-    const fallbackModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    const fallbackModels = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
     const triedModel = modelName;
     for (const fbModel of fallbackModels) {
       if (fbModel === triedModel) continue; // skip the one that already failed
@@ -4495,7 +4496,7 @@ Return ONLY valid JSON:
           headers: this._authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             fileUris,
-            model: 'models/gemini-2.5-pro',
+            model: 'models/gemini-2.5-flash',
             systemInstruction: 'You are an expert low-voltage ELV construction estimator analyzing construction drawings and specifications. Extract precise device counts, material quantities, and cost data.',
             ttl: '3600s',
             _uploadKeyName: uploadKeyName,
@@ -4504,7 +4505,7 @@ Return ONLY valid JSON:
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
           // Strip 'models/' prefix — invoke.js constructs 'models/${model}' so we need the plain name
-          const cacheModel = (cacheData.model || 'gemini-2.5-pro').replace(/^models\//, '');
+          const cacheModel = (cacheData.model || 'gemini-2.5-flash').replace(/^models\//, '');
           _contextCache = { name: cacheData.cacheName, model: cacheModel, keyName: cacheData._usedKeyName };
           console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
