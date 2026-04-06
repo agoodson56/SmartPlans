@@ -8,11 +8,11 @@ import { isAllowedOrigin, timingSafeCompare } from '../../_shared/cors.js';
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_SEC = 300;
 
-async function hashPasswordPBKDF2(password, saltHex) {
+async function hashPasswordPBKDF2(password, saltHex, iterations = 600000) {
     const enc = new TextEncoder();
     const salt = new Uint8Array(saltHex.match(/.{2}/g).map(b => parseInt(b, 16)));
     const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' }, key, 256);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256);
     return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
@@ -78,9 +78,27 @@ export async function onRequestPost(context) {
             return Response.json({ error: 'Account is deactivated. Contact your administrator.' }, { status: 403 });
         }
 
-        // Verify password
-        const inputHash = await hashPasswordPBKDF2(password, user.password_salt);
-        if (!timingSafeCompare(inputHash, user.password_hash)) {
+        // Verify password — try 600k iterations first, fall back to legacy 100k, auto-upgrade
+        let passwordValid = false;
+        const inputHash600k = await hashPasswordPBKDF2(password, user.password_salt, 600000);
+        if (timingSafeCompare(inputHash600k, user.password_hash)) {
+            passwordValid = true;
+        } else {
+            // Legacy: account was created with 100k iterations — try that
+            const inputHash100k = await hashPasswordPBKDF2(password, user.password_salt, 100000);
+            if (timingSafeCompare(inputHash100k, user.password_hash)) {
+                passwordValid = true;
+                // Auto-upgrade to 600k iterations
+                try {
+                    await env.DB.prepare("UPDATE user_accounts SET password_hash = ? WHERE id = ?")
+                        .bind(inputHash600k, user.id).run();
+                    console.log(`[Auth] Auto-upgraded ${email} password hash from 100k → 600k iterations`);
+                } catch (upgradeErr) {
+                    console.warn('[Auth] Hash upgrade failed (non-fatal):', upgradeErr.message);
+                }
+            }
+        }
+        if (!passwordValid) {
             await isRateLimited(env.DB, ip, true);
             return Response.json({ error: 'Invalid email or password' }, { status: 401 });
         }
