@@ -5,7 +5,7 @@
 
 import { isAllowedOrigin, timingSafeCompare } from '../../_shared/cors.js';
 
-const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SEC = 300;
 
 async function hashPasswordPBKDF2(password, saltHex, iterations = 600000) {
@@ -31,7 +31,7 @@ async function isRateLimited(db, ip, increment) {
             ).bind(key, now + RATE_LIMIT_WINDOW_SEC).run();
         }
         return false;
-    } catch { return true; } // Fail-closed: block on error to prevent brute force during DB issues
+    } catch { return false; } // Fail-open: DB issues should not lock out legitimate users
 }
 
 export async function onRequestPost(context) {
