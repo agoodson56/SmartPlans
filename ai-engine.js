@@ -1883,7 +1883,22 @@ Check the plans and specs for EACH — if present, you MUST price them:
    - Camera pole foundation (drilled pier): $2,000-$8,000 each
 
 DO NOT skip these. Missing bollards alone can be 20%+ of the total bid.
-` : ''}═══ MANDATORY SELF-CHECK (do this before returning) ═══
+` : ''}═══ SUBCONTRACTED CIVIL WORK (ALWAYS INCLUDE WHEN APPLICABLE) ═══
+3D Technology does NOT self-perform trenching, directional boring, or saw cutting.
+When plans show underground conduit runs, outdoor cable pathways, or exterior routing:
+- ALWAYS add a "Subcontractor — Civil / Trenching" category
+- Price trenching as SUBCONTRACTOR line items (3D subs this out):
+  • Dirt trenching (24" deep): $9-$12/LF (use $12 for PW)
+  • Asphalt saw cut + trench + patch: $28-$35/LF (use $35 for PW)
+  • Concrete saw cut + trench + patch: $32-$42/LF (use $42 for PW)
+  • Directional boring 2" conduit: $12/LF ($20 for PW)
+  • Directional boring 4" conduit: $16/LF ($20 for PW)
+  • Bore mobilization: $2,500 flat fee per bore setup
+- Estimate linear footage from site plans (measure cable routes between buildings, to poles, etc.)
+- Include conduit material in the subcontractor line item cost
+- These are COST prices — the engine applies 20% markup automatically
+
+═══ MANDATORY SELF-CHECK (do this before returning) ═══
 Before responding, verify:
 1. Your output includes a category for EACH selected discipline listed above
 2. EVERY item has a non-empty "mfg" field (manufacturer name)

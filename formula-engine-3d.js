@@ -148,6 +148,27 @@ const FormulaEngine3D = {
         perDiemRate:     42.00, // $/day
     },
 
+    // ─── Subcontracted Civil Work (ALWAYS subbed out — 3D does NOT self-perform) ──
+    // Costs are subcontractor rates per LF; marked up 20% for bid
+    subCivilRates: {
+        // Trenching (open-cut, 24" deep, dirt/grass, with conduit)
+        trench_dirt_per_lf:         9,    // $9/LF — standard dirt trench
+        trench_dirt_pw_per_lf:      12,   // $12/LF — PW projects (higher end)
+        // Saw cutting + trenching + patching (concrete or asphalt surface)
+        sawcut_asphalt_per_lf:      28,   // $28/LF — asphalt sawcut + trench + patch
+        sawcut_concrete_per_lf:     32,   // $32/LF — concrete sawcut + trench + patch
+        sawcut_pw_asphalt_per_lf:   35,   // $35/LF — PW asphalt (higher end)
+        sawcut_pw_concrete_per_lf:  42,   // $42/LF — PW concrete (higher end)
+        // Directional boring (small diameter 2-4" conduit)
+        bore_2in_per_lf:            12,   // $12/LF — 2" bore
+        bore_4in_per_lf:            16,   // $16/LF — 4" bore
+        bore_pw_per_lf:             20,   // $20/LF — PW projects
+        bore_mobilization:          2500, // $2,500 flat mobilization fee
+        // Transit/Amtrak (verified from actual bids — much higher due to railroad requirements)
+        trench_transit_per_lf:      95,   // $95/LF (Emeryville)
+        trench_transit_heavy_per_lf: 281, // $281/LF (Martinez — heavy scope)
+    },
+
     // ─── Overhead Percentages (verified from Emeryville/Martinez/CHP) ──
     overhead: {
         materialSupport: 0.02,  // 2% of material cost (10% for pole-mount)
@@ -277,7 +298,7 @@ const FormulaEngine3D = {
         bollard_foundation:   650,    // Foundation cost
         bollard_labor_hrs:    8,      // Hours per bollard
 
-        // Trenching
+        // Trenching (transit — see subCivilRates for commercial rates)
         trench_emeryville_per_lf: 95,    // $95/LF (Emeryville pricing schedule)
         trench_martinez_per_lf:   281,   // $281/LF (Martinez — heavier scope)
         trench_concrete_allin:    145,   // All-in concrete trench (mid)
@@ -348,7 +369,8 @@ const FormulaEngine3D = {
         if (/intrusion|motion.*detect|glass.*break/i.test(text)) return 'intrusion';
         if (/infrastructure|power|battery|surge/i.test(text)) return 'infrastructure';
         if (/bollard|anti.?ram|vehicle.*barrier/i.test(text)) return 'civil';
-        if (/trench|sawcut|conduit.*underground|boring/i.test(text)) return 'civil';
+        // Trenching, saw cutting, directional boring — ALWAYS subcontracted (3D does not self-perform)
+        if (/trench|sawcut|saw.?cut|conduit.*underground|boring|directional.*bore|horizontal.*bore/i.test(text)) return 'subcontractor';
         if (/window.*film|blast.*film|security.*film/i.test(text)) return 'civil';
         if (/subcontract|civil|traffic|rwic|flagman/i.test(text)) return 'subcontractor';
         return 'teledata';
