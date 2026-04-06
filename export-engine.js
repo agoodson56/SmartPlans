@@ -398,7 +398,7 @@ const SmartPlansExport = {
                 // Calibrate if formula output is >8% ABOVE or >8% BELOW benchmark
                 // The AI is wildly inconsistent ($1.5M one run, $3M the next).
                 // Benchmark data from actual winning bids is the anchor.
-                const needsCalibration = deviation > 1.08 || deviation < 0.92;
+                const needsCalibration = deviation > 1.06 || deviation < 0.94;
                 if (needsCalibration) {
                     const direction = deviation > 1 ? 'OVER' : 'UNDER';
                     const pctOff = Math.round(Math.abs(deviation - 1) * 100);
