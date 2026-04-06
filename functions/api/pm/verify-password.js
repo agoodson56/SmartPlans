@@ -13,11 +13,11 @@ const RATE_LIMIT_MAX = 5;          // max failed attempts
 const RATE_LIMIT_WINDOW_SEC = 300; // 5 minutes
 
 /**
- * Hash a password using PBKDF2 with 600,000 iterations.
+ * Hash a password using PBKDF2 with 100,000 iterations (CF Workers max).
  * If saltHex is provided, converts from hex; otherwise generates a new 16-byte salt.
  * Returns { hash, salt } where both are hex strings.
  */
-async function hashPasswordPBKDF2(password, saltHex, iterations = 600000) {
+async function hashPasswordPBKDF2(password, saltHex, iterations = 100000) {
     if (!password) return { hash: '', salt: '' };
     const enc = new TextEncoder();
     let salt;
@@ -151,24 +151,9 @@ export async function onRequestPost(context) {
         const roleSalt = salts?.[role];
 
         if (roleSalt) {
-            // PBKDF2 path — try 600k first, fall back to legacy 100k, auto-upgrade
-            const result600k = await hashPasswordPBKDF2(password, roleSalt, 600000);
-            let valid = timingSafeCompare(result600k.hash, storedHash);
-            if (!valid) {
-                const result100k = await hashPasswordPBKDF2(password, roleSalt, 100000);
-                valid = timingSafeCompare(result100k.hash, storedHash);
-                if (valid) {
-                    // Auto-upgrade to 600k
-                    try {
-                        stored[role] = result600k.hash;
-                        await env.DB.prepare(`
-                            INSERT INTO pm_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
-                            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-                        `).bind('passwords', JSON.stringify(stored)).run();
-                        console.log(`[verify-password] Auto-upgraded ${role} hash from 100k → 600k iterations`);
-                    } catch (e) { console.warn('[verify-password] Hash upgrade failed:', e.message); }
-                }
-            }
+            // PBKDF2 path — 100k iterations (Cloudflare Workers max supported)
+            const result = await hashPasswordPBKDF2(password, roleSalt);
+            const valid = timingSafeCompare(result.hash, storedHash);
             if (!valid) await isRateLimited(env.DB, ip, true);
             else await clearRateLimit(env.DB, ip);
             return Response.json({ valid });

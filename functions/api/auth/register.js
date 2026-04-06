@@ -9,13 +9,13 @@ import { isAllowedOrigin, checkRateLimit } from '../../_shared/cors.js';
 const ALLOWED_DOMAIN = '3dtsi.com';
 
 /**
- * Hash a password using PBKDF2 with 600,000 iterations + random 16-byte salt.
+ * Hash a password using PBKDF2 with 100,000 iterations + random 16-byte salt (CF Workers max).
  */
 async function hashPasswordPBKDF2(password) {
     const enc = new TextEncoder();
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' }, key, 256);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
     const hash = Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
     const saltHex = Array.from(new Uint8Array(salt)).map(b => b.toString(16).padStart(2, '0')).join('');
     return { hash, salt: saltHex };
