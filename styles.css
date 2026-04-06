@@ -1315,7 +1315,7 @@ textarea:focus {
   background: #FFFFFF;
   border: 1px solid rgba(180, 140, 20, 0.5);
   border-radius: 0;
-  max-width: 420px;
+  max-width: 60%;
   margin-left: auto;
   margin-right: auto;
   backdrop-filter: none;
