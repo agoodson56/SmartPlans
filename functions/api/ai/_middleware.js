@@ -40,7 +40,7 @@ export async function onRequest(context) {
     const rateLimitKey = sessionToken ? `ai_rate:session:${sessionToken}` :
         `ai_rate:ip:${request.headers.get('CF-Connecting-IP') || 'unknown'}`;
     try {
-        const blocked = await checkRateLimit(env.DB, rateLimitKey, 60, 60, true);
+        const blocked = await checkRateLimit(env.DB, rateLimitKey, 60, 60);
         if (blocked) {
             return Response.json(
                 { error: 'Rate limit exceeded — please wait before making more AI requests' },

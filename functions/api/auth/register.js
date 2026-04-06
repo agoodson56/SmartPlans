@@ -26,7 +26,7 @@ export async function onRequestPost(context) {
 
     // H3 fix: IP-based rate limiting for registration
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-    const blocked = await checkRateLimit(env.DB, `reg:${ip}`, 5, 3600, true);
+    const blocked = await checkRateLimit(env.DB, `reg:${ip}`, 5, 3600);
     if (blocked) {
         return Response.json({ error: 'Too many registration attempts. Try again later.' }, { status: 429 });
     }

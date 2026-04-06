@@ -994,6 +994,7 @@ const SmartBrains = {
     });
 
     let _fileDataStripped = false;
+    let lastKeySlot = brainDef.id % 18; // Track last used slot for fallback scope
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       // ── Health monitor: check abort (only if user manually aborted via UI) ──
       if (APIHealthMonitor.isAborted() && APIHealthMonitor._manualOverride) {
@@ -1024,13 +1025,12 @@ const SmartBrains = {
       // keySlot is still used as fallback if _uploadKeyName is not available
       let keySlot;
       if (hasUploadedFiles && !uploadKeyName) {
-        // Fallback: pin to slot 0 if key name wasn't tracked (should not happen)
         console.warn(`[Brain:${brainDef.name}] WARNING: Uploaded files but no _usedKeyName — defaulting to slot 0`);
         keySlot = 0;
       } else {
-        // No uploaded files — safe to rotate across all keys
         keySlot = (brainDef.id + attempt) % 18;
       }
+      lastKeySlot = keySlot; // Track for fallback scope
 
       // If context cache is available, use it instead of sending files
       let finalParts = parts;
@@ -1049,7 +1049,7 @@ const SmartBrains = {
 
       // ── DIAGNOSTIC: Log parts structure on first attempt ──
       if (attempt === 0) {
-        const partSummary = parts.map((p, i) => {
+        const partSummary = finalParts.map((p, i) => {
           if (p.text) return `  [${i}] text (${p.text.length} chars)`;
           if (p.fileData) return `  [${i}] fileData: ${p.fileData.fileUri} (mime: ${p.fileData.mimeType})`;
           if (p.inline_data) return `  [${i}] inline_data (mime: ${p.inline_data.mime_type}, ${Math.round((p.inline_data.data?.length || 0) / 1024)}KB b64)`;
@@ -1266,7 +1266,7 @@ const SmartBrains = {
           : [{ text: promptText }, ...cleanFileParts];
         const fbGenConfig = { temperature: 0.2, maxOutputTokens: brainDef.maxTokens || 16384 };
         if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
-        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: uploadKeyName ? keySlot : brainDef.id % 18 };
+        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: uploadKeyName ? lastKeySlot : brainDef.id % 18 };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
         const ctrl = new AbortController();
         const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
@@ -1310,7 +1310,10 @@ const SmartBrains = {
     if (brainDef.useProModel && modelName !== this.config.model) {
       console.warn(`[Brain:${brainDef.name}] All fallbacks failed — last attempt with ${this.config.model}`);
       try {
-        const fbParts = [{ text: promptText }, ...cleanFileParts];
+        // Strip fileData for 3.1-pro-preview — it doesn't support File API
+        const fbParts = this.config.model.includes('3.1-pro-preview')
+          ? [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)]
+          : [{ text: promptText }, ...cleanFileParts];
         const fbGenConfig = {
           temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
           maxOutputTokens: brainDef.maxTokens,

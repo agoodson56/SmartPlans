@@ -26,27 +26,26 @@ export async function validateSession(db, token) {
  * Simple in-memory rate limiter for Cloudflare Workers.
  * Uses D1 rate_limits table. Returns true if request should be blocked.
  */
-export async function checkRateLimit(db, key, maxRequests, windowSec, failClosed = false) {
+export async function checkRateLimit(db, key, maxRequests, windowSec) {
     try {
         const now = Math.floor(Date.now() / 1000);
         // Cleanup expired (best-effort, non-blocking)
         await db.prepare('DELETE FROM rate_limits WHERE expires_at < ?').bind(now).run();
 
-        // Atomic increment-and-check: single UPDATE returns the new count
-        // Prevents TOCTOU race where concurrent requests read the same count
-        const upsertResult = await db.prepare(
+        // Upsert then read — D1 doesn't support RETURNING clause
+        await db.prepare(
             `INSERT INTO rate_limits (key, attempts, expires_at) VALUES (?, 1, ?)
              ON CONFLICT(key) DO UPDATE SET
                attempts = CASE WHEN excluded.expires_at > rate_limits.expires_at
                                THEN 1 ELSE rate_limits.attempts + 1 END,
                expires_at = CASE WHEN excluded.expires_at > rate_limits.expires_at
-                                 THEN excluded.expires_at ELSE rate_limits.expires_at END
-             RETURNING attempts`
-        ).bind(key, now + windowSec).first();
+                                 THEN excluded.expires_at ELSE rate_limits.expires_at END`
+        ).bind(key, now + windowSec).run();
 
-        if (upsertResult && upsertResult.attempts > maxRequests) return true;
+        const row = await db.prepare('SELECT attempts FROM rate_limits WHERE key = ?').bind(key).first();
+        if (row && row.attempts > maxRequests) return true;
         return false;
-    } catch { return failClosed; }
+    } catch { return false; } // Fail-open: DB issues should not block users
 }
 
 /**
