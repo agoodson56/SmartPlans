@@ -4311,6 +4311,42 @@ Return ONLY valid JSON:
       console.warn('[SmartBrains] Report Writer will be instructed to add missing scope');
       context._missingDisciplines = missingDisciplines;
     }
+    // ═══ POST-PRICER: Code-enforced price guardrails based on ACTUAL 3D purchase costs ═══
+    // From real winning bids: Marysville, San Joaquin Juvenile, Lovelock
+    const _pricer = wave2Results.MATERIAL_PRICER;
+    if (_pricer && (_pricer.categories || _pricer.material_categories)) {
+      const _pCats = _pricer.categories || _pricer.material_categories || [];
+      // MAX prices = 3D's actual cost × 1.5 buffer (AI should not exceed this)
+      const _maxCosts = {
+        'camera': 2500, 'dome': 2000, 'bullet': 1500, 'ptz': 2000,
+        'fisheye': 1600, 'panoram': 1600, 'multi-sensor': 2000, 'multi-lens': 2000,
+        'nvr': 16500, 'server': 16500, 'switch': 5000, 'reader': 500,
+        'panel': 3000, 'controller': 3000, 'ups': 5000, 'patch panel': 700,
+        'jack': 30, 'faceplate': 20, 'cable': 800,
+      };
+      let _clampCount = 0;
+      for (const cat of _pCats) {
+        for (const item of (cat.items || [])) {
+          const iName = (item.item || item.name || '').toLowerCase();
+          const iCost = item.unit_cost || item.unitCost || 0;
+          for (const [keyword, maxPrice] of Object.entries(_maxCosts)) {
+            if (iName.includes(keyword) && iCost > maxPrice) {
+              console.warn(`[SmartBrains] ⚠️ CLAMPED ${item.item || item.name}: $${iCost} -> $${maxPrice} (actual 3D max for ${keyword})`);
+              item.unit_cost = maxPrice; item.unitCost = maxPrice;
+              item.ext_cost = (item.qty || 1) * maxPrice;
+              item.extCost = (item.qty || 1) * maxPrice;
+              _clampCount++;
+              break;
+            }
+          }
+        }
+        cat.subtotal = (cat.items || []).reduce((s, i) => s + (i.ext_cost || i.extCost || 0), 0);
+      }
+      if (_clampCount > 0) {
+        _pricer.grand_total = _pCats.reduce((s, c) => s + (c.subtotal || 0), 0);
+        console.log(`[SmartBrains] Price guardrails: clamped ${_clampCount} item(s) to actual 3D cost levels`);
+      }
+    }
     console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
 
     // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
