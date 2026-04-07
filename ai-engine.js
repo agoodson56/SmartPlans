@@ -130,7 +130,7 @@ const SmartBrains = {
 
   async _encodeAllFiles(state, progressCallback) {
     const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB per file (Gemini File API)
-    const INLINE_THRESHOLD = 15 * 1024 * 1024; // 15 MB — above this, use File API upload
+    const INLINE_THRESHOLD = 4 * 1024 * 1024; // 4 MB — above this, use File API upload (was 15MB but multiple 8-9MB PDFs inline caused 500 errors)
 
     const fileGroups = {
       legends: state.legendFiles || [],
