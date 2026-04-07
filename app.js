@@ -1458,15 +1458,20 @@ function generateMasterReport() {
   const materialTotal = bomWithTravel.grandTotal || 0;
   let grandTotal = 0;
   try {
-    if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._computeFullBreakdown) {
-      const bd = SmartPlansExport._computeFullBreakdown(state, bomWithTravel);
-      if (bd.grandTotal > 1000) {
-        grandTotal = bd.grandTotal;
-        state._bomGrandTotal = bd.grandTotal;
-        state._bomBreakdown = bd;
+    // Use _getFullyLoadedTotal which runs FormulaEngine3D (with transit calibration) first,
+    // then falls back to Financial Engine, then _computeFullBreakdown.
+    // This ensures Master Report matches the Step 7 hero "Full Bid Price" number.
+    if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._getFullyLoadedTotal) {
+      grandTotal = SmartPlansExport._getFullyLoadedTotal(state, bomWithTravel);
+      if (grandTotal > 1000) {
+        state._bomGrandTotal = grandTotal;
+        // Also compute breakdown for the financial summary table
+        if (SmartPlansExport._computeFullBreakdown) {
+          state._bomBreakdown = SmartPlansExport._computeFullBreakdown(state, bomWithTravel);
+        }
       }
     }
-  } catch (e) { console.warn('[MasterReport] _computeFullBreakdown error:', e); }
+  } catch (e) { console.warn('[MasterReport] grand total error:', e); }
   // Fallback: Financial Engine AI total, then raw BOM
   if (grandTotal <= 0) {
     const financialGrandTotal = financialEngine?.project_summary?.grand_total || 0;
