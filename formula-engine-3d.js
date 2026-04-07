@@ -788,12 +788,90 @@ const FormulaEngine3D = {
             grossMarginPct: grandMarginPct,
         };
 
+        // ── Transit Benchmark Calibration ──
+        // For transit/railroad projects, anchor the bid to actual winning prices.
+        // The AI Material Pricer often prices cameras at near-sell levels, then
+        // FormulaEngine3D adds markup on top — producing bids 50-100% too high.
+        // Calibration scales the total to match real benchmark data.
+        if (isTransit && typeof PRICING_DB !== 'undefined' && PRICING_DB.amtrakBenchmarks?.actualBids) {
+            const bids = PRICING_DB.amtrakBenchmarks.actualBids;
+            const consensus = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts;
+            const finalRecon = state.brainResults?.wave3_75?.FINAL_RECONCILIATION?.final_counts;
+
+            // Count cameras from consensus/recon
+            const camRegex = /camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i;
+            const camExclude = /mount|bracket|license|sd\s*card|cable|adapter|housing|power|surge|software|warranty|accessori/i;
+            let cameraCount = 0;
+            const countSource = finalRecon || consensus;
+            if (countSource) {
+                for (const [key, val] of Object.entries(countSource)) {
+                    if (camRegex.test(key) && !camExclude.test(key)) {
+                        cameraCount += (typeof val === 'number' ? val : val?.count || val?.qty || 0);
+                    }
+                }
+            }
+
+            if (cameraCount >= 5) {
+                // Find closest benchmark by camera count
+                const bidArray = Object.entries(bids)
+                    .map(([k, v]) => ({ key: k, ...v }))
+                    .filter(b => b.cameras > 0 && b.total > 0);
+                let closest = null, closestDiff = Infinity;
+                for (const b of bidArray) {
+                    const diff = Math.abs(b.cameras - cameraCount);
+                    if (diff < closestDiff) { closestDiff = diff; closest = b; }
+                }
+                // Prefer BAFO over original
+                const sameCamBids = bidArray.filter(b => b.cameras === closest.cameras);
+                const benchmark = sameCamBids.find(b => b.type === 'bafo') || sameCamBids.find(b => b.type === 'original') || closest;
+
+                const perCameraSell = benchmark.total / benchmark.cameras;
+                const targetTotal = this._round(cameraCount * perCameraSell);
+                const formulaTotal = result.grandTotalSELL;
+
+                // Check if subs dominate (infrastructure-heavy → skip calibration)
+                const subPctOfTotal = formulaTotal > 0 ? (subcontractorCost / formulaTotal) : 0;
+
+                console.log(`[3D Engine v2] ═══ TRANSIT CALIBRATION CHECK ═══`);
+                console.log(`[3D Engine v2]   Cameras: ${cameraCount} | Benchmark: ${benchmark.key} (${benchmark.cameras} cams, $${benchmark.total.toLocaleString()})`);
+                console.log(`[3D Engine v2]   Per-camera sell: $${Math.round(perCameraSell).toLocaleString()}`);
+                console.log(`[3D Engine v2]   Target: $${targetTotal.toLocaleString()} | Formula: $${formulaTotal.toLocaleString()}`);
+                console.log(`[3D Engine v2]   Subs: ${(subPctOfTotal * 100).toFixed(0)}% of total`);
+
+                if (subPctOfTotal <= 0.40) {
+                    const deviation = formulaTotal / targetTotal;
+                    if (deviation > 1.06 || deviation < 0.94) {
+                        const direction = deviation > 1 ? 'OVER' : 'UNDER';
+                        const targetMult = benchmark.type === 'bafo' ? 1.00 : 1.02;
+                        const calibratedTarget = this._round(targetTotal * targetMult);
+                        const scaleFactor = calibratedTarget / formulaTotal;
+
+                        console.warn(`[3D Engine v2] ⚠️ CALIBRATING ${direction}: formula ${Math.round(Math.abs(deviation - 1) * 100)}% ${direction.toLowerCase()}`);
+                        console.warn(`[3D Engine v2]   Scaling from $${formulaTotal.toLocaleString()} → $${calibratedTarget.toLocaleString()} (factor: ${scaleFactor.toFixed(3)})`);
+
+                        result.grandTotalSELL = calibratedTarget;
+                        result.grandTotalCOS = this._round(result.grandTotalCOS * scaleFactor);
+                        result.grossMargin = this._round(result.grandTotalSELL - result.grandTotalCOS);
+                        result.grossMarginPct = result.grandTotalSELL > 0 ? this._round((result.grossMargin / result.grandTotalSELL) * 100) : 0;
+                        result._calibrated = true;
+                        result._calibrationTarget = calibratedTarget;
+                        result._calibrationBenchmark = benchmark.key;
+                        result._calibrationScaleFactor = scaleFactor;
+                    } else {
+                        console.log(`[3D Engine v2]   ✅ Within ±6% of benchmark — no calibration needed`);
+                    }
+                } else {
+                    console.log(`[3D Engine v2]   ⚠️ Subs ${(subPctOfTotal * 100).toFixed(0)}% > 40% — SKIPPING calibration (infrastructure-heavy)`);
+                }
+            }
+        }
+
         console.log(`[3D Engine v2] ═══ BID COMPLETE ═══`);
         console.log(`[3D Engine v2]   Systems: ${result.systemCount} | PW: ${isPW} | Transit: ${isTransit}`);
         console.log(`[3D Engine v2]   Material Cost: $${result.totalMaterialCost.toLocaleString()}`);
         console.log(`[3D Engine v2]   Field Hours: ${result.totalFieldHours.toFixed(1)}`);
         console.log(`[3D Engine v2]   Subs: $${result.subcontractorCost.toLocaleString()}`);
-        console.log(`[3D Engine v2]   Grand Total SELL: $${result.grandTotalSELL.toLocaleString()}`);
+        console.log(`[3D Engine v2]   Grand Total SELL: $${result.grandTotalSELL.toLocaleString()}${result._calibrated ? ' (CALIBRATED)' : ''}`);
         console.log(`[3D Engine v2]   GM: ${result.grossMarginPct}%`);
 
         return result;
