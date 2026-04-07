@@ -1884,9 +1884,12 @@ SCHEDULE DATA:
 ${JSON.stringify(schedData, null, 2).substring(0, 4000)}
 
 RULES FOR SCHEDULE vs. SYMBOL CONFLICTS:
-- Schedule counts ALWAYS win over symbol counts
+- Schedule counts ALWAYS win over symbol counts — NO EXCEPTIONS
 - Do NOT add symbol-counted devices ON TOP of schedule devices — they are the SAME devices
-- If the schedule specifies model numbers, use those to determine the correct pricing category`;
+- If the schedule specifies model numbers or type codes (C-FD, C-ML, C-FE, C-DL, etc.), map each code to the correct product category and price each type separately
+- EVERY row in the schedule must appear as a line item in your BOM — if the camera schedule has 4 camera types, your BOM must have 4 camera line items
+- If the schedule has a "Card Reader" count of 15 and an "Electric Strike" count of 15, your Access Control section MUST have 15 readers AND 15 strikes
+- SPARE EQUIPMENT: If the schedule or keynotes say "provide spare cameras", "spare card readers", etc., ADD those as separate BOM line items`;
   }
   return 'No equipment schedule found — use consensus counts above as primary source.';
 })()}
@@ -1948,9 +1951,14 @@ If your unit cost exceeds the max, CLAMP it to the max value.
 
 CRITICAL RULES:
 1. You MUST create a category for EVERY discipline listed above — do NOT skip any discipline that has devices in the consensus counts or symbol data
-2. If the EQUIPMENT SCHEDULE exists, use its quantities as the DEFINITIVE source. Do NOT add symbol-counted devices on top of schedule quantities — they are the SAME devices seen from different sources
+2. EQUIPMENT SCHEDULE IS THE SINGLE SOURCE OF TRUTH:
+   - If the schedule says "C-FD Fixed Dome: 24, C-ML Multi-Lens: 6, C-FE Fisheye: 6, C-DL Dual-Lens: 6" you price EXACTLY those types and quantities
+   - Map each schedule code/type to the correct product (e.g., C-FD = fixed dome, C-ML = multi-lens panoramic, C-FE = fisheye 360, C-DL = dual-lens)
+   - Do NOT collapse different camera types into fewer types — if the schedule lists 4 camera types, price 4 camera types
+   - If schedule says "Card Reader: 15, Electric Strike: 15, DPS: 15, REX: 15" then price EXACTLY 15 of each — not 10, not 12
+   - NEVER reduce schedule quantities — the architect counted these, you price them
 3. If NO schedule exists, use consensus counts: if consensus says 24 cameras, price EXACTLY 24 cameras
-4. For Access Control: include controllers, card readers, door contacts, REX devices, electric strikes/maglocks, door position switches, cabling, and power supplies
+4. For Access Control: include controllers, card readers, door contacts, REX devices, electric strikes/maglocks, door position switches, cabling, and power supplies — the DOOR COUNT must match the schedule or consensus exactly
 5. For each camera or access point, include mounting hardware, cable, connectors, and associated head-end equipment (NVR, switches, license)
 6. Use the EXACT prices from the pricing database. Apply the ${regionMult}× regional multiplier to all unit costs
 7. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost (VERIFY YOUR MATH on every single row)
@@ -1959,6 +1967,8 @@ CRITICAL RULES:
 10. Cable quantities: use ~150ft average per data drop, verify against CABLE_PATHWAY data
 11. Do NOT price OFCI (Owner Furnished) items as materials — include labor only for installation
 12. NEVER exceed the pricing guardrail maximums listed above — clamp to the max if your calculation is higher
+13. SPARE EQUIPMENT — If drawing keynotes or specs require spare devices (e.g., "provide spare cameras of each type", "spare card readers", "spare power supplies"), you MUST include them as separate line items in the BOM. Label them clearly as "SPARE — [device name]". Spares are NOT optional — they are contractually required
+14. RACK SCHEDULE — If the drawings show a rack schedule (e.g., "4-Post Rack 44U: 2"), use those EXACT specifications. Do NOT substitute different rack sizes or quantities
 
 ═══ UPS, INVERTERS & POWER EQUIPMENT (MANDATORY) ═══
 You MUST check ALL sources (schedules, plans, specs) for power equipment and price them:
@@ -4206,6 +4216,33 @@ Return ONLY valid JSON:
       }
     }
     console.log(`[SmartBrains] ═══ Wave 1.75 Complete — ${allDisputes.length} dispute(s) total, ${disputes.length} required re-scan ═══`);
+
+    // ═══ AUTO-DETECT MISSING DISCIPLINES from consensus counts & equipment schedules ═══
+    // If the drawings show Access Control, CCTV, etc. but user didn't select them, add them now.
+    const consensusCts = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
+                      || context.wave1_75?.TARGETED_RESCANNER?.final_counts
+                      || context.wave1?.SYMBOL_SCANNER?.totals || {};
+    const scheduleData = context.wave1?.ANNOTATION_READER?.schedule_data || {};
+    const allEvidence = JSON.stringify({ ...consensusCts, ...scheduleData }).toLowerCase();
+    const DISCIPLINE_DETECTORS = {
+      'CCTV':                 /camera|cctv|nvr|vms|dome|bullet|ptz|fisheye|panoram|surveillance/,
+      'Access Control':       /card\s*reader|access\s*control|rex|electric\s*strike|maglock|door\s*contact|credential|hid|lenel|mercury/,
+      'Structured Cabling':   /data\s*outlet|cat\s*6|keystone|patch\s*panel|wap|wireless\s*access|fiber|cable\s*tray/,
+      'Fire Alarm':           /smoke\s*detect|heat\s*detect|pull\s*station|horn.*strobe|facp|fire\s*alarm|duct\s*detect/,
+      'Audio Visual':         /speaker|display|projector|amplifier|microphone|av\s*|audio/,
+      'Intrusion Detection':  /motion\s*detect|glass\s*break|intrusion|keypad|siren/,
+    };
+    let disciplinesAdded = [];
+    for (const [disc, regex] of Object.entries(DISCIPLINE_DETECTORS)) {
+      if (!state.disciplines.includes(disc) && regex.test(allEvidence)) {
+        state.disciplines.push(disc);
+        disciplinesAdded.push(disc);
+      }
+    }
+    if (disciplinesAdded.length > 0) {
+      console.log(`[SmartBrains] ⚡ Auto-added missing disciplines from document evidence: ${disciplinesAdded.join(', ')}`);
+      progressCallback(55, `⚡ Auto-detected disciplines: ${disciplinesAdded.join(', ')}`, this._brainStatus);
+    }
 
     // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
     progressCallback(56, '💰 Wave 2: Material Pricer — computing material costs…', this._brainStatus);

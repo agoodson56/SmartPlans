@@ -261,6 +261,8 @@ const SmartPlansExport = {
 
     // ─── Compute full bid price breakdown with all markups ──
     // SINGLE SOURCE OF TRUTH: Every output reads from this.
+    // If FormulaEngine3D produced a result, the breakdown is SCALED to match its grand total
+    // so that the Master Report financial table and the grand total are always consistent.
     _computeFullBreakdown(state, bom) {
         const { materials, equipment, subs, labor: bomLabor } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
@@ -274,20 +276,15 @@ const SmartPlansExport = {
         const contingencyPct = 0.10;
 
         // ── Labor: use REAL data from Labor Calculator brain when available ──
-        // Previously this always used materials × 1.0 which doubled labor when
-        // the AI already calculated it via NECA standards.
         const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
         let laborBase;
         if (laborCalc?.total_base_cost > 0) {
-            // Real NECA-based labor from the Labor Calculator brain
             laborBase = this._round(laborCalc.total_base_cost);
             console.log(`[Export] Labor from LABOR_CALCULATOR: $${laborBase.toLocaleString()} (${laborCalc.total_hours || 0} hrs)`);
         } else if (bomLabor > 0) {
-            // Labor categories leaked into BOM — use those directly (already costed)
             laborBase = this._round(bomLabor);
             console.log(`[Export] Labor from BOM categories: $${laborBase.toLocaleString()}`);
         } else {
-            // No labor data at all — estimate from material cost (legacy fallback)
             laborBase = this._round(materials * 1.0);
             console.warn(`[Export] No labor data available — estimating as 100% of materials: $${laborBase.toLocaleString()}`);
         }
@@ -300,9 +297,39 @@ const SmartPlansExport = {
         const travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
             ? this._round(computeTravelIncidentals().grandTotal || 0) : 0;
 
-        const subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
-        const contingency = this._round(subtotal * contingencyPct);
-        const grandTotal = this._round(subtotal + contingency);
+        let subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
+        let contingency = this._round(subtotal * contingencyPct);
+        let grandTotal = this._round(subtotal + contingency);
+
+        // ── RECONCILE with FormulaEngine3D if available ──
+        // The 3D engine is the authoritative pricing source. If it produced a grand total,
+        // scale the breakdown proportionally so the financial table matches the bid price.
+        const engine3DTotal = state._engine3DResult?.grandTotalSELL;
+        if (engine3DTotal && engine3DTotal > 1000 && Math.abs(engine3DTotal - grandTotal) > 100) {
+            const scaleFactor = engine3DTotal / grandTotal;
+            console.log(`[Export] Reconciling breakdown with FormulaEngine3D: $${grandTotal.toLocaleString()} → $${engine3DTotal.toLocaleString()} (scale: ${scaleFactor.toFixed(3)})`);
+            // Scale each component proportionally to preserve relative ratios
+            const scaledMatSell = this._round(matSell * scaleFactor);
+            const scaledLabSell = this._round(labSell * scaleFactor);
+            const scaledEqSell = this._round(eqSell * scaleFactor);
+            const scaledSubSell = this._round(subSell * scaleFactor);
+            const scaledBurden = this._round(burden * scaleFactor);
+            const scaledTravel = travel; // Travel is deterministic — don't scale it
+            subtotal = this._round(scaledMatSell + scaledLabSell + scaledEqSell + scaledSubSell + scaledBurden + scaledTravel);
+            contingency = this._round(engine3DTotal - subtotal);
+            // Prevent negative contingency (rounding edge case)
+            if (contingency < 0) { contingency = 0; subtotal = engine3DTotal; }
+            grandTotal = engine3DTotal;
+
+            return {
+                materials, equipment, subs, laborBase,
+                matPct, labPct, eqPct, subPct,
+                matSell: scaledMatSell, labSell: scaledLabSell, eqSell: scaledEqSell, subSell: scaledSubSell,
+                burden: scaledBurden, burdenRate: includeBurden ? burdenRate : 0,
+                travel: scaledTravel, subtotal, contingency, contingencyPct, grandTotal,
+                _reconciledWith3DEngine: true, _scaleFactor: scaleFactor
+            };
+        }
 
         return {
             materials, equipment, subs, laborBase,

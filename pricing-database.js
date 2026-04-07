@@ -429,8 +429,8 @@ const PRICING_DB = {
             min_switch_cost: 800,        // Minimum cost per managed switch
             // Transit projects have higher markups due to complexity, insurance, and compliance
             markup_overrides: {
-                material: 65,        // 65% — transit-rated equipment costs more to source, handle, store
-                labor: 65,           // 65% — restricted windows, RWIC waits, safety protocols
+                material: 51.424,    // SAGE ERP factor 1.51424× — verified from Emeryville/Martinez transit bids
+                labor: 39.24,        // SAGE ERP factor 1.39240× — verified from Sam Brennan, 500 Capitol, Indians
                 equipment: 25,       // 25% — specialized rental (track-rated lifts, generators)
                 subcontractor: 15,   // 15% — railroad subs command premium pricing
             },

@@ -573,6 +573,7 @@ const state = {
   workShift: "",
   priorEstimate: "",
   isTransitRailroad: false,  // Explicit toggle — triggers higher markups, RWIC, RPL, etc.
+  _travelAutoDetected: false, // Whether travel auto-detection has run (prevents re-triggering)
   _engine3DOpen: false,       // 3D engine card expanded state
   _engine3DResult: null,      // Cached result from FormulaEngine3D.computeBid()
   _scaleCalibration: null,    // ScaleCalibration summary data
@@ -781,6 +782,7 @@ function startNewBid() {
 
   // Reset travel (keep rates, clear AI recommendations)
   state.travel.enabled = false;
+  state._travelAutoDetected = false;
   state.travel.aiRecommendedTechs = null;
   state.travel.aiRecommendedDays = null;
   state.travel.aiCrewBreakdown = null;
@@ -3092,8 +3094,8 @@ function renderStep0(container) {
       <div class="info-card-body">
         The following adjustments are automatically applied:
         <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;">
-          <div>• <strong>Material markup: 65%</strong> (was 50%)</div>
-          <div>• <strong>Labor markup: 65%</strong> (was 50%)</div>
+          <div>• <strong>Material markup: 51.4%</strong> (SAGE 1.51424×)</div>
+          <div>• <strong>Labor markup: 39.2%</strong> (SAGE 1.39240×)</div>
           <div>• <strong>Equipment markup: 25%</strong> (was 15%)</div>
           <div>• <strong>Subcontractor markup: 15%</strong> (was 10%)</div>
           <div>• Equipment multiplier: <strong>2.5×</strong> (transit-rated)</div>
@@ -3300,10 +3302,17 @@ function renderStep0(container) {
 
   // Bind events
   const nameInput = document.getElementById("project-name");
-  nameInput.addEventListener("input", () => { state.projectName = nameInput.value; renderFooter(); });
+  nameInput.addEventListener("input", () => {
+    state.projectName = nameInput.value;
+    _autoDetectTransitFromProjectText();
+    renderFooter();
+  });
 
   const preparedForInput = document.getElementById("prepared-for");
-  preparedForInput.addEventListener("input", () => { state.preparedFor = preparedForInput.value; });
+  preparedForInput.addEventListener("input", () => {
+    state.preparedFor = preparedForInput.value;
+    _autoDetectTransitFromProjectText();
+  });
 
   const typeSelect = document.getElementById("project-type");
   typeSelect.value = state.projectType;
@@ -3414,6 +3423,27 @@ function renderStep0(container) {
       renderStep0(container);
       renderFooter();
     });
+  }
+
+  // ── Auto-detect transit/railroad from project name and customer ──
+  function _autoDetectTransitFromProjectText() {
+    const text = `${state.projectName} ${state.preparedFor}`.toLowerCase();
+    const TRANSIT_REGEX = /amtrak|bnsf|union\s*pacific|csx\s*transport|norfolk\s*southern|metra|caltrain|bart\b|wmata|septa|marta|metro\s*north|metro-north|nj\s*transit|lirr|long\s*island\s*rail|brightline|acela|capitol\s*corridor|coaster\s*rail|frontrunner|sounder|tri-?rail|ace\s*rail|metrolink|railr(oad|ail)|train\s*station|rail\s*station|light\s*rail|commuter\s*rail/;
+    const shouldBeTransit = TRANSIT_REGEX.test(text);
+    if (shouldBeTransit && !state.isTransitRailroad) {
+      state.isTransitRailroad = true;
+      const transitConfig = PRICING_DB.projectTypeMultipliers?.transit_railroad;
+      if (transitConfig?.markup_overrides) {
+        state.markup.material = transitConfig.markup_overrides.material;
+        state.markup.labor = transitConfig.markup_overrides.labor;
+        state.markup.equipment = transitConfig.markup_overrides.equipment;
+        state.markup.subcontractor = transitConfig.markup_overrides.subcontractor;
+      }
+      const toggle = document.getElementById("transit-railroad-toggle");
+      if (toggle) toggle.checked = true;
+      console.log(`[AutoDetect] Transit/Railroad detected from project text: "${text.substring(0, 60)}..."`);
+      renderStep0(container);
+    }
   }
 
   document.getElementById("prior-estimate").addEventListener("input", e => { state.priorEstimate = e.target.value; });
@@ -4711,6 +4741,22 @@ function renderStep6Travel(container) {
   const crew = laborCalc?.crew_recommendation || {};
   const t = state.travel;
   const inc = state.incidentals;
+
+  // ── Auto-detect local projects — disable travel if within 50 miles of an office ──
+  if (!state._travelAutoDetected && state.projectLocation) {
+    state._travelAutoDetected = true;
+    try {
+      const dist = _getNearestOfficeDistance(state.projectLocation);
+      if (dist !== null && dist <= 50) {
+        t.enabled = false;
+        console.log(`[Travel] Auto-disabled travel — project is ${dist.toFixed(1)} miles from nearest office (within 50-mile local radius)`);
+      } else if (dist !== null && dist > 50) {
+        t.enabled = true;
+        console.log(`[Travel] Auto-enabled travel — project is ${dist.toFixed(1)} miles from nearest office`);
+      }
+    } catch (e) { /* City not found — leave travel as-is */ }
+  }
+
   const costs = computeTravelIncidentals();
   const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -9118,6 +9164,17 @@ function _restoreStateFromPayload(id, pkg, est) {
   state.prevailingWage = pkg?.project?.prevailingWage || '';
   state.workShift = pkg?.project?.workShift || '';
   state.isTransitRailroad = pkg?.project?.isTransitRailroad || false;
+  // Auto-detect transit from project name/customer even on load if not already flagged
+  if (!state.isTransitRailroad) {
+    const loadText = `${state.projectName} ${state.preparedFor}`.toLowerCase();
+    const TRANSIT_RE = /amtrak|bnsf|union\s*pacific|csx\s*transport|norfolk\s*southern|metra|caltrain|bart\b|wmata|septa|marta|metro\s*north|metro-north|nj\s*transit|lirr|brightline|railr(oad|ail)|train\s*station|rail\s*station|light\s*rail|commuter\s*rail/;
+    if (TRANSIT_RE.test(loadText)) {
+      state.isTransitRailroad = true;
+      const tc = PRICING_DB?.projectTypeMultipliers?.transit_railroad?.markup_overrides;
+      if (tc) { state.markup.material = tc.material; state.markup.labor = tc.labor; state.markup.equipment = tc.equipment; state.markup.subcontractor = tc.subcontractor; }
+      console.log(`[AutoDetect] Transit/Railroad auto-detected on load from: "${loadText.substring(0, 60)}"`);
+    }
+  }
   state.floorPlateWidth = pkg?.project?.floorPlateWidth || 0;
   state.floorPlateDepth = pkg?.project?.floorPlateDepth || 0;
   state.ceilingHeight = pkg?.project?.ceilingHeight || 10;
