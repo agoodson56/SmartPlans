@@ -275,8 +275,10 @@ textarea:focus {
 .header-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 8px 14px;
+  min-width: 110px;
   border: 1px solid rgba(180, 140, 20, 0.65);
   background: transparent;
   color: var(--text-secondary);
@@ -289,6 +291,25 @@ textarea:focus {
   font-family: var(--font-sans);
   text-decoration: none;
   border-radius: 0;
+  box-sizing: border-box;
+}
+
+.header-btn--start {
+  border-color: rgba(16, 185, 129, 0.65);
+  color: #10b981;
+}
+.header-btn--start:hover {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: #10b981;
+}
+
+.header-btn--stop {
+  border-color: rgba(239, 68, 68, 0.65);
+  color: #ef4444;
+}
+.header-btn--stop:hover {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: #ef4444;
 }
 
 .header-btn:hover {

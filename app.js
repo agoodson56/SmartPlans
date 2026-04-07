@@ -1050,8 +1050,8 @@ const Auth = {
     userBtn.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:8px;';
     userBtn.innerHTML = `
       <span style="font-size:12px;color:var(--text-muted,#94a3b8);">${esc(_currentUser.name || _currentUser.email)}</span>
-      <button data-action="auth-logout" class="header-btn" title="Sign Out" style="padding:4px 10px;font-size:12px;">
-        <i data-lucide="log-out" style="width:14px;height:14px;"></i> <span class="header-btn-label">Out</span>
+      <button data-action="auth-logout" class="header-btn" title="Sign Out">
+        <i data-lucide="log-out"></i> <span class="header-btn-label">Sign Out</span>
       </button>`;
     actions.appendChild(userBtn);
 
@@ -2632,6 +2632,21 @@ function render() {
   renderStepNav();
   renderContent();
   renderFooter();
+  // Update Start/Stop button visibility
+  const startBtn = document.getElementById('btn-start-analysis');
+  const stopBtn = document.getElementById('btn-stop-analysis');
+  if (startBtn && stopBtn) {
+    if (state.analyzing) {
+      startBtn.style.display = 'none';
+      stopBtn.style.display = '';
+    } else if (state.planFiles.length > 0 && !state.analysisComplete) {
+      startBtn.style.display = '';
+      stopBtn.style.display = 'none';
+    } else {
+      startBtn.style.display = 'none';
+      stopBtn.style.display = 'none';
+    }
+  }
   // Initialize Lucide icons after DOM update
   if (typeof lucide !== 'undefined') {
     try { lucide.createIcons(); } catch(e) { console.warn('Lucide createIcons failed:', e); }
@@ -8303,11 +8318,20 @@ function renderAnalysis(container) {
 }
 
 async function runGeminiAnalysis(updateProgress) {
+  window._analysisAborted = false;
   try {
     updateProgress(2, "🧠 Launching Multi-Brain Engine…", null);
 
     // ═══ USE MULTI-BRAIN ENGINE ═══
     const result = await SmartBrains.runFullAnalysis(state, updateProgress);
+
+    // Check if user hit Stop during analysis
+    if (window._analysisAborted) {
+      console.log('[SmartPlans] Analysis was stopped by user — discarding results');
+      state.analyzing = false;
+      render();
+      return;
+    }
 
     state.aiAnalysis = result.report;
     state.aiError = null;
@@ -12304,6 +12328,35 @@ document.addEventListener("DOMContentLoaded", async () => {
           break;
         case 'start-new-bid':
           startNewBid();
+          break;
+        case 'start-analysis':
+          // Jump to analysis step and begin
+          if (!state.analyzing && state.planFiles.length > 0) {
+            state.currentStep = 5;
+            state.completedSteps.add('upload');
+            state.completedSteps.add('specs');
+            state.completedSteps.add('addenda');
+            state.completedSteps.add('travel');
+            state.analyzing = true;
+            render();
+          } else if (state.planFiles.length === 0) {
+            spToast('Upload plan files first before starting analysis', 'warning');
+          }
+          break;
+        case 'stop-analysis':
+          if (state.analyzing) {
+            window._analysisAborted = true;
+            state.analyzing = false;
+            state.analysisComplete = false;
+            state.aiError = 'Analysis stopped by user';
+            spToast('Analysis stopped', 'warning');
+            // Update buttons
+            const stopBtn = document.getElementById('btn-stop-analysis');
+            const startBtn = document.getElementById('btn-start-analysis');
+            if (stopBtn) stopBtn.style.display = 'none';
+            if (startBtn) startBtn.style.display = '';
+            render();
+          }
           break;
         case 'show-saved-estimates':
           showSavedEstimates();
