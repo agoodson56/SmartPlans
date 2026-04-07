@@ -1848,7 +1848,7 @@ Each item MUST have ALL of these fields:
             const kl = k.toLowerCase();
             if (dLower.includes('cabling') && (kl.includes('data') || kl.includes('cable') || kl.includes('outlet') || kl.includes('wap') || kl.includes('keystone'))) return true;
             if (dLower.includes('cctv') && (kl.includes('camera') || kl.includes('cctv') || kl.includes('nvr'))) return true;
-            if (dLower.includes('access') && (kl.includes('reader') || kl.includes('access') || kl.includes('door') || kl.includes('rex') || kl.includes('contact') || kl.includes('strike') || kl.includes('maglock'))) return true;
+            if (dLower.includes('access') && (kl.includes('reader') || kl.includes('access') || kl.includes('door') || kl.includes('rex') || kl.includes('contact') || kl.includes('strike') || kl.includes('maglock') || kl.includes('glass') || kl.includes('intercom'))) return true;
             if (dLower.includes('fire') && (kl.includes('smoke') || kl.includes('fire') || kl.includes('pull') || kl.includes('horn') || kl.includes('strobe') || kl.includes('duct') || kl.includes('heat'))) return true;
             if (dLower.includes('audio') && (kl.includes('speaker') || kl.includes('display') || kl.includes('av') || kl.includes('projector') || kl.includes('microphone'))) return true;
             if (dLower.includes('intrusion') && (kl.includes('motion') || kl.includes('glass') || kl.includes('intrusion') || kl.includes('siren') || kl.includes('keypad'))) return true;
@@ -1897,20 +1897,35 @@ RULES FOR SCHEDULE vs. SYMBOL CONFLICTS:
 DETAILED SYMBOL DATA (for reference — schedule and consensus quantities take priority):
 ${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.sheets || context.wave1?.SYMBOL_SCANNER || {}, null, 2).substring(0, 5000)}
 
-ANNOTATION NOTES (check for OFCI items — Owner Furnished Contractor Installed):
+ANNOTATION NOTES (check for OFCI / OFOI / NIC / BY OTHERS exclusions):
 ${(() => {
   const annotations = context.wave1?.ANNOTATION_READER?.annotations || [];
-  const ofci = annotations.filter(a => 
-    (a.text || '').toLowerCase().includes('furnished') || 
-    (a.text || '').toLowerCase().includes('ofci') ||
-    (a.text || '').toLowerCase().includes('owner furnished') ||
-    (a.text || '').toLowerCase().includes('by others')
-  );
+  const exclusionKeywords = [
+    'furnished', 'ofci', 'ofoi', 'owner furnished', 'owner installed',
+    'by others', 'by ec', 'by electrical', 'by owner', 'not in contract',
+    'nic', 'provided by', 'vendor furnished', 'vendor supplied',
+    'existing to remain', 'reuse existing', 'furnished by general',
+    'furnished by mechanical', 'grounding by ec', 'grounding by electrical'
+  ];
+  const ofci = annotations.filter(a => {
+    const txt = (a.text || '').toLowerCase();
+    return exclusionKeywords.some(kw => txt.includes(kw));
+  });
   if (ofci.length > 0) {
-    return `⚠️ OFCI ITEMS FOUND — Do NOT price these as materials (labor only):
-${ofci.map(a => `- ${a.text}`).join('\n')}`;
+    return `⚠️ EXCLUSION ITEMS FOUND — Read each carefully and apply the correct treatment:
+- OFCI (Owner Furnished, Contractor Installed) → material = $0, include labor only
+- OFOI (Owner Furnished, Owner Installed) → EXCLUDE ENTIRELY (no material, no labor)
+- NIC / By Others / By EC → EXCLUDE ENTIRELY from our scope
+- "Provided by owner" / "vendor furnished" → material = $0
+
+EXCLUSION ANNOTATIONS FROM DRAWINGS:
+${ofci.map(a => `- ${a.text} [Sheet: ${a.sheet || 'unknown'}]`).join('\n')}
+
+CRITICAL: If cameras/mounts/VMS are owner furnished AND owner installed, we price ONLY the cabling to camera locations. Do NOT include cameras, mounts, NVR, VMS software, or licenses in our BOM.
+If network switches/PDUs are owner provided, EXCLUDE them from our BOM entirely.
+If grounding is by EC (electrical contractor), EXCLUDE grounding busbars (TMGB/TGB) and bonding conductors.`;
   }
-  return 'No OFCI annotations found.';
+  return 'No OFCI/exclusion annotations found — price all items as contractor-furnished.';
 })()}
 
 MDF/IDF ROOMS & EQUIPMENT:
@@ -1964,11 +1979,26 @@ CRITICAL RULES:
 7. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost (VERIFY YOUR MATH on every single row)
 8. Include ALL MDF/IDF equipment: racks, patch panels, UPS, grounding busbars (TMGB/TGB), cable management
 9. Include backbone/riser cables from CABLE QUANTITIES section — do NOT omit fiber or copper backbone
-10. Cable quantities: use ~150ft average per data drop, verify against CABLE_PATHWAY data
-11. Do NOT price OFCI (Owner Furnished) items as materials — include labor only for installation
+10. Cable quantities: Use the CABLE_PATHWAY brain's calculated per-zone averages. If unavailable, use 200ft average for commercial buildings over 20,000 SF, 225ft for VA/government clinics, 150ft ONLY for small offices under 10,000 SF. NEVER use a flat 150ft for large buildings — it will underbid cable by 30-50%
+11. OFCI / OFOI / NIC / BY OTHERS — CRITICAL EXCLUSION RULES:
+    - OFCI (Owner Furnished, Contractor Installed): Set material cost to $0 — include LABOR ONLY
+    - OFOI (Owner Furnished, Owner Installed): EXCLUDE ENTIRELY — no material, no labor
+    - NIC (Not In Contract) / "By Others" / "By EC" / "By Electrical Contractor": EXCLUDE ENTIRELY
+    - "Provided by owner" / "vendor furnished" / "furnished by others": Set material to $0
+    - Network switches, PDUs, UPS marked as owner-provided: EXCLUDE from material BOM
+    - If drawings show cameras as OFOI but cabling is in our scope, price ONLY the cabling (no cameras, no mounts, no NVR, no VMS)
+    - CHECK EVERY ITEM against the OFCI/exclusion list below — missing an exclusion means we're pricing items we don't furnish
 12. NEVER exceed the pricing guardrail maximums listed above — clamp to the max if your calculation is higher
 13. SPARE EQUIPMENT — If drawing keynotes or specs require spare devices (e.g., "provide spare cameras of each type", "spare card readers", "spare power supplies"), you MUST include them as separate line items in the BOM. Label them clearly as "SPARE — [device name]". Spares are NOT optional — they are contractually required
 14. RACK SCHEDULE — If the drawings show a rack schedule (e.g., "4-Post Rack 44U: 2"), use those EXACT specifications. Do NOT substitute different rack sizes or quantities
+15. WAP ACCESSORIES — For every Wireless Access Point (WAP), include a surface mount box (SMB) or mounting bracket as a separate BOM line item. WAPs cannot be installed without a mounting solution
+16. PATCH PANEL SIZING — Calculate patch panels from the TOTAL number of data drops and ports, not from an arbitrary count. Formula: Total drops ÷ 24 (or 48) ports per panel, rounded UP. If 310 drops need termination, that's 7× 48-port panels or 13× 24-port panels — NOT 5
+17. COUNTING ACCURACY — This is the #1 source of bid errors. For EVERY device type:
+    - Count symbols on EVERY floor plan sheet (not just the first sheet)
+    - Apply TYPICAL note multipliers (if drawing says "TYP" on a detail, multiply by the number of matching locations)
+    - Cross-reference the equipment SCHEDULE (if it exists) — schedule count is AUTHORITATIVE
+    - If your symbol count is MORE than 20% different from the schedule, USE THE SCHEDULE and flag the discrepancy
+    - Common counting errors: missing devices on detail sheets, missing devices in reflected ceiling plans, missing devices shown only in enlarged plans
 
 ═══ UPS, INVERTERS & POWER EQUIPMENT (MANDATORY) ═══
 You MUST check ALL sources (schedules, plans, specs) for power equipment and price them:
@@ -1991,19 +2021,20 @@ ${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.power_equipment_found || [], nul
 SCHEDULE DATA (may include manufacturer and model):
 ${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || [], null, 2).substring(0, 3000)}
 
-RULES FOR PART NUMBERS (MANDATORY — items without these are REJECTED):
-- If the specs or plans SPECIFY a manufacturer and part number, USE THEM EXACTLY
-- If specs say "or approved equal", use the specified product as primary
-- If NO manufacturer is specified, use standard industry products:
+RULES FOR MANUFACTURERS & PART NUMBERS (MANDATORY — items without these are REJECTED):
+- PRIORITY 1: If the SPECS, SCHEDULES, or DRAWING NOTES specify a manufacturer (e.g., "Avigilon", "Genetec", "Lenel"), you MUST use that EXACT manufacturer — do NOT substitute with a different brand
+- PRIORITY 2: If specs say "or approved equal", use the SPECIFIED product as primary (not the equal)
+- PRIORITY 3: ONLY if NO manufacturer is specified anywhere in the documents, use these defaults:
   * Structured Cabling: Panduit, CommScope/Systimax, Corning (fiber), Belden
-  * CCTV: Axis Communications, Hanwha/Samsung, Bosch, Genetec (VMS)
+  * CCTV: Axis Communications, Hanwha/Samsung, Bosch, Genetec (VMS), Avigilon
   * Access Control: HID (readers), Lenel/LenelS2, Mercury (panels), Assa Abloy (locks)
   * Fire Alarm: Notifier/Honeywell, EST/Edwards, Simplex, Bosch
   * Audio Visual: Crestron, Extron, QSC, Samsung (displays), Biamp
   * Network: Cisco, Aruba, Juniper
   * Power: APC/Schneider (UPS), Eaton, Altronix (power supplies), LifeSafety Power
+- WARNING: Defaulting to Axis when the spec says Avigilon (or vice versa) is a BID-KILLING ERROR — the owner will reject non-compliant submittals
 - EVERY item in the "items" array MUST have non-empty "mfg" and "partNumber" fields
-- If you don't know the exact part number, use the manufacturer's common model series (e.g., "P3245-V" for Axis dome, "iCLASS SE R10" for HID reader)
+- If you don't know the exact part number, use the manufacturer's common model series (e.g., "P3245-V" for Axis dome, "H5A-BO-IR" for Avigilon bullet)
 - BLANK mfg or partNumber is a FATAL ERROR — the system will REJECT your output
 
 ${context.isTransitRailroad ? `═══ TRANSIT / RAILROAD MANDATORY SCOPE (CHECK EVERY ITEM) ═══
@@ -3082,6 +3113,14 @@ CONSENSUS RULES:
 2. If 2+ reads agree within 5% → MODERATE CONFIDENCE. Use the agreeing group's average.
 3. If ALL reads disagree by >10% → DISPUTE. Flag for targeted re-scan.
 4. For disputed items, identify WHICH sheets/areas likely caused the disagreement.
+5. ALWAYS prefer the HIGHER count when in doubt — undercounting loses bids, overcounting can be trimmed in VE.
+6. COMMON UNDERCOUNTING ERRORS TO WATCH FOR:
+   - Data drops: Check EVERY floor including basement, mechanical rooms, and spaces behind the main corridors
+   - WAPs: Look in reflected ceiling plans AND enlarged plans — WAPs are often on separate sheets
+   - Speakers: Count on EACH floor — reflected ceiling plans sometimes show only one floor as "typical"
+   - Card readers: Count on door schedules AND floor plans — some readers are on doors not shown on the security plan
+   - Glass break sensors: Often shown on enlarged interior elevation details, NOT on floor plans
+   - If your total count seems LOW compared to the building size, it probably IS low — recount
 
 ═══ CRITICAL: TYPICAL NOTE MULTIPLICATION ═══
 When an annotation says "TYP" or "TYPICAL" (e.g., "Card reader TYP at each secure door"):
@@ -4226,7 +4265,7 @@ Return ONLY valid JSON:
     const allEvidence = JSON.stringify({ ...consensusCts, ...scheduleData }).toLowerCase();
     const DISCIPLINE_DETECTORS = {
       'CCTV':                 /camera|cctv|nvr|vms|dome|bullet|ptz|fisheye|panoram|surveillance/,
-      'Access Control':       /card\s*reader|access\s*control|rex|electric\s*strike|maglock|door\s*contact|credential|hid|lenel|mercury/,
+      'Access Control':       /card\s*reader|access\s*control|rex|electric\s*strike|maglock|door\s*contact|credential|hid|lenel|mercury|glass\s*break|intercom/,
       'Structured Cabling':   /data\s*outlet|cat\s*6|keystone|patch\s*panel|wap|wireless\s*access|fiber|cable\s*tray/,
       'Fire Alarm':           /smoke\s*detect|heat\s*detect|pull\s*station|horn.*strobe|facp|fire\s*alarm|duct\s*detect/,
       'Audio Visual':         /speaker|display|projector|amplifier|microphone|av\s*|audio/,
