@@ -74,7 +74,8 @@ const CableAnalyzer = {
   },
 
   // ── Cable cost rates (per ft) by cable type ──
-  _cableRates: {
+  // Defaults used when pricing database is not available
+  _cableRatesDefaults: {
     'cat6a_plenum':          0.38,
     'cat6a_riser':           0.30,
     'cat6_plenum':           0.22,
@@ -88,6 +89,30 @@ const CableAnalyzer = {
     '18/2_plenum':           0.14,
     'fiber_sm':              0.45,
     'fiber_mm':              0.40,
+  },
+
+  // Dynamic rate lookup: checks PRICING_DB first, falls back to defaults
+  get _cableRates() {
+    const rates = { ...this._cableRatesDefaults };
+
+    // Pull current rates from pricing database if available
+    if (typeof PRICING_DB !== 'undefined' && PRICING_DB.categories?.structured_cabling?.cables) {
+      const tier = (typeof state !== 'undefined' && state.pricingTier) || 'mid';
+      const cables = PRICING_DB.categories.structured_cabling.cables;
+
+      if (cables.cat6a_plenum?.[tier])    rates['cat6a_plenum']   = cables.cat6a_plenum[tier];
+      if (cables.cat6a_riser?.[tier])     rates['cat6a_riser']    = cables.cat6a_riser[tier];
+      if (cables.cat6a_shielded?.[tier])  rates['cat6a_shielded'] = cables.cat6a_shielded[tier];
+      if (cables.cat6_plenum?.[tier])     rates['cat6_plenum']    = cables.cat6_plenum[tier];
+      if (cables.cat6_riser?.[tier])      rates['cat6_riser']     = cables.cat6_riser[tier];
+      if (cables.cat5e_plenum?.[tier])    rates['cat5e_plenum']   = cables.cat5e_plenum[tier];
+      if (cables.cat5e_riser?.[tier])     rates['cat5e_riser']    = cables.cat5e_riser[tier];
+      if (cables.fiber_sm?.[tier])        rates['fiber_sm']       = cables.fiber_sm[tier];
+      if (cables.fiber_mm?.[tier])        rates['fiber_mm']       = cables.fiber_mm[tier];
+      if (cables.coax_rg6?.[tier])        rates['coax_rg6']       = cables.coax_rg6[tier];
+    }
+
+    return rates;
   },
 
   // ═══════════════════════════════════════════════════════════════
@@ -152,6 +177,18 @@ const CableAnalyzer = {
     const maxRunFt      = runs.length > 0 ? Math.max(...runs.map(a => a.runFt)) : 0;
     const minRunFt      = runs.length > 0 ? Math.min(...runs.map(a => a.runFt)) : 0;
     const tiaViolations = assignments.filter(a => a.tiaViolation);
+
+    // Auto-fix TIA violations: cap run length at TIA max and flag for IDF split
+    if (tiaViolations.length > 0) {
+      console.warn(`[CableAnalyzer] ${tiaViolations.length} cable runs exceed TIA-568 ${cfg.tiaMaxFt}ft limit — capping and flagging`);
+      for (const v of tiaViolations) {
+        v._originalRunFt = v.runFt;
+        v.runFt = cfg.tiaMaxFt;
+        v.totalFtWithWaste = Math.round(v.qty * v.runFt * wasteMult);
+        v.totalCost = Math.round(v.totalFtWithWaste * v.costPerFt * 100) / 100;
+        v.notes = (v.notes ? v.notes + ' | ' : '') + `⚠️ TIA VIOLATION: Original ${v._originalRunFt}ft exceeded ${cfg.tiaMaxFt}ft limit — capped. Consider adding closer IDF.`;
+      }
+    }
 
     // Pathway materials estimate
     const totalHorizontalFt = assignments.reduce((s, a) => s + (a.horizontal || 0) * a.qty, 0);
@@ -440,18 +477,47 @@ const CableAnalyzer = {
         dims[sh.sheet_id] = { w: sh.sheet_area_width_ft, d: sh.sheet_area_depth_ft };
       }
     });
-    // Merge manual scale overrides from ScaleCalibration module
+
+    // Merge scale data from ScaleCalibration module (manual, OCR, door, AI)
     if (typeof ScaleCalibration !== 'undefined') {
       const sheets = ScaleCalibration._sheets || {};
       Object.keys(sheets).forEach(sheetId => {
         const sc = sheets[sheetId];
-        const resolved = sc.manualScale || sc.aiScale || sc.doorScale;
-        if (resolved && sc.pixelWidth && sc.pixelHeight) {
-          // Convert pixel dimensions to feet using resolved scale (px/ft)
-          const wFt = sc.pixelWidth / resolved;
-          const dFt = sc.pixelHeight / resolved;
+
+        // Method 1: pixel-based dimensions (manual or door calibrated)
+        if (sc.pixelsPerFoot > 0 && sc.pixelWidth && sc.pixelHeight) {
+          const wFt = sc.pixelWidth / sc.pixelsPerFoot;
+          const dFt = sc.pixelHeight / sc.pixelsPerFoot;
           if (wFt > 0 && dFt > 0) {
-            dims[sheetId] = { w: wFt, d: dFt };
+            dims[sheetId] = { w: Math.round(wFt), d: Math.round(dFt), source: sc.activeSource };
+          }
+        }
+
+        // Method 2: OCR ft_per_inch — use with standard architectural sheet sizes
+        // If we have ft_per_inch but no pixel calibration, estimate building dims from
+        // standard drawing sheet sizes (ARCH D = 24"×36", ARCH E = 36"×48")
+        if (!dims[sheetId] && sc._ftPerInch > 0) {
+          // Common ELV drawing sheets are ARCH D (24×36) or ARCH E (36×48)
+          // At ft_per_inch scale, the drawable area is approximately:
+          // ARCH D: ~21"×33" drawable → width = 33 × ft_per_inch, depth = 21 × ft_per_inch
+          // Use ARCH D as default (most common for commercial ELV plans)
+          const drawableW = 33; // inches of drawable width on ARCH D
+          const drawableD = 21; // inches of drawable depth on ARCH D
+          const wFt = Math.round(drawableW * sc._ftPerInch);
+          const dFt = Math.round(drawableD * sc._ftPerInch);
+          if (wFt > 10 && dFt > 10) {
+            dims[sheetId] = { w: wFt, d: dFt, source: 'ocr_estimated' };
+            console.log(`[CableAnalyzer] Sheet ${sheetId}: estimated ${wFt}×${dFt} ft from OCR scale (${sc._ftPerInch} ft/inch × ARCH D)`);
+          }
+        }
+
+        // Method 3: ft_per_inch from AI spatial layout (no pixel ref)
+        if (!dims[sheetId] && sc.ocrScale?.ftPerInch > 0) {
+          const fpi = sc.ocrScale.ftPerInch;
+          const wFt = Math.round(33 * fpi);
+          const dFt = Math.round(21 * fpi);
+          if (wFt > 10 && dFt > 10) {
+            dims[sheetId] = { w: wFt, d: dFt, source: 'ocr_scale' };
           }
         }
       });

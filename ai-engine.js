@@ -1333,7 +1333,7 @@ const SmartBrains = {
     DETAIL_VERIFIER: ['area_audits', 'corrections', 'verified_counts'],
     CROSS_SHEET_ANALYZER: ['sheet_comparisons', 'inconsistencies', 'adjusted_counts'],
     FINAL_RECONCILIATION: ['final_counts', 'adjustment_log', 'confidence_score'],
-    SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies', 'true_change_orders', 'specified_products', 'power_equipment_found'],
+    SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies', 'true_change_orders', 'specified_products', 'power_equipment_found', 'equipment_schedule'],
     ANNOTATION_READER: ['annotations', 'referenced_details'],
     RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
     DEVICE_LOCATOR: ['devices'],
@@ -2099,7 +2099,9 @@ Each item MUST have ALL of these fields:
             if (dLower.includes('audio') && (kl.includes('display') || kl.includes('projector') || kl.includes('microphone'))) return true;
             if (dLower.includes('audio') && kl.includes('speaker') && !kl.includes('glass') && !kl.includes('break')) return true;
             if (dLower.includes('audio') && kl.includes('av') && !kl.includes('wave') && !kl.includes('cavity')) return true;
-            if (dLower.includes('intrusion') && (kl.includes('motion') || kl.includes('glass') || kl.includes('intrusion') || kl.includes('siren') || kl.includes('keypad'))) return true;
+            if (dLower.includes('intrusion') && (kl.includes('motion') || kl.includes('intrusion') || kl.includes('siren'))) return true;
+            if (dLower.includes('intrusion') && kl.includes('glass') && kl.includes('break')) return true;
+            if (dLower.includes('intrusion') && kl.includes('keypad') && !kl.includes('reader') && !kl.includes('access')) return true;
             return false;
           });
           const items = matchingKeys.map(k => {
@@ -3542,10 +3544,17 @@ INSTRUCTIONS:
 2. Count with EXTREME precision — examine each room individually, count twice
 3. CHECK SCHEDULES: If an equipment schedule exists for this device type, the schedule count is AUTHORITATIVE
 4. CHECK TYPICAL NOTES: If "TYP" or "TYPICAL" appears, multiply the device by the number of matching locations
+   - SPEAKERS/PAGING: Speakers on plans almost ALWAYS have "TYP" annotation meaning one per room or one per zone.
+     Count the number of rooms/zones that need coverage and multiply. A plan showing 1 speaker with "TYP" on a floor
+     with 20 offices means 20 speakers, not 1.
+   - DETECTORS: Smoke/heat detectors marked "TYP" in a corridor = one per code-required spacing interval (~30ft)
+   - DATA OUTLETS: "TYP" at a workstation = one per workstation of that type on the floor
 5. CHECK EVERY FLOOR: Devices often repeat on multiple floors — count each floor separately and add
 6. If a symbol is ambiguous, describe what you see and your best judgment
 7. When in doubt, prefer the HIGHER count — undercounting loses bids, overcounting gets corrected at submittal
-8. Provide your final authoritative count with PER-SHEET breakdown and reasoning
+8. SPEAKER/PAGING SPECIFIC: If the dispute involves speakers, check ceiling plans, reflected ceiling plans, AND
+   paging/intercom diagrams. Speakers are often shown on a different sheet than other ELV devices.
+9. Provide your final authoritative count with PER-SHEET breakdown and reasoning
 
 Return ONLY valid JSON:
 {
@@ -4145,6 +4154,16 @@ Return ONLY valid JSON:
 PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
+═══ OCR-EXTRACTED SCALE DATA (use to ground your position estimates) ═══
+${(() => {
+  const ocrData = context._ocrScaleData || [];
+  const withScale = ocrData.filter(p => p.ftPerInch > 0);
+  if (withScale.length === 0) return 'No OCR scale data available.';
+  return withScale.map(p =>
+    '  Page ' + p.pageNum + ' (' + p.sheetId + '): ' + p.ftPerInch + ' ft/inch (' + p.scaleText + ')'
+  ).join('\n') + '\nUse these scales to estimate real-world distances between devices and to calibrate door measurements.';
+})()}
+
 LEGEND (decoded symbols):
 ${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 2000)}
 
@@ -4534,6 +4553,7 @@ Return ONLY valid JSON:
 
   // Brains that benefit from per-page scanning (counting-focused brains)
   PER_PAGE_BRAINS: new Set(['SYMBOL_SCANNER', 'SHADOW_SCANNER', 'ZOOM_SCANNER', 'SCOPE_EXCLUSION_SCANNER']),
+  SCANS_PER_PAGE: 2, // Each counting brain scans every page twice for higher accuracy
 
   async _runPerPageBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback) {
     const brain = this.BRAINS[key];
@@ -4590,9 +4610,11 @@ Return ONLY valid JSON:
         return this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback);
       }
 
-      console.log(`[Brain:${brain.name}] ═══ Per-page scanning: ${deduped.length} unique pages (${pageChunks.length} total chunks, ${pageChunks.length - deduped.length} duplicates removed) ═══`);
+      const scansPerPage = this.SCANS_PER_PAGE || 1;
+      const totalScans = deduped.length * scansPerPage;
+      console.log(`[Brain:${brain.name}] ═══ Per-page scanning: ${deduped.length} unique pages × ${scansPerPage} scans = ${totalScans} total scans (${pageChunks.length} chunks, ${pageChunks.length - deduped.length} duplicates removed) ═══`);
       this._brainStatus[key].status = 'running';
-      progressCallback(baseProgress, `${brain.emoji} ${brain.name} per-page scanning (${deduped.length} pages)…`, this._brainStatus);
+      progressCallback(baseProgress, `${brain.emoji} ${brain.name} per-page scanning (${deduped.length} pages × ${scansPerPage} passes)…`, this._brainStatus);
 
       // Build decoded legend context to include in every per-page call
       const legendSymbols = context.wave0?.LEGEND_DECODER?.symbols;
@@ -4600,8 +4622,9 @@ Return ONLY valid JSON:
         ? `\nDECODED LEGEND — Symbol Meanings (from Wave 0 analysis):\n${JSON.stringify(legendSymbols, null, 2).substring(0, 5000)}\n`
         : '';
 
-      // Per-page prompt wrapper
-      const perPagePrefix = `═══ PER-PAGE SCAN MODE ═══
+      // Per-page prompt wrappers (different approach for each scan pass)
+      const scanPrefixes = [
+        `═══ PER-PAGE SCAN MODE — PASS 1 (Standard Scan) ═══
 You are scanning a SINGLE PAGE of a multi-page construction document set.
 Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
 If this page is a title sheet, cover page, or has no ELV devices, return empty counts.
@@ -4609,70 +4632,98 @@ Count every symbol carefully — examine each room on this page individually.
 ${legendContext}
 ═══ END PER-PAGE INSTRUCTIONS ═══
 
-`;
+`,
+        `═══ PER-PAGE SCAN MODE — PASS 2 (Verification Scan) ═══
+You are performing a SECOND INDEPENDENT COUNT of this SINGLE PAGE.
+Use a DIFFERENT methodology than a standard left-to-right scan:
+- Divide the page into 4 quadrants and count each quadrant separately
+- Pay extra attention to: dense clusters, stacked symbols, devices behind text/dimensions
+- Check reflected ceiling areas for speakers, detectors, WAPs
+- Look for "TYP" annotations — multiply the device by matching locations on this page
+- Check door openings for access control devices (reader + REX + contact + strike per door)
+Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
+${legendContext}
+═══ END PASS 2 INSTRUCTIONS ═══
+
+`,
+      ];
 
       // Process pages in batches with concurrency limiting
       const CONCURRENCY = 5;
       const PAGE_DELAY_MS = 800; // Delay between batches to respect rate limits
       const pageResults = [];
-      let pagesCompleted = 0;
+      let scansCompleted = 0;
 
-      for (let i = 0; i < deduped.length; i += CONCURRENCY) {
-        const batch = deduped.slice(i, i + CONCURRENCY);
+      // Run all passes for all pages
+      for (let pass = 0; pass < scansPerPage; pass++) {
+        const passPrefix = scanPrefixes[pass] || scanPrefixes[0];
 
-        const batchPromises = batch.map(async (file) => {
-          try {
-            // Build file parts for just this one page
-            const fileParts = [
-              { text: `\n--- PAGE: ${file.name} ---` },
-              { fileData: { mimeType: file.mimeType, fileUri: file.fileUri } },
-              ...contextTextParts,
-            ];
+        for (let i = 0; i < deduped.length; i += CONCURRENCY) {
+          const batch = deduped.slice(i, i + CONCURRENCY);
 
-            // Preserve key pinning for File API access
-            if (file._usedKeyName) {
-              fileParts[1]._usedKeyName = file._usedKeyName;
+          const batchPromises = batch.map(async (file) => {
+            try {
+              // Build file parts for just this one page
+              const fileParts = [
+                { text: `\n--- PAGE: ${file.name} (Pass ${pass + 1}) ---` },
+                { fileData: { mimeType: file.mimeType, fileUri: file.fileUri } },
+                ...contextTextParts,
+              ];
+
+              // Preserve key pinning for File API access
+              if (file._usedKeyName) {
+                fileParts[1]._usedKeyName = file._usedKeyName;
+              }
+
+              const pagePrompt = passPrefix + basePrompt;
+              const rawResult = await this._invokeBrain(key, brain, pagePrompt, fileParts, useJsonMode);
+              const parsed = this._parseJSON(rawResult);
+
+              if (parsed && !parsed._parseFailed) {
+                return { page: file.name, pass: pass + 1, success: true, data: parsed };
+              } else {
+                console.warn(`[Brain:${brain.name}] Page ${file.name} pass ${pass + 1}: JSON parse failed`);
+                return { page: file.name, pass: pass + 1, success: false, data: null };
+              }
+            } catch (err) {
+              console.warn(`[Brain:${brain.name}] Page ${file.name} pass ${pass + 1} failed: ${err.message}`);
+              return { page: file.name, pass: pass + 1, success: false, data: null, error: err.message };
             }
+          });
 
-            const pagePrompt = perPagePrefix + basePrompt;
-            const rawResult = await this._invokeBrain(key, brain, pagePrompt, fileParts, useJsonMode);
-            const parsed = this._parseJSON(rawResult);
-
-            if (parsed && !parsed._parseFailed) {
-              return { page: file.name, success: true, data: parsed };
-            } else {
-              console.warn(`[Brain:${brain.name}] Page ${file.name}: JSON parse failed`);
-              return { page: file.name, success: false, data: null };
+          const batchResults = await Promise.allSettled(batchPromises);
+          for (const r of batchResults) {
+            if (r.status === 'fulfilled') {
+              pageResults.push(r.value);
             }
-          } catch (err) {
-            console.warn(`[Brain:${brain.name}] Page ${file.name} failed: ${err.message}`);
-            return { page: file.name, success: false, data: null, error: err.message };
+            scansCompleted++;
           }
-        });
 
-        const batchResults = await Promise.allSettled(batchPromises);
-        for (const r of batchResults) {
-          if (r.status === 'fulfilled') {
-            pageResults.push(r.value);
+          // Progress update
+          const scanPct = scansCompleted / totalScans;
+          const brainPct = baseProgress + scanPct * ((endProgress - baseProgress) / totalBrains);
+          progressCallback(brainPct, `${brain.emoji} ${brain.name}: pass ${pass + 1}/${scansPerPage}, ${scansCompleted}/${totalScans} scans`, this._brainStatus);
+
+          // Rate limit delay between batches
+          if (i + CONCURRENCY < deduped.length || pass < scansPerPage - 1) {
+            await new Promise(r => setTimeout(r, PAGE_DELAY_MS));
           }
-          pagesCompleted++;
         }
 
-        // Progress update
-        const pagePct = pagesCompleted / deduped.length;
-        const brainPct = baseProgress + pagePct * ((endProgress - baseProgress) / totalBrains);
-        progressCallback(brainPct, `${brain.emoji} ${brain.name}: ${pagesCompleted}/${deduped.length} pages scanned`, this._brainStatus);
-
-        // Rate limit delay between batches
-        if (i + CONCURRENCY < deduped.length) {
-          await new Promise(r => setTimeout(r, PAGE_DELAY_MS));
+        if (pass < scansPerPage - 1) {
+          console.log(`[Brain:${brain.name}] Pass ${pass + 1} complete — starting pass ${pass + 2}`);
         }
       }
 
+      // Multi-pass deduplication: for each page, take the HIGHER count from multiple passes
+      // This prevents undercounting (which loses bids) while the consensus engine handles overcounting
+      const dedupedPageResults = this._deduplicateMultiPassResults(key, pageResults, scansPerPage);
+
       // Aggregate all page-level results into brain-level output
-      const aggregated = this._aggregatePerPageResults(key, pageResults);
-      const succeeded = pageResults.filter(r => r.success).length;
-      console.log(`[Brain:${brain.name}] ═══ Per-page scan complete: ${succeeded}/${deduped.length} pages succeeded ═══`);
+      const aggregated = this._aggregatePerPageResults(key, dedupedPageResults);
+      const succeeded = dedupedPageResults.filter(r => r.success).length;
+      const totalSucceeded = pageResults.filter(r => r.success).length;
+      console.log(`[Brain:${brain.name}] ═══ Per-page scan complete: ${totalSucceeded} successful scans across ${deduped.length} pages × ${scansPerPage} passes → ${succeeded} merged results ═══`);
 
       this._brainStatus[key] = { status: 'done', progress: 100, result: aggregated, error: null };
       results[key] = aggregated;
@@ -4689,6 +4740,115 @@ ${legendContext}
       const pct = baseProgress + (1 / totalBrains) * (endProgress - baseProgress);
       progressCallback(pct, `⚠️ ${brain.name} per-page scan failed — continuing…`, this._brainStatus);
     }
+  },
+
+  // Deduplicate multi-pass per-page results: for each page, merge passes using HIGHER counts
+  _deduplicateMultiPassResults(brainKey, allResults, scansPerPage) {
+    if (scansPerPage <= 1) return allResults;
+
+    // Group results by page name (strip pass info)
+    const byPage = new Map();
+    for (const r of allResults) {
+      if (!r.success || !r.data) continue;
+      const pageKey = r.page.replace(/ \(Pass \d+\)/, ''); // Normalize page name
+      if (!byPage.has(pageKey)) byPage.set(pageKey, []);
+      byPage.get(pageKey).push(r);
+    }
+
+    const merged = [];
+    for (const [pageKey, passes] of byPage) {
+      if (passes.length === 1) {
+        merged.push(passes[0]);
+        continue;
+      }
+
+      // Merge strategy: take the HIGHER count for each device type across passes
+      // This is intentional — undercounting loses bids, overcounting gets caught by consensus
+      const mergedData = JSON.parse(JSON.stringify(passes[0].data)); // Deep clone pass 1
+
+      for (let p = 1; p < passes.length; p++) {
+        const passData = passes[p].data;
+
+        // Merge totals (take max per key)
+        if (passData.totals && mergedData.totals) {
+          for (const [k, v] of Object.entries(passData.totals)) {
+            if (typeof v === 'number') {
+              mergedData.totals[k] = Math.max(mergedData.totals[k] || 0, v);
+            }
+          }
+        }
+
+        // Merge grand_totals for ZOOM_SCANNER
+        if (passData.grand_totals && mergedData.grand_totals) {
+          for (const [k, v] of Object.entries(passData.grand_totals)) {
+            if (typeof v === 'number') {
+              mergedData.grand_totals[k] = Math.max(mergedData.grand_totals[k] || 0, v);
+            }
+          }
+        }
+
+        // Merge sheet-level totals
+        if (passData.sheets && mergedData.sheets) {
+          // Merge per-sheet counts — take higher totals
+          for (const passSheet of passData.sheets) {
+            const matchIdx = mergedData.sheets.findIndex(s =>
+              s.sheet_id === passSheet.sheet_id || s.sheet === passSheet.sheet
+            );
+            if (matchIdx >= 0 && passSheet.totals) {
+              const existing = mergedData.sheets[matchIdx];
+              if (existing.totals) {
+                for (const [k, v] of Object.entries(passSheet.totals)) {
+                  if (typeof v === 'number') {
+                    existing.totals[k] = Math.max(existing.totals[k] || 0, v);
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Merge exclusions (union, not max)
+        if (passData.exclusions && mergedData.exclusions) {
+          const seenExcl = new Set(mergedData.exclusions.map(e =>
+            `${(e.item || '').toLowerCase()}_${(e.treatment || '').toLowerCase()}`
+          ));
+          for (const e of passData.exclusions) {
+            const eKey = `${(e.item || '').toLowerCase()}_${(e.treatment || '').toLowerCase()}`;
+            if (!seenExcl.has(eKey)) {
+              mergedData.exclusions.push(e);
+              seenExcl.add(eKey);
+            }
+          }
+        }
+
+        // Merge rooms (union for SHADOW_SCANNER)
+        if (passData.rooms && mergedData.rooms) {
+          // Take max count per room
+          for (const passRoom of passData.rooms) {
+            const existingRoom = mergedData.rooms.find(r =>
+              (r.room_name || r.name) === (passRoom.room_name || passRoom.name)
+            );
+            if (existingRoom && passRoom.devices) {
+              for (const [k, v] of Object.entries(passRoom.devices || {})) {
+                if (typeof v === 'number') {
+                  existingRoom.devices = existingRoom.devices || {};
+                  existingRoom.devices[k] = Math.max(existingRoom.devices[k] || 0, v);
+                }
+              }
+            } else if (!existingRoom) {
+              mergedData.rooms.push(passRoom);
+            }
+          }
+        }
+      }
+
+      mergedData._multiPass = true;
+      mergedData._passesUsed = passes.length;
+      merged.push({ page: pageKey, success: true, data: mergedData });
+    }
+
+    console.log(`[MultiPass] ${brainKey}: ${allResults.length} total scans → ${merged.length} merged page results (${scansPerPage} passes/page, higher-count strategy)`);
+    return merged;
   },
 
   // Aggregate per-page results into a single brain-level output
