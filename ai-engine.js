@@ -4026,6 +4026,257 @@ Return ONLY valid JSON:
     }
   },
 
+  // ═══════════════════════════════════════════════════════════
+  // PER-PAGE SCANNING — Individual page analysis for counting brains
+  // Sends one page at a time for maximum counting accuracy
+  // ═══════════════════════════════════════════════════════════
+
+  // Brains that benefit from per-page scanning (counting-focused brains)
+  PER_PAGE_BRAINS: new Set(['SYMBOL_SCANNER', 'SHADOW_SCANNER', 'ZOOM_SCANNER']),
+
+  async _runPerPageBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback) {
+    const brain = this.BRAINS[key];
+    const useJsonMode = true;
+
+    try {
+      const basePrompt = this._getPrompt(key, context);
+      if (!basePrompt || basePrompt.trim().length === 0) {
+        console.log(`[Brain:${brain.name}] Prompt is empty — skipping (no work required)`);
+        this._brainStatus[key] = { status: 'done', progress: 100, result: { _skipped: true, reason: 'No input data' }, error: null };
+        results[key] = { _skipped: true, reason: 'No input data' };
+        incrementCompleted();
+        progressCallback(baseProgress, `✅ ${brain.name} skipped (no work required)`, this._brainStatus);
+        return;
+      }
+
+      // Collect all JPEG chunk files from the brain's needed file categories
+      const pageChunks = [];
+      const contextTextParts = [];
+
+      for (const category of brain.needsFiles) {
+        const files = encodedFiles[category] || [];
+        for (const f of files) {
+          if (f.name && f.name.includes('_chunk') && (f.mimeType === 'image/jpeg' || f.mimeType === 'image/png') && f.fileUri) {
+            pageChunks.push(f);
+          } else if (f.extractedText) {
+            // Non-chunk files with text (specs, etc.) — include as context
+            contextTextParts.push({ text: `\n[CONTEXT: ${f.name}]\n${f.extractedText.substring(0, 2000)}` });
+          }
+        }
+      }
+
+      // Deduplicate: if the same page was uploaded from two PDFs (same page position, similar size),
+      // keep only one copy to avoid double-counting
+      const deduped = [];
+      const seen = new Map(); // key: chunkNumber, value: file
+      for (const f of pageChunks) {
+        // Extract chunk number from filename (e.g., "legend_chunk14.jpg" → "14")
+        const match = f.name.match(/_chunk(\d+)\./);
+        const chunkNum = match ? match[1] : f.name;
+        const sizeKey = `page${chunkNum}_${Math.round(f.size / 1024)}`; // page + approx KB size
+
+        if (!seen.has(sizeKey)) {
+          seen.set(sizeKey, f);
+          deduped.push(f);
+        } else {
+          console.log(`[Brain:${brain.name}] Skipping duplicate chunk: ${f.name} (same page as ${seen.get(sizeKey).name})`);
+        }
+      }
+
+      if (deduped.length === 0) {
+        // No chunks found — fall back to standard single-brain execution
+        console.log(`[Brain:${brain.name}] No page chunks found — falling back to standard scan`);
+        return this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback);
+      }
+
+      console.log(`[Brain:${brain.name}] ═══ Per-page scanning: ${deduped.length} unique pages (${pageChunks.length} total chunks, ${pageChunks.length - deduped.length} duplicates removed) ═══`);
+      this._brainStatus[key].status = 'running';
+      progressCallback(baseProgress, `${brain.emoji} ${brain.name} per-page scanning (${deduped.length} pages)…`, this._brainStatus);
+
+      // Build decoded legend context to include in every per-page call
+      const legendSymbols = context.wave0?.LEGEND_DECODER?.symbols;
+      const legendContext = legendSymbols
+        ? `\nDECODED LEGEND — Symbol Meanings (from Wave 0 analysis):\n${JSON.stringify(legendSymbols, null, 2).substring(0, 5000)}\n`
+        : '';
+
+      // Per-page prompt wrapper
+      const perPagePrefix = `═══ PER-PAGE SCAN MODE ═══
+You are scanning a SINGLE PAGE of a multi-page construction document set.
+Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
+If this page is a title sheet, cover page, or has no ELV devices, return empty counts.
+Count every symbol carefully — examine each room on this page individually.
+${legendContext}
+═══ END PER-PAGE INSTRUCTIONS ═══
+
+`;
+
+      // Process pages in batches with concurrency limiting
+      const CONCURRENCY = 5;
+      const PAGE_DELAY_MS = 800; // Delay between batches to respect rate limits
+      const pageResults = [];
+      let pagesCompleted = 0;
+
+      for (let i = 0; i < deduped.length; i += CONCURRENCY) {
+        const batch = deduped.slice(i, i + CONCURRENCY);
+
+        const batchPromises = batch.map(async (file) => {
+          try {
+            // Build file parts for just this one page
+            const fileParts = [
+              { text: `\n--- PAGE: ${file.name} ---` },
+              { fileData: { mimeType: file.mimeType, fileUri: file.fileUri } },
+              ...contextTextParts,
+            ];
+
+            // Preserve key pinning for File API access
+            if (file._usedKeyName) {
+              fileParts[1]._usedKeyName = file._usedKeyName;
+            }
+
+            const pagePrompt = perPagePrefix + basePrompt;
+            const rawResult = await this._invokeBrain(key, brain, pagePrompt, fileParts, useJsonMode);
+            const parsed = this._parseJSON(rawResult);
+
+            if (parsed && !parsed._parseFailed) {
+              return { page: file.name, success: true, data: parsed };
+            } else {
+              console.warn(`[Brain:${brain.name}] Page ${file.name}: JSON parse failed`);
+              return { page: file.name, success: false, data: null };
+            }
+          } catch (err) {
+            console.warn(`[Brain:${brain.name}] Page ${file.name} failed: ${err.message}`);
+            return { page: file.name, success: false, data: null, error: err.message };
+          }
+        });
+
+        const batchResults = await Promise.allSettled(batchPromises);
+        for (const r of batchResults) {
+          if (r.status === 'fulfilled') {
+            pageResults.push(r.value);
+          }
+          pagesCompleted++;
+        }
+
+        // Progress update
+        const pagePct = pagesCompleted / deduped.length;
+        const brainPct = baseProgress + pagePct * ((endProgress - baseProgress) / totalBrains);
+        progressCallback(brainPct, `${brain.emoji} ${brain.name}: ${pagesCompleted}/${deduped.length} pages scanned`, this._brainStatus);
+
+        // Rate limit delay between batches
+        if (i + CONCURRENCY < deduped.length) {
+          await new Promise(r => setTimeout(r, PAGE_DELAY_MS));
+        }
+      }
+
+      // Aggregate all page-level results into brain-level output
+      const aggregated = this._aggregatePerPageResults(key, pageResults);
+      const succeeded = pageResults.filter(r => r.success).length;
+      console.log(`[Brain:${brain.name}] ═══ Per-page scan complete: ${succeeded}/${deduped.length} pages succeeded ═══`);
+
+      this._brainStatus[key] = { status: 'done', progress: 100, result: aggregated, error: null };
+      results[key] = aggregated;
+      incrementCompleted();
+
+      const pct = baseProgress + (1 / totalBrains) * (endProgress - baseProgress);
+      progressCallback(pct, `✅ ${brain.name} per-page scan complete (${succeeded}/${deduped.length} pages)`, this._brainStatus);
+
+    } catch (err) {
+      console.error(`[Brain:${brain.name}] Per-page scan FAILED:`, err.message);
+      this._brainStatus[key] = { status: 'failed', progress: 0, result: null, error: err.message };
+      results[key] = { _error: err.message, _failed: true };
+      incrementCompleted();
+      const pct = baseProgress + (1 / totalBrains) * (endProgress - baseProgress);
+      progressCallback(pct, `⚠️ ${brain.name} per-page scan failed — continuing…`, this._brainStatus);
+    }
+  },
+
+  // Aggregate per-page results into a single brain-level output
+  _aggregatePerPageResults(brainKey, pageResults) {
+    const successResults = pageResults.filter(r => r.success && r.data);
+    const meta = {
+      _perPageScan: true,
+      _pagesScanned: pageResults.length,
+      _pagesSucceeded: successResults.length,
+    };
+
+    if (brainKey === 'SYMBOL_SCANNER') {
+      const sheets = [];
+      const totals = {};
+      const deviceInventory = [];
+      const unidentified = [];
+
+      for (const r of successResults) {
+        if (r.data.sheets) sheets.push(...r.data.sheets);
+        if (r.data.device_inventory) deviceInventory.push(...r.data.device_inventory);
+        if (r.data.unidentified_symbols) unidentified.push(...r.data.unidentified_symbols);
+        if (r.data.totals) {
+          for (const [k, v] of Object.entries(r.data.totals)) {
+            totals[k] = (totals[k] || 0) + (typeof v === 'number' ? v : 0);
+          }
+        }
+      }
+
+      return { ...meta, sheets, totals, device_inventory: deviceInventory, unidentified_symbols: unidentified,
+        notes: `Per-page scan: ${successResults.length}/${pageResults.length} pages analyzed individually` };
+    }
+
+    if (brainKey === 'ZOOM_SCANNER') {
+      const quadrantCounts = [];
+      const grandTotals = {};
+      const zoomFindings = [];
+
+      for (const r of successResults) {
+        if (r.data.quadrant_counts) quadrantCounts.push(...r.data.quadrant_counts);
+        if (r.data.zoom_findings) zoomFindings.push(...r.data.zoom_findings);
+        if (r.data.grand_totals) {
+          for (const [k, v] of Object.entries(r.data.grand_totals)) {
+            grandTotals[k] = (grandTotals[k] || 0) + (typeof v === 'number' ? v : 0);
+          }
+        }
+      }
+
+      return { ...meta, quadrant_counts: quadrantCounts, grand_totals: grandTotals, zoom_findings: zoomFindings,
+        methodology: 'per-page 4-quadrant zoom scan' };
+    }
+
+    if (brainKey === 'SHADOW_SCANNER') {
+      const allRooms = [];
+      const totals = {};
+
+      for (const r of successResults) {
+        if (r.data.rooms) allRooms.push(...r.data.rooms);
+        if (r.data.room_counts) allRooms.push(...r.data.room_counts);
+        if (r.data.totals) {
+          for (const [k, v] of Object.entries(r.data.totals)) {
+            totals[k] = (totals[k] || 0) + (typeof v === 'number' ? v : 0);
+          }
+        }
+      }
+
+      return { ...meta, rooms: allRooms, totals, methodology: 'per-page room-by-room shadow scan' };
+    }
+
+    // Generic fallback: merge arrays, sum numbers
+    const merged = { ...meta };
+    for (const r of successResults) {
+      for (const [k, v] of Object.entries(r.data)) {
+        if (Array.isArray(v)) {
+          merged[k] = (merged[k] || []).concat(v);
+        } else if (typeof v === 'number') {
+          merged[k] = (merged[k] || 0) + v;
+        } else if (typeof v === 'object' && v !== null) {
+          merged[k] = merged[k] || {};
+          for (const [k2, v2] of Object.entries(v)) {
+            if (typeof v2 === 'number') {
+              merged[k][k2] = (merged[k][k2] || 0) + v2;
+            }
+          }
+        }
+      }
+    }
+    return merged;
+  },
+
   async _runWave(waveNum, brainKeys, encodedFiles, state, context, progressCallback) {
     const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 3.85: 88, 4: 92 };
     const waveEnd = { 0: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 80, 3.5: 84, 3.75: 88, 3.85: 92, 4: 98 };
@@ -4049,25 +4300,39 @@ Return ONLY valid JSON:
     const BATCH_SIZE = 2;
     const STAGGER_DELAY_MS = 2000; // 2 seconds between batches
 
-    if (brainKeys.length <= 3) {
-      // Small wave — run all in parallel (safe)
-      const promises = brainKeys.map(async (key) => {
+    // Helper: route brain to per-page or standard execution
+    const runBrain = async (key) => {
+      if (this.PER_PAGE_BRAINS.has(key)) {
+        await this._runPerPageBrain(key, context, encodedFiles, baseProgress, endProgress, brainKeys.length, results, () => ++completed, progressCallback);
+      } else {
         await this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, brainKeys.length, results, () => ++completed, progressCallback);
-      });
+      }
+    };
+
+    // Per-page brains run sequentially (they make many API calls internally)
+    // Standard brains run in parallel batches as before
+    const perPageKeys = brainKeys.filter(k => this.PER_PAGE_BRAINS.has(k));
+    const standardKeys = brainKeys.filter(k => !this.PER_PAGE_BRAINS.has(k));
+
+    // Run per-page brains first (they're the heavy hitters — run one at a time to avoid rate limits)
+    for (const key of perPageKeys) {
+      console.log(`[SmartBrains] Wave ${waveNum}: Running per-page brain — ${this.BRAINS[key].name}`);
+      await runBrain(key);
+    }
+
+    // Then run standard brains in parallel batches
+    if (standardKeys.length <= 3) {
+      const promises = standardKeys.map(async (key) => await runBrain(key));
       await Promise.allSettled(promises);
     } else {
-      // Large wave — stagger in batches of 2 to avoid rate limits
-      for (let i = 0; i < brainKeys.length; i += BATCH_SIZE) {
-        const batch = brainKeys.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < standardKeys.length; i += BATCH_SIZE) {
+        const batch = standardKeys.slice(i, i + BATCH_SIZE);
         console.log(`[SmartBrains] Wave ${waveNum}: Starting batch ${Math.floor(i/BATCH_SIZE) + 1} — ${batch.map(k => this.BRAINS[k].name).join(', ')}`);
 
-        const batchPromises = batch.map(async (key) => {
-          await this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, brainKeys.length, results, () => ++completed, progressCallback);
-        });
+        const batchPromises = batch.map(async (key) => await runBrain(key));
         await Promise.allSettled(batchPromises);
 
-        // Stagger delay between batches (not after the last batch)
-        if (i + BATCH_SIZE < brainKeys.length) {
+        if (i + BATCH_SIZE < standardKeys.length) {
           console.log(`[SmartBrains] Wave ${waveNum}: Stagger delay ${STAGGER_DELAY_MS}ms before next batch…`);
           await new Promise(r => setTimeout(r, STAGGER_DELAY_MS));
         }
