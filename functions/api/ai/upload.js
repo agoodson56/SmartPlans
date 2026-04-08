@@ -6,7 +6,11 @@
 // ═══════════════════════════════════════════════════════════════
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB hard limit
-const UPLOAD_TIMEOUT_MS = 25_000;          // 25 s per fetch call — leaves headroom under CF 30 s limit
+const SESSION_START_TIMEOUT_MS = 15_000;   // 15 s for session start (small payload)
+// Upload timeout scales with file size — minimum 30s, ~100KB/s assumed throughput
+function uploadTimeoutMs(byteLen) {
+    return Math.max(30_000, Math.ceil(byteLen / 100_000) * 1000);
+}
 
 export async function onRequestPost(context) {
     const { env, request } = context;
@@ -60,9 +64,14 @@ export async function onRequestPost(context) {
 
         let apiKey = null;
         let usedKeyName = null;
+        // FIX #1: Rotate upload key using hash of filename + timestamp
+        // Prevents all uploads from pinning to the same first key
+        const rotationSeed = Array.from(fileName).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+        const startIdx = Math.abs(rotationSeed) % keyNames.length;
         for (let i = 0; i < keyNames.length; i++) {
-            const key = env[keyNames[i]];
-            if (key) { apiKey = key; usedKeyName = keyNames[i]; break; }
+            const idx = (startIdx + i) % keyNames.length;
+            const key = env[keyNames[idx]];
+            if (key) { apiKey = key; usedKeyName = keyNames[idx]; break; }
         }
 
         if (!apiKey) {
@@ -71,9 +80,10 @@ export async function onRequestPost(context) {
 
         // ── Step 1: Start resumable upload session ────────────────────
         // AbortController ensures we don't hang if Gemini API is unresponsive
-        const startUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
+        // FIX #9: Use header-based auth instead of URL parameter to keep keys out of logs
+        const startUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files`;
         const startController = new AbortController();
-        const startTimeout = setTimeout(() => startController.abort(), UPLOAD_TIMEOUT_MS);
+        const startTimeout = setTimeout(() => startController.abort(), SESSION_START_TIMEOUT_MS);
 
         let startResponse;
         try {
@@ -82,6 +92,7 @@ export async function onRequestPost(context) {
                 signal: startController.signal,
                 headers: {
                     'Content-Type': 'application/json',
+                    'x-goog-api-key': apiKey,
                     'X-Goog-Upload-Protocol': 'resumable',
                     'X-Goog-Upload-Command': 'start',
                     'X-Goog-Upload-Header-Content-Length': bytes.length.toString(),
@@ -112,9 +123,9 @@ export async function onRequestPost(context) {
         }
 
         // ── Step 2: Upload the file bytes ─────────────────────────────
-        // Separate timeout for the actual file upload (larger payload)
+        // FIX #6: Separate, size-scaled timeout for actual file upload
         const uploadController = new AbortController();
-        const uploadTimeout = setTimeout(() => uploadController.abort(), UPLOAD_TIMEOUT_MS);
+        const uploadTimeout = setTimeout(() => uploadController.abort(), uploadTimeoutMs(bytes.length));
 
         let uploadResponse;
         try {

@@ -29,8 +29,10 @@ export async function validateSession(db, token) {
 export async function checkRateLimit(db, key, maxRequests, windowSec) {
     try {
         const now = Math.floor(Date.now() / 1000);
-        // Cleanup expired (best-effort, non-blocking)
-        await db.prepare('DELETE FROM rate_limits WHERE expires_at < ?').bind(now).run();
+        // FIX #20: Cleanup only ~1% of requests instead of every request (reduce D1 churn)
+        if (Math.random() < 0.01) {
+            await db.prepare('DELETE FROM rate_limits WHERE expires_at < ?').bind(now).run().catch(() => {});
+        }
 
         // Upsert then read — D1 doesn't support RETURNING clause
         await db.prepare(
@@ -45,7 +47,7 @@ export async function checkRateLimit(db, key, maxRequests, windowSec) {
         const row = await db.prepare('SELECT attempts FROM rate_limits WHERE key = ?').bind(key).first();
         if (row && row.attempts > maxRequests) return true;
         return false;
-    } catch { return false; } // Fail-open: DB issues should not block users
+    } catch { return true; } // FIX #11: Fail-CLOSED — if DB is down, block requests to prevent abuse
 }
 
 /**
@@ -89,12 +91,12 @@ export function isAllowedOrigin(origin, allowMissing = false) {
  * so we implement manually using bitwise OR accumulation.
  */
 export function timingSafeCompare(a, b) {
-    // Normalize to same length using a fixed-length padded comparison
-    // to avoid leaking length information via early return
-    const maxLen = Math.max(a.length, b.length, 1);
+    // FIX #8: Pad to fixed minimum length (256) to prevent leaking target token length
+    // via timing differences on different-length inputs
+    const maxLen = Math.max(a.length, b.length, 256);
     const paddedA = a.padEnd(maxLen, '\0');
     const paddedB = b.padEnd(maxLen, '\0');
-    let result = 0;
+    let result = a.length ^ b.length; // Also compare lengths to reject different-length tokens
     for (let i = 0; i < maxLen; i++) {
         result |= paddedA.charCodeAt(i) ^ paddedB.charCodeAt(i);
     }

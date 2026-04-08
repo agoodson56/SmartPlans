@@ -4,19 +4,12 @@
 // CORS/origin check handled by /api/ai/_middleware.js
 // ═══════════════════════════════════════════════════════════════
 
-import { timingSafeCompare } from '../../_shared/cors.js';
+// FIX #7: Removed duplicate auth — middleware already handles session + legacy auth
+// Having a separate auth check here was inconsistent (only checked legacy token,
+// ignored session auth, and skipped auth entirely when ESTIMATES_TOKEN was unset)
 
 export async function onRequestGet(context) {
     const { env, request } = context;
-
-    // Validate auth token (matches pattern from other endpoints)
-    const envToken = env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(token, envToken)) {
-            return Response.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-    }
 
     try {
         const url = new URL(request.url);
@@ -60,9 +53,11 @@ export async function onRequestGet(context) {
             return Response.json({ error: 'No API keys configured' }, { status: 500 });
         }
 
-        // Query Gemini File API for file status
-        const statusUrl = `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`;
-        const response = await fetch(statusUrl);
+        // FIX #9: Use header-based auth instead of URL parameter
+        const statusUrl = `https://generativelanguage.googleapis.com/v1beta/${fileName}`;
+        const response = await fetch(statusUrl, {
+            headers: { 'x-goog-api-key': apiKey },
+        });
 
         if (!response.ok) {
             const errText = await response.text();

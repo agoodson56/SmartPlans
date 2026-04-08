@@ -33,8 +33,8 @@ export async function onRequestGet(context) {
         let errorKeys = 0;
         let resetHint = null;
 
-        // Test one key per account group — covers every project across all 18 keys
-        const testSlots = [0, 2, 4, 6, 8, 10, 12, 14, 16];
+        // FIX #16: Test ALL keys instead of every-other — prevents false healthy status
+        const testSlots = Array.from({ length: keyNames.length }, (_, i) => i);
         const results = [];
 
         for (const slot of testSlots) {
@@ -44,10 +44,11 @@ export async function onRequestGet(context) {
 
             try {
                 // Minimal API call — count tokens on trivial input (near-zero cost)
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:countTokens?key=${key}`;
+                // FIX #9: Use header-based auth instead of URL parameter
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:countTokens`;
                 const response = await fetch(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: 'test' }] }],
                     }),

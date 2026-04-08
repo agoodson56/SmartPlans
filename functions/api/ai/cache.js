@@ -9,6 +9,12 @@ export async function onRequestPost(context) {
   const { env, request } = context;
 
   try {
+    // FIX #10: Body size guard — same as invoke.js
+    const contentLength = parseInt(request.headers.get('Content-Length') || '0', 10);
+    if (contentLength > 50 * 1024 * 1024) {
+      return Response.json({ error: 'Payload too large' }, { status: 413 });
+    }
+
     const body = await request.json();
     const { fileUris, model, systemInstruction, ttl } = body;
 
@@ -36,8 +42,11 @@ export async function onRequestPost(context) {
       apiKey = env[requestedKey];
       usedKeyName = requestedKey;
     } else {
-      for (const kn of keyNames) {
-        if (env[kn]) { apiKey = env[kn]; usedKeyName = kn; break; }
+      // FIX #2: Rotate cache key using timestamp-based seed instead of always picking first key
+      const seed = Date.now() % keyNames.length;
+      for (let i = 0; i < keyNames.length; i++) {
+        const idx = (seed + i) % keyNames.length;
+        if (env[keyNames[idx]]) { apiKey = env[keyNames[idx]]; usedKeyName = keyNames[idx]; break; }
       }
     }
 
@@ -71,10 +80,11 @@ export async function onRequestPost(context) {
 
     console.log(`[Cache] Creating cache with ${parts.length} parts for model ${cacheModel} (key: ${usedKeyName})`);
 
-    const cacheUrl = `https://generativelanguage.googleapis.com/v1beta/cachedContents?key=${apiKey}`;
+    // FIX #9: Use header-based auth instead of URL parameter
+    const cacheUrl = `https://generativelanguage.googleapis.com/v1beta/cachedContents`;
     const cacheResponse = await fetch(cacheUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify(cacheRequest),
     });
 

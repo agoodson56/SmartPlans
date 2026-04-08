@@ -66,6 +66,32 @@ const SmartBrains = {
     retryBaseDelay: 1500,
     timeout: 150000,                         // 2.5 min for standard brains
     proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
+    DEBUG: false,                            // FIX #18: Gate verbose logging behind debug flag
+  },
+
+  // FIX #19: Circuit breaker — pause all brains when API is overwhelmed
+  _circuitBreaker: {
+    consecutive429s: 0,
+    trippedUntil: 0,     // timestamp when circuit breaker clears
+    TRIP_THRESHOLD: 5,   // trip after 5 consecutive 429s across different keys
+    COOLDOWN_MS: 60000,  // pause for 60 seconds
+    record429() {
+      this.consecutive429s++;
+      if (this.consecutive429s >= this.TRIP_THRESHOLD) {
+        this.trippedUntil = Date.now() + this.COOLDOWN_MS;
+        console.warn(`[CircuitBreaker] TRIPPED — ${this.consecutive429s} consecutive 429s. Pausing all brains for ${this.COOLDOWN_MS / 1000}s`);
+      }
+    },
+    recordSuccess() { this.consecutive429s = 0; },
+    isTripped() { return Date.now() < this.trippedUntil; },
+    async waitIfTripped() {
+      if (this.isTripped()) {
+        const waitMs = this.trippedUntil - Date.now();
+        console.warn(`[CircuitBreaker] Waiting ${Math.round(waitMs / 1000)}s for rate limits to reset…`);
+        await new Promise(r => setTimeout(r, waitMs));
+        this.consecutive429s = 0; // reset after wait
+      }
+    }
   },
 
 
@@ -353,47 +379,67 @@ const SmartBrains = {
   // FIX: Server expects multipart/form-data (request.formData()), NOT JSON with base64.
   // Sending the raw File object avoids the ~33% base64 overhead for large PDFs.
   async _uploadToFileAPI(rawFile, mimeType, fileName) {
-    const formData = new FormData();
-    formData.append('file', rawFile, fileName);
+    // FIX #14: Add retry logic to uploads (3 attempts with exponential backoff)
+    const MAX_UPLOAD_RETRIES = 3;
+    let result = null;
+    let lastUploadError = null;
 
-    // Use XHR for upload progress on large files (> 5MB)
-    const result = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/ai/upload');
-      // Add auth headers for session-based auth
-      const authH = SmartBrains._authHeaders();
-      Object.entries(authH).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    for (let uploadAttempt = 0; uploadAttempt < MAX_UPLOAD_RETRIES; uploadAttempt++) {
+      try {
+        const formData = new FormData();
+        formData.append('file', rawFile, fileName);
 
-      // Track upload progress
-      if (rawFile.size > 5 * 1024 * 1024) {
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            const uploadBar = document.getElementById('upload-progress-bar');
-            const uploadText = document.getElementById('upload-progress-text');
-            if (uploadBar) uploadBar.style.width = pct + '%';
-            if (uploadText) uploadText.textContent = `Uploading ${fileName}: ${pct}% (${Math.round(e.loaded / 1024 / 1024)}/${Math.round(e.total / 1024 / 1024)} MB)`;
+        result = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/ai/upload');
+          // Add auth headers for session-based auth
+          const authH = SmartBrains._authHeaders();
+          Object.entries(authH).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+
+          // Track upload progress
+          if (rawFile.size > 5 * 1024 * 1024) {
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const pct = Math.round((e.loaded / e.total) * 100);
+                const uploadBar = document.getElementById('upload-progress-bar');
+                const uploadText = document.getElementById('upload-progress-text');
+                if (uploadBar) uploadBar.style.width = pct + '%';
+                if (uploadText) uploadText.textContent = `Uploading ${fileName}: ${pct}% (${Math.round(e.loaded / 1024 / 1024)}/${Math.round(e.total / 1024 / 1024)} MB)`;
+              }
+            };
           }
-        };
-      }
 
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try { resolve(JSON.parse(xhr.responseText)); }
-          catch { reject(new Error('Invalid JSON response from upload')); }
-        } else {
-          try {
-            const err = JSON.parse(xhr.responseText);
-            reject(new Error(err.error || `Upload failed: ${xhr.status}`));
-          } catch { reject(new Error(`Upload failed: ${xhr.status}`)); }
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try { resolve(JSON.parse(xhr.responseText)); }
+              catch { reject(new Error('Invalid JSON response from upload')); }
+            } else {
+              try {
+                const err = JSON.parse(xhr.responseText);
+                reject(new Error(err.error || `Upload failed: ${xhr.status}`));
+              } catch { reject(new Error(`Upload failed: ${xhr.status}`)); }
+            }
+          };
+
+          xhr.onerror = () => reject(new Error('Network error during upload'));
+          xhr.ontimeout = () => reject(new Error('Upload timed out'));
+          xhr.timeout = 300000; // 5 min timeout for large uploads
+          xhr.send(formData);
+        });
+        break; // Success — exit retry loop
+      } catch (uploadErr) {
+        lastUploadError = uploadErr;
+        if (uploadAttempt < MAX_UPLOAD_RETRIES - 1) {
+          const delay = 2000 * Math.pow(2, uploadAttempt);
+          console.warn(`[SmartBrains] Upload attempt ${uploadAttempt + 1} failed: ${uploadErr.message}. Retrying in ${delay}ms…`);
+          await new Promise(r => setTimeout(r, delay));
         }
-      };
+      }
+    }
 
-      xhr.onerror = () => reject(new Error('Network error during upload'));
-      xhr.ontimeout = () => reject(new Error('Upload timed out'));
-      xhr.timeout = 300000; // 5 min timeout for large uploads
-      xhr.send(formData);
-    });
+    if (!result) {
+      throw lastUploadError || new Error('Upload failed after all retries');
+    }
 
     // ── Poll for file readiness (large files enter PROCESSING state) ──
     // Gemini returns 400 INVALID_ARGUMENT if you use a file that's still PROCESSING
@@ -1272,12 +1318,26 @@ const SmartBrains = {
     });
 
     let _fileDataStripped = false;
+    let _fileDataStripAttempts = 0; // FIX #17: Track how many retries used stripped mode
+    const _exhaustedSlots = new Set(); // FIX #5: Track 429'd key slots to skip them
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      // If a previous attempt got 400 with fileData, strip file references and use inline only
+      // FIX #19: Wait if circuit breaker is tripped (all keys rate-limited)
+      await this._circuitBreaker.waitIfTripped();
+
+      // FIX #17: If fileData was stripped, try restoring it after 2 retries (transient 400s)
       let activeParts = cleanFileParts;
       if (_fileDataStripped) {
-        activeParts = cleanFileParts.filter(p => !p.fileData);
-        console.warn(`[Brain:${brainDef.name}] Retrying WITHOUT fileData (inline_data only) — attempt ${attempt + 1}`);
+        _fileDataStripAttempts++;
+        if (_fileDataStripAttempts > 2) {
+          // Try again with fileData in case the 400 was transient
+          _fileDataStripped = false;
+          _fileDataStripAttempts = 0;
+          if (this.config.DEBUG) console.log(`[Brain:${brainDef.name}] Re-enabling fileData after ${_fileDataStripAttempts} stripped retries`);
+        } else {
+          activeParts = cleanFileParts.filter(p => !p.fileData);
+          if (this.config.DEBUG) console.warn(`[Brain:${brainDef.name}] Retrying WITHOUT fileData (inline_data only) — attempt ${attempt + 1}`);
+        }
       }
       const hasFileData = activeParts.some(p => p.fileData);
       const parts = [{ text: promptText }, ...activeParts];
@@ -1293,14 +1353,22 @@ const SmartBrains = {
       // Gemini 3.1 Pro produces excellent results without thinking mode
       // thinkingConfig is also MUTUALLY EXCLUSIVE with JSON mode (responseMimeType)
 
-      // keySlot is still used as fallback if _uploadKeyName is not available
+      // FIX #13: Use Math.floor for brain IDs (some are floats like 0.5, 1.75)
+      // FIX #5: Skip exhausted key slots that returned 429
       let keySlot;
       if (hasUploadedFiles && !uploadKeyName) {
         // Fallback: pin to slot 0 if key name wasn't tracked
         keySlot = 0;
       } else {
-        // No uploaded files — safe to rotate across all keys
-        keySlot = (brainDef.id + attempt) % 18;
+        // Rotate across all keys, skipping exhausted ones
+        const brainInt = Math.floor(brainDef.id);
+        let candidate = (brainInt + attempt) % 18;
+        let tries = 0;
+        while (_exhaustedSlots.has(candidate) && tries < 18) {
+          candidate = (candidate + 1) % 18;
+          tries++;
+        }
+        keySlot = candidate;
       }
 
       // If context cache is available, use it instead of sending files
@@ -1319,8 +1387,8 @@ const SmartBrains = {
         ...(useCache ? { _cacheName: this._contextCache.name, _uploadKeyName: this._contextCache.keyName } : (uploadKeyName ? { _uploadKeyName: uploadKeyName } : {})),
       };
 
-      // ── DIAGNOSTIC: Log parts structure on first attempt ──
-      if (attempt === 0) {
+      // FIX #18: Diagnostic logging gated behind DEBUG flag
+      if (attempt === 0 && this.config.DEBUG) {
         const partSummary = parts.map((p, i) => {
           if (p.text) return `  [${i}] text (${p.text.length} chars)`;
           if (p.fileData) return `  [${i}] fileData: ${p.fileData.fileUri} (mime: ${p.fileData.mimeType})`;
@@ -1334,8 +1402,9 @@ const SmartBrains = {
 
       try {
         const controller = new AbortController();
-        // Increase timeout for streaming — data arrives in chunks, so we need more wall-clock time
-        const timeoutMs = brainDef.useProModel ? (this.config.proTimeout || this.config.timeout) * 2 : this.config.timeout * 2;
+        // FIX #15: Use configured timeouts directly — zero-timeout proxy already prevents CF 524s
+        // Doubling was causing 10-min waits on unresponsive endpoints
+        const timeoutMs = brainDef.useProModel ? (this.config.proTimeout || this.config.timeout) : this.config.timeout;
         const timer = setTimeout(() => controller.abort(), timeoutMs);
 
         const response = await fetch(url, {
@@ -1350,9 +1419,13 @@ const SmartBrains = {
         // Errors come through as _proxyError events in the stream.
         // Non-proxy responses (direct API) may still return error codes.
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
-          const nextSlot = (brainDef.id + attempt + 1) % 18;
-          const delay = this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500;
-          console.warn(`[Brain:${brainDef.name}] API ${response.status}, rotating to key slot ${nextSlot}, retrying in ${Math.round(delay)}ms`);
+          // FIX #5: Track exhausted key slots so we skip them on next retry
+          if (response.status === 429 || response.status === 403) {
+            _exhaustedSlots.add(keySlot);
+            this._circuitBreaker.record429(); // FIX #19
+          }
+          const delay = Math.min(this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500, 15000);
+          console.warn(`[Brain:${brainDef.name}] API ${response.status}, slot ${keySlot} exhausted (${_exhaustedSlots.size} total), retrying in ${Math.round(delay)}ms`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
@@ -1373,21 +1446,34 @@ const SmartBrains = {
           const decoder = new TextDecoder();
           let buffer = '';
 
-          const SSE_IDLE_TIMEOUT = 60000; // 60 seconds per-read idle timeout
+          // FIX #3: Increase idle timeout for Pro model (can think 90-120s before first chunk)
+          // and count keepalive comments as valid activity (they prove the connection is alive)
+          const SSE_IDLE_TIMEOUT = brainDef.useProModel ? 180000 : 90000;
+          let lastActivity = Date.now();
           while (true) {
             const { done, value } = await Promise.race([
               reader.read(),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('SSE_IDLE_TIMEOUT')), SSE_IDLE_TIMEOUT)
-              ),
+              new Promise((_, reject) => {
+                const checkInterval = setInterval(() => {
+                  if (Date.now() - lastActivity > SSE_IDLE_TIMEOUT) {
+                    clearInterval(checkInterval);
+                    reject(new Error('SSE_IDLE_TIMEOUT'));
+                  }
+                }, 5000);
+                // Store cleanup ref so we can clear on success
+                reader._idleCheck = checkInterval;
+              }),
             ]).catch(err => {
+              if (reader._idleCheck) clearInterval(reader._idleCheck);
               if (err.message === 'SSE_IDLE_TIMEOUT') {
                 reader.cancel();
-                throw { _retryable: true, status: 504, message: 'SSE stream idle timeout — no data received for 60s' };
+                throw { _retryable: true, status: 504, message: `SSE stream idle timeout — no data for ${SSE_IDLE_TIMEOUT / 1000}s` };
               }
               throw err;
             });
+            if (reader._idleCheck) clearInterval(reader._idleCheck);
             if (done) break;
+            lastActivity = Date.now(); // ANY data from stream resets idle timer
             buffer += decoder.decode(value, { stream: true });
 
             // Process complete SSE lines
@@ -1395,8 +1481,11 @@ const SmartBrains = {
             buffer = lines.pop(); // Keep incomplete line in buffer
 
             for (const line of lines) {
-              // SSE comments (keepalive) start with ':' — skip silently
-              if (line.startsWith(':')) continue;
+              // SSE comments (keepalive) start with ':' — count as activity but skip processing
+              if (line.startsWith(':')) {
+                lastActivity = Date.now(); // FIX #3: Keepalives prove connection is alive
+                continue;
+              }
 
               if (line.startsWith('data: ')) {
                 const jsonStr = line.slice(6).trim();
@@ -1479,6 +1568,8 @@ const SmartBrains = {
           throw new Error('Empty response from AI');
         }
 
+        // FIX #19: Reset circuit breaker on success
+        this._circuitBreaker.recordSuccess();
         console.log(`[Brain:${brainDef.name}] ✓ Complete (${text.length} chars, attempt ${attempt + 1})`);
         return text;
 
@@ -1487,11 +1578,15 @@ const SmartBrains = {
         if (err._retryable) {
           if (err._stripFileData && !_fileDataStripped) {
             _fileDataStripped = true;
+            _fileDataStripAttempts = 0;
             console.warn(`[Brain:${brainDef.name}] fileData rejected by Google — will retry with inline_data only`);
           }
-          // Error from zero-timeout proxy — retryable (429/403/500+)
-          const nextSlot = (brainDef.id + attempt + 1) % 18;
-          console.warn(`[Brain:${brainDef.name}] Proxy reported API ${err.status}, rotating to key slot ${nextSlot}, retrying…`);
+          // FIX #5: Track exhausted slots from proxy-reported errors too
+          if (err.status === 429 || err.status === 403) {
+            _exhaustedSlots.add(keySlot);
+            this._circuitBreaker.record429(); // FIX #19
+          }
+          console.warn(`[Brain:${brainDef.name}] Proxy reported API ${err.status}, slot ${keySlot} exhausted (${_exhaustedSlots.size} total), retrying…`);
         } else if (err.name === 'AbortError') {
           console.warn(`[Brain:${brainDef.name}] Timeout, attempt ${attempt + 1}`);
         }

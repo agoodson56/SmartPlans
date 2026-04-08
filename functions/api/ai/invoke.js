@@ -79,7 +79,8 @@ export async function onRequestPost(context) {
         }
 
         let model = requestedModel;
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+        // FIX #9: Use header-based auth instead of URL parameter to keep keys out of logs
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
 
         console.log(`[Proxy] Brain ${brainSlot} → slot ${usedSlot} → model: ${model} (zero-timeout streaming)`);
 
@@ -108,7 +109,7 @@ export async function onRequestPost(context) {
             try {
                 const geminiResponse = await fetch(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
                     body: JSON.stringify(body),
                 });
                 clearInterval(keepAlive);
