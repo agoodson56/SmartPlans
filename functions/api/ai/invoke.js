@@ -131,12 +131,11 @@ export async function onRequestPost(context) {
                         console.error(`[Proxy] 400 DIAGNOSTIC — model: ${model}, parts: [${partTypes.join(', ')}], genConfig: ${JSON.stringify(body.generationConfig)}`);
                     }
 
-                    // Send error event to client — no server-side fallback
+                    // Send error event to client — include sanitized Google error for debugging
                     // Client handles retries and model fallback
-                    // Include sanitized Google error for debugging (strip API keys)
-                    const safeErr = errText.replace(/key=[^&"\s]+/gi, 'key=REDACTED').substring(0, 300);
+                    const safeErr = errText.replace(/key=[^&"\s]+/gi, 'key=REDACTED').substring(0, 500);
                     await writer.write(encoder.encode(
-                        `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, message: 'AI service temporarily unavailable'})}\n\n`
+                        `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, message: 'AI service temporarily unavailable', _debug: safeErr})}\n\n`
                     ));
                     await writer.close();
                     return;

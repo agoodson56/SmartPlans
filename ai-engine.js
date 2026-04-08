@@ -1496,11 +1496,12 @@ const SmartBrains = {
                   // Check for proxy error events from the zero-timeout proxy
                   if (chunk._proxyError) {
                     const errStatus = chunk.status || 500;
+                    // Log the actual Google error for ALL error codes (not just 400)
+                    if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google ${errStatus} detail: ${chunk._debug}`);
                     // Throw retryable errors so the retry loop handles them
                     if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
                       throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
                     }
-                    if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google 400 detail: ${chunk._debug}`);
                     // 400 with fileData = file reference rejected. Mark for inline-only retry
                     if (errStatus === 400 && hasFileData) {
                       throw { _retryable: true, _stripFileData: true, status: 400, message: 'fileData rejected — will retry with inline_data only' };
@@ -5719,7 +5720,8 @@ ${legendContext}
           _contextCache = { name: cacheData.cacheName, model: 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
           console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
-          console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error || cacheData._debug);
+          console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error);
+          if (cacheData._debug) console.error('[SmartBrains] Google cache error detail:', cacheData._debug);
         }
       }
     } catch (cacheErr) {

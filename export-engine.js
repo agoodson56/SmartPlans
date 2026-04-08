@@ -14,6 +14,30 @@ const SmartPlansExport = {
         return s;
     },
 
+    // ─── Excel Formula Helpers ────────────────────────────────
+    // SheetJS cell address utility: col index → letter (0=A, 1=B, ..., 25=Z, 26=AA)
+    _colLetter(c) {
+        let s = '';
+        c++;
+        while (c > 0) { c--; s = String.fromCharCode(65 + (c % 26)) + s; c = Math.floor(c / 26); }
+        return s;
+    },
+
+    // Set a formula on a worksheet cell. row/col are 0-based.
+    // Preserves the static value as the cached result so non-formula viewers still show data.
+    _setCellFormula(ws, row, col, formula, cachedValue) {
+        const addr = XLSX.utils.encode_cell({ r: row, c: col });
+        ws[addr] = { t: 'n', f: formula, v: cachedValue || 0, z: '$#,##0.00' };
+    },
+
+    // Set currency format on an existing cell (no formula)
+    _setCellCurrency(ws, row, col) {
+        const addr = XLSX.utils.encode_cell({ r: row, c: col });
+        if (ws[addr] && typeof ws[addr].v === 'number') {
+            ws[addr].z = '$#,##0.00';
+        }
+    },
+
     // ─── Build structured data package ─────────────────────────
     buildExportPackage(state) {
         const now = new Date();
@@ -1443,6 +1467,7 @@ const SmartPlansExport = {
             XLSX.utils.book_append_sheet(wb, ws1, "Project Info");
 
             // ── Sheet 2: Full BOM (all items, organized by category) ──
+            // LIVE FORMULAS: Extended Cost = Qty × Unit Cost, Subtotals = SUM, Grand Total = SUM
             const bomData = [
                 ["DETAILED BILL OF MATERIALS"],
                 [`${state.projectName || 'Project'} — ${now.toLocaleDateString()}`],
@@ -1454,12 +1479,21 @@ const SmartPlansExport = {
             let totalLineItems = 0;
             let totalQuantity = 0;
 
+            // Track row indices for formula injection after sheet creation
+            // bomData starts at row 0; header row with column names is index 3 (row 4 in Excel, 0-based row 3)
+            const formulaCells = [];       // { row, col, formula, cached } — injected after aoa_to_sheet
+            const catSubtotalRows = [];    // 0-based row indices of category subtotal cells (col H=7)
+            const itemRowRanges = [];      // per-category: { firstRow, lastRow } of item rows for SUM
+
             for (const cat of bom.categories) {
-                // Category header row
+                // Category header row (blank + name)
                 bomData.push([]);
                 bomData.push([cat.name.toUpperCase(), "", "", "", "", "", "", ""]);
 
+                const catFirstItemRow = bomData.length; // 0-based row of first item in this category
+
                 for (const item of cat.items) {
+                    const curRow = bomData.length; // 0-based row index
                     bomData.push([
                         "",
                         item.mfg || "",
@@ -1468,23 +1502,38 @@ const SmartPlansExport = {
                         item.qty,
                         item.unit,
                         item.unitCost,
-                        item.extCost,
+                        item.extCost, // static fallback value — formula overwrites
                     ]);
+                    // Formula: H{row} = E{row} * G{row}  (Qty × Unit Cost)
+                    // Excel rows are 1-based, so curRow+1
+                    const excelRow = curRow + 1;
+                    formulaCells.push({ row: curRow, col: 7, formula: `E${excelRow}*G${excelRow}`, cached: item.extCost });
                     totalLineItems++;
                     totalQuantity += item.qty;
                 }
 
-                // Category subtotal row
+                const catLastItemRow = bomData.length - 1; // 0-based row of last item
+
+                // Category subtotal row — formula: SUM of extended costs for this category's items
+                const subtotalRow = bomData.length;
                 bomData.push(["", "", "", `SUBTOTAL — ${cat.name}`, "", "", "", cat.subtotal]);
+                const excelFirst = catFirstItemRow + 1;
+                const excelLast = catLastItemRow + 1;
+                formulaCells.push({ row: subtotalRow, col: 7, formula: `SUM(H${excelFirst}:H${excelLast})`, cached: cat.subtotal });
+                catSubtotalRows.push(subtotalRow);
+                itemRowRanges.push({ firstRow: catFirstItemRow, lastRow: catLastItemRow });
+
                 runningTotal += cat.subtotal;
             }
 
-            // Grand total section
-            // SINGLE SOURCE OF TRUTH: The sum of all BOM category subtotals
-            // No AI text extraction, no markup addition — just the actual sum.
+            // Grand total section — formula: SUM of all category subtotals
             bomData.push([]);
             bomData.push(["", "", "", "", "", "", "", ""]);
+            const matSubtotalRow = bomData.length;
             bomData.push(["", "", "", "MATERIAL & EQUIPMENT SUBTOTAL", "", "", "", runningTotal]);
+            // Build SUM formula referencing each category subtotal cell
+            const subtotalRefs = catSubtotalRows.map(r => `H${r + 1}`).join(',');
+            formulaCells.push({ row: matSubtotalRow, col: 7, formula: `SUM(${subtotalRefs})`, cached: runningTotal });
             bomData.push([]);
 
             // Calculate fully-loaded bid price
@@ -1493,7 +1542,10 @@ const SmartPlansExport = {
             const labMarkupPct = state.markup?.labor ?? 50;
             if (bidTotal > runningTotal) {
                 bomData.push(["", "", "", "PRICING SUMMARY", "", "", "", ""]);
+                const rawCostRow = bomData.length;
                 bomData.push(["", "", "", `  Material/Equipment (raw cost)`, "", "", "", runningTotal]);
+                // Reference the material subtotal cell
+                formulaCells.push({ row: rawCostRow, col: 7, formula: `H${matSubtotalRow + 1}`, cached: runningTotal });
                 bomData.push(["", "", "", `  Material Markup (${matMarkupPct}%)`, "", "", "", ""]);
                 bomData.push(["", "", "", `  Labor Markup (${labMarkupPct}%)`, "", "", "", ""]);
                 bomData.push(["", "", "", `  G&A Overhead, Profit, Contingency`, "", "", "", ""]);
@@ -1501,30 +1553,86 @@ const SmartPlansExport = {
                 bomData.push(["", "", "", "BID PRICE (GRAND TOTAL)", "", "", "", bidTotal]);
             } else {
                 bomData.push(["", "", "", "GRAND TOTAL", "", "", "", runningTotal]);
+                // Reference the material subtotal
+                formulaCells.push({ row: bomData.length - 1, col: 7, formula: `H${matSubtotalRow + 1}`, cached: runningTotal });
             }
             bomData.push([]);
             bomData.push(["", "", "", `Total Line Items: ${totalLineItems}`, `Total Qty: ${totalQuantity}`, "", "", ""]);
 
             const ws2 = XLSX.utils.aoa_to_sheet(bomData);
+
+            // Inject live formulas into the worksheet
+            for (const fc of formulaCells) {
+                this._setCellFormula(ws2, fc.row, fc.col, fc.formula, fc.cached);
+            }
+            // Apply currency format to Unit Cost column (col G=6) for all item rows
+            for (const range of itemRowRanges) {
+                for (let r = range.firstRow; r <= range.lastRow; r++) {
+                    this._setCellCurrency(ws2, r, 6);
+                }
+            }
+
             ws2["!cols"] = [{ wch: 24 }, { wch: 16 }, { wch: 24 }, { wch: 50 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 16 }];
             XLSX.utils.book_append_sheet(wb, ws2, "Bill of Materials");
 
             // ── Sheet 3: Category Summary ──
+            // LIVE FORMULAS: Subtotals reference BOM sheet, % of Total = subtotal/grand total
             const summaryData = [
                 ["CATEGORY SUMMARY"],
                 [],
                 ["Category", "Line Items", "Total Quantity", "Subtotal ($)", "% of Total"],
             ];
-            for (const cat of bom.categories) {
+            const summaryFormulas = [];
+            const summaryFirstDataRow = summaryData.length; // 0-based row of first category
+            for (let ci = 0; ci < bom.categories.length; ci++) {
+                const cat = bom.categories[ci];
                 const itemCount = cat.items.length;
                 const catQty = cat.items.reduce((s, it) => s + it.qty, 0);
-                const pctOfTotal = runningTotal > 0 ? ((cat.subtotal / runningTotal) * 100).toFixed(1) + '%' : '0%';
-                summaryData.push([cat.name, itemCount, catQty, cat.subtotal, pctOfTotal]);
+                const pctVal = runningTotal > 0 ? (cat.subtotal / runningTotal) : 0;
+                const curRow = summaryData.length;
+                summaryData.push([cat.name, itemCount, catQty, cat.subtotal, pctVal]);
+                // Reference the category subtotal from BOM sheet
+                const bomSubRef = catSubtotalRows[ci];
+                if (bomSubRef !== undefined) {
+                    summaryFormulas.push({ row: curRow, col: 3, formula: `'Bill of Materials'!H${bomSubRef + 1}`, cached: cat.subtotal });
+                }
             }
+            const summaryLastDataRow = summaryData.length - 1;
             summaryData.push([]);
-            summaryData.push(["TOTAL", totalLineItems, totalQuantity, runningTotal, "100%"]);
+            const summaryTotalRow = summaryData.length;
+            summaryData.push(["TOTAL", totalLineItems, totalQuantity, runningTotal, 1]);
+
+            // Total row: SUM of subtotals
+            const sumFirst = summaryFirstDataRow + 1; // Excel 1-based
+            const sumLast = summaryLastDataRow + 1;
+            summaryFormulas.push({ row: summaryTotalRow, col: 3, formula: `SUM(D${sumFirst}:D${sumLast})`, cached: runningTotal });
+
+            // % of Total formulas for each category row
+            for (let ci = 0; ci < bom.categories.length; ci++) {
+                const dataRow = summaryFirstDataRow + ci;
+                const excelTotalRow = summaryTotalRow + 1;
+                summaryFormulas.push({ row: dataRow, col: 4, formula: `IF(D$${excelTotalRow}=0,0,D${dataRow + 1}/D$${excelTotalRow})`, cached: runningTotal > 0 ? bom.categories[ci].subtotal / runningTotal : 0 });
+            }
+            // Total row % = 100%
+            summaryFormulas.push({ row: summaryTotalRow, col: 4, formula: `IF(D${summaryTotalRow + 1}=0,0,1)`, cached: 1 });
 
             const ws3 = XLSX.utils.aoa_to_sheet(summaryData);
+            for (const sf of summaryFormulas) {
+                this._setCellFormula(ws3, sf.row, sf.col, sf.formula, sf.cached);
+            }
+            // Format % column as percentage
+            for (let r = summaryFirstDataRow; r <= summaryLastDataRow; r++) {
+                const addr = XLSX.utils.encode_cell({ r, c: 4 });
+                if (ws3[addr]) ws3[addr].z = '0.0%';
+            }
+            const totalPctAddr = XLSX.utils.encode_cell({ r: summaryTotalRow, c: 4 });
+            if (ws3[totalPctAddr]) ws3[totalPctAddr].z = '0%';
+            // Format subtotal column as currency
+            for (let r = summaryFirstDataRow; r <= summaryTotalRow; r++) {
+                const addr = XLSX.utils.encode_cell({ r, c: 3 });
+                if (ws3[addr]) ws3[addr].z = '$#,##0.00';
+            }
+
             ws3["!cols"] = [{ wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 12 }];
             XLSX.utils.book_append_sheet(wb, ws3, "Category Summary");
 
@@ -1609,6 +1717,7 @@ const SmartPlansExport = {
             const tier = state.pricingTier;
 
             // ── Sheet 1: Project Summary ──
+            // LIVE FORMULAS: Loaded Rate = Base Rate × (1 + Burden%)
             const summaryData = [
                 ["SMARTPLANS — PROJECT ESTIMATE SUMMARY"],
                 [],
@@ -1624,32 +1733,62 @@ const SmartPlansExport = {
                 ["PRICING CONFIGURATION"],
                 ["Pricing Tier", tier.toUpperCase()],
                 ["Regional Multiplier", `${regionKey.replace(/_/g, " ")} (${regionMult}×)`],
-                ["Labor Burden", state.includeBurden ? `${state.burdenRate}%` : "Not applied"],
+                ["Labor Burden", state.includeBurden ? (state.burdenRate / 100) : 0],
                 ["Material Markup", `${state.markup.material}%`],
                 ["Labor Markup", `${state.markup.labor}%`],
                 ["Equipment Markup", `${state.markup.equipment}%`],
                 ["Subcontractor Markup", `${state.markup.subcontractor}%`],
                 [],
                 ["LABOR RATES"],
-                ["Classification", "Base Rate", "Burden", "Loaded Rate"],
+                ["Classification", "Base Rate ($)", "Burden %", "Loaded Rate ($)"],
             ];
 
-            Object.entries(state.laborRates).forEach(([key, rate]) => {
+            // Row index where "Labor Burden" value sits (for formula reference)
+            const burdenValueRow = 14; // 0-based row 14 = "Labor Burden" row, col B
+            const laborHeaderRow = summaryData.length - 1; // row with column headers
+            const laborFormulas = [];
+            const laborRateEntries = Object.entries(state.laborRates);
+            laborRateEntries.forEach(([key, rate]) => {
                 const label = key === "pm" ? "Project Manager" : key === "journeyman" ? "Journeyman Tech" : key === "lead" ? "Lead Tech" : key === "foreman" ? "Foreman" : key === "apprentice" ? "Apprentice" : "Programmer";
-                summaryData.push([label, rate, `${(burdenMult * 100 - 100).toFixed(0)}%`, this._round(rate * burdenMult)]);
+                const curRow = summaryData.length;
+                const burdenPct = state.includeBurden ? (state.burdenRate / 100) : 0;
+                summaryData.push([label, rate, burdenPct, this._round(rate * burdenMult)]);
+                // Formula: D{row} = B{row} * (1 + C{row})   (Loaded Rate = Base × (1 + Burden%))
+                const excelRow = curRow + 1;
+                laborFormulas.push({ row: curRow, col: 3, formula: `B${excelRow}*(1+C${excelRow})`, cached: this._round(rate * burdenMult) });
             });
 
             const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
+            // Inject labor rate formulas
+            for (const lf of laborFormulas) {
+                this._setCellFormula(ws1, lf.row, lf.col, lf.formula, lf.cached);
+            }
+            // Format burden column as percentage, base/loaded as currency
+            for (let i = 0; i < laborRateEntries.length; i++) {
+                const r = laborHeaderRow + 1 + i;
+                const burdenAddr = XLSX.utils.encode_cell({ r, c: 2 });
+                if (ws1[burdenAddr]) ws1[burdenAddr].z = '0%';
+                this._setCellCurrency(ws1, r, 1);
+            }
+            // Format the Labor Burden config cell as percentage too
+            const burdenCfgAddr = XLSX.utils.encode_cell({ r: burdenValueRow, c: 1 });
+            if (ws1[burdenCfgAddr] && typeof ws1[burdenCfgAddr].v === 'number') {
+                ws1[burdenCfgAddr].z = '0%';
+            }
             ws1["!cols"] = [{ wch: 24 }, { wch: 18 }, { wch: 14 }, { wch: 14 }];
             XLSX.utils.book_append_sheet(wb, ws1, "Project Summary");
 
             // ── Sheet 2: Material Pricing Database ──
+            // LIVE FORMULAS: Adjusted Price = Unit Price × Regional Multiplier
             const matData = [
                 ["MATERIAL PRICING DATABASE"],
                 [`Tier: ${tier.toUpperCase()} | Region: ${regionKey.replace(/_/g, " ")} (${regionMult}×)`],
-                [],
-                ["Category", "Item", "Description", "Unit", "Unit Price", "Adjusted Price"],
+                ["Regional Multiplier", regionMult],
+                ["Category", "Item", "Description", "Unit", "Unit Price ($)", "Adjusted Price ($)"],
             ];
+
+            const matFormulas = [];
+            const matRegionCell = 'B3'; // row 2 (0-based), col 1 — holds the regionMult value
 
             const categories = {
                 "Structured Cabling": PRICING_DB.structuredCabling,
@@ -1664,20 +1803,32 @@ const SmartPlansExport = {
                 for (const [subCat, items] of Object.entries(catData)) {
                     for (const [key, item] of Object.entries(items)) {
                         if (typeof item === "object" && item[tier] !== undefined) {
+                            const curRow = matData.length;
                             matData.push([
                                 catName,
                                 key,
                                 item.description,
                                 item.unit,
                                 item[tier],
-                                this._round(item[tier] * regionMult),
+                                this._round(item[tier] * regionMult), // static fallback
                             ]);
+                            // Formula: F{row} = E{row} * $B$3  (Unit Price × Regional Multiplier)
+                            const excelRow = curRow + 1;
+                            matFormulas.push({ row: curRow, col: 5, formula: `E${excelRow}*$B$3`, cached: this._round(item[tier] * regionMult) });
                         }
                     }
                 }
             }
 
             const ws2 = XLSX.utils.aoa_to_sheet(matData);
+            // Inject material pricing formulas
+            for (const mf of matFormulas) {
+                this._setCellFormula(ws2, mf.row, mf.col, mf.formula, mf.cached);
+            }
+            // Apply currency format to unit price and adjusted price columns
+            for (const mf of matFormulas) {
+                this._setCellCurrency(ws2, mf.row, 4); // Unit Price
+            }
             ws2["!cols"] = [{ wch: 20 }, { wch: 24 }, { wch: 45 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
             XLSX.utils.book_append_sheet(wb, ws2, "Material Pricing");
 
@@ -2013,6 +2164,8 @@ const SmartPlansExport = {
         }
 
         // Build array-of-arrays data
+        // LIVE FORMULAS: Supplier Extended Cost = Qty × Supplier Unit Cost
+        // Supplier only needs to fill in unit cost — extended and totals auto-calculate
         const headerRows = [
             ['SUPPLIER BOM — PRICING REQUEST'],
             [],
@@ -2023,17 +2176,25 @@ const SmartPlansExport = {
             [],
             ['Row#', 'Category', 'MFG', 'Part Number', 'Item Description', 'Qty', 'Unit', 'Supplier Unit Cost', 'Supplier Extended Cost'],
         ];
+        const headerLen = headerRows.length; // rows before data starts (0-based offset)
 
         const dataRows = [];
         let rowIdx = 0;
         let grandTotal = 0;
 
+        // Track formula injection points for Excel export
+        const supplierFormulas = [];   // { row, col, formula, cached }
+        const catSubtotalRows = [];    // 0-based absolute row indices for subtotal cells
+
         for (const cat of bom.categories) {
             // Category section header
             dataRows.push([cat.name.toUpperCase(), '', '', '', '', '', '', '', '']);
 
+            const catFirstItemAbsRow = headerLen + dataRows.length; // absolute row of first item
+
             for (const item of cat.items) {
                 rowIdx++;
+                const absRow = headerLen + dataRows.length; // absolute 0-based row
                 dataRows.push([
                     rowIdx,
                     '',
@@ -2042,26 +2203,43 @@ const SmartPlansExport = {
                     item.item,
                     item.qty,
                     item.unit,
-                    '',  // Supplier fills in unit cost
-                    '',  // Supplier fills in extended cost
+                    '',  // Supplier fills in unit cost (col H, index 7)
+                    '',  // Formula: Qty × Unit Cost (col I, index 8)
                 ]);
+                // Formula: I{row} = F{row} * H{row}  (Qty × Supplier Unit Cost)
+                const excelRow = absRow + 1; // Excel is 1-based
+                supplierFormulas.push({ row: absRow, col: 8, formula: `F${excelRow}*H${excelRow}`, cached: 0 });
             }
+
+            const catLastItemAbsRow = headerLen + dataRows.length - 1;
 
             grandTotal += (cat.subtotal || 0);
 
-            // Category subtotal row (no pricing shown)
+            // Category subtotal row — formula: SUM of extended costs for this category
+            const subtotalAbsRow = headerLen + dataRows.length;
             dataRows.push(['', '', '', '', `SUBTOTAL — ${cat.name}`, '', '', '', '']);
+            const excelFirst = catFirstItemAbsRow + 1;
+            const excelLast = catLastItemAbsRow + 1;
+            supplierFormulas.push({ row: subtotalAbsRow, col: 8, formula: `SUM(I${excelFirst}:I${excelLast})`, cached: 0 });
+            // Also add SUM for unit cost column so supplier sees their subtotal
+            supplierFormulas.push({ row: subtotalAbsRow, col: 7, formula: `SUM(H${excelFirst}:H${excelLast})`, cached: 0 });
+            catSubtotalRows.push(subtotalAbsRow);
             dataRows.push([]);
         }
 
-        // Grand total row (no pricing — supplier calculates their own)
+        // Grand total row — formula: SUM of all category subtotals
         dataRows.push([]);
+        const totalAbsRow = headerLen + dataRows.length;
         dataRows.push(['', '', '', '', 'TOTAL', '', '', '', '']);
+        const subtotalExtRefs = catSubtotalRows.map(r => `I${r + 1}`).join(',');
+        const subtotalUnitRefs = catSubtotalRows.map(r => `H${r + 1}`).join(',');
+        supplierFormulas.push({ row: totalAbsRow, col: 8, formula: `SUM(${subtotalExtRefs})`, cached: 0 });
+        supplierFormulas.push({ row: totalAbsRow, col: 7, formula: `SUM(${subtotalUnitRefs})`, cached: 0 });
 
         const allRows = [...headerRows, ...dataRows];
 
         if (format === 'csv' || typeof XLSX === 'undefined') {
-            // CSV export
+            // CSV export (no formulas — static values only)
             allRows.push([]);
             allRows.push(['3D CONFIDENTIAL — 3D Technology Services Inc.']);
             const csv = allRows.map(r =>
@@ -2069,10 +2247,21 @@ const SmartPlansExport = {
             ).join('\n');
             this._download(csv, `SmartPlans_SupplierBOM_${this._safeName(state)}.csv`, 'text/csv');
         } else {
-            // Excel export via SheetJS
+            // Excel export via SheetJS — with LIVE FORMULAS
             try {
                 const wb = XLSX.utils.book_new();
                 const ws = XLSX.utils.aoa_to_sheet(allRows);
+
+                // Inject live formulas
+                for (const sf of supplierFormulas) {
+                    this._setCellFormula(ws, sf.row, sf.col, sf.formula, sf.cached);
+                }
+                // Apply currency format to supplier cost columns
+                for (const sf of supplierFormulas) {
+                    const addr = XLSX.utils.encode_cell({ r: sf.row, c: sf.col });
+                    if (ws[addr]) ws[addr].z = '$#,##0.00';
+                }
+
                 ws['!cols'] = [
                     { wch: 8 },   // Row#
                     { wch: 24 },  // Category

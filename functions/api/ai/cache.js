@@ -91,9 +91,12 @@ export async function onRequestPost(context) {
     if (!cacheResponse.ok) {
       const errText = await cacheResponse.text();
       console.error(`[Cache] Failed: ${cacheResponse.status} ${errText.substring(0, 500)}`);
+      // Surface sanitized Google error to client for debugging (strip API keys)
+      const safeErr = errText.replace(/key=[^&"\s]+/gi, 'key=REDACTED').substring(0, 500);
       return Response.json({
         error: 'Cache creation failed',
         status: cacheResponse.status,
+        _debug: safeErr,
       }, { status: cacheResponse.status });
     }
 
