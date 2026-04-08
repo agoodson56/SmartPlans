@@ -798,7 +798,7 @@ const FormulaEngine3D = {
             const consensus = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts;
             const finalRecon = state.brainResults?.wave3_75?.FINAL_RECONCILIATION?.final_counts;
 
-            // Count cameras from consensus/recon
+            // Count cameras from consensus/recon — OR from BOM if brain results unavailable
             const camRegex = /camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i;
             const camExclude = /mount|bracket|license|sd\s*card|cable|adapter|housing|power|surge|software|warranty|accessori/i;
             let cameraCount = 0;
@@ -808,6 +808,23 @@ const FormulaEngine3D = {
                     if (camRegex.test(key) && !camExclude.test(key)) {
                         cameraCount += (typeof val === 'number' ? val : val?.count || val?.qty || 0);
                     }
+                }
+            }
+
+            // Fallback: count cameras directly from BOM items if no brain results
+            if (cameraCount < 5 && bom?.categories) {
+                for (const cat of bom.categories) {
+                    if (/cctv|camera|surveillance|video/i.test(cat.name || '')) {
+                        for (const item of (cat.items || [])) {
+                            const iName = (item.item || item.name || '').toLowerCase();
+                            if (camRegex.test(iName) && !camExclude.test(iName)) {
+                                cameraCount += (item.qty || 0);
+                            }
+                        }
+                    }
+                }
+                if (cameraCount >= 5) {
+                    console.log(`[3D Engine v2]   Camera count from BOM fallback: ${cameraCount}`);
                 }
             }
 
