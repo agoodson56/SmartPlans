@@ -1800,7 +1800,7 @@ const SmartBrains = {
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
-    SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits', 'true_change_orders', 'transit_railroad_checklist'],
+    SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits', 'true_change_orders', 'transit_railroad_checklist', 'prevailing_wage_detected', 'prevailing_wage_type'],
     SHADOW_SCANNER: ['sheets', 'totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
     QUADRANT_SCANNER: ['quadrants', 'totals'],
@@ -2135,6 +2135,19 @@ WORK SHIFT: ${context.workShift || 'Standard'}
 ${context.isTransitRailroad ? `⚠️ TRANSIT/RAILROAD PROJECT — MANDATORY: Include ALL transit-specific costs (RWIC flagman, RPL insurance, TWIC/TSA, safety training, railroad escort, track-rated PPE, FRA approval, ROW permits, station coordination, specialty tools). Do NOT skip these — they are REAL costs that add 20-40% to project budget.` : ''}
 
 YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment rental, civil work, traffic control, site preparation, and specialty item needed to COMPLETE this installation from start to finish.
+
+═══ CRITICAL: PREVAILING WAGE DETECTION ═══
+Search the specifications and drawings for ANY of these indicators that prevailing wage applies:
+- "Davis-Bacon" or "Davis Bacon Act" → federal prevailing wage (Davis-Bacon)
+- "Prevailing wage" or "prevailing rate of wages" → state prevailing wage
+- "DIR" or "Department of Industrial Relations" or "DIR registered" → California state PW
+- "Project Labor Agreement" or "PLA" → PLA rates (highest)
+- "Certified payroll" or "certified payrolls required" → PW indicator
+- "Wage determination" or "wage decision" → federal or state PW
+- "Public works" or "publicly funded" → likely PW
+- "State-funded" or "federally funded" → likely PW
+- Government/public agency owner (VA, DOD, GSA, state, county, city, school district) → likely PW
+Report "prevailing_wage_detected": true/false and "prevailing_wage_type": "davis-bacon" | "state-prevailing" | "pla" | "none"
 
 ═══ CHECK EVERY CATEGORY BELOW — DO NOT SKIP ANY ═══
 

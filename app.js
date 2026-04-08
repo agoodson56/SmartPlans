@@ -8427,6 +8427,62 @@ async function runGeminiAnalysis(updateProgress) {
 
     updateProgress(100, `🎯 Analysis complete — ${result.stats.successfulBrains}/${result.stats.totalBrains} brains succeeded!`, result.brainStatus);
 
+    // ── Prevailing Wage Auto-Detection ──
+    // Check SPECIAL_CONDITIONS brain output and spec text for PW indicators
+    if (!state.prevailingWage) {
+      const specConditions = result.brainResults?.wave1?.SPECIAL_CONDITIONS;
+      let pwDetected = false;
+      let pwType = '';
+
+      // Source 1: SPECIAL_CONDITIONS brain explicitly found PW language
+      if (specConditions?.prevailing_wage_detected) {
+        pwDetected = true;
+        pwType = specConditions.prevailing_wage_type || 'state-prevailing';
+        console.log(`[PW Auto-Detect] SPECIAL_CONDITIONS brain detected prevailing wage: ${pwType}`);
+      }
+
+      // Source 2: Scan spec extracted text for PW keywords
+      if (!pwDetected) {
+        const specTexts = [];
+        for (const planFile of (result.brainResults?.wave0?._encodedSpecs || [])) {
+          if (planFile.extractedText) specTexts.push(planFile.extractedText);
+        }
+        // Also check any spec text that made it into state
+        if (state.specText) specTexts.push(state.specText);
+
+        const allSpecText = specTexts.join(' ').toLowerCase();
+        if (allSpecText.includes('davis-bacon') || allSpecText.includes('davis bacon')) {
+          pwDetected = true; pwType = 'davis-bacon';
+        } else if (allSpecText.includes('project labor agreement') || allSpecText.includes(' pla ')) {
+          pwDetected = true; pwType = 'pla';
+        } else if (allSpecText.includes('prevailing wage') || allSpecText.includes('prevailing rate') ||
+                   allSpecText.includes('dir registered') || allSpecText.includes('department of industrial relations') ||
+                   allSpecText.includes('certified payroll')) {
+          pwDetected = true; pwType = 'state-prevailing';
+        }
+        if (pwDetected) console.log(`[PW Auto-Detect] Found PW keywords in spec text: ${pwType}`);
+      }
+
+      // Source 3: Project name/type heuristics (VA, DOD, public school, etc.)
+      if (!pwDetected) {
+        const projName = (state.projectName || '').toLowerCase();
+        const projType = (state.projectType || '').toLowerCase();
+        const projLoc = (state.projectLocation || '').toLowerCase();
+        if (/\b(va |veterans|v\.a\.|vamc)\b/.test(projName)) { pwDetected = true; pwType = 'davis-bacon'; }
+        else if (/\b(dod|army|navy|air force|military|federal)\b/.test(projName)) { pwDetected = true; pwType = 'davis-bacon'; }
+        else if (/\b(school|district|university|college|campus)\b/.test(projName) && projLoc.includes('ca')) { pwDetected = true; pwType = 'state-prevailing'; }
+        else if (/\b(county|city of|municipal|public|courthouse|library|fire station|police)\b/.test(projName)) { pwDetected = true; pwType = 'state-prevailing'; }
+        if (pwDetected) console.log(`[PW Auto-Detect] Inferred PW from project name: "${state.projectName}" → ${pwType}`);
+      }
+
+      if (pwDetected && pwType) {
+        state.prevailingWage = pwType;
+        state._pwAutoDetected = true;
+        console.log(`[PW Auto-Detect] ✅ Auto-set prevailing wage to: ${pwType}`);
+        spToast(`🔒 Prevailing wage auto-detected: ${pwType === 'davis-bacon' ? 'Federal (Davis-Bacon)' : pwType === 'pla' ? 'Project Labor Agreement' : 'State (CA DIR)'}`, 'info');
+      }
+    }
+
     // ── Report bid to cross-device usage tracker ──
     const estCost = (result.stats.successfulBrains || 1) * 0.015; // ~$0.015 per brain call avg
     UsageStats.reportBid(state.projectName || 'Unknown', estCost);

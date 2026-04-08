@@ -907,7 +907,7 @@ const FormulaEngine3D = {
         const name = (itemName || '').toLowerCase();
         const pr = this.productionRates;
 
-        // Cable runs — pull + terminate + test
+        // ── Cable runs — pull + terminate + test ──
         if (/cat\s*6a|cat6a/i.test(name) && !/jack|panel|patch|cord|faceplate/i.test(name)) {
             return this._round(qty * (pr.pull_cat6a + pr.terminate_cat6a * 2 + pr.test_cat6a) / 60);
         }
@@ -920,50 +920,137 @@ const FormulaEngine3D = {
         if (/rg.?6|coax/i.test(name)) {
             return this._round(qty * (pr.pull_cat6_cmr + pr.terminate_rg6 * 2 + pr.test_rg6) / 60);
         }
-
-        // Cameras
-        if (/pole.*cam|cam.*pole/i.test(name)) return this._round(qty * pr.install_camera_pole / 60);
-        if (/outdoor.*cam|cam.*outdoor|exterior.*cam/i.test(name)) return this._round(qty * pr.install_camera_outdoor / 60);
-        if (/camera|dome|bullet|ptz|turret|fisheye|panoram/i.test(name) && !/mount|bracket|license|sd|memory|software/i.test(name)) {
-            return this._round(qty * pr.install_camera_indoor / 60);
+        // Fire alarm cable (18/2 FPLR shielded) — similar pull time to cat6
+        if (/18.?\/?.?2|fplr|fire.*cable|alarm.*cable/i.test(name) && !/device|detector|strobe|panel/i.test(name)) {
+            return this._round(qty * (pr.pull_cat6_cmr + 4 + 3) / 60); // pull + terminate + test
+        }
+        // Access control composite cable (22/6 + 18/4)
+        if (/22.?\/?.?[46]|composite.*cable|access.*cable/i.test(name) && !/reader|rex|contact/i.test(name)) {
+            return this._round(qty * (pr.pull_cat6_cmr + 6 + 3) / 60);
+        }
+        // Speaker/paging wire (18/2 plenum)
+        if (/speaker.*cable|paging.*cable|18.?\/?.?2.*plenum/i.test(name) && !/speaker(?!.*cable)/i.test(name)) {
+            return this._round(qty * (pr.pull_cat6_rooms + 4 + 3) / 60);
+        }
+        // 25-pair copper backbone
+        if (/25.?pair|multi.?pair/i.test(name)) {
+            return this._round(qty * (pr.pull_25pair + pr.terminate_25pair * 2) / 60);
+        }
+        // 24-strand fiber backbone
+        if (/24.?strand|48.?strand|fiber.*backbone/i.test(name)) {
+            return this._round(qty * (pr.pull_24strand + pr.terminate_fiber_sm * 24) / 60);
         }
 
-        // Access control
+        // ── Cameras ──
+        if (/pole.*cam|cam.*pole/i.test(name)) return this._round(qty * pr.install_camera_pole / 60);
+        if (/outdoor.*cam|cam.*outdoor|exterior.*cam|bullet.*cam/i.test(name)) return this._round(qty * pr.install_camera_outdoor / 60);
+        if (/multi.?sensor|panoram|360|fisheye/i.test(name)) return this._round(qty * pr.install_camera_complex / 60);
+        if (/ptz/i.test(name) && !/license|software/i.test(name)) return this._round(qty * pr.install_camera_complex / 60);
+        if (/camera|dome|turret/i.test(name) && !/mount|bracket|license|sd|memory|software|pole|vms/i.test(name)) {
+            return this._round(qty * pr.install_camera_indoor / 60);
+        }
+        // Camera mounts/brackets — 15 min each
+        if (/camera.*mount|mount.*arm|wall.*mount.*cam|pendant/i.test(name)) return this._round(qty * 0.25);
+
+        // ── Access control ──
         if (/8.?door.*controller|controller.*8/i.test(name)) return this._round(qty * pr.install_8door_ctrl / 60);
         if (/4.?door.*controller|controller.*4/i.test(name)) return this._round(qty * pr.install_4door_ctrl / 60);
         if (/2.?door.*controller|controller.*2/i.test(name)) return this._round(qty * pr.install_2door_ctrl / 60);
-        if (/card.*reader|reader|hid|proximity/i.test(name)) return this._round(qty * pr.install_card_reader / 60);
+        if (/single.*door.*controller|controller.*1/i.test(name)) return this._round(qty * 2); // 2 hrs
+        if (/card.*reader|reader|hid|proximity|iclass/i.test(name) && !/long.*range/i.test(name)) return this._round(qty * pr.install_card_reader / 60);
+        if (/long.*range.*reader/i.test(name)) return this._round(qty * pr.install_long_range_reader / 60);
         if (/rex|request.*exit/i.test(name)) return this._round(qty * pr.install_rex / 60);
         if (/door.*contact|contact.*door/i.test(name)) return this._round(qty * pr.install_door_contact / 60);
+        if (/electric.*strike|strike/i.test(name) && !/bowling|baseball/i.test(name)) return this._round(qty * 1.5); // 1.5 hrs
+        if (/mag.?lock|magnetic.*lock|em.*lock/i.test(name)) return this._round(qty * 2); // 2 hrs
         if (/crash.*bar|pushbar|panic/i.test(name)) return this._round(qty * pr.install_crash_bar / 60);
-        if (/locking.*hardware|lock.*hw/i.test(name)) return this._round(qty * pr.install_locking_hw / 60);
+        if (/locking.*hardware|lock.*hw|electric.*latch/i.test(name)) return this._round(qty * pr.install_locking_hw / 60);
+        if (/power.*supply|altronix|lifesafety/i.test(name) && !/ups/i.test(name)) return this._round(qty * pr.install_power_supply / 60);
+        if (/auto.*operator|door.*operator/i.test(name)) return this._round(qty * 8); // 8 hrs
 
-        // Fire alarm
-        if (/facp|fire.*alarm.*panel/i.test(name)) return this._round(qty * pr.install_facp / 60);
-        if (/strobe|horn.*strobe/i.test(name)) return this._round(qty * pr.install_strobe / 60);
-        if (/smoke.*detect/i.test(name)) return this._round(qty * pr.install_smoke_detector / 60);
-        if (/heat.*detect/i.test(name)) return this._round(qty * pr.install_heat_detector / 60);
+        // ── Fire alarm ──
+        if (/facp|fire.*alarm.*panel|control.*panel.*fire/i.test(name)) return this._round(qty * pr.install_facp / 60);
+        if (/horn.*strobe|strobe.*horn|speaker.*strobe/i.test(name)) return this._round(qty * pr.install_horn_strobe / 60);
+        if (/strobe|visual.*notification/i.test(name)) return this._round(qty * pr.install_strobe / 60);
+        if (/smoke.*detect|photo.*detect/i.test(name)) return this._round(qty * pr.install_smoke_detector / 60);
+        if (/heat.*detect|thermal.*detect/i.test(name)) return this._round(qty * pr.install_heat_detector / 60);
+        if (/duct.*detect/i.test(name)) return this._round(qty * 1.5); // 1.5 hrs — harder install
         if (/pull.*station/i.test(name)) return this._round(qty * pr.install_pull_station / 60);
+        if (/monitor.*module|relay.*module|control.*module/i.test(name)) return this._round(qty * pr.install_monitor_module / 60);
+        if (/nac.*panel|nac.*power|booster/i.test(name)) return this._round(qty * 4); // 4 hrs
+        if (/annunciator|remote.*display/i.test(name)) return this._round(qty * 2); // 2 hrs
 
-        // Infrastructure
-        if (/mdf|idf|telecom.*room|server.*room/i.test(name)) return this._round(qty * pr.buildout_mdf_idf / 60);
+        // ── Audio/Visual ──
+        if (/speaker|paging/i.test(name) && !/cable/i.test(name)) return this._round(qty * 0.75); // 45 min per speaker
+        if (/amplifier|amp\b/i.test(name)) return this._round(qty * 2); // 2 hrs
+        if (/display|monitor|tv|screen/i.test(name) && !/nvr|workstation|camera/i.test(name)) return this._round(qty * 1.5); // 1.5 hrs
+        if (/projector/i.test(name)) return this._round(qty * 3); // 3 hrs
+        if (/microphone|mic\b/i.test(name)) return this._round(qty * 0.5); // 30 min
+
+        // ── Structured cabling termination devices ──
+        if (/keystone|jack\b/i.test(name) && !/wall.*plate|faceplate/i.test(name)) return this._round(qty * pr.terminate_cat6a / 60);
+        if (/patch.*panel/i.test(name)) return this._round(qty * 2); // 2 hrs per panel (mount + terminate)
+        if (/patch.*cord|patch.*cable/i.test(name)) return this._round(qty * 0.05); // 3 min each — unbox and plug
+        if (/fiber.*panel|fiber.*enclosure|fiber.*housing/i.test(name)) return this._round(qty * 3); // 3 hrs
+        if (/fiber.*cassette|mpo|mtp/i.test(name)) return this._round(qty * 0.5); // 30 min
+
+        // ── Wireless ──
+        if (/wap|wireless.*ap|access.*point|wi.?fi/i.test(name) && !/controller/i.test(name)) return this._round(qty * 1); // 1 hr per WAP
+        if (/wireless.*controller|wlc/i.test(name)) return this._round(qty * 4); // 4 hrs
+
+        // ── Intercom / Paging ──
+        if (/intercom|video.*intercom|door.*station/i.test(name)) return this._round(qty * 1.5); // 1.5 hrs
+        if (/master.*station|desk.*station/i.test(name)) return this._round(qty * 1); // 1 hr
+        if (/clock/i.test(name)) return this._round(qty * 0.5); // 30 min
+
+        // ── Intrusion ──
+        if (/motion.*detect|pir|motion.*sensor/i.test(name)) return this._round(qty * 0.5); // 30 min
+        if (/glass.*break/i.test(name)) return this._round(qty * 0.5); // 30 min
+        if (/keypad|arm.*station/i.test(name) && !/access/i.test(name)) return this._round(qty * 1); // 1 hr
+        if (/intrusion.*panel|alarm.*panel/i.test(name) && !/fire/i.test(name)) return this._round(qty * 4); // 4 hrs
+        if (/siren/i.test(name)) return this._round(qty * 0.5); // 30 min
+
+        // ── Infrastructure ──
+        if (/mdf|idf|telecom.*room|server.*room|tr\b/i.test(name)) return this._round(qty * pr.buildout_mdf_idf / 60);
         if (/j.?hook|ceiling.*wire|bridle.*ring/i.test(name)) return this._round(qty * pr.install_ceiling_wire / 60);
         if (/d.?ring|micro.?duct/i.test(name)) return this._round(qty * pr.install_dring / 60);
+        if (/cable.*tray/i.test(name)) return this._round(qty * 0.15); // 9 min per LF
         if (/faceplate|wall.*plate/i.test(name)) return this._round(qty * pr.install_faceplate / 60);
         if (/firestop/i.test(name)) return this._round(qty * pr.firestopping / 60);
-        if (/ground/i.test(name)) return this._round(qty * pr.grounding_per_closet / 60);
+        if (/ground|tmgb|tgb|bond/i.test(name)) return this._round(qty * pr.grounding_per_closet / 60);
+        if (/conduit|emt|rigid|pvc.*sch/i.test(name) && !/underground|trench|bore/i.test(name)) return this._round(qty * 0.25); // 15 min per 10ft stick
+        if (/sleeve|core.*drill/i.test(name)) return this._round(qty * pr.install_sleeves / 60);
+        if (/label/i.test(name)) return this._round(qty * 0.02); // 1 min per label
 
-        // Generic devices
-        if (/speaker|strobe|horn|detector|sensor|module|annunciator|intercom|clock/i.test(name)) {
+        // ── Major equipment (rack-mount or standalone) ──
+        if (/rack\b|enclosure|cabinet/i.test(name)) return this._round(qty * 4); // 4 hrs — assemble and mount
+        if (/ups\b|uninterruptible/i.test(name)) return this._round(qty * 3); // 3 hrs — heavy, wiring
+        if (/pdu/i.test(name)) return this._round(qty * 1.5); // 1.5 hrs
+        if (/nvr|network.*video|vms.*server/i.test(name)) return this._round(qty * 6); // 6 hrs — mount, cable, configure
+        if (/server|workstation|viewing.*station/i.test(name)) return this._round(qty * 4); // 4 hrs
+        if (/switch|poe.*switch|network.*switch/i.test(name) && !/transfer/i.test(name)) return this._round(qty * 2); // 2 hrs — mount + patch
+        if (/head.?end|main.*distribution/i.test(name)) return this._round(qty * 8); // 8 hrs
+
+        // ── Software / Licenses (no labor) ──
+        if (/license|software|vms.*license|subscription|warranty|maintenance/i.test(name)) return 0;
+
+        // ── Miscellaneous hardware (minimal labor) ──
+        if (/mount|bracket|adapter|connector|coupler|splice/i.test(name)) return this._round(qty * 0.25);
+        if (/battery|backup.*battery/i.test(name)) return this._round(qty * 0.5);
+        if (/surge|spd|protector/i.test(name)) return this._round(qty * 0.5);
+
+        // ── Catch-all for any remaining devices ──
+        if (/sensor|module|device/i.test(name)) {
             return this._round(qty * pr.install_device_generic / 60);
         }
 
-        // Major equipment
-        if (/rack|enclosure|cabinet|ups|pdu|switch|nvr|server|workstation/i.test(name)) {
-            return this._round(qty * 4); // 4 hours per major item
-        }
+        // ── Programming / commissioning (per system) ──
+        if (/program|commission|startup|test.*commission/i.test(name)) return this._round(qty * pr.programming / 60);
+        if (/training/i.test(name)) return this._round(qty * pr.customer_training / 60);
+        if (/as.?built|drawing/i.test(name)) return this._round(qty * pr.cad / 60);
 
-        return 0;
+        // Unknown item — 30 min default (better than 0)
+        return this._round(qty * 0.5);
     },
 
     // ═══════════════════════════════════════════════════════════
