@@ -285,8 +285,8 @@ const SmartPlansExport = {
             laborBase = this._round(bomLabor);
             console.log(`[Export] Labor from BOM categories: $${laborBase.toLocaleString()}`);
         } else {
-            laborBase = this._round(materials * 1.0);
-            console.warn(`[Export] No labor data available — estimating as 100% of materials: $${laborBase.toLocaleString()}`);
+            laborBase = this._round(materials * 0.50);
+            console.warn(`[Export] No labor data available — estimating as 50% of materials: $${laborBase.toLocaleString()}`);
         }
 
         const matSell = this._round(materials * (1 + matPct));
@@ -306,7 +306,16 @@ const SmartPlansExport = {
         // scale the breakdown proportionally so the financial table matches the bid price.
         const engine3DTotal = state._engine3DResult?.grandTotalSELL;
         if (engine3DTotal && engine3DTotal > 1000 && Math.abs(engine3DTotal - grandTotal) > 100) {
-            const scaleFactor = engine3DTotal / grandTotal;
+            let scaleFactor = engine3DTotal / grandTotal;
+            // Guard: cap reconciliation scale factor at 2.0x to prevent extreme swings
+            if (scaleFactor > 2.0) {
+                console.warn(`[Export] Reconciliation scale factor ${scaleFactor.toFixed(3)} exceeds 2.0x cap — clamping to 2.0`);
+                scaleFactor = 2.0;
+            }
+            if (scaleFactor < 0.5) {
+                console.warn(`[Export] Reconciliation scale factor ${scaleFactor.toFixed(3)} below 0.5x floor — clamping to 0.5`);
+                scaleFactor = 0.5;
+            }
             console.log(`[Export] Reconciling breakdown with FormulaEngine3D: $${grandTotal.toLocaleString()} → $${engine3DTotal.toLocaleString()} (scale: ${scaleFactor.toFixed(3)})`);
             // Scale each component proportionally to preserve relative ratios
             const scaledMatSell = this._round(matSell * scaleFactor);

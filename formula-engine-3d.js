@@ -485,22 +485,29 @@ const FormulaEngine3D = {
                 const qty = item.qty || 0;
                 const unitCost = item.unitCost || 0;
                 const extCost = item.extCost || this._round(qty * unitCost);
-                if (extCost <= 0) continue;
+
+                // OFCI items ($0 material) still need labor hours for installation
+                const isOFCI = extCost <= 0;
 
                 const sysType = this._classifySystemType(catName, itemName);
 
                 if (!systems[sysType]) {
                     systems[sysType] = { materialCost: 0, fieldHours: 0, items: [] };
                 }
-                systems[sysType].materialCost += extCost;
-                totalMaterialCost += extCost;
 
+                // Only add material cost for non-OFCI items
+                if (!isOFCI) {
+                    systems[sysType].materialCost += extCost;
+                    totalMaterialCost += extCost;
+                }
+
+                // ALWAYS calculate labor hours — OFCI items need installation labor
                 const hours = this._estimateItemHours(itemName, qty);
                 systems[sysType].fieldHours += hours;
                 totalLaborHours += hours;
 
                 systems[sysType].items.push({
-                    name: itemName, qty, unitCost, extCost, laborHours: hours
+                    name: itemName, qty, unitCost, extCost, laborHours: hours, isOFCI
                 });
             }
         }
@@ -534,9 +541,9 @@ const FormulaEngine3D = {
             const matSupportSELL = this._round(matSupportCOS * (1 + markup));
             const shippingSELL = this._round(shippingCOS * (1 + markup));
 
-            // Tax on material cost and sell
+            // Tax on material COST (not sell price — avoid compound markup)
             const taxCOS = this._round(matCOS * this.taxRate);
-            const taxSELL = this._round(matSELL * this.taxRate);
+            const taxSELL = this._round(matCOS * this.taxRate);
 
             const materialsPlusCOS = this._round(matCOS + taxCOS + matSupportCOS + shippingCOS);
             const materialsPlusSELL = this._round(matSELL + taxSELL + matSupportSELL + shippingSELL);

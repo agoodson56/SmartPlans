@@ -1105,7 +1105,7 @@ const SmartBrains = {
     DETAIL_VERIFIER: ['area_audits', 'corrections', 'verified_counts'],
     CROSS_SHEET_ANALYZER: ['sheet_comparisons', 'inconsistencies', 'adjusted_counts'],
     FINAL_RECONCILIATION: ['final_counts', 'adjustment_log', 'confidence_score'],
-    SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies', 'true_change_orders'],
+    SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies', 'true_change_orders', 'specified_products', 'power_equipment_found'],
     ANNOTATION_READER: ['annotations', 'referenced_details'],
     RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
     DEVICE_LOCATOR: ['devices'],
@@ -1855,9 +1855,12 @@ Each item MUST have ALL of these fields:
             const kl = k.toLowerCase();
             if (dLower.includes('cabling') && (kl.includes('data') || kl.includes('cable') || kl.includes('outlet') || kl.includes('wap') || kl.includes('keystone'))) return true;
             if (dLower.includes('cctv') && (kl.includes('camera') || kl.includes('cctv') || kl.includes('nvr'))) return true;
-            if (dLower.includes('access') && (kl.includes('reader') || kl.includes('access') || kl.includes('door') || kl.includes('rex') || kl.includes('contact') || kl.includes('strike') || kl.includes('maglock') || kl.includes('glass') || kl.includes('intercom'))) return true;
+            if (dLower.includes('access') && (kl.includes('reader') || kl.includes('access') || kl.includes('door') || kl.includes('contact') || kl.includes('strike') || kl.includes('maglock') || kl.includes('intercom'))) return true;
+            if (dLower.includes('access') && kl.includes('rex') && !kl.includes('reader')) return true;
             if (dLower.includes('fire') && (kl.includes('smoke') || kl.includes('fire') || kl.includes('pull') || kl.includes('horn') || kl.includes('strobe') || kl.includes('duct') || kl.includes('heat'))) return true;
-            if (dLower.includes('audio') && (kl.includes('speaker') || kl.includes('display') || kl.includes('av') || kl.includes('projector') || kl.includes('microphone'))) return true;
+            if (dLower.includes('audio') && (kl.includes('display') || kl.includes('projector') || kl.includes('microphone'))) return true;
+            if (dLower.includes('audio') && kl.includes('speaker') && !kl.includes('glass') && !kl.includes('break')) return true;
+            if (dLower.includes('audio') && kl.includes('av') && !kl.includes('wave') && !kl.includes('cavity')) return true;
             if (dLower.includes('intrusion') && (kl.includes('motion') || kl.includes('glass') || kl.includes('intrusion') || kl.includes('siren') || kl.includes('keypad'))) return true;
             return false;
           });
@@ -2071,9 +2074,45 @@ You MUST check ALL sources (schedules, plans, specs) for power equipment and pri
 - Surge protectors / SPDs (Surge Protective Devices)
 These are HIGH-VALUE items. Missing a $5,000 UPS or $3,000 transfer switch destroys your margin.
 
-═══ DOCUMENT-SPECIFIED MANUFACTURERS & PART NUMBERS ═══
-Check the Spec Cross-Reference data below for SPECIFIED PRODUCTS:
+═══ DOCUMENT-SPECIFIED MANUFACTURERS & PART NUMBERS (MANDATORY OVERRIDES) ═══
+The Spec Cross-Reference brain extracted these SPECIFIED PRODUCTS from the construction documents.
+You MUST use these exact manufacturers. Using a different brand is a BID-KILLING COMPLIANCE ERROR.
 ${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.specified_products || [], null, 2).substring(0, 3000)}
+
+═══ SPEC-TO-DEVICE KEY MAPPING (connect spec products → consensus counts) ═══
+${(() => {
+  const specProducts = context.wave1?.SPEC_CROSS_REF?.specified_products || [];
+  const counts = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
+    || context.wave1_75?.TARGETED_RESCANNER?.final_counts
+    || context.wave1?.SYMBOL_SCANNER?.totals || {};
+  if (specProducts.length === 0) return 'No spec products found — use defaults below.';
+  const mappings = specProducts.map(sp => {
+    const itemType = (sp.item_type || '').toLowerCase();
+    const matchingKeys = Object.keys(counts).filter(k => {
+      const kl = k.toLowerCase();
+      if (itemType.includes('camera') && (kl.includes('camera') || kl.includes('cctv') || kl.includes('dome') || kl.includes('bullet') || kl.includes('ptz'))) return true;
+      if (itemType.includes('reader') && (kl.includes('reader') || kl.includes('card'))) return true;
+      if (itemType.includes('nvr') && kl.includes('nvr')) return true;
+      if (itemType.includes('vms') && (kl.includes('vms') || kl.includes('nvr'))) return true;
+      if (itemType.includes('switch') && kl.includes('switch')) return true;
+      if (itemType.includes('cable') && (kl.includes('cable') || kl.includes('cat'))) return true;
+      if (itemType.includes('panel') && kl.includes('panel')) return true;
+      if (itemType.includes('ups') && kl.includes('ups')) return true;
+      if (itemType.includes('speaker') && kl.includes('speaker')) return true;
+      if (itemType.includes('smoke') && (kl.includes('smoke') || kl.includes('detector'))) return true;
+      if (itemType.includes('pull') && kl.includes('pull')) return true;
+      if (itemType.includes('strobe') && (kl.includes('strobe') || kl.includes('horn'))) return true;
+      return kl.includes(itemType);
+    });
+    const countStr = matchingKeys.map(k => {
+      const val = counts[k];
+      const c = typeof val === 'object' ? (val.consensus || val.count || val) : val;
+      return k + '=' + c;
+    }).join(', ');
+    return '  → ' + sp.item_type + ' (' + sp.manufacturer + ' ' + (sp.model || '') + ') maps to: ' + (countStr || 'CHECK COUNTS MANUALLY');
+  }).join('\\n');
+  return 'USE THESE MAPPINGS — each spec product MUST use the specified manufacturer:\\n' + mappings;
+})()}
 
 SPECIFIED POWER EQUIPMENT:
 ${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.power_equipment_found || [], null, 2).substring(0, 2000)}
@@ -2082,9 +2121,9 @@ SCHEDULE DATA (may include manufacturer and model):
 ${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || [], null, 2).substring(0, 3000)}
 
 RULES FOR MANUFACTURERS & PART NUMBERS (MANDATORY — items without these are REJECTED):
-- PRIORITY 1: If the SPECS, SCHEDULES, or DRAWING NOTES specify a manufacturer (e.g., "Avigilon", "Genetec", "Lenel"), you MUST use that EXACT manufacturer — do NOT substitute with a different brand
+- PRIORITY 1 (ABSOLUTE): If the SPECIFIED PRODUCTS list above contains a manufacturer for an item type, you MUST use that EXACT manufacturer — using ANY different brand is a FATAL COMPLIANCE ERROR that will be rejected
 - PRIORITY 2: If specs say "or approved equal", use the SPECIFIED product as primary (not the equal)
-- PRIORITY 3: ONLY if NO manufacturer is specified anywhere in the documents, use these defaults:
+- PRIORITY 3: ONLY if NO manufacturer is specified anywhere in the documents OR the specified_products list, use these defaults:
   * Structured Cabling: Panduit, CommScope/Systimax, Corning (fiber), Belden
   * CCTV: Axis Communications, Hanwha/Samsung, Bosch, Genetec (VMS), Avigilon
   * Access Control: HID (readers), Lenel/LenelS2, Mercury (panels), Assa Abloy (locks)
@@ -2613,6 +2652,18 @@ ${JSON.stringify(context.wave3_75?.FINAL_RECONCILIATION?.final_counts || context
 
 ═══ EQUIPMENT SCHEDULE DATA (if available — overrides all counts) ═══
 ${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || {}, null, 2).substring(0, 3000)}
+
+═══ SPEC-SPECIFIED MANUFACTURERS (MANDATORY COMPLIANCE CHECK) ═══
+The following manufacturers are REQUIRED by the construction specifications.
+If the Material Pricer used a DIFFERENT manufacturer for any of these item types, you MUST CORRECT IT.
+Using Axis when the spec says Avigilon (or vice versa) is a BID-KILLING COMPLIANCE ERROR.
+${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.specified_products || [], null, 2).substring(0, 2000)}
+
+MANUFACTURER CORRECTION RULES:
+- For each item in the Material Pricer output, check if a manufacturer was specified in the specs above
+- If the Pricer used a different manufacturer than what's specified, REPLACE it with the correct manufacturer and update the part number and pricing to match
+- Add a correction_log entry: { "action": "mfg_corrected", "item": "...", "from_mfg": "Axis", "to_mfg": "Avigilon", "reason": "Spec section XX XX XX requires Avigilon" }
+- This is CORRECTION RULE #0 — it takes priority over all other rules
 
 ═══ PRICING GUARDRAILS ═══
 Maximum unit costs (premium × 2.5 for transit/ruggedized):
