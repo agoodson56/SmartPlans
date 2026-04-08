@@ -684,6 +684,53 @@ const PRICING_DB = {
             traffic_control_daily: 800,
         },
     },
+
+    // ═══════════════════════════════════════════════════════════
+    // AMTRAK BENCHMARK DATA — Actual Winning Bids
+    // Used by FormulaEngine3D transit calibration to anchor bids
+    // to real per-camera sell prices from winning proposals.
+    // DO NOT DELETE — calibration fails without this data.
+    // ═══════════════════════════════════════════════════════════
+    amtrakBenchmarks: {
+        actualBids: {
+            emeryville_original:     { cameras: 61,  total: 1302128, cost: 876945, year: 2025, type: "original" },
+            emeryville_ve:           { cameras: 61,  total: 1033760, cost: 829696, year: 2025, type: "value_engineering" },
+            sacramento_rev2:         { cameras: 100, total: 1734097, year: 2025, type: "revision" },
+            sacramento_sv_rev1:      { cameras: 100, total: 1810020, year: 2025, type: "revision" },
+            martinez_original:       { cameras: 69,  total: 2035277, year: 2025, type: "original" },
+            martinez_ve:             { cameras: 69,  total: 1731418, year: 2025, type: "value_engineering" },
+            martinez_bafo:           { cameras: 69,  total: 1966150, year: 2025, type: "bafo" },
+        },
+        // Verified labor rates from Emeryville winning estimate
+        laborRates: {
+            technician: 80,
+            projectManager: 85,
+            engineer: 65,
+        },
+        // SAGE ERP sell factors (verified from actual winning bids)
+        markup: {
+            cost_to_price_multiplier: 1.485,
+            material_ext_to_price: 1.51424,
+            labor_ext_to_price: 1.39240,
+        },
+        // Verified labor structure from winning bids
+        laborStructure: {
+            camera_install_hrs: 8,
+            camera_indoor_hrs: 4,
+            npt_pct: 8,
+            pm_pct: 8,
+            admin_eng_pct: 4,
+        },
+        // Overhead percentages
+        materialExtras: {
+            material_support_pct: 2,
+            shipping_pct: 1,
+        },
+        overhead: {
+            warranty_pct: 2,
+            gen_conditions_pct: 3,
+        },
+    },
 };
 
 // Prevent runtime tampering with pricing data
