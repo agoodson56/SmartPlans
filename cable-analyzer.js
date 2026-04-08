@@ -561,6 +561,9 @@ const CableAnalyzer = {
   // ═══════════════════════════════════════════════════════════════
   // HELPER: Calculate cable run length
   // ═══════════════════════════════════════════════════════════════
+  // Default inter-building outdoor pathway penalty in feet
+  INTER_BUILDING_PENALTY_FT: 100,
+
   _calcRunLength(device, idf, dims, cfg) {
     const dx = Math.abs((device.x_pct || 50) - (idf?.x || 50)) / 100 * (dims?.w || 200);
     const dy = Math.abs((device.y_pct || 50) - (idf?.y || 50)) / 100 * (dims?.d || 200);
@@ -573,15 +576,58 @@ const CableAnalyzer = {
       ? floorsApart * cfg.floorToFloorFt + cfg.stubUpFt
       : cfg.stubUpFt;
 
-    const totalFt = Math.round(horizontal + vertical + cfg.slackFt);
+    // Cross-building detection: device and IDF are in different buildings
+    // Detected via different sheet_id OR explicit building assignment
+    let interBuildingFt = 0;
+    let crossBuilding = false;
+    const devSheet = device.sheet_id || null;
+    const idfSheet = idf?.sheet_id || null;
+    const devBuilding = device.building_id || device.building || null;
+    const idfBuilding = idf?.building_id || idf?.building || null;
+
+    if (devBuilding && idfBuilding && devBuilding !== idfBuilding) {
+      // Explicit different buildings — look up inter-building distance if available
+      crossBuilding = true;
+      interBuildingFt = this._getInterBuildingDistance(devBuilding, idfBuilding, cfg)
+        || this.INTER_BUILDING_PENALTY_FT;
+    } else if (!devBuilding && !idfBuilding && devSheet && idfSheet && devSheet !== idfSheet) {
+      // No building labels but different sheets — heuristic: may be different buildings
+      // Only apply penalty if spatial layout flagged multi_building
+      if (cfg._multiBuilding) {
+        crossBuilding = true;
+        interBuildingFt = this.INTER_BUILDING_PENALTY_FT;
+      }
+    }
+
+    const totalFt = Math.round(horizontal + vertical + cfg.slackFt + interBuildingFt);
 
     return {
       horizontal,
       vertical: Math.round(vertical),
       slack: cfg.slackFt,
+      interBuildingFt,
+      crossBuilding,
       totalFt,
       basis: dims?.w > 0 ? 'spatial calculation' : 'estimated',
     };
+  },
+
+  /**
+   * Look up the inter-building distance from spatial layout data.
+   * Returns distance in feet or null if not found.
+   */
+  _getInterBuildingDistance(buildingA, buildingB, cfg) {
+    const distances = cfg._interBuildingDistances || [];
+    for (const entry of distances) {
+      const from = (entry.from || '').toLowerCase();
+      const to = (entry.to || '').toLowerCase();
+      const a = (buildingA || '').toLowerCase();
+      const b = (buildingB || '').toLowerCase();
+      if ((from === a && to === b) || (from === b && to === a)) {
+        return entry.distance_ft || null;
+      }
+    }
+    return null;
   },
 
   // ═══════════════════════════════════════════════════════════════

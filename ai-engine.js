@@ -303,6 +303,38 @@ const SmartBrains = {
                   fileData._ocrScaleData = scaleData;
                   console.log(`[SmartBrains] OCR Scale: Found scale on ${scaleData.pagesWithScale}/${scaleData.totalPages} pages of ${entry.name}`);
                 }
+
+                // Fallback: if OCR text extraction found no scale for some pages,
+                // use canvas-based scale bar detection results if available
+                if (this._canvasScaleData && this._canvasScaleData.length > 0 && scaleData.pages) {
+                  let canvasFallbackCount = 0;
+                  for (const page of scaleData.pages) {
+                    // Only fall back for pages where OCR found nothing useful
+                    if (page.ftPerInch > 0 || page.method === 'nts') continue;
+
+                    const canvasResult = this._canvasScaleData.find(
+                      r => r.pageNum === page.pageNum && r.found && r.confidence > 0.3
+                    );
+                    if (canvasResult) {
+                      // Convert pixelsPerFoot to ftPerInch: at 3x scale (216 ppi),
+                      // ftPerInch = 216 / pixelsPerFoot
+                      page.ftPerInch = Math.round((216 / canvasResult.pixelsPerFoot) * 1000) / 1000;
+                      page.method = 'scale_bar_canvas';
+                      page.confidence = canvasResult.confidence;
+                      page.scaleText = `Scale bar: ~${canvasResult.labeledDistance} ft (${canvasResult.tickCount} ticks)`;
+                      page._canvasDetail = canvasResult;
+                      canvasFallbackCount++;
+                    }
+                  }
+
+                  if (canvasFallbackCount > 0) {
+                    // Recount pages with scale after canvas fallback
+                    const updatedFound = scaleData.pages.filter(p => p.ftPerInch > 0);
+                    scaleData.pagesWithScale = updatedFound.length;
+                    if (!fileData._ocrScaleData) fileData._ocrScaleData = scaleData;
+                    console.log(`[SmartBrains] Canvas Scale Fallback: recovered scale on ${canvasFallbackCount} additional pages of ${entry.name} (total: ${scaleData.pagesWithScale}/${scaleData.totalPages})`);
+                  }
+                }
               } catch (e) { console.warn(`[SmartBrains] OCR Scale extraction failed for ${entry.name}:`, e.message); }
             }
 
@@ -494,6 +526,41 @@ const SmartBrains = {
         /NO\s+SCALE/i,
       ];
 
+      // Multi-scale / non-standard scale notation patterns
+      const multiScalePatterns = [
+        /\bAS\s+NOTED\b/i,
+        /\bVARIES\b/i,
+        /\bSEE\s+PLAN\b/i,
+      ];
+
+      // Per-detail scale patterns (ENLARGED PLAN, DETAIL, SECTION with inline scale)
+      const detailScalePatterns = [
+        // "ENLARGED PLAN SCALE: 1/4" = 1'-0""
+        { regex: /(?:ENLARGED\s+(?:PLAN|FLOOR\s+PLAN|AREA))\s*(?:SCALE)?\s*[:=]?\s*(\d+\/\d+)\s*["″]?\s*=\s*(\d+)\s*['′]\s*-?\s*(\d+)?\s*["″]?/gi, parse: (m) => {
+          const [num, den] = m[1].split('/').map(Number);
+          const feet = parseInt(m[2]) + (parseInt(m[3] || 0) / 12);
+          return { ftPerInch: feet / (num / den), text: m[0], context: 'enlarged_plan' };
+        }},
+        // "DETAIL A (SCALE: 1/2" = 1'-0"")" or "DETAIL 3 SCALE: 1/4" = 1'-0""
+        { regex: /(?:DETAIL)\s*[A-Z0-9]{1,3}\s*\(?\s*(?:SCALE)?\s*[:=]?\s*(\d+\/\d+)\s*["″]?\s*=\s*(\d+)\s*['′]\s*-?\s*(\d+)?\s*["″]?\s*\)?/gi, parse: (m) => {
+          const [num, den] = m[1].split('/').map(Number);
+          const feet = parseInt(m[2]) + (parseInt(m[3] || 0) / 12);
+          return { ftPerInch: feet / (num / den), text: m[0], context: 'detail' };
+        }},
+        // "SECTION A-A (SCALE: 1/4" = 1'-0"")" or "SECTION 1 SCALE: 1/2" = 1'-0""
+        { regex: /(?:SECTION)\s*[A-Z0-9]{1,3}(?:\s*-\s*[A-Z0-9]{1,3})?\s*\(?\s*(?:SCALE)?\s*[:=]?\s*(\d+\/\d+)\s*["″]?\s*=\s*(\d+)\s*['′]\s*-?\s*(\d+)?\s*["″]?\s*\)?/gi, parse: (m) => {
+          const [num, den] = m[1].split('/').map(Number);
+          const feet = parseInt(m[2]) + (parseInt(m[3] || 0) / 12);
+          return { ftPerInch: feet / (num / den), text: m[0], context: 'section' };
+        }},
+        // Generic inline "SCALE: 1/4" = 1'-0"" near ENLARGED/DETAIL/SECTION keywords
+        { regex: /(?:ENLARGED|DETAIL|SECTION)\b[^]*?SCALE\s*[:=]\s*(\d+\/\d+)\s*["″]?\s*=\s*(\d+)\s*['′]\s*-?\s*(\d+)?\s*["″]?/gi, parse: (m) => {
+          const [num, den] = m[1].split('/').map(Number);
+          const feet = parseInt(m[2]) + (parseInt(m[3] || 0) / 12);
+          return { ftPerInch: feet / (num / den), text: m[0], context: 'keyword_nearby' };
+        }},
+      ];
+
       // Sheet ID patterns (to identify which sheet we're on)
       const sheetIdPatterns = [
         /\b([A-Z]\d+[.\-]\d+[a-zA-Z]?)\b/,           // E1.01, T2.01, A-101
@@ -564,6 +631,73 @@ const SmartBrains = {
             if (found) break;
           }
 
+          // Check for multi-scale notation ("AS NOTED", "VARIES", "SEE PLAN")
+          // These indicate the sheet has multiple scales — flag it and scan for per-detail scales
+          if (!found) {
+            for (const text of candidateTexts) {
+              for (const msPat of multiScalePatterns) {
+                if (msPat.test(text)) {
+                  pageResult.multi_scale = true;
+                  pageResult.method = 'multi_scale';
+                  pageResult.confidence = 0.90;
+                  pageResult.scaleText = text.match(msPat)[0].trim().toUpperCase();
+                  // Don't set found=true — continue to scan for actual scale values below
+                  break;
+                }
+              }
+              if (pageResult.multi_scale) break;
+            }
+          }
+
+          // Scan full page text for per-detail scale notations (ENLARGED PLAN, DETAIL, SECTION)
+          const detailScales = [];
+          for (const dsp of detailScalePatterns) {
+            // Reset regex lastIndex for global patterns
+            dsp.regex.lastIndex = 0;
+            let dMatch;
+            while ((dMatch = dsp.regex.exec(fullText)) !== null) {
+              try {
+                const result = dsp.parse(dMatch);
+                if (result.ftPerInch > 0 && result.ftPerInch < 200) {
+                  detailScales.push({
+                    ftPerInch: Math.round(result.ftPerInch * 1000) / 1000,
+                    scaleText: result.text.trim(),
+                    context: result.context,
+                  });
+                }
+              } catch (e) { /* parse failed, skip */ }
+            }
+          }
+
+          // If multiple detail scales found, determine the most common as primary
+          if (detailScales.length > 0) {
+            pageResult.detail_scales = detailScales;
+
+            // Count frequency of each ftPerInch value
+            const freq = {};
+            detailScales.forEach(ds => {
+              freq[ds.ftPerInch] = (freq[ds.ftPerInch] || 0) + 1;
+            });
+            const mostCommon = Object.entries(freq).sort((a, b) => b[1] - a[1])[0];
+            const primaryFtPerInch = parseFloat(mostCommon[0]);
+
+            // If we haven't found a title-block scale yet, use the most common detail scale
+            if (!found || pageResult.multi_scale) {
+              pageResult.ftPerInch = primaryFtPerInch;
+              pageResult.scaleText = pageResult.scaleText
+                ? `${pageResult.scaleText} (primary: ${primaryFtPerInch} ft/in from ${mostCommon[1]} detail(s))`
+                : `${primaryFtPerInch} ft/in (most common of ${detailScales.length} detail scale(s))`;
+              pageResult.method = pageResult.multi_scale ? 'multi_scale_resolved' : 'detail_scale_ocr';
+              pageResult.confidence = detailScales.length >= 2 ? 0.88 : 0.75;
+              if (!pageResult.multi_scale) found = true;
+            }
+
+            if (pageResult.multi_scale) {
+              // Mark found so we don't overwrite with title-block patterns
+              found = true;
+            }
+          }
+
           // Try scale patterns (title block first, then full page)
           if (!found) {
             for (let ci = 0; ci < candidateTexts.length && !found; ci++) {
@@ -629,12 +763,342 @@ const SmartBrains = {
     }
   },
 
+  /**
+   * Canvas-based scale bar detection fallback for rasterized/scanned PDFs.
+   * Analyzes the title block region of a rendered canvas for ruler-like horizontal
+   * features: a dark horizontal line with evenly-spaced tick marks and number labels.
+   *
+   * @param {HTMLCanvasElement} canvas - Page canvas rendered at 3x scale
+   * @param {number} pageNum - 1-based page number
+   * @returns {Object} { found, pixelsPerFoot, confidence, method, pageNum, tickCount, labeledDistance }
+   */
+  _detectScaleBarFromCanvas(canvas, pageNum) {
+    const DARK_THRESHOLD = 80;       // Pixel brightness below this = "dark"
+    const MIN_LINE_LENGTH = 50;      // Min px for a candidate horizontal line segment
+    const MIN_TICKS = 3;             // Need at least 3 tick marks for a valid scale bar
+    const TICK_HEIGHT_MIN = 6;       // Min vertical extent of a tick mark (px)
+    const TICK_HEIGHT_MAX = 40;      // Max vertical extent of a tick mark (px)
+    const SPACING_TOLERANCE = 0.20;  // 20% tolerance on even tick spacing
+    const DPI_AT_3X = 216;           // 72 dpi x 3x scale
+
+    const result = { found: false, pixelsPerFoot: 0, confidence: 0, method: 'scale_bar_canvas', pageNum };
+
+    try {
+      const w = canvas.width;
+      const h = canvas.height;
+      if (w < 100 || h < 100) return result;
+
+      const ctx = canvas.getContext('2d');
+
+      // Focus on title block region: bottom-right 25% of the canvas
+      const regionX = Math.floor(w * 0.75);
+      const regionY = Math.floor(h * 0.75);
+      const regionW = w - regionX;
+      const regionH = h - regionY;
+
+      if (regionW < 50 || regionH < 50) return result;
+
+      const imageData = ctx.getImageData(regionX, regionY, regionW, regionH);
+      const pixels = imageData.data; // RGBA flat array
+
+      // Helper: get brightness at (x, y) relative to the region
+      const brightness = (x, y) => {
+        const i = (y * regionW + x) * 4;
+        return (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
+      };
+
+      const isDark = (x, y) => {
+        if (x < 0 || x >= regionW || y < 0 || y >= regionH) return false;
+        return brightness(x, y) < DARK_THRESHOLD;
+      };
+
+      // -- Step 1: Find candidate horizontal dark lines --
+      // Scan rows looking for long horizontal runs of dark pixels
+      const candidateLines = [];
+      const rowStep = 2; // Check every 2nd row for speed
+
+      for (let row = 0; row < regionH; row += rowStep) {
+        let runStart = -1;
+        let runLen = 0;
+
+        for (let col = 0; col < regionW; col++) {
+          if (isDark(col, row)) {
+            if (runStart === -1) runStart = col;
+            runLen++;
+          } else {
+            if (runLen >= MIN_LINE_LENGTH) {
+              candidateLines.push({ row, startCol: runStart, endCol: runStart + runLen - 1, length: runLen });
+            }
+            runStart = -1;
+            runLen = 0;
+          }
+        }
+        // End-of-row flush
+        if (runLen >= MIN_LINE_LENGTH) {
+          candidateLines.push({ row, startCol: runStart, endCol: runStart + runLen - 1, length: runLen });
+        }
+      }
+
+      if (candidateLines.length === 0) return result;
+
+      // Merge lines on adjacent rows into consolidated line segments
+      candidateLines.sort((a, b) => a.row - b.row || a.startCol - b.startCol);
+
+      // Group nearby horizontal line segments (within 4px vertically, overlapping horizontally)
+      const mergedLines = [];
+      const used = new Set();
+
+      for (let i = 0; i < candidateLines.length; i++) {
+        if (used.has(i)) continue;
+        const group = [candidateLines[i]];
+        used.add(i);
+
+        for (let j = i + 1; j < candidateLines.length; j++) {
+          if (used.has(j)) continue;
+          const last = group[group.length - 1];
+          const cand = candidateLines[j];
+          if (cand.row - last.row > 4) break; // Too far apart vertically
+          // Check horizontal overlap
+          if (cand.startCol <= last.endCol + 10 && cand.endCol >= last.startCol - 10) {
+            group.push(cand);
+            used.add(j);
+          }
+        }
+
+        const minCol = Math.min(...group.map(g => g.startCol));
+        const maxCol = Math.max(...group.map(g => g.endCol));
+        const avgRow = Math.round(group.reduce((s, g) => s + g.row, 0) / group.length);
+        mergedLines.push({ row: avgRow, startCol: minCol, endCol: maxCol, length: maxCol - minCol + 1 });
+      }
+
+      // -- Step 2: For each candidate line, look for vertical tick marks --
+      const scaleBarCandidates = [];
+
+      for (const line of mergedLines) {
+        if (line.length < MIN_LINE_LENGTH) continue;
+
+        // Scan along the line looking for vertical tick marks above and/or below
+        const tickPositions = [];
+
+        for (let col = line.startCol; col <= line.endCol; col += 1) {
+          // Check for vertical dark pixels extending above the line
+          let upCount = 0;
+          for (let dy = 1; dy <= TICK_HEIGHT_MAX; dy++) {
+            if (isDark(col, line.row - dy)) upCount++;
+            else break;
+          }
+
+          // Check for vertical dark pixels extending below the line
+          let downCount = 0;
+          for (let dy = 1; dy <= TICK_HEIGHT_MAX; dy++) {
+            if (isDark(col, line.row + dy)) downCount++;
+            else break;
+          }
+
+          const tickLen = Math.max(upCount, downCount);
+          if (tickLen >= TICK_HEIGHT_MIN) {
+            // Avoid counting the same tick multiple times -- merge nearby columns
+            const lastTick = tickPositions.length > 0 ? tickPositions[tickPositions.length - 1] : null;
+            if (lastTick && col - lastTick.col < 5) {
+              // Merge: keep the taller tick
+              if (tickLen > lastTick.height) {
+                lastTick.col = col;
+                lastTick.height = tickLen;
+              }
+            } else {
+              tickPositions.push({ col, height: tickLen });
+            }
+          }
+        }
+
+        if (tickPositions.length < MIN_TICKS) continue;
+
+        // -- Step 3: Check for even spacing between ticks --
+        const spacings = [];
+        for (let t = 1; t < tickPositions.length; t++) {
+          spacings.push(tickPositions[t].col - tickPositions[t - 1].col);
+        }
+
+        if (spacings.length < 2) continue;
+
+        // Find the most common spacing (mode) using a tolerance bucket
+        const spacingBuckets = {};
+        for (const s of spacings) {
+          const bucket = Math.round(s / 5) * 5; // Bucket to nearest 5px
+          spacingBuckets[bucket] = (spacingBuckets[bucket] || 0) + 1;
+        }
+
+        let bestBucket = 0;
+        let bestCount = 0;
+        for (const [bucket, count] of Object.entries(spacingBuckets)) {
+          if (count > bestCount) {
+            bestCount = count;
+            bestBucket = parseInt(bucket);
+          }
+        }
+
+        if (bestBucket < 10) continue; // Ticks too close together -- probably not a scale bar
+
+        // Count how many spacings match the dominant spacing within tolerance
+        const matchingSpacings = spacings.filter(s => Math.abs(s - bestBucket) / bestBucket < SPACING_TOLERANCE);
+        const evenRatio = matchingSpacings.length / spacings.length;
+
+        if (evenRatio < 0.5) continue; // Not evenly spaced enough
+
+        // Compute average spacing from matching ticks
+        const avgSpacing = matchingSpacings.reduce((a, b) => a + b, 0) / matchingSpacings.length;
+
+        scaleBarCandidates.push({
+          line,
+          tickPositions,
+          tickCount: tickPositions.length,
+          avgSpacing,
+          evenRatio,
+        });
+      }
+
+      if (scaleBarCandidates.length === 0) return result;
+
+      // Pick the best candidate (most ticks with good even spacing)
+      scaleBarCandidates.sort((a, b) => {
+        const scoreA = a.tickCount * a.evenRatio;
+        const scoreB = b.tickCount * b.evenRatio;
+        return scoreB - scoreA;
+      });
+
+      const best = scaleBarCandidates[0];
+
+      // -- Step 4: Look for number labels near tick marks --
+      // Scan a region below (and above) each tick for clusters of dark pixels
+      // that could be digit labels (0, 5, 10, 20, etc.).
+      // Since we cannot do full OCR, we detect dark pixel density as a proxy for labels.
+      const labelRegionAbove = 30; // px above the line to search for labels
+      const labelRegionBelow = 30; // px below the line to search for labels
+      let hasLabelsAbove = false;
+      let hasLabelsBelow = false;
+
+      // Check for dark pixel density near first, second, and last ticks (label zones)
+      const ticksToCheck = [0, Math.min(1, best.tickPositions.length - 1), best.tickPositions.length - 1];
+      for (const ti of ticksToCheck) {
+        const tick = best.tickPositions[ti];
+        if (!tick) continue;
+
+        // Check below the line for labels
+        let darkCountBelow = 0;
+        for (let dx = -12; dx <= 12; dx++) {
+          for (let dy = 4; dy <= labelRegionBelow; dy++) {
+            if (isDark(tick.col + dx, best.line.row + dy + tick.height)) darkCountBelow++;
+          }
+        }
+        if (darkCountBelow > 20) hasLabelsBelow = true;
+
+        // Check above the line for labels
+        let darkCountAbove = 0;
+        for (let dx = -12; dx <= 12; dx++) {
+          for (let dy = 4; dy <= labelRegionAbove; dy++) {
+            if (isDark(tick.col + dx, best.line.row - dy - tick.height)) darkCountAbove++;
+          }
+        }
+        if (darkCountAbove > 20) hasLabelsAbove = true;
+      }
+
+      const hasLabels = hasLabelsAbove || hasLabelsBelow;
+
+      // -- Step 5: Estimate pixelsPerFoot from tick spacing --
+      // Without full OCR on labels, use common scale bar conventions.
+      // At 3x scale (216 ppi), typical scale bars:
+      //   1/8" = 1'-0"  -> 1 inch on paper = 8 ft  -> tick spacing ~27px per ft
+      //   1/4" = 1'-0"  -> 1 inch on paper = 4 ft  -> tick spacing ~54px per ft
+      //   3/16"= 1'-0"  -> 1 inch on paper = 5.33 ft -> tick spacing ~40.5px per ft
+      //   1" = 10'      -> 1 inch on paper = 10 ft -> tick spacing ~21.6px per ft
+      //   1" = 20'      -> 1 inch on paper = 20 ft -> tick spacing ~10.8px per ft
+
+      const totalBarPx = best.tickPositions[best.tickPositions.length - 1].col - best.tickPositions[0].col;
+      const numDivisions = best.tickCount - 1;
+
+      // Guess the labeled distance based on common construction drawing patterns
+      const commonTotalFeet = [5, 10, 15, 20, 25, 30, 40, 50, 100];
+      let bestFitFeet = 0;
+      let bestFitScore = 0;
+
+      for (const totalFt of commonTotalFeet) {
+        const feetPerDiv = totalFt / numDivisions;
+        // Prefer round numbers per division (1, 2, 5, 10, 20, 25, 50)
+        const roundDividers = [1, 2, 2.5, 5, 10, 20, 25, 50];
+        const isRound = roundDividers.some(d => Math.abs(feetPerDiv - d) < 0.01);
+        if (!isRound) continue;
+
+        const ppf = totalBarPx / totalFt; // pixels per foot
+
+        // Check if this ppf corresponds to a standard architectural scale
+        // ppf = DPI_AT_3X / ftPerInch, so ftPerInch = DPI_AT_3X / ppf
+        const ftPerInch = DPI_AT_3X / ppf;
+
+        const commonScales = [1, 2, 4, 5.333, 8, 10, 10.667, 16, 20, 32, 40, 50, 100];
+        let scaleMatch = false;
+        for (const cs of commonScales) {
+          if (Math.abs(ftPerInch - cs) / cs < 0.15) {
+            scaleMatch = true;
+            break;
+          }
+        }
+
+        let score = isRound ? 1 : 0;
+        if (scaleMatch) score += 2;
+        if (totalFt >= 10) score += 0.5;
+
+        if (score > bestFitScore) {
+          bestFitScore = score;
+          bestFitFeet = totalFt;
+        }
+      }
+
+      if (bestFitFeet === 0) {
+        // No good fit found -- assume each tick division = 5 feet (very common)
+        bestFitFeet = numDivisions * 5;
+      }
+
+      const pixelsPerFoot = totalBarPx / bestFitFeet;
+
+      // Compute confidence based on quality signals
+      let confidence = 0.3; // Base confidence for finding a ruler-like pattern
+      if (best.evenRatio > 0.7) confidence += 0.15;
+      if (best.evenRatio > 0.9) confidence += 0.1;
+      if (best.tickCount >= 4) confidence += 0.1;
+      if (best.tickCount >= 6) confidence += 0.05;
+      if (hasLabels) confidence += 0.15;
+      if (bestFitScore >= 2) confidence += 0.1;
+      confidence = Math.min(confidence, 0.85); // Cap -- canvas detection is never as sure as text
+
+      result.found = true;
+      result.pixelsPerFoot = Math.round(pixelsPerFoot * 100) / 100;
+      result.confidence = Math.round(confidence * 100) / 100;
+      result.tickCount = best.tickCount;
+      result.labeledDistance = bestFitFeet;
+      result.avgTickSpacing = Math.round(best.avgSpacing * 10) / 10;
+      result.barLengthPx = totalBarPx;
+
+      console.log(`[Canvas Scale] Page ${pageNum}: Scale bar detected - ${best.tickCount} ticks, `
+        + `${totalBarPx}px span, est. ${bestFitFeet} ft -> ${result.pixelsPerFoot} px/ft `
+        + `[confidence=${result.confidence}, labels=${hasLabels}]`);
+
+    } catch (err) {
+      console.warn(`[Canvas Scale] Detection failed on page ${pageNum}:`, err.message);
+    }
+
+    return result;
+  },
+
   // Split a large PDF into smaller chunk files using PDF.js
   async _splitPDFIntoChunks(rawFile, pagesPerChunk) {
     const arrayBuffer = await rawFile.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const totalPages = pdf.numPages;
     const chunks = [];
+
+    // Initialize canvas scale detection results array on the SmartBrains object
+    if (!this._canvasScaleData) this._canvasScaleData = [];
+    const canvasScaleResults = [];
 
     // For each chunk of pages, render to a new PDF-like blob
     // Since PDF.js can't create PDFs, we split the raw bytes by uploading page ranges
@@ -660,6 +1124,16 @@ const SmartBrains = {
           canvas.height = viewport.height;
           const ctx = canvas.getContext('2d');
           await page.render({ canvasContext: ctx, viewport }).promise;
+
+          // Run canvas-based scale bar detection BEFORE converting to JPEG
+          try {
+            const scaleResult = this._detectScaleBarFromCanvas(canvas, p);
+            canvasScaleResults.push(scaleResult);
+          } catch (scaleErr) {
+            console.warn(`[SmartBrains] Canvas scale detection error on page ${p}:`, scaleErr.message);
+            canvasScaleResults.push({ found: false, pixelsPerFoot: 0, confidence: 0, method: 'scale_bar_canvas', pageNum: p });
+          }
+
           canvases.push(canvas);
         } catch (e) {
           console.warn(`[SmartBrains] Failed to render page ${p}:`, e.message);
@@ -693,6 +1167,14 @@ const SmartBrains = {
     }
 
     pdf.destroy();
+
+    // Store canvas scale detection results on the SmartBrains object for fallback use
+    this._canvasScaleData = canvasScaleResults;
+    const canvasFound = canvasScaleResults.filter(r => r.found);
+    if (canvasFound.length > 0) {
+      console.log(`[SmartBrains] Canvas scale bar detection: found on ${canvasFound.length}/${totalPages} pages`);
+    }
+
     return chunks;
   },
 
@@ -3232,6 +3714,16 @@ YOUR MISSION — For each floor plan sheet:
 
 5. FOR EACH FLOOR — map IDF/MDF/TR positions and device zones as percentage positions (0%=left/top, 100%=right/bottom).
 
+6. MULTI-BUILDING CAMPUS DETECTION:
+   - Determine if the project consists of multiple SEPARATE buildings (e.g., campus, multi-building site, detached structures)
+   - Report "building_count" (1 if single building, 2+ for campus)
+   - For each building, provide:
+     a. "building_id" (e.g., "Building A", "Main", "Annex", "Gymnasium")
+     b. "approx_x_pct" and "approx_y_pct" — position of building centroid relative to the full site plan (0-100)
+     c. "sheet_ids" — which sheets show this building
+   - Report "inter_building_distances" — estimated distances in feet between each pair of buildings
+   - Clues for multiple buildings: separate structures on a site plan, "Building A / Building B" labels, separate floor plans per building, campus maps, site plans showing detached structures
+
 POSITION ESTIMATION RULES:
 - Use each floor plan as its own coordinate grid
 - ±10% accuracy is acceptable for zone centroid positions
@@ -3315,8 +3807,32 @@ Return ONLY valid JSON:
     }
   ],
   "multi_building": false,
+  "building_count": 1,
+  "buildings": [
+    {
+      "building_id": "Main Building",
+      "approx_x_pct": 50,
+      "approx_y_pct": 50,
+      "sheet_ids": ["E1.01", "E1.02"]
+    }
+  ],
+  "inter_building_distances": [],
   "notes": []
 }
+
+MULTI-BUILDING EXAMPLE (when building_count >= 2):
+"multi_building": true,
+"building_count": 3,
+"buildings": [
+  { "building_id": "Admin Building", "approx_x_pct": 20, "approx_y_pct": 40, "sheet_ids": ["E1.01"] },
+  { "building_id": "Warehouse", "approx_x_pct": 70, "approx_y_pct": 30, "sheet_ids": ["E2.01"] },
+  { "building_id": "Guard House", "approx_x_pct": 10, "approx_y_pct": 90, "sheet_ids": ["E3.01"] }
+],
+"inter_building_distances": [
+  { "from": "Admin Building", "to": "Warehouse", "distance_ft": 250, "notes": "Across parking lot" },
+  { "from": "Admin Building", "to": "Guard House", "distance_ft": 180, "notes": "Along main drive" },
+  { "from": "Warehouse", "to": "Guard House", "distance_ft": 350, "notes": "Diagonal across site" }
+]
 
 PIXEL CALIBRATION (IMPORTANT for automated cable measurement):
 - If you detect a scale bar, dimension line, or door on ANY sheet, record two pixel coordinates on the image that correspond to a known real-world distance.

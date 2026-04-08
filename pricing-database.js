@@ -654,6 +654,42 @@ const PRICING_DB = {
     },
 
     // ═══════════════════════════════════════════════════════════
+    // SUBCONTRACTOR CIVIL RATES
+    // Line-item civil work rates for subcontractor pricing
+    // Standard rates and prevailing wage (~25% uplift) variants
+    // ═══════════════════════════════════════════════════════════
+    subcontractorCivil: {
+        standard: {
+            saw_cutting_concrete:  { unit: "per LF", budget: 6.00, mid: 8.00, premium: 11.00, description: "Concrete sawcutting" },
+            saw_cutting_asphalt:   { unit: "per LF", budget: 3.50, mid: 4.50, premium: 6.50, description: "Asphalt sawcutting" },
+            trenching_24in:        { unit: "per LF", budget: 14.00, mid: 18.00, premium: 24.00, description: "24\" depth trenching" },
+            trenching_36in:        { unit: "per LF", budget: 18.00, mid: 24.00, premium: 32.00, description: "36\" depth trenching" },
+            directional_bore_2in:  { unit: "per LF", budget: 18.00, mid: 24.00, premium: 34.00, description: "2\" directional bore" },
+            directional_bore_4in:  { unit: "per LF", budget: 26.00, mid: 34.00, premium: 48.00, description: "4\" directional bore" },
+            bore_mobilization:     { unit: "each", budget: 2500, mid: 3500, premium: 5000, description: "Bore rig mobilization/demobilization" },
+            concrete_restoration:  { unit: "per SF", budget: 12.00, mid: 16.00, premium: 22.00, description: "Concrete surface restoration" },
+            asphalt_restoration:   { unit: "per SF", budget: 8.00, mid: 12.00, premium: 18.00, description: "Asphalt surface restoration" },
+            handhole_pullbox:      { unit: "each", budget: 1200, mid: 1600, premium: 2200, description: "Handhole / pullbox installation" },
+            concrete_pad:          { unit: "per CY", budget: 425, mid: 575, premium: 800, description: "Concrete equipment pad" },
+            core_drill_4in:        { unit: "each", budget: 75, mid: 100, premium: 150, description: "4\" core drill through concrete/CMU" },
+        },
+        prevailing_wage: {
+            saw_cutting_concrete:  { unit: "per LF", budget: 7.50, mid: 10.00, premium: 13.75, description: "Concrete sawcutting (prevailing wage)" },
+            saw_cutting_asphalt:   { unit: "per LF", budget: 4.38, mid: 5.63, premium: 8.13, description: "Asphalt sawcutting (prevailing wage)" },
+            trenching_24in:        { unit: "per LF", budget: 17.50, mid: 22.50, premium: 30.00, description: "24\" depth trenching (prevailing wage)" },
+            trenching_36in:        { unit: "per LF", budget: 22.50, mid: 30.00, premium: 40.00, description: "36\" depth trenching (prevailing wage)" },
+            directional_bore_2in:  { unit: "per LF", budget: 22.50, mid: 30.00, premium: 42.50, description: "2\" directional bore (prevailing wage)" },
+            directional_bore_4in:  { unit: "per LF", budget: 32.50, mid: 42.50, premium: 60.00, description: "4\" directional bore (prevailing wage)" },
+            bore_mobilization:     { unit: "each", budget: 3125, mid: 4375, premium: 6250, description: "Bore rig mobilization/demobilization (prevailing wage)" },
+            concrete_restoration:  { unit: "per SF", budget: 15.00, mid: 20.00, premium: 27.50, description: "Concrete surface restoration (prevailing wage)" },
+            asphalt_restoration:   { unit: "per SF", budget: 10.00, mid: 15.00, premium: 22.50, description: "Asphalt surface restoration (prevailing wage)" },
+            handhole_pullbox:      { unit: "each", budget: 1500, mid: 2000, premium: 2750, description: "Handhole / pullbox installation (prevailing wage)" },
+            concrete_pad:          { unit: "per CY", budget: 531, mid: 719, premium: 1000, description: "Concrete equipment pad (prevailing wage)" },
+            core_drill_4in:        { unit: "each", budget: 94, mid: 125, premium: 188, description: "4\" core drill through concrete/CMU (prevailing wage)" },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
     // SUBCONTRACTOR COST BENCHMARKS
     // Minimum expected costs by trade for project validation
     // ═══════════════════════════════════════════════════════════
