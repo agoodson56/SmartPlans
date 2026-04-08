@@ -185,7 +185,7 @@ const SmartBrains = {
             // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
               const CHUNK_THRESHOLD = 45 * 1024 * 1024; // Split PDFs over 45MB into chunks (smaller files upload fine as single)
-              const PAGES_PER_CHUNK = 3; // Max 3 pages per chunk for maximum camera detection accuracy
+              const PAGES_PER_CHUNK = 1; // 1 page per chunk — AI gets full attention on each sheet for maximum counting accuracy
               const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
 
               // Try chunking large PDFs using PDF.js
@@ -424,7 +424,7 @@ const SmartBrains = {
       for (let p = startPage; p <= endPage; p++) {
         try {
           const page = await pdf.getPage(p);
-          const scale = 2.0; // 2x for readable text
+          const scale = 3.0; // 3x for maximum symbol detection accuracy on construction drawings
           const viewport = page.getViewport({ scale });
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width;
@@ -454,7 +454,7 @@ const SmartBrains = {
       }
 
       // Convert to JPEG blob (much smaller than PNG for drawings)
-      const blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.85));
+      const blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.92));
       if (blob) {
         // Create a File object so it works with _uploadToFileAPI
         const chunkFile = new File([blob], `chunk_${c + 1}.jpg`, { type: 'image/jpeg' });
@@ -1296,7 +1296,7 @@ PROJECT: ${context.projectName} | Type: ${context.projectType}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 SPATIAL LAYOUT DATA (from floor plan analysis — use this to calculate zone-based run lengths):
-${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 3000)}
+${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 10000)}
 
 BUILDING HEIGHTS: Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
 
@@ -1931,8 +1931,11 @@ If grounding is by EC (electrical contractor), EXCLUDE grounding busbars (TMGB/T
 MDF/IDF ROOMS & EQUIPMENT:
 ${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 4000)}
 
-CABLE QUANTITIES & PATHWAYS:
-${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)}
+CABLE QUANTITIES & PATHWAYS (zone-by-zone run lengths — DO NOT use flat averages if this data exists):
+${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 8000)}
+
+SPATIAL LAYOUT (scale per sheet, building dimensions — use for cable run verification):
+${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 6000)}
 
 PRICING DATABASE (use these exact prices):
 ${context.pricingContext || 'Use industry standard pricing'}
@@ -3171,10 +3174,14 @@ LEGEND DICTIONARY:
 ${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 3000)}
 
 INSTRUCTIONS:
-1. For each disputed item, go to the specified problem area
-2. Count with EXTREME precision — zoom in, count twice
-3. If a symbol is ambiguous, describe what you see and your best judgment
-4. Provide your final authoritative count with reasoning
+1. For each disputed item, go to the specified problem area on the drawings
+2. Count with EXTREME precision — examine each room individually, count twice
+3. CHECK SCHEDULES: If an equipment schedule exists for this device type, the schedule count is AUTHORITATIVE
+4. CHECK TYPICAL NOTES: If "TYP" or "TYPICAL" appears, multiply the device by the number of matching locations
+5. CHECK EVERY FLOOR: Devices often repeat on multiple floors — count each floor separately and add
+6. If a symbol is ambiguous, describe what you see and your best judgment
+7. When in doubt, prefer the HIGHER count — undercounting loses bids, overcounting gets corrected at submittal
+8. Provide your final authoritative count with PER-SHEET breakdown and reasoning
 
 Return ONLY valid JSON:
 {
@@ -3641,7 +3648,7 @@ LEGEND (decoded symbols):
 ${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 2000)}
 
 SPATIAL LAYOUT (sheet data):
-${JSON.stringify((context.wave0?.SPATIAL_LAYOUT?.sheets || []).map(s => ({ sheet_id: s.sheet_id, scale: s.scale, width_ft: s.sheet_area_width_ft, depth_ft: s.sheet_area_depth_ft })), null, 2).substring(0, 2000)}
+${JSON.stringify((context.wave0?.SPATIAL_LAYOUT?.sheets || []).map(s => ({ sheet_id: s.sheet_id, scale: s.scale, width_ft: s.sheet_area_width_ft, depth_ft: s.sheet_area_depth_ft })), null, 2).substring(0, 6000)}
 
 YOUR MISSION: For every ELV device symbol on every plan sheet, record its PIXEL POSITION on the image.
 This data is used for automated cable run length measurement.
