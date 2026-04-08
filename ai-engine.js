@@ -87,6 +87,7 @@ const SmartBrains = {
     ANNOTATION_READER: { id: 22, name: 'Annotation Reader', wave: 1, emoji: '💬', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     RISER_DIAGRAM_ANALYZER: { id: 23, name: 'Riser Diagram Analyzer', wave: 1, emoji: '📶', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     DEVICE_LOCATOR: { id: 28, name: 'Device Locator', wave: 1, emoji: '📍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
+    SCOPE_EXCLUSION_SCANNER: { id: 29, name: 'Scope Exclusion Scanner', wave: 1, emoji: '🚫', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     // ── Wave 1.5: Second Read — Independent Verification (all Gemini 3.1 Pro) ──
     SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
@@ -1108,6 +1109,7 @@ const SmartBrains = {
     ANNOTATION_READER: ['annotations', 'referenced_details'],
     RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
     DEVICE_LOCATOR: ['devices'],
+    SCOPE_EXCLUSION_SCANNER: ['exclusions'],
     ZOOM_SCANNER: ['quadrant_counts', 'zoom_findings'],
     PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
     OVERLAP_DETECTOR: ['overlapping_areas', 'potential_duplicates'],
@@ -1925,7 +1927,57 @@ CRITICAL: If cameras/mounts/VMS are owner furnished AND owner installed, we pric
 If network switches/PDUs are owner provided, EXCLUDE them from our BOM entirely.
 If grounding is by EC (electrical contractor), EXCLUDE grounding busbars (TMGB/TGB) and bonding conductors.`;
   }
-  return 'No OFCI/exclusion annotations found — price all items as contractor-furnished.';
+  return 'No OFCI/exclusion annotations found from Annotation Reader.';
+})()}
+
+═══ SCOPE EXCLUSION SCANNER RESULTS (dedicated per-page exclusion analysis) ═══
+${(() => {
+  const scopeData = context.wave1?.SCOPE_EXCLUSION_SCANNER || {};
+  const exclusions = scopeData.exclusions || [];
+  const respMatrix = scopeData.responsibility_matrix || [];
+  const scopeBounds = scopeData.scope_boundaries || [];
+
+  if (exclusions.length === 0 && respMatrix.length === 0 && scopeBounds.length === 0) {
+    return 'No scope exclusions found by dedicated scanner — price all items as contractor-furnished.';
+  }
+
+  let result = `⚠️ ═══ MANDATORY EXCLUSIONS — YOU MUST APPLY THESE ═══\n`;
+  result += `The Scope Exclusion Scanner found ${exclusions.length} exclusion(s), ${respMatrix.length} responsibility assignment(s), and ${scopeBounds.length} scope boundary note(s).\n\n`;
+
+  if (exclusions.length > 0) {
+    result += `EXCLUSION ITEMS (apply the treatment listed for each):\n`;
+    for (const e of exclusions) {
+      result += `- [${e.treatment}] ${e.item} (${e.category}): "${e.annotation_text}" [Sheet: ${e.sheet_id}]\n`;
+      result += `  → ACTION: ${e.impact}\n`;
+    }
+    result += '\n';
+  }
+
+  if (respMatrix.length > 0) {
+    result += `RESPONSIBILITY MATRIX (disciplines assigned to other trades are NOT our scope):\n`;
+    for (const r of respMatrix) {
+      result += `- ${r.discipline}: ${r.responsible_party} — ${r.our_scope ? 'IN OUR SCOPE' : '⚠️ NOT OUR SCOPE — EXCLUDE ENTIRELY'}\n`;
+    }
+    result += '\n';
+  }
+
+  if (scopeBounds.length > 0) {
+    result += `SCOPE BOUNDARY NOTES:\n`;
+    for (const s of scopeBounds) {
+      result += `- [Sheet ${s.sheet_id}]: "${s.text}"\n  → ${s.interpretation}\n`;
+    }
+  }
+
+  result += `\nCRITICAL RULES FOR APPLYING EXCLUSIONS:
+- OFCI items: Set unit_cost to $0, keep the line item for labor tracking
+- OFOI items: REMOVE the line item entirely from the BOM
+- NIC / By Others / By EC items: REMOVE entirely from the BOM
+- If an entire DISCIPLINE is excluded (e.g., Fire Alarm by Div 26), create NO line items for that discipline
+- If cameras are OFOI but cabling is in scope: price ONLY cable, conduit, J-hooks, backboxes to camera locations
+- If grounding is by EC: REMOVE TMGB, TGB, bonding conductors, ground lugs
+- If switches/PDUs are owner furnished: REMOVE from BOM, keep rack space`;
+
+  return result;
 })()}
 
 MDF/IDF ROOMS & EQUIPMENT:
@@ -3102,8 +3154,13 @@ ${JSON.stringify(context.wave1?.ANNOTATION_READER?.annotations?.filter(a => a.ty
 EQUIPMENT SCHEDULES FOUND ON DRAWINGS:
 ${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || [], null, 2).substring(0, 2000)}
 
-EXCLUSIONS (BY OTHERS / NIC — DO NOT COUNT):
-${JSON.stringify(context.wave1?.ANNOTATION_READER?.exclusions || [], null, 2).substring(0, 1000)}
+EXCLUSIONS (BY OTHERS / NIC — DO NOT COUNT these in device totals):
+${JSON.stringify(context.wave1?.ANNOTATION_READER?.exclusions || [], null, 2).substring(0, 2000)}
+
+SCOPE EXCLUSION SCANNER (dedicated per-page exclusion findings):
+${JSON.stringify(context.wave1?.SCOPE_EXCLUSION_SCANNER?.exclusions || [], null, 2).substring(0, 3000)}
+RESPONSIBILITY MATRIX:
+${JSON.stringify(context.wave1?.SCOPE_EXCLUSION_SCANNER?.responsibility_matrix || [], null, 2).substring(0, 2000)}
 
 ═══ SPEC CROSS-REFERENCE DATA ═══
 ${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.discrepancies || [], null, 2).substring(0, 1500)}
@@ -3525,7 +3582,7 @@ WHAT TO CAPTURE:
 2. Detail callout bubbles (e.g., "See Detail 3/E6.01")
 3. Equipment schedules and tables shown on drawings — READ EVERY ROW
 4. Typical installation notes (e.g., "TYP." or "TYPICAL — provide at each door")
-5. "NIC" (Not In Contract) or "BY OTHERS" annotations — these exclude scope
+5. "NIC" (Not In Contract), "BY OTHERS", "OFCI", "OFOI", "BY EC", "BY ELECTRICAL", "VENDOR FURNISHED" annotations — these exclude scope. READ EVERY INSTANCE — each one saves thousands of dollars in bid accuracy
 6. Quantity notes like "QTY: 4" or "(x3)" next to symbols
 7. Demolition notes (items to be removed or replaced)
 8. References to addenda changes
@@ -3598,6 +3655,143 @@ Return ONLY valid JSON:
   ],
   "total_annotations_found": 0,
   "total_schedule_items_extracted": 0
+}`,
+
+      // ── BRAIN 29: Scope Exclusion Scanner (Wave 1 — Per-Page) ──────
+      SCOPE_EXCLUSION_SCANNER: () => `You are a SCOPE EXCLUSION EXPERT for ELV construction projects. Your ONLY job is to find items that are NOT in the low-voltage contractor's scope.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+YOUR MISSION: On THIS PAGE, find EVERY annotation, note, schedule entry, keynote, abbreviation, or responsibility assignment that indicates an item is:
+
+═══ EXCLUSION CATEGORIES — SEARCH FOR ALL OF THESE ═══
+
+1. OFCI (Owner Furnished, Contractor Installed)
+   Keywords: "OFCI", "owner furnished", "furnished by owner", "GFE" (government furnished equipment)
+   Treatment: Material = $0, labor only
+
+2. OFOI (Owner Furnished, Owner Installed)
+   Keywords: "OFOI", "owner furnished owner installed", "owner installed"
+   Treatment: EXCLUDE ENTIRELY — no material, no labor
+
+3. NIC (Not In Contract)
+   Keywords: "NIC", "not in contract", "N.I.C.", "not included"
+   Treatment: EXCLUDE ENTIRELY
+
+4. BY OTHERS
+   Keywords: "by others", "by owner", "by GC", "by general contractor", "by mechanical", "by electrical", "by EC", "by electrical contractor", "by plumbing", "by Division 26", "by Division 28", "by Div 26", "Div. 26", "by fire protection contractor"
+   Treatment: EXCLUDE ENTIRELY
+
+5. VENDOR/MANUFACTURER FURNISHED
+   Keywords: "vendor furnished", "vendor supplied", "manufacturer furnished", "factory furnished", "pre-installed", "furnished by security integrator"
+   Treatment: Material = $0 (someone else buys it, we may install it)
+
+6. EXISTING TO REMAIN / REUSE
+   Keywords: "existing to remain", "ETR", "reuse existing", "existing", "salvage and reinstall"
+   Treatment: No new material — labor only if reinstallation required
+
+7. RESPONSIBILITY MATRIX / DIVISION OF WORK
+   Look for tables or matrices that assign responsibility per trade:
+   - "Division 26 — Electrical" vs "Division 27 — Communications" vs "Division 28 — Safety"
+   - "Contractor Responsibility Matrix" or "Scope Matrix"
+   - Column headers like "By EC", "By Low Voltage", "By Owner", "By GC"
+   - If fire alarm is assigned to Division 26 or "electrical contractor" → it's NOT our scope
+   - If grounding/bonding is assigned to "EC" or "electrical contractor" → NOT our scope
+
+8. DRAWING SHEET SCOPE NOTES
+   Title blocks or general notes that say things like:
+   - "This contractor shall furnish and install..." (defines what IS in scope)
+   - "The following are NOT included in this contract..."
+   - "Work by others includes..."
+   - "Telecommunications contractor scope is limited to..."
+
+═══ WHAT TO LOOK FOR ON EACH PAGE ═══
+
+A. TEXT ANNOTATIONS next to or near device symbols (e.g., "OFOI" next to a camera symbol)
+B. KEYNOTES in the margin (e.g., "3. Network switches by owner")
+C. GENERAL NOTES blocks (usually on sheet T-0.0, T-0.1, or the first sheet of each discipline)
+D. SCHEDULE COLUMNS that say "Furnished By" or "Installed By" or "Responsibility"
+E. ABBREVIATION LEGENDS that define OFCI, OFOI, NIC, GFE
+F. RESPONSIBILITY MATRICES — tables showing which trade provides what
+G. SMALL TEXT near specific items — often "BY EC" or "NIC" is printed very small
+H. TITLE BLOCK NOTES about scope limitations
+
+═══ COMMON PATTERNS BY DISCIPLINE ═══
+
+CCTV:
+- Cameras may be OFOI (owner buys and installs their own preferred cameras)
+- VMS/NVR software may be "vendor furnished" or "by security integrator"
+- Only cabling/conduit/backboxes may be in our scope
+- Look for: "Cabling only" or "rough-in only" or "conduit and box only"
+
+ACCESS CONTROL:
+- Head-end server often "by others" or "owner furnished"
+- Readers/hardware may be furnished by the access control vendor
+- Look for: "hardware by door hardware supplier" or "by HHW" (hollow metal/hardware)
+
+FIRE ALARM:
+- Often assigned entirely to Division 26 (Electrical) or Division 28
+- Look for responsibility matrix on sheet T-0.0 or FA-0.0
+- If assigned to another division, our scope = $0 for fire alarm
+
+STRUCTURED CABLING:
+- Network switches almost always OFCI or "by IT" or "by owner"
+- UPS may be owner furnished
+- PDUs may be owner furnished
+- Grounding/bonding may be "by EC" (electrical contractor)
+
+INTRUSION:
+- Alarm panel may be "vendor furnished" by monitoring company
+
+Return ONLY valid JSON:
+{
+  "exclusions": [
+    {
+      "item": "IP Cameras (all types)",
+      "category": "CCTV",
+      "treatment": "OFOI",
+      "annotation_text": "OFOI — cameras, mounts, and VMS furnished and installed by owner",
+      "sheet_id": "T-5.1",
+      "impact": "Exclude all camera hardware, mounts, NVR, VMS licenses from BOM. Price cabling only.",
+      "estimated_cost_excluded": "high"
+    },
+    {
+      "item": "Network Switches",
+      "category": "Structured Cabling",
+      "treatment": "OFCI",
+      "annotation_text": "Network switches OFCI — furnished by owner IT department",
+      "sheet_id": "T-0.0",
+      "impact": "Set switch material cost to $0. Include rack space and patch cord labor.",
+      "estimated_cost_excluded": "high"
+    },
+    {
+      "item": "Grounding and Bonding",
+      "category": "Structured Cabling",
+      "treatment": "BY_EC",
+      "annotation_text": "Grounding and bonding by electrical contractor per Division 26",
+      "sheet_id": "T-0.0",
+      "impact": "Exclude TMGB, TGB, bonding conductors, ground lugs from BOM.",
+      "estimated_cost_excluded": "medium"
+    }
+  ],
+  "responsibility_matrix": [
+    {
+      "sheet_id": "T-0.0",
+      "discipline": "Fire Alarm",
+      "responsible_party": "Division 26 — Electrical Contractor",
+      "our_scope": false,
+      "notes": "Fire alarm design-build by electrical contractor"
+    }
+  ],
+  "scope_boundaries": [
+    {
+      "sheet_id": "T-0.0",
+      "text": "Telecommunications contractor scope includes structured cabling, access control cabling, and CCTV cabling only",
+      "interpretation": "We provide cabling infrastructure only — no end devices for CCTV or access control"
+    }
+  ],
+  "no_exclusions_found": false
 }`,
 
       // ── BRAIN 23: Riser Diagram Analyzer (Wave 1) ───────────────
@@ -4032,7 +4226,7 @@ Return ONLY valid JSON:
   // ═══════════════════════════════════════════════════════════
 
   // Brains that benefit from per-page scanning (counting-focused brains)
-  PER_PAGE_BRAINS: new Set(['SYMBOL_SCANNER', 'SHADOW_SCANNER', 'ZOOM_SCANNER']),
+  PER_PAGE_BRAINS: new Set(['SYMBOL_SCANNER', 'SHADOW_SCANNER', 'ZOOM_SCANNER', 'SCOPE_EXCLUSION_SCANNER']),
 
   async _runPerPageBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback) {
     const brain = this.BRAINS[key];
@@ -4237,6 +4431,33 @@ ${legendContext}
 
       return { ...meta, quadrant_counts: quadrantCounts, grand_totals: grandTotals, zoom_findings: zoomFindings,
         methodology: 'per-page 4-quadrant zoom scan' };
+    }
+
+    if (brainKey === 'SCOPE_EXCLUSION_SCANNER') {
+      const exclusions = [];
+      const responsibilityMatrix = [];
+      const scopeBoundaries = [];
+
+      for (const r of successResults) {
+        if (r.data.exclusions) exclusions.push(...r.data.exclusions);
+        if (r.data.responsibility_matrix) responsibilityMatrix.push(...r.data.responsibility_matrix);
+        if (r.data.scope_boundaries) scopeBoundaries.push(...r.data.scope_boundaries);
+      }
+
+      // Deduplicate exclusions by item + treatment
+      const uniqueExclusions = [];
+      const seenExclusions = new Set();
+      for (const e of exclusions) {
+        const key = `${(e.item || '').toLowerCase()}_${(e.treatment || '').toLowerCase()}`;
+        if (!seenExclusions.has(key)) {
+          seenExclusions.add(key);
+          uniqueExclusions.push(e);
+        }
+      }
+
+      return { ...meta, exclusions: uniqueExclusions, responsibility_matrix: responsibilityMatrix,
+        scope_boundaries: scopeBoundaries,
+        notes: `Per-page exclusion scan: ${uniqueExclusions.length} unique exclusions found across ${successResults.length} pages` };
     }
 
     if (brainKey === 'SHADOW_SCANNER') {
@@ -4463,7 +4684,7 @@ ${legendContext}
 
     // ═══ WAVE 1: First Read — Document Intelligence (8 parallel brains) ═══
     progressCallback(12, '🔍 Wave 1: First Read — 8 brains scanning…', this._brainStatus);
-    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR'];
+    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR', 'SCOPE_EXCLUSION_SCANNER'];
     const wave1Results = await this._runWave(1, wave1Keys, encodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
     console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
