@@ -4746,15 +4746,21 @@ function renderStep6Travel(container) {
   if (!state._travelAutoDetected && state.projectLocation) {
     state._travelAutoDetected = true;
     try {
-      const dist = _getNearestOfficeDistance(state.projectLocation);
-      if (dist !== null && dist <= 50) {
+      const projCoords = _findProjectCoords(state.projectLocation);
+      const result = _getNearestOfficeDistance(projCoords);
+      const dist = result?.distance;
+      if (dist !== null && dist !== undefined && dist <= 50) {
         t.enabled = false;
-        console.log(`[Travel] Auto-disabled travel — project is ${dist.toFixed(1)} miles from nearest office (within 50-mile local radius)`);
-      } else if (dist !== null && dist > 50) {
+        console.log(`[Travel] Auto-disabled travel — project is ${dist} miles from ${result.office?.name || 'nearest office'} (within 50-mile local radius)`);
+      } else if (dist !== null && dist !== undefined && dist > 50) {
         t.enabled = true;
-        console.log(`[Travel] Auto-enabled travel — project is ${dist.toFixed(1)} miles from nearest office`);
+        console.log(`[Travel] Auto-enabled travel — project is ${dist} miles from ${result.office?.name || 'nearest office'}`);
+      } else {
+        console.log(`[Travel] Could not determine distance for "${state.projectLocation}" — leaving travel setting as-is`);
       }
-    } catch (e) { /* City not found — leave travel as-is */ }
+    } catch (e) {
+      console.warn(`[Travel] Auto-detection failed for "${state.projectLocation}":`, e.message);
+    }
   }
 
   const costs = computeTravelIncidentals();
@@ -8372,6 +8378,19 @@ async function runGeminiAnalysis(updateProgress) {
   window._analysisAborted = false;
   try {
     updateProgress(2, "🧠 Launching Multi-Brain Engine…", null);
+
+    // ═══ PRE-COMPUTE NEAREST OFFICE DISTANCE (injected into AI context to prevent incorrect travel costs) ═══
+    try {
+      const projCoords = _findProjectCoords(state.projectLocation);
+      if (projCoords) {
+        const { distance, office } = _getNearestOfficeDistance(projCoords);
+        state._nearestOfficeDistance = distance;
+        state._nearestOfficeName = office?.name || null;
+        console.log(`[SmartPlans] Nearest office: ${office?.name} at ${distance} miles — ${distance <= 60 ? 'LOCAL (no travel)' : 'TRAVEL REQUIRED'}`);
+      }
+    } catch (e) {
+      console.warn('[SmartPlans] Could not compute office distance:', e.message);
+    }
 
     // ═══ USE MULTI-BRAIN ENGINE ═══
     const result = await SmartBrains.runFullAnalysis(state, updateProgress);

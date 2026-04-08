@@ -1561,16 +1561,20 @@ YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment r
     - Generator rental (if no permanent power available)
     - Portable restroom (remote locations)
 
-15. TRAVEL & PER DIEM (if project location is NOT local — over 60 miles from Rancho Cordova, CA):
-    - Hotel/lodging: estimate $150-$250/night per worker (use GSA rates for location)
-    - Per diem meals: $60-$79/day per worker (GSA M&IE rate)
-    - Vehicle mileage or rental: truck rental + fuel for crew and materials
-    - Airfare (if 500+ miles) for crew rotation
-    - Number of workers × number of project days = TOTAL TRAVEL COST
-    - Weekend trips home (if project > 2 weeks, budget 1 round-trip/worker/2 weeks)
-    - Parking, tolls, and incidental expenses
-    - CALCULATE: (hotel + per_diem) × workers × project_days = travel subtotal
-    - This is often 15-25% OF TOTAL PROJECT COST on out-of-town work
+15. TRAVEL & PER DIEM — ONLY if project is over 60 miles from ALL 3D offices:
+    3D OFFICE LOCATIONS (check distance to the NEAREST one):
+    - Rancho Cordova, CA (Sacramento area)
+    - Livermore, CA (Bay Area)
+    - Sparks, NV (Reno area)
+    - McCall, ID
+    ${context.nearestOfficeDistance ? `\n    ⚠️ COMPUTED DISTANCE: Project is ${context.nearestOfficeDistance} miles from nearest 3D office (${context.nearestOfficeName || 'unknown'}). ${context.nearestOfficeDistance <= 60 ? 'This is a LOCAL PROJECT — DO NOT include travel/hotel/per diem costs.' : 'Travel costs are required.'}` : ''}
+    - If project is WITHIN 60 miles of ANY office → NO travel, NO hotel, NO per diem (local project)
+    - If project is 60+ miles from ALL offices:
+      - Hotel/lodging: $150-$250/night per worker (GSA rates)
+      - Per diem meals: $60-$79/day per worker (GSA M&IE rate)
+      - Vehicle rental + fuel
+      - Weekend trips home (if > 2 weeks)
+      - CALCULATE: (hotel + per_diem) × workers × project_days = travel subtotal
 
 16. TRANSIT / RAILROAD / INFRASTRUCTURE-SPECIFIC (for Amtrak, BNSF, UP, light rail, metro, airport, DOT):
     CREW COMPLIANCE (per person × entire crew):
@@ -1646,7 +1650,8 @@ YOUR MISSION: Identify EVERY special condition, subcontractor scope, equipment r
 
 CRITICAL: Be EXHAUSTIVE. If you see ANY exterior conduit runs, underground pathways, parking lot crossings, road crossings, or rooftop equipment on the plans, you MUST include the associated civil work, trenching, boring, traffic control, and restoration. Missing these items leads to MASSIVE cost overruns.
 
-CRITICAL — OUT-OF-TOWN PROJECTS: If the project location is NOT within 60 miles of a 3D office (Rancho Cordova CA, Livermore CA, Sparks NV, McCall ID), travel & per diem is MANDATORY. Calculate: crew_size × daily_rate × project_duration_days.
+CRITICAL — OUT-OF-TOWN PROJECTS: If the project location is NOT within 60 miles of ANY 3D office (Rancho Cordova CA, Livermore CA, Sparks NV, McCall ID), travel & per diem is MANDATORY. If the project IS within 60 miles of any office, DO NOT include travel costs — it is a local project.
+${context.nearestOfficeDistance !== undefined ? `COMPUTED: Project is ${context.nearestOfficeDistance} miles from ${context.nearestOfficeName || 'nearest office'}. ${context.nearestOfficeDistance <= 60 ? '⚠️ LOCAL PROJECT — NO TRAVEL COSTS.' : 'Travel costs required.'}` : ''}
 
 CRITICAL — TRANSIT/RAILROAD PROJECTS: If the project is for Amtrak, BNSF, a transit authority, or any railroad, you MUST include ALL of the above transit costs. Transit adders typically add 25-45% to the base bid. Missing RWIC alone = $30K-$80K. Missing RRPLI = $15K-$50K. Missing crew compliance = $3K-$5K. Missing hi-rail = $10K-$30K. DO NOT leave money on the table.
 
@@ -2449,21 +2454,22 @@ CRITICAL RULES:
 
 GENERATE:
 1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
-2. Travel & Per Diem calculation — MANDATORY if project is 60+ miles from Rancho Cordova, CA
+2. Travel & Per Diem calculation — ONLY if project is 60+ miles from ALL 3D offices (Rancho Cordova CA, Livermore CA, Sparks NV, McCall ID)
+${context.nearestOfficeDistance !== undefined ? `   COMPUTED: ${context.nearestOfficeDistance} miles from ${context.nearestOfficeName || 'nearest office'}. ${context.nearestOfficeDistance <= 60 ? '⚠️ LOCAL PROJECT — SKIP TRAVEL COSTS ENTIRELY.' : 'Include travel costs.'}` : ''}
 3. Transit/Railroad costs — MANDATORY if project involves Amtrak, BNSF, transit authority, railroad, airport, or DOT
 4. Prevailing wage determination (if applicable)
 5. Complete project cost summary with G&A, profit, warranty, and contingency
 
 ═══ TRAVEL & PER DIEM CALCULATION RULES ═══
-If the project location is 60+ miles from Rancho Cordova, CA (Sacramento area):
+3D has 4 offices: Rancho Cordova CA, Livermore CA, Sparks NV, McCall ID.
+${context.nearestOfficeDistance !== undefined && context.nearestOfficeDistance <= 60 ? `⚠️ THIS IS A LOCAL PROJECT — ${context.nearestOfficeDistance} miles from ${context.nearestOfficeName}. DO NOT include ANY travel, hotel, per diem, vehicle, or weekend trip costs. Set ALL travel line items to $0 or omit them entirely.` : `If the project is 60+ miles from ALL 3D offices:
 - Crew size: use the Labor Calculator's crew_recommendation
 - Project duration: use the Labor Calculator's duration_weeks × 5 working days
 - Hotel: use GSA rate for the city (typically $150-$250/night)
 - Per diem: use GSA M&IE rate for the city (typically $60-$79/day)
 - Vehicle: $2,000-$3,500/month for truck rental + fuel
 - Weekend trips home: 1 round-trip per worker per 2 weeks if project > 2 weeks
-- FORMULA: travel_total = (hotel_rate + per_diem_rate) × crew_size × working_days + vehicle_costs + weekend_trips
-- Travel is typically 15-25% of total project cost on out-of-town work — if your travel is less than 10%, you are probably UNDERESTIMATING
+- FORMULA: travel_total = (hotel_rate + per_diem_rate) × crew_size × working_days + vehicle_costs + weekend_trips`}
 
 ═══ TRANSIT / RAILROAD COST RULES ═══
 If Special Conditions flagged transit/railroad work:
@@ -4663,6 +4669,9 @@ ${legendContext}
       ceilingHeight: state.ceilingHeight || 10,
       floorToFloorHeight: state.floorToFloorHeight || 14,
       pricingContext: this._buildPricingContext(state),
+      // Pre-computed distance to nearest 3D office (injected into AI prompts to prevent incorrect travel costs)
+      nearestOfficeDistance: state._nearestOfficeDistance ?? undefined,
+      nearestOfficeName: state._nearestOfficeName ?? undefined,
       wave0: null, wave1: null, wave1_5: null, wave1_75: null,
       wave2: null, wave2_25: null, wave2_5_fin: null, wave2_75: null,
       wave3: null, wave3_5: null, wave3_75: null,
