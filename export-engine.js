@@ -368,12 +368,15 @@ const SmartPlansExport = {
                 const result3D = FormulaEngine3D.computeBid(state, bom);
                 if (result3D?.grandTotalSELL > 1000) {
                     let val = this._round(result3D.grandTotalSELL);
-                    // Add deterministic Stage 6 travel on top
-                    if (stage6Travel > 0) {
+                    // Add Stage 6 travel ONLY if NOT calibrated
+                    // Calibrated total already includes travel (benchmark is the complete bid price)
+                    if (stage6Travel > 0 && !result3D._calibrated) {
                         val = this._round(val + stage6Travel);
                         console.log(`[Export] Added Stage 6 travel ($${stage6Travel.toLocaleString()}) to 3D Engine total`);
+                    } else if (result3D._calibrated) {
+                        console.log(`[Export] Skipping Stage 6 travel add — calibrated total already includes all costs`);
                     }
-                    console.log(`[Export] ✅ Grand total from 3D Formula Engine: $${val.toLocaleString()} (GM: ${result3D.grossMarginPct}%)`);
+                    console.log(`[Export] ✅ Grand total from 3D Formula Engine: $${val.toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED]' : ''}`);
                     // Store result for UI card rendering
                     state._engine3DResult = result3D;
                     return val;
