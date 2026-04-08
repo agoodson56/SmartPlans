@@ -145,6 +145,42 @@ const ScaleCalibration = {
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // PASS 1.5: OCR SCALE INGESTION (deterministic text-layer extraction)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Ingest OCR-extracted scale data from PDF text layer.
+   * This is the highest-confidence automated source (deterministic text, not AI guessing).
+   * @param {Array} ocrPages - [{ pageNum, sheetId, ftPerInch, scaleText, method, confidence }]
+   */
+  ingestOCRScale(ocrPages) {
+    if (!ocrPages || ocrPages.length === 0) return;
+
+    let ingested = 0;
+    for (const page of ocrPages) {
+      if (!page.ftPerInch || page.ftPerInch <= 0) continue;
+      const sid = page.sheetId || `page_${page.pageNum}`;
+      const s = this.getSheet(sid);
+
+      s.ocrScale = {
+        ftPerInch: page.ftPerInch,
+        scaleText: page.scaleText,
+        method: page.method,
+        confidence: page.confidence || 0.95,
+      };
+
+      // OCR is higher priority than AI (but lower than manual and consistent door)
+      // Resolve immediately
+      this._resolveScale(sid);
+      ingested++;
+    }
+
+    if (ingested > 0) {
+      console.log(`[ScaleCalibration] Ingested OCR scale data for ${ingested} sheets`);
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // PASS 2: DOOR-OPENING CALIBRATION
   // ═══════════════════════════════════════════════════════════════
 
@@ -297,11 +333,33 @@ const ScaleCalibration = {
     const s = this._sheets[sheetId];
     if (!s) return;
 
-    // Priority: manual > door (if AI disagrees) > AI > door
+    // Priority: manual > OCR > door (if multiple consistent) > AI > door (single)
     if (s.manualScale) {
       s.activeSource = 'manual';
       s.pixelsPerFoot = s.manualScale.pixelsPerFt;
       s.confidence = 1.0;
+    } else if (s.ocrScale?.ftPerInch > 0) {
+      // OCR from PDF text layer — deterministic, very high confidence
+      // Convert ftPerInch to pixelsPerFt using AI pixel calibration if available
+      s.activeSource = 'ocr';
+      if (s.aiScale?.pixelsPerFt > 0 && s.aiScale?.ftPerInch > 0) {
+        // Scale the AI's pixel calibration by the OCR/AI scale ratio
+        const scaleRatio = s.ocrScale.ftPerInch / s.aiScale.ftPerInch;
+        s.pixelsPerFoot = s.aiScale.pixelsPerFt / scaleRatio;
+      } else if (s.doorScale?.pixelsPerFt > 0) {
+        // Use door-derived pixel scale as base
+        s.pixelsPerFoot = s.doorScale.pixelsPerFt;
+      } else {
+        // No pixel reference — store ftPerInch for zone-level calculations
+        s.pixelsPerFoot = null;
+        s._ftPerInch = s.ocrScale.ftPerInch;
+      }
+      s.confidence = s.ocrScale.confidence || 0.95;
+    } else if (s.doorScale?.pixelsPerFt > 0 && s.doorScale.doorsConsistent >= 2) {
+      // Multiple consistent doors — high confidence
+      s.activeSource = 'door';
+      s.pixelsPerFoot = s.doorScale.pixelsPerFt;
+      s.confidence = this._computeConfidence(s);
     } else if (s.aiScale?.pixelsPerFt > 0) {
       s.activeSource = 'ai';
       s.pixelsPerFoot = s.aiScale.pixelsPerFt;
@@ -315,13 +373,20 @@ const ScaleCalibration = {
 
   _computeConfidence(s) {
     let c = 0;
-    if (s.aiScale) {
-      c += 0.4; // Explicit scale found
-      if (s.aiScale.method === 'graphic_bar') c += 0.3; // Graphic bar is high confidence
+    if (s.ocrScale) {
+      c += 0.7; // Deterministic OCR — very high base
+    } else if (s.aiScale) {
+      c += 0.4; // AI-estimated scale
+      if (s.aiScale.method === 'graphic_bar') c += 0.3;
       else if (s.aiScale.method === 'title_block') c += 0.2;
     }
     if (s.doorScale && s.doorScale.doorsConsistent >= 2) {
       c += 0.2; // Multiple consistent doors
+    }
+    // Agreement bonuses
+    if (s.ocrScale && s.aiScale && s.aiScale.ftPerInch > 0) {
+      const delta = Math.abs(s.ocrScale.ftPerInch - s.aiScale.ftPerInch) / s.ocrScale.ftPerInch;
+      if (delta < 0.10) c += 0.1; // OCR and AI agree closely
     }
     if (s.aiScale && s.doorScale && (!s.doorScale.aiDelta || s.doorScale.aiDelta < 0.15)) {
       c += 0.1; // AI and door agree
@@ -520,6 +585,11 @@ const ScaleCalibration = {
           doorsUsed: s.doorScale.doorsUsed,
           doorsConsistent: s.doorScale.doorsConsistent,
           warning: s.doorScale.warning || null,
+        } : null,
+        ocrScale: s.ocrScale ? {
+          ftPerInch: s.ocrScale.ftPerInch,
+          scaleText: s.ocrScale.scaleText,
+          method: s.ocrScale.method,
         } : null,
         manualScale: s.manualScale ? {
           distanceFt: s.manualScale.distanceFt,

@@ -111,14 +111,29 @@ const CableAnalyzer = {
     let assignments = [];
     let mode = 'fallback';
 
-    if (deviceLocator?.devices?.length > 0) {
+    // Check scale confidence — only use device-level mode if we have reliable scale data
+    const scaleConfidence = this._assessScaleConfidence(spatial);
+
+    if (deviceLocator?.devices?.length > 0 && scaleConfidence >= 0.5) {
       // ── DEVICE-LEVEL MODE: per-device positions from DEVICE_LOCATOR ──
+      // Only use when scale confidence is sufficient (OCR, title block, or 2+ consistent doors)
       mode = 'device-level';
       assignments = this._assignFromDeviceLocator(deviceLocator.devices, idfMap, sheetDims, bldgW, bldgD, cfg, wasteMult);
+      console.log(`[CableAnalyzer] Using device-level mode (scale confidence: ${(scaleConfidence * 100).toFixed(0)}%)`);
     } else if (cablePathway?.horizontal_cables?.length > 0) {
       // ── ZONE-LEVEL MODE: fall back to CABLE_PATHWAY zone data ──
+      // Used when device positions exist but scale is unreliable, or no device positions
       mode = 'zone-level';
+      if (deviceLocator?.devices?.length > 0 && scaleConfidence < 0.5) {
+        console.warn(`[CableAnalyzer] Device positions available but scale confidence too low (${(scaleConfidence * 100).toFixed(0)}%) — falling back to zone-level`);
+      }
       assignments = this._assignFromZones(cablePathway, idfMap, sheetDims, bldgW, bldgD, cfg, wasteMult);
+    } else if (deviceLocator?.devices?.length > 0) {
+      // ── DEVICE-LEVEL FALLBACK: use device positions even with low scale confidence ──
+      // Better than nothing when no zone data available
+      mode = 'device-level-low-confidence';
+      console.warn(`[CableAnalyzer] No zone data available — using device-level with low-confidence scale (${(scaleConfidence * 100).toFixed(0)}%)`);
+      assignments = this._assignFromDeviceLocator(deviceLocator.devices, idfMap, sheetDims, bldgW, bldgD, cfg, wasteMult);
     }
 
     if (assignments.length === 0) return null;
@@ -318,6 +333,52 @@ const CableAnalyzer = {
     });
 
     return assignments;
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // HELPER: Assess overall scale confidence across sheets
+  // ═══════════════════════════════════════════════════════════════
+  _assessScaleConfidence(spatial) {
+    // Check ScaleCalibration module first (most accurate source)
+    if (typeof ScaleCalibration !== 'undefined') {
+      const sheets = ScaleCalibration._sheets || {};
+      const sheetEntries = Object.values(sheets);
+      if (sheetEntries.length > 0) {
+        const withScale = sheetEntries.filter(s => s.pixelsPerFoot > 0 || s._ftPerInch > 0);
+        const avgConfidence = sheetEntries.reduce((sum, s) => sum + (s.confidence || 0), 0) / sheetEntries.length;
+
+        // High confidence if OCR or manual source exists on any sheet
+        const hasOCR = sheetEntries.some(s => s.activeSource === 'ocr' || s.activeSource === 'manual');
+        if (hasOCR) return Math.max(avgConfidence, 0.85);
+
+        // Good confidence if consistent door calibration exists
+        const hasDoor = sheetEntries.some(s => s.activeSource === 'door' && s.doorScale?.doorsConsistent >= 2);
+        if (hasDoor) return Math.max(avgConfidence, 0.70);
+
+        return avgConfidence;
+      }
+    }
+
+    // Fall back to checking SPATIAL_LAYOUT results
+    const sheets = spatial?.sheets || [];
+    if (sheets.length === 0) return 0;
+
+    let totalConf = 0;
+    for (const sheet of sheets) {
+      const method = sheet.scale?.scale_method || 'unable';
+      const conf = sheet.scale?.confidence || 'low';
+      const isOCR = sheet.scale?._ocr_override || sheet.scale?._ocr_generated || method.includes('ocr');
+
+      if (isOCR) totalConf += 0.95;
+      else if (method === 'title_block' && conf === 'high') totalConf += 0.80;
+      else if (method === 'scale_bar') totalConf += 0.85;
+      else if (method === 'dimension_line') totalConf += 0.70;
+      else if (method === 'door_reference') totalConf += 0.55;
+      else if (method === 'unable') totalConf += 0.10;
+      else totalConf += 0.30;
+    }
+
+    return totalConf / sheets.length;
   },
 
   // ═══════════════════════════════════════════════════════════════

@@ -294,6 +294,18 @@ const SmartBrains = {
               } catch (e) { console.warn(`[SmartBrains] PDF text extraction failed for ${entry.name}:`, e.message); }
             }
 
+            // OCR Scale extraction for plan PDFs — deterministic scale from text layer
+            if (finalMime === 'application/pdf' && category === 'plans' && typeof pdfjsLib !== 'undefined') {
+              try {
+                progressCallback(null, `Extracting scale data from ${entry.name}…`, null);
+                const scaleData = await this._extractScaleFromPDF(entry.rawFile);
+                if (scaleData.pagesWithScale > 0) {
+                  fileData._ocrScaleData = scaleData;
+                  console.log(`[SmartBrains] OCR Scale: Found scale on ${scaleData.pagesWithScale}/${scaleData.totalPages} pages of ${entry.name}`);
+                }
+              } catch (e) { console.warn(`[SmartBrains] OCR Scale extraction failed for ${entry.name}:`, e.message); }
+            }
+
             encoded[category].push(fileData);
           }
         } catch (err) {
@@ -399,6 +411,222 @@ const SmartBrains = {
       reader.onerror = () => reject(new Error('File read failed'));
       reader.readAsDataURL(file);
     });
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // OCR SCALE EXTRACTION — Extract scale text from PDF text layer
+  // Uses pdf.js getTextContent() for reliable deterministic extraction
+  // Falls back to canvas-based text region analysis
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Extract scale information from every page of a PDF using the embedded text layer.
+   * This is deterministic — no AI guessing. Returns per-page scale data.
+   * @param {File} rawFile - The PDF file
+   * @returns {Object} { pages: [{ pageNum, scaleText, ftPerInch, method, confidence }] }
+   */
+  async _extractScaleFromPDF(rawFile) {
+    if (typeof pdfjsLib === 'undefined') return { pages: [] };
+
+    try {
+      const arrayBuffer = await rawFile.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const totalPages = pdf.numPages;
+      const pages = [];
+
+      // Common scale patterns in construction drawings
+      const scalePatterns = [
+        // "1/8" = 1'-0"" or "1/8"=1'-0""
+        { regex: /(\d+\/\d+)\s*["″]\s*=\s*(\d+)\s*['′]\s*-?\s*(\d+)?\s*["″]?/i, parse: (m) => {
+          const [num, den] = m[1].split('/').map(Number);
+          const feet = parseInt(m[2]) + (parseInt(m[3] || 0) / 12);
+          return { ftPerInch: feet / (num / den), text: m[0] };
+        }},
+        // "1/4" = 1'-0"" variant with quotes
+        { regex: /(\d+\/\d+)\s*(?:"|''|″|inch)\s*=\s*(\d+)\s*(?:'|'|′|ft|foot|feet)/i, parse: (m) => {
+          const [num, den] = m[1].split('/').map(Number);
+          const feet = parseInt(m[2]);
+          return { ftPerInch: feet / (num / den), text: m[0] };
+        }},
+        // "SCALE: 1:96" or "1:48" (architectural ratio)
+        { regex: /(?:SCALE\s*[:=]\s*)?1\s*:\s*(\d+)/i, parse: (m) => {
+          const ratio = parseInt(m[1]);
+          // Architectural: 1:96 means 1 inch = 96 inches = 8 ft
+          return { ftPerInch: ratio / 12, text: m[0] };
+        }},
+        // "SCALE: 1/8" = 1'" shorthand
+        { regex: /SCALE\s*[:=]?\s*(\d+\/\d+)\s*["″]?\s*=\s*(\d+)\s*['′]/i, parse: (m) => {
+          const [num, den] = m[1].split('/').map(Number);
+          const feet = parseInt(m[2]);
+          return { ftPerInch: feet / (num / den), text: m[0] };
+        }},
+        // "3/32" = 1'-0""
+        { regex: /(\d+\/\d+)\s*["″]?\s*=\s*1\s*['′]\s*-?\s*0\s*["″]?/i, parse: (m) => {
+          const [num, den] = m[1].split('/').map(Number);
+          return { ftPerInch: 1 / (num / den), text: m[0] };
+        }},
+        // "1" = 10'" or "1"=20'" (engineer's scale)
+        { regex: /1\s*["″]\s*=\s*(\d+)\s*['′]/i, parse: (m) => {
+          return { ftPerInch: parseInt(m[1]), text: m[0] };
+        }},
+        // "SCALE: 1/4 INCH = 1 FOOT"
+        { regex: /(\d+\/\d+)\s*(?:INCH|IN)\s*=\s*(\d+)\s*(?:FOOT|FT|FEET)/i, parse: (m) => {
+          const [num, den] = m[1].split('/').map(Number);
+          const feet = parseInt(m[2]);
+          return { ftPerInch: feet / (num / den), text: m[0] };
+        }},
+        // "HALF INCH SCALE" / "QUARTER INCH SCALE"
+        { regex: /(?:HALF|1\/2)\s*(?:INCH)?\s*SCALE/i, parse: (m) => {
+          return { ftPerInch: 2, text: m[0] };
+        }},
+        { regex: /(?:QUARTER|1\/4)\s*(?:INCH)?\s*SCALE/i, parse: (m) => {
+          return { ftPerInch: 4, text: m[0] };
+        }},
+        { regex: /(?:EIGHTH|1\/8)\s*(?:INCH)?\s*SCALE/i, parse: (m) => {
+          return { ftPerInch: 8, text: m[0] };
+        }},
+      ];
+
+      // NTS (Not To Scale) patterns
+      const ntsPatterns = [
+        /\bN\.?T\.?S\.?\b/i,
+        /NOT\s+TO\s+SCALE/i,
+        /NO\s+SCALE/i,
+      ];
+
+      // Sheet ID patterns (to identify which sheet we're on)
+      const sheetIdPatterns = [
+        /\b([A-Z]\d+[.\-]\d+[a-zA-Z]?)\b/,           // E1.01, T2.01, A-101
+        /\b(SHEET\s*#?\s*\d+)\b/i,                      // Sheet 1, Sheet #3
+        /\b([A-Z]{1,3}\d{3,4})\b/,                      // E101, T201
+      ];
+
+      for (let p = 1; p <= totalPages; p++) {
+        try {
+          const page = await pdf.getPage(p);
+          const content = await page.getTextContent();
+          const viewport = page.getViewport({ scale: 1.0 });
+
+          // Get ALL text items with their positions
+          const textItems = content.items.map(item => ({
+            str: item.str,
+            x: item.transform[4],
+            y: item.transform[5],
+            width: item.width,
+            height: item.height || Math.abs(item.transform[3]),
+          }));
+
+          // Combine all text for pattern matching
+          const fullText = textItems.map(t => t.str).join(' ');
+
+          // Also look specifically at the title block area (bottom 20% of page, right 40%)
+          const pageH = viewport.height;
+          const pageW = viewport.width;
+          const titleBlockItems = textItems.filter(t =>
+            t.y < pageH * 0.25 && t.x > pageW * 0.55
+          );
+          const titleBlockText = titleBlockItems.map(t => t.str).join(' ');
+
+          // Also check bottom strip (many title blocks are at very bottom)
+          const bottomStripItems = textItems.filter(t => t.y < pageH * 0.15);
+          const bottomStripText = bottomStripItems.map(t => t.str).join(' ');
+
+          // Combine title block candidates (most likely to contain scale)
+          const candidateTexts = [titleBlockText, bottomStripText, fullText];
+
+          let found = false;
+          let pageResult = { pageNum: p, scaleText: null, ftPerInch: null, method: 'unable', confidence: 0, sheetId: null };
+
+          // Try to extract sheet ID
+          for (const text of candidateTexts) {
+            for (const pat of sheetIdPatterns) {
+              const match = text.match(pat);
+              if (match) {
+                pageResult.sheetId = match[1];
+                break;
+              }
+            }
+            if (pageResult.sheetId) break;
+          }
+          if (!pageResult.sheetId) pageResult.sheetId = `page_${p}`;
+
+          // Check for NTS first
+          for (const text of candidateTexts) {
+            for (const ntsPat of ntsPatterns) {
+              if (ntsPat.test(text)) {
+                pageResult.method = 'nts';
+                pageResult.confidence = 0.95;
+                pageResult.scaleText = 'NOT TO SCALE';
+                found = true;
+                break;
+              }
+            }
+            if (found) break;
+          }
+
+          // Try scale patterns (title block first, then full page)
+          if (!found) {
+            for (let ci = 0; ci < candidateTexts.length && !found; ci++) {
+              const text = candidateTexts[ci];
+              for (const sp of scalePatterns) {
+                const match = text.match(sp.regex);
+                if (match) {
+                  try {
+                    const result = sp.parse(match);
+                    if (result.ftPerInch > 0 && result.ftPerInch < 200) { // Sanity check
+                      pageResult.ftPerInch = Math.round(result.ftPerInch * 1000) / 1000;
+                      pageResult.scaleText = result.text.trim();
+                      pageResult.method = ci < 2 ? 'title_block_ocr' : 'page_text_ocr';
+                      pageResult.confidence = ci === 0 ? 0.98 : (ci === 1 ? 0.95 : 0.85);
+                      found = true;
+                      break;
+                    }
+                  } catch (e) { /* pattern parse failed, try next */ }
+                }
+              }
+            }
+          }
+
+          // Try to find dimension text for fallback scale inference
+          if (!found) {
+            // Look for dimension strings like "30'-0"" near dimension lines
+            const dimPattern = /(\d{1,3})\s*['′]\s*-?\s*(\d{1,2})\s*["″]?/g;
+            let dimMatch;
+            const dimensions = [];
+            while ((dimMatch = dimPattern.exec(fullText)) !== null) {
+              const ft = parseInt(dimMatch[1]) + parseInt(dimMatch[2] || 0) / 12;
+              if (ft >= 5 && ft <= 500) dimensions.push(ft);
+            }
+            if (dimensions.length >= 2) {
+              // Can't compute exact scale without pixel measurement, but flag that dimensions exist
+              pageResult.method = 'dimensions_found';
+              pageResult.confidence = 0.3;
+              pageResult.scaleText = `${dimensions.length} dimension annotations found (${dimensions.slice(0, 3).map(d => d + "'").join(', ')})`;
+              pageResult._dimensions = dimensions;
+            }
+          }
+
+          pages.push(pageResult);
+
+          if (found && pageResult.ftPerInch) {
+            console.log(`[OCR Scale] Page ${p} (${pageResult.sheetId}): ${pageResult.scaleText} → ${pageResult.ftPerInch} ft/inch [${pageResult.method}, conf=${pageResult.confidence}]`);
+          }
+        } catch (e) {
+          console.warn(`[OCR Scale] Failed to extract text from page ${p}:`, e.message);
+          pages.push({ pageNum: p, scaleText: null, ftPerInch: null, method: 'error', confidence: 0, sheetId: `page_${p}` });
+        }
+      }
+
+      pdf.destroy();
+
+      const found = pages.filter(p => p.ftPerInch > 0);
+      console.log(`[OCR Scale] Extracted scale from ${found.length}/${totalPages} pages deterministically`);
+
+      return { pages, totalPages, pagesWithScale: found.length };
+    } catch (err) {
+      console.warn(`[OCR Scale] PDF scale extraction failed:`, err.message);
+      return { pages: [], totalPages: 0, pagesWithScale: 0 };
+    }
   },
 
   // Split a large PDF into smaller chunk files using PDF.js
@@ -1300,6 +1528,15 @@ DISCIPLINES: ${(context.disciplines || []).join(', ')}
 SPATIAL LAYOUT DATA (from floor plan analysis — use this to calculate zone-based run lengths):
 ${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 10000)}
 
+═══ OCR-EXTRACTED SCALE DATA (DETERMINISTIC — highest confidence) ═══
+${(() => {
+  const ocrData = context._ocrScaleData || [];
+  const withScale = ocrData.filter(p => p.ftPerInch > 0);
+  if (withScale.length === 0) return 'No OCR scale data available — use SPATIAL_LAYOUT scales above.';
+  return 'These scales were extracted from the PDF text layer (not AI-estimated). USE THESE for distance calculations:\n' +
+    withScale.map(p => '  Page ' + p.pageNum + ' (' + p.sheetId + '): ' + p.ftPerInch + ' ft/inch (' + p.scaleText + ')').join('\n');
+})()}
+
 BUILDING HEIGHTS: Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
 
 YOUR MISSION: Analyze ALL cable pathways, conduit (every type and size), cable tray, underground routes, and estimate cable/conduit quantities WITH PER-ZONE RUN LENGTHS.
@@ -1307,6 +1544,7 @@ YOUR MISSION: Analyze ALL cable pathways, conduit (every type and size), cable t
 ═══ CABLE RUN LENGTH CALCULATION — CRITICAL ═══
 For each cable type, break the run estimate down by ZONE (floor area served by one IDF):
 - Use the Spatial Layout data above — it includes PER-SHEET scale and dimensions
+- Use OCR scale data when available (it is more reliable than AI-estimated scale)
 - Each zone has a "sheet_id" linking it to the correct sheet's scale and dimensions
 - For each zone, calculate: horizontal distance from zone centroid to IDF + ceiling height + 15ft slack
 - Manhattan distance formula: |zone_x - IDF_x| + |zone_y - IDF_y| (in feet, using that sheet's dimensions)
@@ -2962,11 +3200,23 @@ Return ONLY valid JSON:
 
 PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 
+═══ PRE-EXTRACTED SCALE DATA (from PDF text layer — HIGH CONFIDENCE) ═══
+The following scale notations were extracted deterministically from the PDF text layer.
+These are AUTHORITATIVE — use them as ground truth. Only override if you can visually confirm a different scale.
+${(() => {
+  const ocrData = context._ocrScaleData || [];
+  const withScale = ocrData.filter(p => p.ftPerInch > 0);
+  if (withScale.length === 0) return 'No scale text found in PDF text layer — you must detect scale visually.';
+  return withScale.map(p =>
+    '  Page ' + p.pageNum + ' (' + p.sheetId + '): ' + p.scaleText + ' → ' + p.ftPerInch + ' ft/inch [' + p.method + ', confidence=' + p.confidence + ']'
+  ).join('\n');
+})()}
+
 ═══ CRITICAL: PER-SHEET SCALE DETECTION ═══
 Different sheets in a plan set often use DIFFERENT SCALES. A warehouse floor plan might be 1/16"=1'-0" while an office detail is 1/4"=1'-0". You MUST determine the scale for EACH SHEET independently.
 
 YOUR MISSION — For each floor plan sheet:
-1. FIND THE SCALE — check these sources IN ORDER:
+1. FIND THE SCALE — check these sources IN ORDER (OCR data above is PRIORITY 0):
    a. Title block scale notation (e.g., "SCALE: 1/8" = 1'-0"" or "1:96")
    b. Scale bar graphic (measure labeled increments)
    c. Dimension lines on the drawing (if a dimension reads "30'-0"" between two walls, use that to calibrate)
@@ -4728,6 +4978,19 @@ ${legendContext}
       wave3: null, wave3_5: null, wave3_75: null,
     };
 
+    // ═══ PRE-WAVE: Collect OCR scale data extracted during file encoding ═══
+    const ocrScalePages = [];
+    for (const planFile of encodedFiles.plans || []) {
+      if (planFile._ocrScaleData?.pages) {
+        ocrScalePages.push(...planFile._ocrScaleData.pages);
+      }
+    }
+    if (ocrScalePages.length > 0) {
+      context._ocrScaleData = ocrScalePages;
+      const withScale = ocrScalePages.filter(p => p.ftPerInch > 0);
+      console.log(`[SmartBrains] OCR Scale: ${withScale.length}/${ocrScalePages.length} pages have deterministic scale data`);
+    }
+
     // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) — NON-FATAL ═══
     progressCallback(5, '📖 Wave 0: Decoding legend + mapping spatial layout…', this._brainStatus);
     let wave0Results = {};
@@ -4740,6 +5003,74 @@ ${legendContext}
       this._brainStatus['SPATIAL_LAYOUT'] = { status: 'failed', progress: 0, result: null, error: wave0Err.message };
       wave0Results = { LEGEND_DECODER: { _failed: true, _error: wave0Err.message }, SPATIAL_LAYOUT: { _failed: true, _error: wave0Err.message } };
     }
+
+    // ═══ POST-WAVE 0: Merge OCR scale data into SPATIAL_LAYOUT results ═══
+    if (ocrScalePages.length > 0 && wave0Results.SPATIAL_LAYOUT?.sheets) {
+      let ocrOverrides = 0;
+      for (const ocrPage of ocrScalePages) {
+        if (!ocrPage.ftPerInch || ocrPage.ftPerInch <= 0) continue;
+
+        // Find matching sheet in SPATIAL_LAYOUT by sheet_id or page number
+        let matched = wave0Results.SPATIAL_LAYOUT.sheets.find(s =>
+          s.sheet_id === ocrPage.sheetId ||
+          s.sheet_id?.replace(/[\s.-]/g, '') === ocrPage.sheetId?.replace(/[\s.-]/g, '')
+        );
+
+        // If no match by ID, try by page index
+        if (!matched && ocrPage.pageNum <= wave0Results.SPATIAL_LAYOUT.sheets.length) {
+          matched = wave0Results.SPATIAL_LAYOUT.sheets[ocrPage.pageNum - 1];
+        }
+
+        if (matched) {
+          const aiMethod = matched.scale?.scale_method || 'unable';
+          const aiConf = matched.scale?.confidence || 'low';
+
+          // OCR override conditions:
+          // 1. AI has no scale or low confidence
+          // 2. AI and OCR disagree by >15% (trust OCR — it's deterministic)
+          const shouldOverride =
+            aiMethod === 'unable' || aiMethod === 'door_reference' ||
+            aiConf === 'low' ||
+            !matched.scale?.ft_per_inch ||
+            (matched.scale?.ft_per_inch > 0 && Math.abs(matched.scale.ft_per_inch - ocrPage.ftPerInch) / ocrPage.ftPerInch > 0.15);
+
+          if (shouldOverride) {
+            const prevScale = matched.scale?.ft_per_inch || 'none';
+            matched.scale = matched.scale || {};
+            matched.scale.ft_per_inch = ocrPage.ftPerInch;
+            matched.scale.scale_method = ocrPage.method;
+            matched.scale.confidence = 'high';
+            matched.scale.labeled = ocrPage.scaleText;
+            matched.scale._ocr_override = true;
+            matched.scale._previous_ai_scale = prevScale;
+            ocrOverrides++;
+            console.log(`[OCR Scale Override] Sheet ${matched.sheet_id}: AI scale ${prevScale} → OCR scale ${ocrPage.ftPerInch} ft/inch (${ocrPage.scaleText})`);
+          }
+        }
+      }
+      if (ocrOverrides > 0) {
+        console.log(`[SmartBrains] OCR Scale overrode AI on ${ocrOverrides} sheets — deterministic text layer takes priority`);
+      }
+    } else if (ocrScalePages.length > 0 && !wave0Results.SPATIAL_LAYOUT?.sheets) {
+      // SPATIAL_LAYOUT failed or returned no sheets — build minimal sheet data from OCR
+      wave0Results.SPATIAL_LAYOUT = wave0Results.SPATIAL_LAYOUT || {};
+      wave0Results.SPATIAL_LAYOUT.sheets = ocrScalePages.filter(p => p.ftPerInch > 0).map(p => ({
+        sheet_id: p.sheetId,
+        sheet_name: `Page ${p.pageNum}`,
+        scale: {
+          labeled: p.scaleText,
+          scale_method: p.method,
+          confidence: 'high',
+          ft_per_inch: p.ftPerInch,
+          _ocr_generated: true,
+        },
+        sheet_area_width_ft: 0,
+        sheet_area_depth_ft: 0,
+        notes: 'Generated from OCR scale extraction — AI spatial layout unavailable',
+      }));
+      console.log(`[SmartBrains] Built ${wave0Results.SPATIAL_LAYOUT.sheets.length} sheets from OCR scale data (SPATIAL_LAYOUT was empty)`);
+    }
+
     context.wave0 = wave0Results;
 
     // ═══ WAVE 1: First Read — Document Intelligence (8 parallel brains) ═══
@@ -5076,6 +5407,7 @@ ${legendContext}
 
     return {
       report: finalReport,
+      _ocrScaleData: ocrScalePages.length > 0 ? ocrScalePages : undefined,
       brainResults: {
         wave0: wave0Results, wave1: wave1Results, wave1_5: wave15Results,
         wave1_75: wave175Results, wave2: wave2Results, wave2_25: wave225Results,

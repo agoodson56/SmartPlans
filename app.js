@@ -8455,6 +8455,13 @@ async function runGeminiAnalysis(updateProgress) {
       }
       // ── Scale Calibration: Ingest spatial layout for per-sheet scale data ──
       if (typeof ScaleCalibration !== 'undefined') {
+        // Pass 0: OCR scale data (highest confidence — deterministic from PDF text layer)
+        const ocrScaleData = result._ocrScaleData || result.brainResults?._ocrScaleData;
+        if (ocrScaleData && Array.isArray(ocrScaleData)) {
+          ScaleCalibration.ingestOCRScale(ocrScaleData);
+          console.log(`[ScaleCalibration] OCR scale data ingested for ${ocrScaleData.filter(p => p.ftPerInch > 0).length} pages`);
+        }
+        // Pass 1: AI spatial layout
         const spatialData = result.brainResults?.wave0?.SPATIAL_LAYOUT;
         if (spatialData) ScaleCalibration.ingestSpatialLayout(spatialData);
         const deviceData = result.brainResults?.wave1?.DEVICE_LOCATOR;
