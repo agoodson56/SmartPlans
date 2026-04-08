@@ -4312,13 +4312,22 @@ Return ONLY valid JSON:
       context._missingDisciplines = missingDisciplines;
     }
     // ═══ POST-PRICER: Code-enforced price guardrails based on ACTUAL 3D purchase costs ═══
-    // From real winning bids: Marysville, San Joaquin Juvenile, Lovelock
+    // Commercial: from Marysville, San Joaquin Juvenile, Lovelock winning bids
+    // Transit: higher costs for IK10 vandal-rated, stainless steel, railroad-grade equipment
+    const _isTransit = state.isTransitRailroad || false;
     const _pricer = wave2Results.MATERIAL_PRICER;
     if (_pricer && (_pricer.categories || _pricer.material_categories)) {
       const _pCats = _pricer.categories || _pricer.material_categories || [];
-      // MAX prices = 3D's actual cost × 1.5 buffer (AI should not exceed this)
-      const _maxCosts = {
-        'camera': 2500, 'dome': 2000, 'bullet': 1500, 'ptz': 2000,
+      // MAX prices differ by project type — transit cameras cost 2-3x more than commercial
+      const _maxCosts = _isTransit ? {
+        'camera': 4500, 'dome': 3500, 'bullet': 2500, 'ptz': 4000,
+        'fisheye': 3500, 'panoram': 3500, 'multi-sensor': 4500, 'multi-lens': 4500,
+        'nvr': 18000, 'server': 18000, 'switch': 6000, 'reader': 800,
+        'panel': 4000, 'controller': 4000, 'ups': 9000, 'patch panel': 800,
+        'jack': 50, 'faceplate': 25, 'cable': 1500,
+      } : {
+        // Commercial: based on actual 3D purchase costs × 1.5 buffer
+        'camera': 2500, 'dome': 2000, 'bullet': 1500, 'ptz': 2500,
         'fisheye': 1600, 'panoram': 1600, 'multi-sensor': 2000, 'multi-lens': 2000,
         'nvr': 16500, 'server': 16500, 'switch': 5000, 'reader': 500,
         'panel': 3000, 'controller': 3000, 'ups': 5000, 'patch panel': 700,
