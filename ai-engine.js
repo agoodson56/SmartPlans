@@ -179,6 +179,10 @@ const SmartBrains = {
 
     let totalFiles = 0;
     let processedFiles = 0;
+    // FIX #11: Pin ALL uploads to the same API key to prevent cross-project PERMISSION_DENIED 403s.
+    // Gemini File API files are project-scoped — a file uploaded with Key A (Project 1) returns 403
+    // when accessed by Key B (Project 2). The first successful upload determines the key for all others.
+    let pinnedUploadKey = null;
     for (const files of Object.values(fileGroups)) totalFiles += files.filter(f => f.rawFile).length;
 
     for (const [category, files] of Object.entries(fileGroups)) {
@@ -243,7 +247,7 @@ const SmartBrains = {
                     };
 
                     try {
-                      const uploadResult = await this._uploadToFileAPI(chunk, chunkMime, chunkName);
+                      const uploadResult = await this._uploadToFileAPI(chunk, chunkMime, chunkName, pinnedUploadKey);
                       if (uploadResult && uploadResult.fileUri) {
                         let cleanUri = uploadResult.fileUri;
                         const proxyMatch = cleanUri.match(/___(\s*https?:\/\/[^_]+)___/);
@@ -251,6 +255,11 @@ const SmartBrains = {
                         chunkData.fileUri = cleanUri;
                         chunkData.uploadedName = uploadResult.name;
                         chunkData._usedKeyName = uploadResult._usedKeyName;
+                        // Pin all subsequent uploads to same key (same GCP project)
+                        if (!pinnedUploadKey && uploadResult._usedKeyName) {
+                          pinnedUploadKey = uploadResult._usedKeyName;
+                          console.log(`[SmartBrains] 📌 Pinned all uploads to key: ${pinnedUploadKey}`);
+                        }
                         console.log(`[SmartBrains] ✓ Uploaded chunk ${chunkIdx}/${chunks.length}: ${chunkName} → ${cleanUri}`);
                       } else {
                         // Fallback: send chunk as inline base64
@@ -282,7 +291,7 @@ const SmartBrains = {
               console.log(`[SmartBrains] Uploading ${entry.name} (${fileSizeMB} MB) via File API…`);
 
               try {
-                const uploadResult = await this._uploadToFileAPI(entry.rawFile, finalMime, entry.name);
+                const uploadResult = await this._uploadToFileAPI(entry.rawFile, finalMime, entry.name, pinnedUploadKey);
                 if (uploadResult && uploadResult.fileUri) {
                   let cleanUri = uploadResult.fileUri;
                   const proxyMatch = cleanUri.match(/___(\s*https?:\/\/[^_]+)___/);
@@ -293,6 +302,11 @@ const SmartBrains = {
                   fileData.fileUri = cleanUri;
                   fileData.uploadedName = uploadResult.name;
                   fileData._usedKeyName = uploadResult._usedKeyName;
+                  // Pin all subsequent uploads to same key (same GCP project)
+                  if (!pinnedUploadKey && uploadResult._usedKeyName) {
+                    pinnedUploadKey = uploadResult._usedKeyName;
+                    console.log(`[SmartBrains] 📌 Pinned all uploads to key: ${pinnedUploadKey}`);
+                  }
                   console.log(`[SmartBrains] ✓ Uploaded ${entry.name} → ${cleanUri} (key: ${uploadResult._usedKeyName})`);
                 } else {
                   console.warn(`[SmartBrains] File API upload returned no URI, falling back to inline for ${entry.name}`);
@@ -378,7 +392,7 @@ const SmartBrains = {
   // Upload file to Gemini File API via server-side proxy
   // FIX: Server expects multipart/form-data (request.formData()), NOT JSON with base64.
   // Sending the raw File object avoids the ~33% base64 overhead for large PDFs.
-  async _uploadToFileAPI(rawFile, mimeType, fileName) {
+  async _uploadToFileAPI(rawFile, mimeType, fileName, preferredKey) {
     // FIX #14: Add retry logic to uploads (3 attempts with exponential backoff)
     const MAX_UPLOAD_RETRIES = 3;
     let result = null;
@@ -388,6 +402,8 @@ const SmartBrains = {
       try {
         const formData = new FormData();
         formData.append('file', rawFile, fileName);
+        // FIX #11: Pin all uploads to the same API key to avoid cross-project 403s
+        if (preferredKey) formData.append('preferredKey', preferredKey);
 
         result = await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();

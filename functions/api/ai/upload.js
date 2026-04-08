@@ -64,14 +64,26 @@ export async function onRequestPost(context) {
 
         let apiKey = null;
         let usedKeyName = null;
-        // FIX #1: Rotate upload key using hash of filename + timestamp
-        // Prevents all uploads from pinning to the same first key
-        const rotationSeed = Array.from(fileName).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
-        const startIdx = Math.abs(rotationSeed) % keyNames.length;
-        for (let i = 0; i < keyNames.length; i++) {
-            const idx = (startIdx + i) % keyNames.length;
-            const key = env[keyNames[idx]];
-            if (key) { apiKey = key; usedKeyName = keyNames[idx]; break; }
+
+        // FIX #11: Accept preferredKey from client to pin ALL uploads to the same API key.
+        // Without this, each chunk filename hashes to a different key, potentially across
+        // different GCP projects — causing PERMISSION_DENIED when brains/cache access files.
+        // SECURITY: Validate against whitelist — client-supplied name must be a known key.
+        const validKeyNames = new Set(keyNames);
+        const preferredKey = formData.get('preferredKey');
+        if (preferredKey && validKeyNames.has(preferredKey) && env[preferredKey]) {
+            apiKey = env[preferredKey];
+            usedKeyName = preferredKey;
+            console.log(`[Upload] Pinned to preferred key: ${preferredKey}`);
+        } else {
+            // Fallback: Rotate using hash of filename (original behavior)
+            const rotationSeed = Array.from(fileName).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+            const startIdx = Math.abs(rotationSeed) % keyNames.length;
+            for (let i = 0; i < keyNames.length; i++) {
+                const idx = (startIdx + i) % keyNames.length;
+                const key = env[keyNames[idx]];
+                if (key) { apiKey = key; usedKeyName = keyNames[idx]; break; }
+            }
         }
 
         if (!apiKey) {
