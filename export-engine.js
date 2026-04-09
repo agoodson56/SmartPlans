@@ -427,7 +427,11 @@ const SmartPlansExport = {
             travel = this._round(computeTravelIncidentals().grandTotal || 0);
         }
 
-        let subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
+        // Bonds: 2% of sell price (matches FormulaEngine3D.bondsPct)
+        const bondsPct = 0.02;
+        const preBondSubtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
+        const bonds = this._round(preBondSubtotal * bondsPct);
+        let subtotal = this._round(preBondSubtotal + bonds);
         let contingency = this._round(subtotal * contingencyPct);
         let grandTotal = this._round(subtotal + contingency);
 
@@ -446,7 +450,7 @@ const SmartPlansExport = {
             matPct, labPct, eqPct, subPct,
             matSell, labSell, eqSell, subSell,
             burden, burdenRate: includeBurden ? burdenRate : 0,
-            travel, subtotal, contingency, contingencyPct, grandTotal
+            travel, bonds, bondsPct, subtotal, contingency, contingencyPct, grandTotal
         };
     },
 
@@ -493,10 +497,13 @@ const SmartPlansExport = {
         if (finEngine?.project_summary?.grand_total > 1000) {
             let val = this._round(finEngine.project_summary.grand_total);
             // Replace AI-computed travel with deterministic Stage 6 travel
+            // Also recalculate contingency portion (10% of the delta) so total stays consistent
             if (stage6Travel > 0) {
                 const aiTravel = this._round(finEngine.project_summary.total_travel || 0);
-                val = this._round(val - aiTravel + stage6Travel);
-                console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()})`);
+                const travelDelta = stage6Travel - aiTravel;
+                const contingencyAdj = this._round(travelDelta * 0.10); // 10% contingency on travel change
+                val = this._round(val + travelDelta + contingencyAdj);
+                console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()}) [delta: $${travelDelta.toLocaleString()}, contingency adj: $${contingencyAdj.toLocaleString()}]`);
             }
             console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
             return val;

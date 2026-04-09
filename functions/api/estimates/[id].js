@@ -155,7 +155,8 @@ export async function onRequestDelete(context) {
         const est = await env.DB.prepare('SELECT created_by FROM estimates WHERE id = ?').bind(params.id).first();
         if (!est) return Response.json({ error: 'Estimate not found' }, { status: 404 });
 
-        if (est.created_by && user?.id !== est.created_by && !user?.is_admin) {
+        // Permission check: must be creator or admin (NULL created_by = legacy estimate, require admin)
+        if (!user?.is_admin && (!est.created_by || user?.id !== est.created_by)) {
             return Response.json({ error: 'Only the creator or an admin can delete this estimate' }, { status: 403 });
         }
 

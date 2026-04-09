@@ -190,6 +190,10 @@ const CableAnalyzer = {
       }
     }
 
+    // Recalculate totals AFTER TIA violation fixes — original values included over-limit distances
+    const correctedTotalFt  = assignments.reduce((s, a) => s + a.totalFtWithWaste, 0);
+    const correctedTotalCost = assignments.reduce((s, a) => s + a.totalCost, 0);
+
     // Pathway materials estimate
     const totalHorizontalFt = assignments.reduce((s, a) => s + (a.horizontal || 0) * a.qty, 0);
     const pathwayMaterials = {
@@ -202,7 +206,7 @@ const CableAnalyzer = {
       byIdf,
       byFloor,
       byCableType,
-      totals: { totalDevices, totalFt, totalCost, avgRunFt, maxRunFt, minRunFt, tiaViolationCount: tiaViolations.length },
+      totals: { totalDevices, totalFt: correctedTotalFt, totalCost: correctedTotalCost, avgRunFt, maxRunFt, minRunFt, tiaViolationCount: tiaViolations.length },
       tiaViolations,
       pathwayMaterials,
       config: cfg,

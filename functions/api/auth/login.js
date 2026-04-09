@@ -31,7 +31,10 @@ async function isRateLimited(db, ip, increment) {
             ).bind(key, now + RATE_LIMIT_WINDOW_SEC).run();
         }
         return false;
-    } catch { return false; } // Fail-open: DB issues should not lock out legitimate users
+    } catch (err) {
+        console.error('[Login] Rate limit check failed — failing CLOSED for security:', err.message);
+        return true; // Fail-closed: block login attempts when DB unavailable to prevent brute force
+    }
 }
 
 export async function onRequestPost(context) {
