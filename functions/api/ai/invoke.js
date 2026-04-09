@@ -79,6 +79,10 @@ export async function onRequestPost(context) {
         }
 
         let model = requestedModel;
+        // SEC: Validate model name to prevent path traversal / SSRF against Google APIs
+        if (!/^[a-zA-Z0-9._-]+$/.test(model)) {
+            return Response.json({ error: 'Invalid model name' }, { status: 400 });
+        }
         // FIX #9: Use header-based auth instead of URL parameter to keep keys out of logs
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
 

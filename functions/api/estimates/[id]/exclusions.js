@@ -95,7 +95,8 @@ export async function onRequestPost(context) {
                 return Response.json({ error: 'Text is required' }, { status: 400, headers: corsHeaders(origin) });
             }
 
-            const entryId = item.id || crypto.randomUUID().replace(/-/g, '');
+            // SEC: Always generate ID server-side — never accept client-supplied IDs for inserts
+            const entryId = crypto.randomUUID().replace(/-/g, '');
 
             await env.DB.prepare(`
                 INSERT INTO estimate_exclusions (id, estimate_id, type, text, category, sort_order)

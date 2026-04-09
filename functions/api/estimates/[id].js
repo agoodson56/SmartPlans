@@ -13,6 +13,7 @@ function isValidId(id) {
 
 export async function onRequestGet(context) {
     const { env, params } = context;
+    const user = context.data?.user;
 
     if (!isValidId(params.id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
@@ -25,6 +26,11 @@ export async function onRequestGet(context) {
              WHERE e.id = ?`
         ).bind(params.id).first();
         if (!est) return Response.json({ error: 'Estimate not found' }, { status: 404 });
+
+        // SEC: Ownership check — only creator or admin can view full estimate data
+        if (user && !user.is_admin && est.created_by && user.id !== est.created_by) {
+            return Response.json({ error: 'Access denied' }, { status: 403 });
+        }
 
         // Parse export_data back to object
         if (est.export_data) {
@@ -43,6 +49,7 @@ export async function onRequestGet(context) {
 
 export async function onRequestPut(context) {
     const { env, request, params } = context;
+    const user = context.data?.user;
 
     if (!isValidId(params.id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
@@ -54,12 +61,17 @@ export async function onRequestPut(context) {
 
         // Auto-save current version as revision before overwriting
         const current = await env.DB.prepare('SELECT * FROM estimates WHERE id = ?').bind(id).first();
+
+        // SEC: Ownership check — only creator or admin can update
+        if (current && user && !user.is_admin && current.created_by && user.id !== current.created_by) {
+            return Response.json({ error: 'Access denied' }, { status: 403 });
+        }
         if (current && current.export_data) {
             try {
-                const revCount = await env.DB.prepare(
-                    'SELECT COUNT(*) as count FROM estimate_revisions WHERE estimate_id = ?'
+                const revMax = await env.DB.prepare(
+                    'SELECT COALESCE(MAX(revision_number), 0) as max_rev FROM estimate_revisions WHERE estimate_id = ?'
                 ).bind(id).first();
-                const revNum = (revCount?.count || 0) + 1;
+                const revNum = (revMax?.max_rev || 0) + 1;
 
                 // Extract a contract value from export_data if possible
                 let contractValue = 0;

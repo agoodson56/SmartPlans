@@ -111,7 +111,7 @@ export function corsPreflightResponse(origin, allowedMethods = 'GET, POST, OPTIO
     return new Response(null, {
         status: 204,
         headers: {
-            'Access-Control-Allow-Origin': origin || 'https://smartplans-4g5.pages.dev',
+            'Access-Control-Allow-Origin': origin || '',
             'Access-Control-Allow-Methods': allowedMethods,
             'Access-Control-Allow-Headers': 'Content-Type, X-App-Token, X-Session-Token',
             'Access-Control-Max-Age': '86400',

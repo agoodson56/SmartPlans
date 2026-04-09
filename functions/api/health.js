@@ -37,13 +37,13 @@ export async function onRequestPost(context) {
   }
 
   try {
-    const body = await request.json();
-
-    // Reject oversized payloads
+    // SEC: Check Content-Length BEFORE parsing body to avoid consuming memory on oversized payloads
     const contentLength = parseInt(request.headers.get('Content-Length') || '0', 10);
     if (contentLength > 10000) {
       return Response.json({ error: 'Payload too large' }, { status: 413 });
     }
+
+    const body = await request.json();
 
     // Validate required fields
     if (!body.type || !body.message) {

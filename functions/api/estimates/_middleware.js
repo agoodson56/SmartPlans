@@ -58,6 +58,13 @@ export async function onRequest(context) {
         );
     }
 
+    // SEC: Pass validated user to downstream handlers for ownership checks
+    // Handlers access via context.data.user (Cloudflare Pages convention)
+    if (sessionToken) {
+        const user = await validateSession(env.DB, sessionToken);
+        if (user) context.data = { ...context.data, user };
+    }
+
     // Process the actual request
     const response = await context.next();
 

@@ -42,10 +42,10 @@ export async function onRequestPost(context) {
         const body = await request.json();
 
         // Determine next revision number
-        const revCount = await env.DB.prepare(
-            'SELECT COUNT(*) as count FROM estimate_revisions WHERE estimate_id = ?'
+        const revMax = await env.DB.prepare(
+            'SELECT COALESCE(MAX(revision_number), 0) as max_rev FROM estimate_revisions WHERE estimate_id = ?'
         ).bind(id).first();
-        const revNum = (revCount?.count || 0) + 1;
+        const revNum = (revMax?.max_rev || 0) + 1;
 
         const revId = crypto.randomUUID().replace(/-/g, '');
         const exportData = body.export_data ? (typeof body.export_data === 'string' ? body.export_data : JSON.stringify(body.export_data)) : null;

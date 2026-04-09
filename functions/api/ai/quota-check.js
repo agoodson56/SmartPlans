@@ -10,6 +10,10 @@ export async function onRequestGet(context) {
 
     // Accept ?model= param so you can test the actual model in use
     const model = reqUrl.searchParams.get('model') || 'gemini-2.5-flash';
+    // SEC: Validate model name to prevent path traversal / SSRF
+    if (!/^[a-zA-Z0-9._-]+$/.test(model)) {
+        return Response.json({ error: 'Invalid model name' }, { status: 400 });
+    }
 
     // CORS headers handled by _middleware.js
     const corsHeaders = {};

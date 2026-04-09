@@ -78,9 +78,9 @@ async function isRateLimited(db, ip, incrementOnFail) {
         }
         return false;
     } catch (err) {
-        // If rate_limits table doesn't exist yet, fail open (don't block)
-        console.warn('[verify-password] Rate limit check error (non-fatal):', err.message);
-        return false;
+        // SEC: Fail CLOSED — if DB is down, block requests to prevent brute-force
+        console.error('[verify-password] Rate limit check failed — failing CLOSED:', err.message);
+        return true;
     }
 }
 

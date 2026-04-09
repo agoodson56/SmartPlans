@@ -1434,6 +1434,7 @@ function openPrintAsPDF(html) {
 // MASTER REPORT — One-click comprehensive PDF with everything
 // ═══════════════════════════════════════════════════════════════
 function generateMasterReport() {
+  if (!state.aiAnalysis) { spToast('Run the analysis first to generate the Master Report', 'error'); return; }
   const fmt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtInt = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const now = new Date();
@@ -5195,11 +5196,11 @@ function renderStep7(container) {
             <div style="padding:10px 14px;">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
                 <span style="font-size:18px;">⚠️</span>
-                <span style="color:#f59e0b;font-weight:600;">Math Discrepancies Found: ${mv.issues.length}</span>
+                <span style="color:#f59e0b;font-weight:600;">Math Discrepancies Found: ${(mv.issues || []).length}</span>
               </div>
               <div style="font-size:13px;color:rgba(255,255,255,0.6);line-height:1.6;">
-                ${mv.issues.slice(0, 5).map(iss => `<div>Line ${iss.line}: ${iss.qty} × $${iss.unitCost.toLocaleString()} = <strong style="color:#f43f5e;">$${iss.extCost.toLocaleString()}</strong> (expected $${iss.expected.toLocaleString()})</div>`).join('')}
-                ${mv.issues.length > 5 ? `<div style="color:#f59e0b;">+ ${mv.issues.length - 5} more — check Verification Audit section below</div>` : ''}
+                ${(mv.issues || []).slice(0, 5).map(iss => `<div>Line ${iss.line || '?'}: ${iss.qty || 0} × $${(iss.unitCost || 0).toLocaleString()} = <strong style="color:#f43f5e;">$${(iss.extCost || 0).toLocaleString()}</strong> (expected $${(iss.expected || 0).toLocaleString()})</div>`).join('')}
+                ${(mv.issues || []).length > 5 ? `<div style="color:#f59e0b;">+ ${(mv.issues || []).length - 5} more — check Verification Audit section below</div>` : ''}
               </div>
             </div>
           </div>`;
@@ -5223,10 +5224,10 @@ function renderStep7(container) {
             <div style="padding:10px 14px;">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
                 <span style="font-size:18px;">🟡</span>
-                <span style="color:#f59e0b;font-weight:600;">Section Completeness: ${sc.score}% (${sc.found.length}/${sc.found.length + sc.missing.length})</span>
+                <span style="color:#f59e0b;font-weight:600;">Section Completeness: ${sc.score || 0}% (${(sc.found || []).length}/${(sc.found || []).length + (sc.missing || []).length})</span>
               </div>
               <div style="font-size:13px;color:rgba(255,255,255,0.6);">
-                Missing: ${sc.missing.map(m => `<span style="color:#f59e0b;">${m.replace(/_/g, ' ')}</span>`).join(', ')}
+                Missing: ${(sc.missing || []).map(m => `<span style="color:#f59e0b;">${m.replace(/_/g, ' ')}</span>`).join(', ')}
               </div>
             </div>
           </div>`;
@@ -6621,6 +6622,8 @@ function renderStep7(container) {
     if (!state.aiAnalysis) { spToast('Run the analysis first to generate BOM data', 'error'); return; }
     const bomData = getFilteredBOM(state.aiAnalysis, state.disciplines);
     if (!bomData || !bomData.categories.length) { spToast('No BOM data available', 'error'); return; }
+    // FIX: Apply supplier price overrides so PDF matches the on-screen BOM table
+    applyBOMOverrides(bomData, state.supplierPriceOverrides);
     const fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const projName = esc(state.projectName || 'Untitled Project');
     const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });

@@ -56,6 +56,11 @@ export async function onRequestPost(context) {
 
     // Build the cached content request
     const cacheModel = model || 'models/gemini-2.5-pro';
+    // SEC: Validate model name to prevent path traversal / SSRF
+    const modelBase = cacheModel.replace(/^models\//, '');
+    if (!/^[a-zA-Z0-9._-]+$/.test(modelBase)) {
+        return Response.json({ error: 'Invalid model name' }, { status: 400 });
+    }
     const parts = [];
 
     for (const uri of fileUris) {
