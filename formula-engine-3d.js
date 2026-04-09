@@ -620,35 +620,34 @@ const FormulaEngine3D = {
         }
 
         // ── Step 3: Subcontractors (20% markup — verified Format A) ──
-        if (subcontractorCost > 0) {
-            const subSELL = this._round(subcontractorCost * 1.20);
+        // Merge with any item-level subcontractor costs already classified via _classifySystemType
+        if (subcontractorCost > 0 || systemBreakdowns['subcontractor']) {
+            const existingSub = systemBreakdowns['subcontractor'] || { materialCost: 0, totalCOS: 0, totalSELL: 0, fieldHours: 0, nptHours: 0, overheadHours: 0, totalHours: 0, laborCOS: 0, laborSELL: 0, commCOS: 0, commSELL: 0, warrantyCOS: 0, warrantySELL: 0, itemCount: 0 };
+            const totalSubCost = subcontractorCost + (existingSub.materialCost || 0);
+            const subSELL = this._round(totalSubCost * 1.20);
             systemBreakdowns['subcontractor'] = {
-                materialCost: subcontractorCost,
+                materialCost: totalSubCost,
                 materialSell: subSELL,
                 materialMarkup: 0.20,
                 taxCOS: 0, taxSELL: 0,
-                materialsPlusCOS: subcontractorCost,
+                materialsPlusCOS: totalSubCost,
                 materialsPlusSELL: subSELL,
-                fieldHours: 0, nptHours: 0, overheadHours: 0, totalHours: 0,
-                laborCOS: 0, laborSELL: 0,
-                commissionRate: 0, commCOS: 0, commSELL: 0,
-                warrantyCOS: 0, warrantySELL: 0,
-                totalCOS: subcontractorCost,
-                totalSELL: subSELL,
-                grossMargin: this._round(subSELL - subcontractorCost),
-                grossMarginPct: subSELL > 0 ? this._round(((subSELL - subcontractorCost) / subSELL) * 100) : 0,
-                itemCount: 0,
+                fieldHours: existingSub.fieldHours || 0, nptHours: existingSub.nptHours || 0, overheadHours: existingSub.overheadHours || 0, totalHours: existingSub.totalHours || 0,
+                laborCOS: existingSub.laborCOS || 0, laborSELL: existingSub.laborSELL || 0,
+                commissionRate: 0, commCOS: existingSub.commCOS || 0, commSELL: existingSub.commSELL || 0,
+                warrantyCOS: existingSub.warrantyCOS || 0, warrantySELL: existingSub.warrantySELL || 0,
+                totalCOS: totalSubCost + (existingSub.laborCOS || 0),
+                totalSELL: subSELL + (existingSub.laborSELL || 0),
+                grossMargin: this._round(subSELL - totalSubCost),
+                grossMarginPct: subSELL > 0 ? this._round(((subSELL - totalSubCost) / subSELL) * 100) : 0,
+                itemCount: existingSub.itemCount || 0,
             };
+            // Only add the NEW category-level sub cost to grand totals (item-level already counted in Step 2)
             grandCOS += subcontractorCost;
-            grandSELL += subSELL;
+            grandSELL += this._round(subcontractorCost * 1.20);
         }
 
-        // ── Step 4: Bonds (2% of total sell) ──
-        const bonds = this._round(grandSELL * this.bondsPct);
-        grandSELL += bonds;
-        grandCOS += this._round(bonds * 0.70);
-
-        // ── Step 5: Transit/Railroad adders (comprehensive) ──
+        // ── Step 4: Transit/Railroad adders (comprehensive) — before bonds so bonds include transit ──
         let transitCosts = null;
         if (isTransit) {
             const tc = this.transitComplianceCosts;
@@ -774,6 +773,11 @@ const FormulaEngine3D = {
             grandSELL += transitTotal;
             grandCOS += this._round(transitTotal * 0.82); // ~18% margin on transit adders
         }
+
+        // ── Step 5: Bonds (2% of total sell — after transit so bonds include transit costs) ──
+        const bonds = this._round(grandSELL * this.bondsPct);
+        grandSELL += bonds;
+        grandCOS += this._round(bonds * 0.70);
 
         // ── Final ──
         const grandMargin = this._round(grandSELL - grandCOS);
@@ -926,7 +930,7 @@ const FormulaEngine3D = {
             return this._round(qty * (pr.pull_fiber_sm + pr.terminate_fiber_sm * 2 + pr.test_fiber_sm) / 60);
         }
         if (/rg.?6|coax/i.test(name)) {
-            return this._round(qty * (pr.pull_cat6_cmr + pr.terminate_rg6 * 2 + pr.test_rg6) / 60);
+            return this._round(qty * (pr.pull_rg6_rooms + pr.terminate_rg6 * 2 + pr.test_rg6) / 60);
         }
         // Fire alarm cable (18/2 FPLR shielded) — similar pull time to cat6
         if (/18.?\/?.?2|fplr|fire.*cable|alarm.*cable/i.test(name) && !/device|detector|strobe|panel/i.test(name)) {

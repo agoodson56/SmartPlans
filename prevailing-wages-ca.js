@@ -482,7 +482,17 @@ const CA_PREVAILING_WAGES = {
     if (!zone) return null;
     const zoneData = this.zones[zone];
     if (!zoneData) return null;
-    return wageType === 'davis-bacon' ? zoneData.davis_bacon : zoneData.dir;
+    // PLA rates are typically 5-10% above DIR — use DIR as base with PLA multiplier
+    if (wageType === 'davis-bacon') return zoneData.davis_bacon;
+    if (wageType === 'pla' && zoneData.dir) {
+      // Apply PLA premium (8% above DIR) since PLA agreements include additional trust fund contributions
+      const plaRates = {};
+      for (const [role, rateObj] of Object.entries(zoneData.dir)) {
+        plaRates[role] = { base: +(rateObj.base * 1.08).toFixed(2), fringe: +(rateObj.fringe * 1.08).toFixed(2), total: +(rateObj.total * 1.08).toFixed(2) };
+      }
+      return plaRates;
+    }
+    return zoneData.dir;
   },
 
   getZoneLabel(county) {

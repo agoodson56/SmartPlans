@@ -1959,7 +1959,7 @@ const SmartBrains = {
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
     SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits', 'true_change_orders', 'transit_railroad_checklist', 'prevailing_wage_detected', 'prevailing_wage_type'],
-    SHADOW_SCANNER: ['sheets', 'totals'],
+    SHADOW_SCANNER: ['totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
     QUADRANT_SCANNER: ['quadrants', 'totals'],
     CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence'],

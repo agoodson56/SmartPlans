@@ -530,10 +530,9 @@ const ScaleCalibration = {
       const s = this._sheets[sid];
       if (!s?.pixelsPerFoot) continue;
 
-      // Find matching device in our pixel data
-      const dev = s.devices.find(d =>
-        d.id === assign.deviceId || d.type === assign.deviceType
-      );
+      // Find matching device in our pixel data — prefer exact ID match, fall back to type only if unique
+      const dev = s.devices.find(d => d.id === assign.deviceId)
+        || (() => { const byType = s.devices.filter(d => d.type === assign.deviceType); return byType.length === 1 ? byType[0] : null; })();
       if (!dev || dev.xPx == null) continue;
 
       // Find matching home-run
@@ -545,6 +544,7 @@ const ScaleCalibration = {
       const run = this.estimateCableRun(sid, dev, hr);
       if (run) {
         assign.runFt = run.orderLengthFt;
+        assign.totalFtWithWaste = run.orderLengthFt; // Update so totals recalc uses pixel measurement
         assign.straightLineFt = run.straightLineFt;
         assign.scaleSource = s.activeSource;
         assign._pixelMeasured = true;

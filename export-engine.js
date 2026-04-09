@@ -1206,8 +1206,8 @@ const SmartPlansExport = {
                             const cl = cell.toLowerCase();
                             if (cl.includes('item') || cl.includes('description') || cl.includes('material') || cl.includes('equipment') || cl.includes('component') || cl.includes('product')) colMap.item = idx;
                             else if (cl === 'qty' || cl === 'quantity' || cl.includes('qty')) colMap.qty = idx;
-                            else if (cl.includes('unit cost') || cl.includes('unit price') || cl.includes('rate') || cl.includes('unit$')) colMap.unitCost = idx;
-                            else if (cl.includes('ext') || cl.includes('total') || cl.includes('amount') || cl.includes('cost')) {
+                            else if (cl.includes('unit cost') || cl.includes('unit price') || cl.includes('rate') || cl.includes('unit$') || (cl === 'cost' && colMap.unitCost === undefined)) colMap.unitCost = idx;
+                            else if (cl.includes('ext') || cl.includes('total') || cl.includes('amount')) {
                                 if (colMap.extCost === undefined) colMap.extCost = idx;
                             }
                             else if (cl === 'unit' || cl === 'uom') colMap.unit = idx;
@@ -2139,7 +2139,7 @@ const SmartPlansExport = {
         md += `\n\n`;
 
         // ── Bid Summary (if phases configured) ──
-        const bidPhasesData = this._buildBidPhasesExport(state, this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis || ""), state.disciplines));
+        const bidPhasesData = this._buildBidPhasesExport(state, this._filterBOMByDisciplines(this._applyUserBOMEdits(this._extractBOMFromAnalysis(state.aiAnalysis || ""), state), state.disciplines));
         if (bidPhasesData.phases.length > 1 || (bidPhasesData.phases.length === 1 && bidPhasesData.phases[0].categories.length > 0)) {
             md += `---\n\n`;
             md += `## Bid Summary\n\n`;
@@ -2252,7 +2252,8 @@ const SmartPlansExport = {
      * Returns a flat array of row-map entries for supplier workflows.
      */
     generateSupplierRowMap(state) {
-        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
+        const rawBom = this._applyUserBOMEdits(this._extractBOMFromAnalysis(state.aiAnalysis), state);
+        const bom = this._filterBOMByDisciplines(rawBom, state.disciplines);
         const rowMap = [];
         let rowNum = 1;
 

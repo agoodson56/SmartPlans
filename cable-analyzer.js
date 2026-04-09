@@ -107,8 +107,10 @@ const CableAnalyzer = {
       if (cables.cat6_riser?.[tier])      rates['cat6_riser']     = cables.cat6_riser[tier];
       if (cables.cat5e_plenum?.[tier])    rates['cat5e_plenum']   = cables.cat5e_plenum[tier];
       if (cables.cat5e_riser?.[tier])     rates['cat5e_riser']    = cables.cat5e_riser[tier];
-      if (cables.fiber_sm?.[tier])        rates['fiber_sm']       = cables.fiber_sm[tier];
-      if (cables.fiber_mm?.[tier])        rates['fiber_mm']       = cables.fiber_mm[tier];
+      if (cables.fiber_sm_12?.[tier])      rates['fiber_sm']       = cables.fiber_sm_12[tier];
+      else if (cables.fiber_sm_6?.[tier]) rates['fiber_sm']       = cables.fiber_sm_6[tier];
+      if (cables.fiber_mm_12?.[tier])     rates['fiber_mm']       = cables.fiber_mm_12[tier];
+      else if (cables.fiber_mm_6?.[tier]) rates['fiber_mm']       = cables.fiber_mm_6[tier];
       if (cables.coax_rg6?.[tier])        rates['coax_rg6']       = cables.coax_rg6[tier];
     }
 
@@ -684,8 +686,9 @@ const CableAnalyzer = {
     if (t.includes('5e') || t.includes('cat5')) return r.includes('riser') ? 'cat5e_riser' : 'cat5e_plenum';
     if (t.includes('fiber') && t.includes('sm')) return 'fiber_sm';
     if (t.includes('fiber') && t.includes('mm')) return 'fiber_mm';
-    if (t.includes('fplr') || t.includes('fire')) return '18/2_fplr_shielded';
+    if (t.includes('fplr') || t.includes('fire') || t.includes('shielded')) return '18/2_fplr_shielded';
     if (t.includes('22/6') || t.includes('composite')) return '22/6_18/4_composite';
+    if (t.includes('speaker') || t.includes('paging') || (t.includes('18/2') && (r.includes('plenum') || t.includes('plenum')))) return '18/2_plenum';
     if (t.includes('18/2')) return '18/2';
     if (t.includes('22/4')) return '22/4';
     return 'cat6a_plenum';
