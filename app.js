@@ -5251,6 +5251,31 @@ function renderStep7(container) {
     `;
   }
 
+  // Build sheet filter summary banner
+  let sheetFilterBanner = '';
+  if (state._sheetFilterStats && state._sheetFilterStats.skippedPages > 0) {
+    const sf = state._sheetFilterStats;
+    const skippedList = (state._skippedSheets || []).map(s =>
+      `<span style="display:inline-block;padding:2px 8px;margin:2px;border-radius:4px;background:rgba(255,255,255,0.06);font-size:11px;color:rgba(255,255,255,0.5);">${esc(s.sheetId || s.name)}</span>`
+    ).join('');
+    sheetFilterBanner = `
+      <div class="info-card" style="margin-bottom:12px; border-left:4px solid #3b82f6; background:rgba(59,130,246,0.08);">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;">
+          <span style="font-size:18px;">📋</span>
+          <div>
+            <span style="color:#3b82f6;font-weight:600;">Smart Sheet Filter</span>
+            <span style="color:rgba(255,255,255,0.6);font-size:13px;margin-left:8px;">
+              Scanned ${sf.relevantPages} of ${sf.totalPages} pages (${sf.savingsPercent}% reduction)
+            </span>
+          </div>
+        </div>
+        ${skippedList ? `<div style="padding:4px 14px 10px;line-height:1.8;">
+          <span style="font-size:11px;color:rgba(255,255,255,0.4);">Skipped:</span> ${skippedList}
+        </div>` : ''}
+      </div>
+    `;
+  }
+
   // Build AI analysis section
   let aiSection = "";
 
@@ -5764,6 +5789,7 @@ function renderStep7(container) {
     </div>
 
     ${failedBrainsBanner}
+    ${sheetFilterBanner}
     ${aiSection}
 
     ${bomTableHtml}
@@ -8596,6 +8622,15 @@ async function runGeminiAnalysis(updateProgress) {
     }
 
     updateProgress(100, `🎯 Analysis complete — ${result.stats.successfulBrains}/${result.stats.totalBrains} brains succeeded!`, result.brainStatus);
+
+    // ── Sheet Filter Summary ──
+    if (result.stats.sheetFilter && result.stats.sheetFilter.skippedPages > 0) {
+      const sf = result.stats.sheetFilter;
+      state._sheetFilterStats = sf;
+      state._skippedSheets = result.stats.skippedSheets || [];
+      console.log(`[SheetFilter] Final: ${sf.relevantPages}/${sf.totalPages} pages scanned (${sf.savingsPercent}% savings)`);
+      spToast(`Smart Filter: scanned ${sf.relevantPages}/${sf.totalPages} pages (${sf.savingsPercent}% reduction)`, 'success');
+    }
 
     // ── Prevailing Wage Auto-Detection ──
     // Check SPECIAL_CONDITIONS brain output and spec text for PW indicators

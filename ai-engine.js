@@ -156,6 +156,282 @@ const SmartBrains = {
   _brainStatus: {},
 
   // ═══════════════════════════════════════════════════════════
+  // SHEET CLASSIFICATION — Identify sheet types by AEC naming conventions
+  // Standard AEC sheet numbering: A=Arch, S=Struct, M=Mech, E=Elec, P=Plumb,
+  // T=Telecom/Tech, FA=Fire Alarm, D=Demo, L=Landscape, C=Civil, G=General
+  // ELV sheets: T, E (sometimes), FA, ES (electronic safety), LS (low-voltage)
+  // ═══════════════════════════════════════════════════════════
+
+  // Maps sheet ID prefixes to disciplines they're relevant for
+  SHEET_DISCIPLINE_MAP: {
+    // Always relevant — general/cover/legend/site
+    'G':   ['all'],    // General sheets
+    'G0':  ['all'],    // Cover, index, abbreviations
+    'G1':  ['all'],    // Code/legend sheets
+    'CS':  ['all'],    // Cover sheets
+    'IN':  ['all'],    // Index
+
+    // Low-voltage / Technology sheets — always relevant for selected disciplines
+    'T':   ['Structured Cabling', 'CCTV', 'Access Control', 'Audio Visual', 'Intrusion Detection', 'Fire Alarm'],
+    'ET':  ['Structured Cabling', 'CCTV', 'Access Control', 'Audio Visual', 'Intrusion Detection'],
+    'TD':  ['Structured Cabling', 'CCTV', 'Access Control', 'Audio Visual', 'Intrusion Detection'],
+    'LS':  ['Structured Cabling', 'CCTV', 'Access Control', 'Audio Visual', 'Intrusion Detection'],
+    'IT':  ['Structured Cabling'],
+    'ES':  ['CCTV', 'Access Control', 'Intrusion Detection'],
+
+    // Fire alarm sheets
+    'FA':  ['Fire Alarm'],
+    'FP':  ['Fire Alarm'],
+
+    // Electrical — relevant for power coordination, conduit, device locations
+    'E':   ['Structured Cabling', 'CCTV', 'Access Control', 'Audio Visual', 'Intrusion Detection', 'Fire Alarm'],
+    'EP':  ['Structured Cabling', 'CCTV', 'Access Control', 'Audio Visual', 'Intrusion Detection', 'Fire Alarm'],
+    'EL':  ['Structured Cabling', 'CCTV', 'Access Control', 'Audio Visual', 'Intrusion Detection', 'Fire Alarm'],
+
+    // Architectural — relevant for access control (door schedules), layout reference
+    'A':   ['Access Control', 'Structured Cabling', 'CCTV', 'Audio Visual', 'Fire Alarm', 'Intrusion Detection'],
+    'AD':  ['Access Control'],
+    'AI':  ['Access Control', 'Structured Cabling'],
+
+    // Door/hardware schedules — critical for access control (Div 08)
+    'HW':  ['Access Control'],
+    'DH':  ['Access Control'],
+
+    // Site/civil — relevant for exterior cameras, gate operators
+    'C':   ['CCTV', 'Access Control'],
+    'L':   ['CCTV'],
+    'SP':  ['CCTV', 'Access Control'],
+
+    // Structural — relevant for seismic bracing, core drilling
+    'S':   [],  // Skip structural unless specifically needed
+
+    // Mechanical/plumbing — rarely relevant for LV
+    'M':   [],  // Skip mechanical
+    'P':   [],  // Skip plumbing
+    'FP':  ['Fire Alarm'], // Fire protection can overlap with fire alarm
+  },
+
+  // Content-based keywords that indicate sheet relevance (when sheet naming is ambiguous)
+  SHEET_CONTENT_KEYWORDS: {
+    'Structured Cabling': /data|outlet|network|telecom|mdf|idf|mpoe|tr\b|cat\s?6|fiber|backbone|horizontal|riser|cable\s*tray|j-hook|wap|wireless/i,
+    'CCTV':               /camera|cctv|surveillance|video|nvr|vms|security\s*camera|ptz|dome\s*cam/i,
+    'Access Control':     /access\s*control|card\s*reader|door\s*(schedule|hardware)|keypad|electric\s*strike|maglock|rex|intercom|gate\s*operator/i,
+    'Audio Visual':       /audio|visual|av\b|speaker|display|projector|sound|paging|intercom.*av/i,
+    'Intrusion Detection':/intrusion|alarm\s*panel|motion\s*detect|glass\s*break|keypad.*alarm|burglar/i,
+    'Fire Alarm':         /fire\s*alarm|facp|smoke\s*detect|pull\s*station|horn.*strobe|notification|nac\b|slc\b|duct\s*detect/i,
+  },
+
+  // Spec section to CSI division mapping
+  SPEC_DIVISION_MAP: {
+    '01': ['all'],        // General Requirements
+    '08': ['Access Control'], // Openings
+    '27': ['Structured Cabling', 'Audio Visual'],
+    '28': ['CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection'],
+  },
+
+  /**
+   * Classify sheets from Wave 0 SPATIAL_LAYOUT + chunk filenames
+   * Returns a Map<chunkName, { relevant: boolean, disciplines: string[], sheetId: string, reason: string }>
+   */
+  _classifySheets(encodedFiles, wave0Results, disciplines) {
+    const classification = new Map();
+    if (!disciplines || disciplines.length === 0) return classification; // No filtering if no disciplines selected
+
+    const spatialSheets = wave0Results?.SPATIAL_LAYOUT?.sheets || [];
+    const legendData = wave0Results?.LEGEND_DECODER || {};
+    const planFiles = encodedFiles.plans || [];
+
+    // Build lookup: chunk index → spatial sheet data (if available)
+    const sheetByIndex = new Map();
+    spatialSheets.forEach((sheet, idx) => {
+      sheetByIndex.set(idx, sheet);
+    });
+
+    for (const file of planFiles) {
+      // Extract chunk index from filename
+      const chunkMatch = file.name?.match(/_chunk(\d+)\./);
+      const chunkIdx = chunkMatch ? parseInt(chunkMatch[1], 10) : -1;
+
+      // Try to get sheet ID from SPATIAL_LAYOUT data
+      const spatialSheet = chunkIdx >= 0 ? sheetByIndex.get(chunkIdx) : null;
+      const sheetId = spatialSheet?.sheet_id || file.name || '';
+      const sheetName = spatialSheet?.sheet_name || '';
+
+      // Phase 1: Classify by sheet ID prefix (standard AEC naming)
+      const relevance = this._classifyBySheetId(sheetId, sheetName, disciplines);
+
+      if (relevance.determined) {
+        classification.set(file.name, { ...relevance, sheetId });
+        continue;
+      }
+
+      // Phase 2: Classify by sheet name content keywords
+      const contentRelevance = this._classifyByContent(sheetId, sheetName, disciplines);
+      if (contentRelevance.determined) {
+        classification.set(file.name, { ...contentRelevance, sheetId });
+        continue;
+      }
+
+      // Phase 3: Unknown — include by default (conservative — don't skip potentially relevant sheets)
+      classification.set(file.name, {
+        relevant: true,
+        disciplines: ['unknown'],
+        sheetId,
+        reason: 'unclassified — included by default',
+        determined: true,
+      });
+    }
+
+    return classification;
+  },
+
+  /**
+   * Classify a sheet by its ID prefix using AEC naming conventions
+   */
+  _classifyBySheetId(sheetId, sheetName, selectedDisciplines) {
+    const id = (sheetId || '').toUpperCase().replace(/[\s.-]/g, '');
+    const name = (sheetName || '').toLowerCase();
+
+    // Try matching progressively shorter prefixes (e.g., "FA1.01" → "FA", "E1.01" → "E")
+    for (let len = Math.min(id.length, 3); len >= 1; len--) {
+      const prefix = id.substring(0, len);
+      const mappedDisciplines = this.SHEET_DISCIPLINE_MAP[prefix];
+
+      if (mappedDisciplines !== undefined) {
+        // 'all' means always include
+        if (mappedDisciplines.includes('all')) {
+          return { relevant: true, disciplines: ['all'], reason: `sheet prefix ${prefix} = always include`, determined: true };
+        }
+        // Empty array means skip (structural, mechanical, plumbing)
+        if (mappedDisciplines.length === 0) {
+          return { relevant: false, disciplines: [], reason: `sheet prefix ${prefix} = not ELV-relevant`, determined: true };
+        }
+        // Check if any mapped discipline is in the user's selection
+        const overlap = mappedDisciplines.filter(d => selectedDisciplines.includes(d));
+        if (overlap.length > 0) {
+          return { relevant: true, disciplines: overlap, reason: `sheet prefix ${prefix} matches ${overlap.join(', ')}`, determined: true };
+        }
+        return { relevant: false, disciplines: mappedDisciplines, reason: `sheet prefix ${prefix} = ${mappedDisciplines.join(', ')} (not selected)`, determined: true };
+      }
+    }
+
+    // Additional heuristic: check sheet name for discipline keywords
+    if (name.includes('door') || name.includes('hardware')) {
+      if (selectedDisciplines.includes('Access Control')) {
+        return { relevant: true, disciplines: ['Access Control'], reason: 'sheet name contains door/hardware', determined: true };
+      }
+    }
+    if (name.includes('fire') || name.includes('alarm')) {
+      if (selectedDisciplines.includes('Fire Alarm')) {
+        return { relevant: true, disciplines: ['Fire Alarm'], reason: 'sheet name contains fire/alarm', determined: true };
+      }
+    }
+
+    return { relevant: true, disciplines: [], reason: 'prefix not recognized', determined: false };
+  },
+
+  /**
+   * Classify by content keywords in sheet name/ID
+   */
+  _classifyByContent(sheetId, sheetName, selectedDisciplines) {
+    const combined = `${sheetId} ${sheetName}`;
+
+    for (const disc of selectedDisciplines) {
+      const pattern = this.SHEET_CONTENT_KEYWORDS[disc];
+      if (pattern && pattern.test(combined)) {
+        return { relevant: true, disciplines: [disc], reason: `content keyword match for ${disc}`, determined: true };
+      }
+    }
+
+    return { relevant: true, disciplines: [], reason: 'no content keyword match', determined: false };
+  },
+
+  /**
+   * Filter encoded plan chunks — returns only chunks relevant to selected disciplines.
+   * Also separates filtered-out chunks so they can still be referenced if needed.
+   */
+  _filterEncodedFilesByDiscipline(encodedFiles, classification) {
+    if (!classification || classification.size === 0) return { filtered: encodedFiles, skipped: [], stats: null };
+
+    const originalPlans = encodedFiles.plans || [];
+    const filteredPlans = [];
+    const skippedPlans = [];
+
+    for (const file of originalPlans) {
+      const info = classification.get(file.name);
+      if (!info || info.relevant) {
+        filteredPlans.push(file);
+      } else {
+        skippedPlans.push({ name: file.name, reason: info.reason, sheetId: info.sheetId });
+      }
+    }
+
+    const stats = {
+      totalPages: originalPlans.length,
+      relevantPages: filteredPlans.length,
+      skippedPages: skippedPlans.length,
+      savingsPercent: originalPlans.length > 0 ? Math.round((skippedPlans.length / originalPlans.length) * 100) : 0,
+    };
+
+    // Create a new encodedFiles object with filtered plans (keep everything else)
+    const filtered = { ...encodedFiles, plans: filteredPlans };
+    return { filtered, skipped: skippedPlans, stats };
+  },
+
+  /**
+   * Filter spec file chunks/text by CSI division relevance.
+   * Checks extracted text for division headers and filters irrelevant sections.
+   */
+  _filterSpecsByDivision(encodedFiles, disciplines) {
+    const specs = encodedFiles.specs || [];
+    if (specs.length === 0 || !disciplines || disciplines.length === 0) return encodedFiles;
+
+    // Determine which CSI divisions are relevant
+    const relevantDivisions = new Set();
+    for (const [div, divDiscs] of Object.entries(this.SPEC_DIVISION_MAP)) {
+      if (divDiscs.includes('all') || divDiscs.some(d => disciplines.includes(d))) {
+        relevantDivisions.add(div);
+      }
+    }
+
+    const filteredSpecs = [];
+    let specSkipped = 0;
+
+    for (const spec of specs) {
+      // If spec has extracted text, check for division relevance
+      if (spec.extractedText) {
+        const text = spec.extractedText;
+        // Check if this spec chunk contains any relevant division content
+        const divPattern = /(?:SECTION|DIVISION)\s*(0?[12]\d{4}|0?[12]\d)\b/gi;
+        const matches = [...text.matchAll(divPattern)];
+
+        if (matches.length > 0) {
+          // Has division markers — check if any are relevant
+          const foundDivs = matches.map(m => {
+            const num = m[1].replace(/^0/, '');
+            return num.length >= 5 ? num.substring(0, 2) : num;
+          });
+          const hasRelevant = foundDivs.some(d => relevantDivisions.has(d));
+
+          if (!hasRelevant) {
+            specSkipped++;
+            console.log(`[SheetFilter] Skipping spec chunk: ${spec.name} — divisions ${[...new Set(foundDivs)].join(', ')} not relevant`);
+            continue;
+          }
+        }
+        // No division markers or has relevant ones — include
+      }
+      filteredSpecs.push(spec);
+    }
+
+    if (specSkipped > 0) {
+      console.log(`[SheetFilter] Filtered specs: kept ${filteredSpecs.length}/${specs.length} chunks (skipped ${specSkipped} irrelevant division sections)`);
+    }
+
+    return { ...encodedFiles, specs: filteredSpecs };
+  },
+
+  // ═══════════════════════════════════════════════════════════
   // FILE ENCODING — Encode once, distribute to brains
   // Files > 15MB uploaded via Gemini File API (supports up to 2GB)
   // Files ≤ 15MB sent as inline base64 (faster, no upload needed)
@@ -5963,23 +6239,52 @@ ${legendContext}
 
     context.wave0 = wave0Results;
 
+    // ═══ SMART SHEET FILTER — Skip pages irrelevant to selected disciplines ═══
+    // Uses Wave 0 spatial data + AEC sheet naming conventions to classify sheets.
+    // Skips structural, mechanical, plumbing, civil sheets when not needed.
+    // Always includes: general/cover sheets, legend sheets, and unclassifiable sheets (conservative).
+    let filteredEncodedFiles = encodedFiles;
+    const sheetClassification = this._classifySheets(encodedFiles, wave0Results, state.disciplines);
+
+    if (sheetClassification.size > 0) {
+      const { filtered, skipped, stats } = this._filterEncodedFilesByDiscipline(encodedFiles, sheetClassification);
+      filteredEncodedFiles = filtered;
+
+      // Also filter specs by CSI division relevance
+      filteredEncodedFiles = this._filterSpecsByDivision(filteredEncodedFiles, state.disciplines);
+
+      if (stats && stats.skippedPages > 0) {
+        console.log(`[SheetFilter] ═══ SMART FILTER ACTIVE ═══`);
+        console.log(`[SheetFilter] Disciplines: ${state.disciplines.join(', ')}`);
+        console.log(`[SheetFilter] Plans: ${stats.relevantPages}/${stats.totalPages} pages relevant (skipping ${stats.skippedPages} — ${stats.savingsPercent}% reduction)`);
+        for (const s of skipped) {
+          console.log(`[SheetFilter]   ✗ ${s.sheetId || s.name}: ${s.reason}`);
+        }
+        progressCallback(11, `📋 Smart Filter: scanning ${stats.relevantPages}/${stats.totalPages} relevant pages (${stats.savingsPercent}% savings)`, this._brainStatus);
+        context._sheetFilterStats = stats;
+        context._skippedSheets = skipped;
+      } else {
+        console.log('[SheetFilter] All pages classified as relevant — no filtering applied');
+      }
+    }
+
     // ═══ WAVE 1: First Read — Document Intelligence (8 parallel brains) ═══
     progressCallback(12, '🔍 Wave 1: First Read — 8 brains scanning…', this._brainStatus);
     const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR', 'SCOPE_EXCLUSION_SCANNER'];
-    const wave1Results = await this._runWave(1, wave1Keys, encodedFiles, state, context, progressCallback);
+    const wave1Results = await this._runWave(1, wave1Keys, filteredEncodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
     console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
 
     // ═══ WAVE 1.5: Second Read — Independent Verification (5 parallel brains, Pro model) ═══
     progressCallback(35, '👁️ Wave 1.5: Second Read — 5 independent verifiers…', this._brainStatus);
     const wave15Keys = ['SHADOW_SCANNER', 'DISCIPLINE_DEEP_DIVE', 'QUADRANT_SCANNER', 'ZOOM_SCANNER', 'PER_FLOOR_ANALYZER'];
-    const wave15Results = await this._runWave(1.5, wave15Keys, encodedFiles, state, context, progressCallback);
+    const wave15Results = await this._runWave(1.5, wave15Keys, filteredEncodedFiles, state, context, progressCallback);
     context.wave1_5 = wave15Results;
     console.log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (5 brains) ═══');
 
     // ═══ WAVE 1.75: Consensus Resolution ═══
     progressCallback(50, '⚖️ Wave 1.75: Building consensus from 3 reads…', this._brainStatus);
-    const wave175Results = await this._runWave(1.75, ['CONSENSUS_ARBITRATOR'], encodedFiles, state, context, progressCallback);
+    const wave175Results = await this._runWave(1.75, ['CONSENSUS_ARBITRATOR'], filteredEncodedFiles, state, context, progressCallback);
     context.wave1_75 = wave175Results;
 
     // Conditional: If significant disputes exist, run Targeted Re-Scanner (3rd read)
@@ -5999,7 +6304,7 @@ ${legendContext}
       context.wave1_75 = wave175Results;
 
       progressCallback(54, `🔬 Targeted Re-Scan — ${disputes.length} significant dispute(s)…`, this._brainStatus);
-      const rescanResults = await this._runWave(1.75, ['TARGETED_RESCANNER'], encodedFiles, state, context, progressCallback);
+      const rescanResults = await this._runWave(1.75, ['TARGETED_RESCANNER'], filteredEncodedFiles, state, context, progressCallback);
       
       // Restore full dispute list for logging
       wave175Results.CONSENSUS_ARBITRATOR.disputes = originalDisputes;
@@ -6059,7 +6364,7 @@ ${legendContext}
 
     // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
     progressCallback(56, '💰 Wave 2: Material Pricer — computing material costs…', this._brainStatus);
-    const wave2Results = await this._runWave(2, ['MATERIAL_PRICER'], encodedFiles, state, context, progressCallback);
+    const wave2Results = await this._runWave(2, ['MATERIAL_PRICER'], filteredEncodedFiles, state, context, progressCallback);
     context.wave2 = wave2Results;
 
     // ── Post-Pricer Discipline Coverage Check ──
@@ -6134,25 +6439,25 @@ ${legendContext}
 
     // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
     progressCallback(62, '👷 Wave 2.25: Labor Calculator — computing labor hours…', this._brainStatus);
-    const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], encodedFiles, state, context, progressCallback);
+    const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], filteredEncodedFiles, state, context, progressCallback);
     context.wave2_25 = wave225Results;
     console.log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
 
     // ═══ WAVE 2.5: Financial Engine (runs AFTER both to sum their outputs) ═══
     progressCallback(68, '📊 Wave 2.5: Financial Engine — building SOV…', this._brainStatus);
-    const wave25FinResults = await this._runWave(2.5, ['FINANCIAL_ENGINE'], encodedFiles, state, context, progressCallback);
+    const wave25FinResults = await this._runWave(2.5, ['FINANCIAL_ENGINE'], filteredEncodedFiles, state, context, progressCallback);
     context.wave2_5_fin = wave25FinResults;
     console.log('[SmartBrains] ═══ Wave 2.5 Complete — Financials computed ═══');
 
     // ═══ WAVE 2.75: Reverse Verification (1 brain, Pro model) ═══
     progressCallback(72, '🔄 Wave 2.75: Reverse-verifying BOQ against plans…', this._brainStatus);
-    const wave275Results = await this._runWave(2.75, ['REVERSE_VERIFIER'], encodedFiles, state, context, progressCallback);
+    const wave275Results = await this._runWave(2.75, ['REVERSE_VERIFIER'], filteredEncodedFiles, state, context, progressCallback);
     context.wave2_75 = wave275Results;
     console.log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
 
     // ═══ WAVE 3: Adversarial Audit (2 parallel brains, Pro model) ═══
     progressCallback(78, '😈 Wave 3: Adversarial Audit — cross-validator + devil\'s advocate…', this._brainStatus);
-    const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], encodedFiles, state, context, progressCallback);
+    const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], filteredEncodedFiles, state, context, progressCallback);
     context.wave3 = wave3Results;
     console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
 
@@ -6160,7 +6465,7 @@ ${legendContext}
     try {
       progressCallback(82, '🔎 Wave 3.5: Deep Accuracy — Detail Verifier + Cross-Sheet + Overlap Detector…', this._brainStatus);
       const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER', 'OVERLAP_DETECTOR'];
-      const wave35Results = await this._runWave(3.5, wave35Keys, encodedFiles, state, context, progressCallback);
+      const wave35Results = await this._runWave(3.5, wave35Keys, filteredEncodedFiles, state, context, progressCallback);
       context.wave3_5 = wave35Results;
       console.log('[SmartBrains] ═══ Wave 3.5 Complete — Deep Accuracy done (3 brains) ═══');
     } catch (e) {
@@ -6171,7 +6476,7 @@ ${legendContext}
     // ═══ WAVE 3.75: 6th Read — Final Reconciliation (1 brain, Pro deep reasoning) ═══
     try {
       progressCallback(86, '🏁 Wave 3.75: 6th Read — Final Reconciliation sweep…', this._brainStatus);
-      const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], encodedFiles, state, context, progressCallback);
+      const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], filteredEncodedFiles, state, context, progressCallback);
       context.wave3_75 = wave375Results;
       console.log('[SmartBrains] ═══ Wave 3.75 Complete — 6th Read done ═══');
     } catch (e) {
@@ -6182,7 +6487,7 @@ ${legendContext}
     // ═══ WAVE 3.85: Estimate Correction (1 brain, Pro — corrects pricer using verification findings) ═══
     try {
       progressCallback(88, '🔧 Wave 3.85: Estimate Corrector — applying verification fixes…', this._brainStatus);
-      const wave385Results = await this._runWave(3.85, ['ESTIMATE_CORRECTOR'], encodedFiles, state, context, progressCallback);
+      const wave385Results = await this._runWave(3.85, ['ESTIMATE_CORRECTOR'], filteredEncodedFiles, state, context, progressCallback);
       context.wave3_85 = wave385Results;
 
       // If corrections were produced, log the summary and inject into context
@@ -6208,7 +6513,7 @@ ${legendContext}
 
     // ═══ WAVE 4: Report Synthesis (1 brain) ═══
     progressCallback(92, '📝 Wave 4: Writing final report…', this._brainStatus);
-    const wave4Results = await this._runWave(4, ['REPORT_WRITER'], encodedFiles, state, context, progressCallback);
+    const wave4Results = await this._runWave(4, ['REPORT_WRITER'], filteredEncodedFiles, state, context, progressCallback);
     console.log('[SmartBrains] ═══ Wave 4 Complete ═══');
 
     // Log session cost summary
@@ -6314,6 +6619,8 @@ ${legendContext}
         consensusDisputes: disputes.length,
         devilRiskScore: devil?.risk_score || null,
         reverseVerificationScore: reverseV?.verification_score || null,
+        sheetFilter: context._sheetFilterStats || null,
+        skippedSheets: context._skippedSheets || [],
       },
     };
   },
