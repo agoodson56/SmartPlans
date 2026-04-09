@@ -1566,6 +1566,22 @@ const SmartBrains = {
               }
             }
           }
+          // Flush any remaining data left in buffer after stream ends
+          if (buffer && buffer.trim()) {
+            if (buffer.startsWith('data: ')) {
+              const jsonStr = buffer.slice(6).trim();
+              if (jsonStr && jsonStr !== '[DONE]') {
+                try {
+                  const chunk = JSON.parse(jsonStr);
+                  const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
+                  for (const p of chunkParts) {
+                    if (p.text && p.thought) { thoughtText += p.text; }
+                    else if (p.text) { text += p.text; }
+                  }
+                } catch (e) { /* skip malformed final chunk */ }
+              }
+            }
+          }
         } else {
           // Non-streaming fallback (plain JSON response)
           const data = await response.json();
@@ -1637,10 +1653,14 @@ const SmartBrains = {
         let fbText = '', fbThought = '';
         const fbReader = fbResp.body.getReader();
         const fbDec = new TextDecoder();
+        let fbBuf = '';
         while (true) {
           const { done, value } = await fbReader.read();
           if (done) break;
-          for (const line of fbDec.decode(value, { stream: true }).split('\n')) {
+          fbBuf += fbDec.decode(value, { stream: true });
+          const fbLines = fbBuf.split('\n');
+          fbBuf = fbLines.pop(); // Keep incomplete line
+          for (const line of fbLines) {
             if (!line.startsWith('data: ')) continue;
             try {
               const ch = JSON.parse(line.substring(6));
@@ -1651,6 +1671,16 @@ const SmartBrains = {
               }
             } catch (e) { console.warn('[Brain] parse skip:', e.message); }
           }
+        }
+        // Flush remaining buffer
+        if (fbBuf && fbBuf.startsWith('data: ')) {
+          try {
+            const ch = JSON.parse(fbBuf.substring(6));
+            for (const p of (ch?.candidates?.[0]?.content?.parts || [])) {
+              if (p.text && p.thought) fbThought += p.text;
+              else if (p.text) fbText += p.text;
+            }
+          } catch (e) { /* skip malformed final chunk */ }
         }
         if (fbText && fbText.length >= 20) {
           console.log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
@@ -1742,6 +1772,20 @@ const SmartBrains = {
                     }
                   } catch (e) { if (e._retryable) throw e; /* skip malformed SSE chunk */ }
                 }
+              }
+            }
+            // Flush remaining buffer after stream ends
+            if (buf && buf.startsWith('data: ')) {
+              const js = buf.slice(6).trim();
+              if (js && js !== '[DONE]') {
+                try {
+                  const chunk = JSON.parse(js);
+                  const cp = chunk?.candidates?.[0]?.content?.parts || [];
+                  for (const p of cp) {
+                    if (p.text && p.thought) { fbThoughtText += p.text; }
+                    else if (p.text) { text += p.text; }
+                  }
+                } catch (e) { /* skip malformed final chunk */ }
               }
             }
           } else {
@@ -5767,7 +5811,7 @@ ${legendContext}
           headers: this._authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             fileUris,
-            model: 'models/gemini-2.5-pro',
+            model: `models/${this.config.proModel || this.config.model || 'gemini-2.5-pro'}`,
             systemInstruction: 'You are an expert low-voltage ELV construction estimator analyzing construction drawings and specifications. Extract precise device counts, material quantities, and cost data.',
             ttl: '3600s',
             _uploadKeyName: uploadKeyName,
@@ -5775,7 +5819,7 @@ ${legendContext}
         });
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
-          _contextCache = { name: cacheData.cacheName, model: 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
+          _contextCache = { name: cacheData.cacheName, model: this.config.proModel || this.config.model || 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
           console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
           console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error);

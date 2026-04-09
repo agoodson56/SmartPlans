@@ -655,7 +655,7 @@ const SmartPlansExport = {
                     id: r.id,
                     question: r.question,
                     detail: r.detail || "",
-                    selected: state.selectedRFIs.has(r.id),
+                    selected: state.selectedRFIs?.has(r.id),
                 });
             });
         }
@@ -1936,7 +1936,7 @@ const SmartPlansExport = {
                         `RFI-${String(i + 1).padStart(3, "0")}`,
                         r.question,
                         r.detail || "",
-                        state.selectedRFIs.has(r.id) ? "YES" : "",
+                        state.selectedRFIs?.has(r.id) ? "YES" : "",
                     ]);
                 });
             }
@@ -2109,7 +2109,7 @@ const SmartPlansExport = {
             const rfis = getRFIsForDisciplines(state.disciplines);
             md += `| # | Question | Selected |\n|---|---|---|\n`;
             rfis.forEach((r, i) => {
-                md += `| RFI-${String(i + 1).padStart(3, "0")} | ${r.question} | ${state.selectedRFIs.has(r.id) ? "✅" : ""} |\n`;
+                md += `| RFI-${String(i + 1).padStart(3, "0")} | ${r.question} | ${state.selectedRFIs?.has(r.id) ? "✅" : ""} |\n`;
             });
         }
         // ── Exclusions & Assumptions ──
