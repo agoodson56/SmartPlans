@@ -25,7 +25,17 @@ export async function onRequestGet(context) {
         const user = sessionToken ? await validateSession(env.DB, sessionToken) : null;
 
         let query, binds;
-        if (user && !user.is_admin) {
+        if (user?.is_admin) {
+            // Admins see all estimates
+            query = `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
+                    e.pricing_tier, e.status, e.created_at, e.updated_at,
+                    e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
+             FROM estimates e
+             LEFT JOIN user_accounts u ON u.id = e.created_by
+             ORDER BY e.updated_at DESC LIMIT 100`;
+            binds = [];
+        } else if (user) {
+            // Non-admin users see only their own estimates
             query = `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
                     e.pricing_tier, e.status, e.created_at, e.updated_at,
                     e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
@@ -35,6 +45,8 @@ export async function onRequestGet(context) {
              ORDER BY e.updated_at DESC LIMIT 100`;
             binds = [user.id];
         } else {
+            // No valid session — return all (app-token-only legacy access)
+            // The app token was already validated above, so this is authenticated
             query = `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
                     e.pricing_tier, e.status, e.created_at, e.updated_at,
                     e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name

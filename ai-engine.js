@@ -1584,7 +1584,7 @@ const SmartBrains = {
                     if (p.text && p.thought) { thoughtText += p.text; }
                     else if (p.text) { text += p.text; }
                   }
-                } catch (e) { /* skip malformed final chunk */ }
+                } catch (e) { console.warn('[SSE] Skipped malformed final chunk:', e.message); }
               }
             }
           }
@@ -1686,10 +1686,11 @@ const SmartBrains = {
               if (p.text && p.thought) fbThought += p.text;
               else if (p.text) fbText += p.text;
             }
-          } catch (e) { /* skip malformed final chunk */ }
+          } catch (e) { console.warn('[SSE] Skipped malformed final chunk:', e.message); }
         }
         if (fbText && fbText.length >= 20) {
           console.log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
+          this._circuitBreaker.recordSuccess();
           return fbText;
         }
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty`);
@@ -1779,7 +1780,7 @@ const SmartBrains = {
                       if (p.text && p.thought) { fbThoughtText += p.text; }
                       else if (p.text) { text += p.text; }
                     }
-                  } catch (e) { if (e._retryable) throw e; /* skip malformed SSE chunk */ }
+                  } catch (e) { if (e._retryable) throw e; console.warn(`[Brain:${brainDef.name}] Skipped malformed SSE chunk:`, e.message); }
                 }
               }
             }
@@ -1794,7 +1795,7 @@ const SmartBrains = {
                     if (p.text && p.thought) { fbThoughtText += p.text; }
                     else if (p.text) { text += p.text; }
                   }
-                } catch (e) { /* skip malformed final chunk */ }
+                } catch (e) { console.warn('[SSE] Skipped malformed final chunk:', e.message); }
               }
             }
           } else {

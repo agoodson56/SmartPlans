@@ -540,7 +540,7 @@ const FormulaEngine3D = {
             const sysAdminHours = this._round(ohHours.admin * sysPct);
 
             // Labor cost/sell using rate table
-            const fieldRate = rates["07_data_tech_ii"] || rates["05_cable_installer"];
+            const fieldRate = rates["07_data_tech_ii"] || rates["05_cable_installer"] || Object.values(rates).find(r => r?.burdened > 0) || { burdened: 80, sell: 120 };
             const laborCOS = this._round(
                 (fieldHours + nptHours) * fieldRate.burdened +
                 sysPMHours * rates["01_project_manager"].burdened +
@@ -660,15 +660,16 @@ const FormulaEngine3D = {
             const standbyCost = this._round(totalLaborHours * 0.10 * avgHourlyRate);
 
             // 9. Material premiums (tamper-proof hardware, rigid conduit, UV cable)
+            const tp = this.transitMaterialPremiums || {};
             const matPremiums = this._round(
-                totalMaterialCost * this.transitMaterialPremiums.tamper_proof_hardware_pct +
-                totalMaterialCost * this.transitMaterialPremiums.rigid_conduit_premium_pct +
-                totalMaterialCost * this.transitMaterialPremiums.uv_cable_premium_pct
+                (totalMaterialCost || 0) * (tp.tamper_proof_hardware_pct || 0) +
+                (totalMaterialCost || 0) * (tp.rigid_conduit_premium_pct || 0) +
+                (totalMaterialCost || 0) * (tp.uv_cable_premium_pct || 0)
             );
 
             // 10. Seismic bracing (estimate 1 rack per 30 cameras/devices minimum 1)
-            const estRacks = Math.max(1, Math.ceil(totalMaterialCost / 50000));
-            const seismicBracing = this._round(this.transitMaterialPremiums.seismic_bracing_per_rack * estRacks);
+            const estRacks = Math.max(1, Math.ceil((totalMaterialCost || 0) / 50000));
+            const seismicBracing = this._round((tp.seismic_bracing_per_rack || 0) * estRacks);
 
             // 11. Hi-rail vehicle (trackside work days — estimate 40% of project days)
             const hirailDays = Math.ceil(estProjectDays * 0.40);
@@ -807,7 +808,7 @@ const FormulaEngine3D = {
                         for (const item of (cat.items || [])) {
                             const iName = (item.item || item.name || '').toLowerCase();
                             if (camRegex.test(iName) && !camExclude.test(iName)) {
-                                cameraCount += (item.qty || 0);
+                                cameraCount += Number(item.qty || 0) || 0;
                             }
                         }
                     }
@@ -850,7 +851,7 @@ const FormulaEngine3D = {
                 console.log(`[3D Engine v2]   Target: $${targetTotal.toLocaleString()} | Formula: $${formulaTotal.toLocaleString()}`);
                 console.log(`[3D Engine v2]   Subs: ${(subPctOfTotal * 100).toFixed(0)}% of total`);
 
-                if (subPctOfTotal <= 0.40 && targetTotal > 0) {
+                if (subPctOfTotal <= 0.40 && targetTotal > 0 && formulaTotal > 0) {
                     const deviation = formulaTotal / targetTotal;
                     if (deviation > 1.06 || deviation < 0.94) {
                         const direction = deviation > 1 ? 'OVER' : 'UNDER';

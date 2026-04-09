@@ -3071,7 +3071,7 @@ function renderStep0(container) {
         })() : ''}
 
         ${state._pwCounty && typeof CA_PREVAILING_WAGES !== 'undefined' ? (() => {
-          const wageType = state.prevailingWage === 'davis-bacon' ? 'davis-bacon' : 'dir';
+          const wageType = state.prevailingWage === 'davis-bacon' ? 'davis-bacon' : state.prevailingWage === 'pla' ? 'pla' : 'dir';
           const rates = CA_PREVAILING_WAGES.getRates(state._pwCounty, wageType);
           const zoneLabel = CA_PREVAILING_WAGES.getZoneLabel(state._pwCounty);
           const blended = CA_PREVAILING_WAGES.getBlendedRate(state._pwCounty, wageType);
@@ -3408,7 +3408,7 @@ function renderStep0(container) {
     pwCounty.addEventListener("change", () => {
       state._pwCounty = pwCounty.value;
       if (pwCounty.value && typeof CA_PREVAILING_WAGES !== 'undefined') {
-        const wageType = state.prevailingWage === 'davis-bacon' ? 'davis-bacon' : 'dir';
+        const wageType = state.prevailingWage === 'davis-bacon' ? 'davis-bacon' : state.prevailingWage === 'pla' ? 'pla' : 'dir';
         const rates = CA_PREVAILING_WAGES.getRates(pwCounty.value, wageType);
         if (rates) {
           // Auto-populate labor rates with loaded (total) rates
@@ -8631,7 +8631,7 @@ async function runGeminiAnalysis(updateProgress) {
           }
         }
         state._scaleCalibration = ScaleCalibration.getSummary();
-        console.log(`[ScaleCalibration] Ingested — ${state._scaleCalibration.sheets.length} sheets calibrated`);
+        console.log(`[ScaleCalibration] Ingested — ${state._scaleCalibration?.sheets?.length || 0} sheets calibrated`);
       }
 
       // ── Cable Analyzer: Build cable schedule if data available ──
@@ -9884,6 +9884,7 @@ async function compareRevision(estimateId, revId) {
       fetchWithRetry(`/api/estimates/${estimateId}`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 15000 }, 3)
     ]);
 
+    if (!revRes.ok || !curRes.ok) throw new Error(`Server error: ${revRes.status || curRes.status}`);
     const revData = await revRes.json();
     const curData = await curRes.json();
 
@@ -12508,6 +12509,7 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 document.addEventListener("DOMContentLoaded", async () => {
+  try {
   // Initialize app token if not already set
   if (!sessionStorage.getItem('sp_app_token')) {
     sessionStorage.setItem('sp_app_token', crypto.randomUUID());
@@ -12646,5 +12648,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         e.returnValue = '';
       }
     });
+  }
+  } catch (bootErr) {
+    console.error('[Boot] Fatal initialization error:', bootErr);
+    document.body.innerHTML = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:#ef4444;">
+      <h2>SmartPlans failed to start</h2>
+      <p>${bootErr.message || 'Unknown error'}</p>
+      <button onclick="location.reload()" style="margin-top:16px;padding:8px 24px;cursor:pointer;">Reload</button>
+    </div>`;
   }
 });

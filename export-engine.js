@@ -312,6 +312,10 @@ const SmartPlansExport = {
             });
             // Remove empty categories
             bom.categories = bom.categories.filter(c => c.items.length > 0);
+            // Recalculate subtotals after deletions to prevent stale totals
+            bom.categories.forEach(cat => {
+                cat.subtotal = cat.items.reduce((s, i) => s + (i.extCost || 0), 0);
+            });
         }
 
         // 3. Add manually added BOM items

@@ -684,7 +684,7 @@ const CableAnalyzer = {
     if (t.includes('5e') || t.includes('cat5')) return r.includes('riser') ? 'cat5e_riser' : 'cat5e_plenum';
     if (t.includes('fiber') && t.includes('sm')) return 'fiber_sm';
     if (t.includes('fiber') && t.includes('mm')) return 'fiber_mm';
-    if (t.includes('fplr') || t.includes('fire') || t.includes('shielded')) return '18/2_fplr_shielded';
+    if (t.includes('fplr') || t.includes('fire') || (t.includes('shielded') && t.includes('18/2'))) return '18/2_fplr_shielded';
     if (t.includes('22/6') || t.includes('composite')) return '22/6_18/4_composite';
     if (t.includes('speaker') || t.includes('paging') || (t.includes('18/2') && (r.includes('plenum') || t.includes('plenum')))) return '18/2_plenum';
     if (t.includes('18/2')) return '18/2';
