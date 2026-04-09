@@ -942,7 +942,7 @@ ${this._confBar(true)}
     <td bgcolor="#2B4A6A" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(subtotal)}</b></font></td>
   </tr>
   <tr>
-    <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency 10%</font></td>
+    <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency ${Math.round((contingencyPct || 0.10) * 100)}%</font></td>
     <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(contingency)}</font></td>
   </tr>
   <tr>
@@ -989,7 +989,7 @@ ${this._confBar(true)}
       rows += `<tr>
         <td style="padding:8pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${confLabels[level]}</font></td>
         <td style="padding:8pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:center;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${confCounts[level]} ${confCounts[level] === 1 ? 'category' : 'categories'}</font></td>
-        <td style="padding:8pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:center;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${confContingency[level]}%</font></td>
+        <td style="padding:8pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:center;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${level === 'high' ? 'Low Risk' : level === 'medium' ? 'Moderate Risk' : 'Higher Risk'}</font></td>
         <td style="padding:8pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(confTotals[level])}</font></td>
       </tr>`;
     }
@@ -1030,7 +1030,7 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
   // Delegates to _extractGrandTotal which uses the identical formula as
   // export-engine.js _getFullyLoadedTotal.
   _precomputeBOMTotal(state) {
-    if (state._bomGrandTotal && state._bomGrandTotal > 1000) return; // Already computed
+    // Always recompute — previous early-return caused stale totals after BOM edits
     const total = this._extractGrandTotal(state);
     if (total && total > 1000) {
       console.log(`[ProposalGen] Pre-computed BOM total: $${state._bomGrandTotal}`);

@@ -3914,7 +3914,9 @@ function build3DEngineCard(st) {
   if (!st.aiAnalysis) return '';
   if (typeof FormulaEngine3D === 'undefined') return '';
 
-  const bom = SmartPlansExport._extractBOMFromAnalysis(st.aiAnalysis);
+  // FIX: Use getFilteredBOM instead of raw _extractBOMFromAnalysis so the 3D engine
+  // reference number uses the same BOM as everything else (discipline-filtered, user-edited)
+  const bom = getFilteredBOM(st.aiAnalysis, st.disciplines);
   if (!bom || !bom.categories || bom.categories.length === 0) return '';
 
   // Run the 3D engine

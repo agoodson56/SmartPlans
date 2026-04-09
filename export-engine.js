@@ -492,32 +492,31 @@ const SmartPlansExport = {
             }
         }
 
-        // Priority 1 (PRIMARY): Financial Engine brain (fully-loaded bid price with labor, overhead, profit, contingency)
-        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
-        if (finEngine?.project_summary?.grand_total > 1000) {
-            let val = this._round(finEngine.project_summary.grand_total);
-            // Replace AI-computed travel with deterministic Stage 6 travel
-            // Also recalculate contingency portion (10% of the delta) so total stays consistent
-            if (stage6Travel > 0) {
-                const aiTravel = this._round(finEngine.project_summary.total_travel || 0);
-                const travelDelta = stage6Travel - aiTravel;
-                const contingencyAdj = this._round(travelDelta * 0.10); // 10% contingency on travel change
-                val = this._round(val + travelDelta + contingencyAdj);
-                console.log(`[Export] Replaced AI travel ($${aiTravel.toLocaleString()}) with Stage 6 travel ($${stage6Travel.toLocaleString()}) [delta: $${travelDelta.toLocaleString()}, contingency adj: $${contingencyAdj.toLocaleString()}]`);
+        // ═══ UNIFIED GRAND TOTAL — uses SAME formula as proposal-generator ═══
+        // FIX: Previously used Financial Engine AI as Priority 1, which produced a
+        // DIFFERENT number than _computeFullBreakdown (used by proposals). This caused
+        // the Master Report, export JSON, and Proposal to show three different totals.
+        // Now: deterministic BOM computation is ALWAYS primary. AI is logged for reference only.
+
+        // Priority 1 (PRIMARY): Deterministic BOM computation with user-configured markups
+        // This matches proposal-generator.js _extractGrandTotal exactly.
+        if (bom?.categories?.length > 0) {
+            const breakdown = this._computeFullBreakdown(state, bom);
+            if (breakdown.grandTotal > 1000) {
+                // Log Financial Engine comparison for diagnostics (never use as actual total)
+                const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+                if (finEngine?.project_summary?.grand_total > 1000) {
+                    const aiTotal = this._round(finEngine.project_summary.grand_total);
+                    const delta = aiTotal - breakdown.grandTotal;
+                    const deltaPct = ((delta / breakdown.grandTotal) * 100).toFixed(1);
+                    console.log(`[Export] 📊 Financial Engine AI reference: $${aiTotal.toLocaleString()} (delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()}, ${deltaPct}%) — using deterministic computation`);
+                }
+                console.log(`[Export] ✅ Grand total from deterministic BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
+                return breakdown.grandTotal;
             }
-            console.log(`[Export] ✅ Grand total from Financial Engine: $${val.toLocaleString()}`);
-            return val;
         }
 
-        // Priority 2: Estimate Corrector's corrected grand total (raw BOM only — fallback)
-        const corrector = state.brainResults?.wave3_85_corrected;
-        if (corrector?.corrected_grand_total > 1000) {
-            const val = this._round(corrector.corrected_grand_total);
-            console.log(`[Export] ⚠️ Using Estimate Corrector total (raw BOM, no markups): $${val.toLocaleString()}`);
-            return val;
-        }
-
-        // Priority 3: Bid strategy if user applied one
+        // Priority 2: Bid strategy if user applied one
         if (state.bidStrategy?.applied) {
             const result = this.applyBidStrategy?.(state);
             if (result?.grandTotalWithStrategy > 1000) {
@@ -526,22 +525,22 @@ const SmartPlansExport = {
             }
         }
 
-        // Priority 4: Compute with full markups from BOM (fallback)
-        if (bom?.categories?.length > 0) {
-            const breakdown = this._computeFullBreakdown(state, bom);
-            if (breakdown.grandTotal > 1000) {
-                console.log(`[Export] Grand total from BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
-                return breakdown.grandTotal;
+        // Priority 3: Financial Engine AI total (last resort — only if BOM parsing failed)
+        const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
+        if (finEngine?.project_summary?.grand_total > 1000) {
+            let val = this._round(finEngine.project_summary.grand_total);
+            if (stage6Travel > 0) {
+                const aiTravel = this._round(finEngine.project_summary.total_travel || 0);
+                const travelDelta = stage6Travel - aiTravel;
+                const contingencyAdj = this._round(travelDelta * 0.10);
+                val = this._round(val + travelDelta + contingencyAdj);
             }
+            console.warn(`[Export] ⚠️ BOM parse failed — using Financial Engine AI total: $${val.toLocaleString()}`);
+            return val;
         }
 
-        // Priority 5: Raw BOM — use _computeFullBreakdown if grandTotal is 0 or very small
+        // Priority 4: Raw BOM + 10% (emergency fallback)
         const rawTotal = bom?.grandTotal || 0;
-        if (rawTotal <= 0 && bom?.categories?.length > 0) {
-            const breakdown = this._computeFullBreakdown(state, bom);
-            console.warn(`[Export] Grand total fallback: computed from breakdown $${breakdown.grandTotal}`);
-            return breakdown.grandTotal;
-        }
         console.warn(`[Export] Grand total fallback: raw BOM $${rawTotal} + 10%`);
         return this._round(rawTotal * 1.1);
     },
