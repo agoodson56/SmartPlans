@@ -70,51 +70,44 @@ export async function onRequestPost(context) {
             return Response.json({ error: 'Too many items (max 500)' }, { status: 400 });
         }
 
-        // Delete existing actuals for this estimate before inserting new ones
-        await env.DB.prepare(
-            `DELETE FROM project_actuals WHERE estimate_id = ?`
-        ).bind(id).run();
-
-        // Insert all actuals in batches
-        const batchSize = 25;
+        // Delete + insert in a single atomic batch to prevent partial state
+        const allStmts = [
+            env.DB.prepare(`DELETE FROM project_actuals WHERE estimate_id = ?`).bind(id)
+        ];
         let inserted = 0;
 
-        for (let i = 0; i < items.length; i += batchSize) {
-            const batch = items.slice(i, i + batchSize);
-            const stmts = batch.map(item => {
-                const estCost = (item.estimated_qty || 0) * (item.estimated_unit_cost || 0);
-                const actCost = (item.actual_qty || 0) * (item.actual_unit_cost || 0);
-                const variancePct = estCost > 0
-                    ? Math.round(((actCost - estCost) / estCost) * 10000) / 100
-                    : 0;
+        for (const item of items) {
+            const estCost = (item.estimated_qty || 0) * (item.estimated_unit_cost || 0);
+            const actCost = (item.actual_qty || 0) * (item.actual_unit_cost || 0);
+            const variancePct = estCost > 0
+                ? Math.round(((actCost - estCost) / estCost) * 10000) / 100
+                : 0;
 
-                return env.DB.prepare(`
-                    INSERT INTO project_actuals
-                        (id, estimate_id, project_name, category, item_name,
-                         estimated_qty, actual_qty, estimated_unit_cost, actual_unit_cost,
-                         estimated_labor_hours, actual_labor_hours, variance_pct, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `).bind(
-                    crypto.randomUUID().replace(/-/g, ''),
-                    id,
-                    String(item.project_name || '').substring(0, 200),
-                    String(item.category || 'General').substring(0, 100),
-                    String(item.item_name || '').substring(0, 200),
-                    item.estimated_qty || 0,
-                    item.actual_qty || 0,
-                    item.estimated_unit_cost || 0,
-                    item.actual_unit_cost || 0,
-                    item.estimated_labor_hours || 0,
-                    item.actual_labor_hours || 0,
-                    variancePct,
-                    String(item.notes || '').substring(0, 500)
-                );
-            });
-
-            await env.DB.batch(stmts);
-            inserted += batch.length;
+            allStmts.push(env.DB.prepare(`
+                INSERT INTO project_actuals
+                    (id, estimate_id, project_name, category, item_name,
+                     estimated_qty, actual_qty, estimated_unit_cost, actual_unit_cost,
+                     estimated_labor_hours, actual_labor_hours, variance_pct, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).bind(
+                crypto.randomUUID().replace(/-/g, ''),
+                id,
+                String(item.project_name || '').substring(0, 200),
+                String(item.category || 'General').substring(0, 100),
+                String(item.item_name || '').substring(0, 200),
+                item.estimated_qty || 0,
+                item.actual_qty || 0,
+                item.estimated_unit_cost || 0,
+                item.actual_unit_cost || 0,
+                item.estimated_labor_hours || 0,
+                item.actual_labor_hours || 0,
+                variancePct,
+                String(item.notes || '').substring(0, 500)
+            ));
+            inserted++;
         }
 
+        await env.DB.batch(allStmts);
         return Response.json({ success: true, inserted }, { status: 201 });
     } catch (err) {
         console.error('Failed to save actuals:', err.message);

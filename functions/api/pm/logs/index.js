@@ -71,7 +71,7 @@ export async function onRequestPost(context) {
             return Response.json({ error: 'Invalid hours_used — must be a non-negative number' }, { status: 400 });
         }
 
-        const id = String(body.id || crypto.randomUUID().replace(/-/g, '')).substring(0, 64);
+        const id = crypto.randomUUID().replace(/-/g, '');
         // MED-1 fix: never trust client-supplied logged_at — always use server time
         // to prevent arbitrary date injection (back-dating or future-dating entries)
         const loggedAt = new Date().toISOString();

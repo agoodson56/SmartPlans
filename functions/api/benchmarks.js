@@ -37,10 +37,8 @@ export async function onRequestGet(context) {
     }
 
     const envToken = env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const token = request.headers.get('X-App-Token') || '';
+    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     try {
         const url = new URL(request.url);
@@ -92,10 +90,8 @@ export async function onRequestPost(context) {
     }
 
     const envToken = env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const token = request.headers.get('X-App-Token') || '';
+    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     try {
         // Aggregate actuals data into benchmarks

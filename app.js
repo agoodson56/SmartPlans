@@ -2890,8 +2890,8 @@ function scrollContentTop() {
 
 // ─── Step 0: Project Setup ───
 function renderStep0(container) {
-  const formatOptions = FILE_FORMATS.map(f => `<option value="${esc(f.label)}">${esc(f.label)}</option>`).join("");
-  const projectTypeOptions = PROJECT_TYPES.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+  const formatOptions = FILE_FORMATS.map(f => `<option value="${esc(f.label)}" ${state.fileFormat === f.label ? 'selected' : ''}>${esc(f.label)}</option>`).join("");
+  const projectTypeOptions = PROJECT_TYPES.map(t => `<option value="${esc(t)}" ${state.projectType === t ? 'selected' : ''}>${esc(t)}</option>`).join("");
   const disciplineChips = DISCIPLINES.map(d => {
     const sel = state.disciplines.includes(d) ? " selected" : "";
     return `<button class="chip${sel}" data-disc="${esc(d)}">${sel ? "✓ " : ""}${esc(d)}</button>`;
@@ -4508,9 +4508,9 @@ function computeTravelIncidentals() {
   const t = state.travel;
   const inc = state.incidentals;
 
-  // Get total labor hours from AI
+  // Get total labor hours from AI — ensure numeric to prevent NaN propagation
   const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
-  let totalLaborHours = laborCalc?.total_hours || 0;
+  let totalLaborHours = parseFloat(laborCalc?.total_hours) || 0;
 
   // ═══ SANITY BOUNDS ═══
   // AI can hallucinate extreme labor hours (e.g. 800K hours = 68 years of work).

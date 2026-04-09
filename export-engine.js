@@ -43,7 +43,7 @@ const SmartPlansExport = {
         const now = new Date();
         const regionKey = state.regionalMultiplier || "national_average";
         const regionMult = PRICING_DB.regionalMultipliers[regionKey] || 1.0;
-        const burdenMult = state.includeBurden ? (1 + state.burdenRate / 100) : 1.0;
+        const burdenMult = state.includeBurden ? (1 + ((state.burdenRate ?? 35) > 1 ? (state.burdenRate ?? 35) / 100 : (state.burdenRate ?? 35))) : 1.0;
 
         // Pre-extract BOM for financials section
         let bom = this._extractBOMFromAnalysis(state.aiAnalysis);
@@ -1215,6 +1215,7 @@ const SmartPlansExport = {
                             else if (cl.includes('part') || cl.includes('model') || cl.includes('sku') || cl.includes('p/n')) colMap.partNumber = idx;
                         });
                         inTable = true;
+                        headersParsed = true; // Allow data rows even without separator (some AI outputs omit |---|)
                         continue;
                     }
 
@@ -1846,7 +1847,7 @@ const SmartPlansExport = {
             const wb = XLSX.utils.book_new();
             const regionKey = state.regionalMultiplier || "national_average";
             const regionMult = PRICING_DB.regionalMultipliers[regionKey] || 1.0;
-            const burdenMult = state.includeBurden ? (1 + state.burdenRate / 100) : 1.0;
+            const burdenMult = state.includeBurden ? (1 + ((state.burdenRate ?? 35) > 1 ? (state.burdenRate ?? 35) / 100 : (state.burdenRate ?? 35))) : 1.0;
             const tier = state.pricingTier;
 
             // ── Sheet 1: Project Summary ──
@@ -2069,7 +2070,7 @@ const SmartPlansExport = {
     exportMarkdown(state) {
         const regionKey = state.regionalMultiplier || "national_average";
         const regionMult = PRICING_DB.regionalMultipliers[regionKey] || 1.0;
-        const burdenMult = state.includeBurden ? (1 + state.burdenRate / 100) : 1.0;
+        const burdenMult = state.includeBurden ? (1 + ((state.burdenRate ?? 35) > 1 ? (state.burdenRate ?? 35) / 100 : (state.burdenRate ?? 35))) : 1.0;
         const now = new Date();
 
         let md = "";
@@ -3212,8 +3213,9 @@ Return ONLY the JSON array. No other text.`;
             return { itemsMatched: 0, itemsUnmatched: 0, oldTotal: 0, newTotal: 0, delta: 0 };
         }
 
-        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
-        const overrides = state.supplierPriceOverrides || {};
+        const rawBom = this._applyUserBOMEdits(this._extractBOMFromAnalysis(state.aiAnalysis), state);
+        const bom = this._filterBOMByDisciplines(rawBom, state.disciplines);
+        const overrides = {};  // Start fresh — rate library replaces existing overrides
         let itemsMatched = 0;
         let itemsUnmatched = 0;
         const oldTotal = bom.grandTotal || 0;
@@ -3293,13 +3295,12 @@ Return ONLY the JSON array. No other text.`;
 
     // ─── Apply Bid Strategy — per-category markups & contingency ───
     applyBidStrategy(state) {
-        let bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
-        // FIX: Apply user BOM edits (overrides, deletions, manual items) so the
-        // Pricing Strategy Summary matches the actual proposal/export totals.
-        // Without this, strategy totals ignore all user changes to the BOM.
-        if (bom && typeof this._applyUserBOMEdits === 'function') {
-            bom = this._applyUserBOMEdits(bom, state);
+        // Apply user BOM edits BEFORE filtering so override indices match correctly
+        let rawBom = this._extractBOMFromAnalysis(state.aiAnalysis);
+        if (rawBom && typeof this._applyUserBOMEdits === 'function') {
+            rawBom = this._applyUserBOMEdits(rawBom, state);
         }
+        let bom = this._filterBOMByDisciplines(rawBom, state.disciplines);
         if (!bom || !bom.categories || bom.categories.length === 0) {
             return { grandTotalWithStrategy: 0, categories: [], totalMaterial: 0, totalLabor: 0, totalMarkup: 0, totalContingency: 0 };
         }

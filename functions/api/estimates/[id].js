@@ -82,11 +82,11 @@ export async function onRequestPut(context) {
 
                 await env.DB.prepare(`
                     INSERT INTO estimate_revisions (id, estimate_id, revision_number, project_name, disciplines, contract_value, analysis_summary, export_data)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, (SELECT COALESCE(MAX(revision_number), 0) + 1 FROM estimate_revisions WHERE estimate_id = ?), ?, ?, ?, ?, ?)
                 `).bind(
                     crypto.randomUUID().replace(/-/g, ''),
                     id,
-                    revNum,
+                    id,
                     current.project_name,
                     current.disciplines,
                     contractValue,
@@ -172,9 +172,14 @@ export async function onRequestDelete(context) {
             return Response.json({ error: 'Only the creator or an admin can delete this estimate' }, { status: 403 });
         }
 
-        // Delete all revisions for this estimate first
-        await env.DB.prepare(`DELETE FROM estimate_revisions WHERE estimate_id = ?`).bind(params.id).run();
-        await env.DB.prepare(`DELETE FROM estimates WHERE id = ?`).bind(params.id).run();
+        // Delete all related records and the estimate in a single batch
+        await env.DB.batch([
+            env.DB.prepare(`DELETE FROM project_actuals WHERE estimate_id = ?`).bind(params.id),
+            env.DB.prepare(`DELETE FROM supplier_quotes WHERE estimate_id = ?`).bind(params.id),
+            env.DB.prepare(`DELETE FROM estimate_exclusions WHERE estimate_id = ?`).bind(params.id),
+            env.DB.prepare(`DELETE FROM estimate_revisions WHERE estimate_id = ?`).bind(params.id),
+            env.DB.prepare(`DELETE FROM estimates WHERE id = ?`).bind(params.id),
+        ]);
         return Response.json({ success: true });
     } catch (err) {
         console.error('Failed to delete estimate:', err.message);

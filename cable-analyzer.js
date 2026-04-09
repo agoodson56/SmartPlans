@@ -165,19 +165,7 @@ const CableAnalyzer = {
 
     if (assignments.length === 0) return null;
 
-    // Build grouped views
-    const byIdf       = this._groupBy(assignments, 'idfAssigned');
-    const byFloor     = this._groupBy(assignments, 'floor');
-    const byCableType = this._groupBy(assignments, 'cableType');
-
-    // Totals
     const totalDevices  = assignments.reduce((s, a) => s + a.qty, 0);
-    const totalFt       = assignments.reduce((s, a) => s + a.totalFtWithWaste, 0);
-    const totalCost     = assignments.reduce((s, a) => s + a.totalCost, 0);
-    const runs          = assignments.filter(a => a.runFt > 0);
-    const avgRunFt      = runs.length > 0 ? Math.round(runs.reduce((s, a) => s + a.runFt, 0) / runs.length) : 0;
-    const maxRunFt      = runs.length > 0 ? Math.max(...runs.map(a => a.runFt)) : 0;
-    const minRunFt      = runs.length > 0 ? Math.min(...runs.map(a => a.runFt)) : 0;
     const tiaViolations = assignments.filter(a => a.tiaViolation);
 
     // Auto-fix TIA violations: cap run length at TIA max and flag for IDF split
@@ -186,15 +174,25 @@ const CableAnalyzer = {
       for (const v of tiaViolations) {
         v._originalRunFt = v.runFt;
         v.runFt = cfg.tiaMaxFt;
+        v.horizontal = Math.min(v.horizontal || 0, cfg.tiaMaxFt); // Cap horizontal too for J-hook calc
         v.totalFtWithWaste = Math.round(v.qty * v.runFt * wasteMult);
         v.totalCost = Math.round(v.totalFtWithWaste * v.costPerFt * 100) / 100;
         v.notes = (v.notes ? v.notes + ' | ' : '') + `⚠️ TIA VIOLATION: Original ${v._originalRunFt}ft exceeded ${cfg.tiaMaxFt}ft limit — capped. Consider adding closer IDF.`;
       }
     }
 
-    // Recalculate totals AFTER TIA violation fixes — original values included over-limit distances
+    // Calculate all totals and stats AFTER TIA capping so numbers are consistent
     const correctedTotalFt  = assignments.reduce((s, a) => s + a.totalFtWithWaste, 0);
     const correctedTotalCost = assignments.reduce((s, a) => s + a.totalCost, 0);
+    const runs          = assignments.filter(a => a.runFt > 0);
+    const avgRunFt      = runs.length > 0 ? Math.round(runs.reduce((s, a) => s + a.runFt, 0) / runs.length) : 0;
+    const maxRunFt      = runs.length > 0 ? Math.max(...runs.map(a => a.runFt)) : 0;
+    const minRunFt      = runs.length > 0 ? Math.min(...runs.map(a => a.runFt)) : 0;
+
+    // Build grouped views AFTER TIA capping so group totals match
+    const byIdf       = this._groupBy(assignments, 'idfAssigned');
+    const byFloor     = this._groupBy(assignments, 'floor');
+    const byCableType = this._groupBy(assignments, 'cableType');
 
     // Pathway materials estimate
     const totalHorizontalFt = assignments.reduce((s, a) => s + (a.horizontal || 0) * a.qty, 0);

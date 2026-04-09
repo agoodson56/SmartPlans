@@ -112,7 +112,7 @@ export async function onRequestPost(context) {
     if (!authenticated && envToken && appToken && timingSafeCompare(appToken, envToken)) {
         authenticated = true;
     }
-    if (!authenticated && envToken) {
+    if (!authenticated) {
         return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 

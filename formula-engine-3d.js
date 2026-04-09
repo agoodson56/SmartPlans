@@ -787,7 +787,7 @@ const FormulaEngine3D = {
             _engine: "FormulaEngine3D v2.0",
             _isPW: isPW,
             _isTransit: isTransit,
-            _rateTable: isPW ? "pw_sacramento" : "npw",
+            _rateTable: rates === this.laborRates.pw_sacramento ? "pw_sacramento" : rates === this.laborRates.pw_1515 ? "pw_1515" : rates === this.laborRates.pw_general ? "pw_general" : "npw",
             systems: systemBreakdowns,
             systemCount: Object.keys(systemBreakdowns).length,
             totalMaterialCost: this._round(totalMaterialCost),
@@ -851,11 +851,14 @@ const FormulaEngine3D = {
                     const diff = Math.abs(b.cameras - cameraCount);
                     if (diff < closestDiff) { closestDiff = diff; closest = b; }
                 }
+                if (!closest) {
+                    console.warn('[3D Engine v2] No valid benchmarks found — skipping calibration');
+                }
                 // Prefer BAFO over original
-                const sameCamBids = bidArray.filter(b => b.cameras === closest.cameras);
+                const sameCamBids = closest ? bidArray.filter(b => b.cameras === closest.cameras) : [];
                 const benchmark = sameCamBids.find(b => b.type === 'bafo') || sameCamBids.find(b => b.type === 'original') || closest;
 
-                if (!benchmark.cameras || benchmark.cameras <= 0) {
+                if (!benchmark || !benchmark.cameras || benchmark.cameras <= 0) {
                     console.warn('[3D Engine v2] Benchmark has 0 cameras — skipping calibration');
                 } else {
                 const perCameraSell = benchmark.total / benchmark.cameras;

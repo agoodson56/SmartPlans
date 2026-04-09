@@ -1974,7 +1974,7 @@ const SmartBrains = {
     CROSS_SHEET_ANALYZER: ['sheet_comparisons', 'inconsistencies', 'adjusted_counts'],
     FINAL_RECONCILIATION: ['final_counts', 'adjustment_log', 'confidence_score'],
     SPEC_CROSS_REF: ['spec_vs_drawing', 'discrepancies', 'true_change_orders', 'specified_products', 'power_equipment_found', 'equipment_schedule'],
-    ANNOTATION_READER: ['annotations', 'referenced_details'],
+    ANNOTATION_READER: ['annotations', 'referenced_details', 'schedule_data'],
     RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
     DEVICE_LOCATOR: ['devices'],
     SCOPE_EXCLUSION_SCANNER: ['exclusions'],
@@ -3391,7 +3391,7 @@ CRITICAL RULES:
 
 GENERATE:
 1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
-2. Travel & Per Diem calculation — ONLY if project is 60+ miles from ALL 3D offices (Rancho Cordova CA, Livermore CA, Sparks NV, McCall ID)
+2. DO NOT calculate travel — set total_travel to $0 (the system injects deterministic travel from user config)
 ${context.nearestOfficeDistance !== undefined ? `   COMPUTED: ${context.nearestOfficeDistance} miles from ${context.nearestOfficeName || 'nearest office'}. ${context.nearestOfficeDistance <= 60 ? '⚠️ LOCAL PROJECT — SKIP TRAVEL COSTS ENTIRELY.' : 'Include travel costs.'}` : ''}
 3. Transit/Railroad costs — MANDATORY if project involves Amtrak, BNSF, transit authority, railroad, airport, or DOT
 4. Prevailing wage determination (if applicable)

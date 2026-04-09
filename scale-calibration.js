@@ -141,6 +141,12 @@ const ScaleCalibration = {
       });
     }
 
+    // Store image dimensions if provided (for percentage-to-pixel conversion)
+    if (deviceResult.image_dimensions) {
+      this._imageWidth = deviceResult.image_dimensions.width_px || this._imageWidth;
+      this._imageHeight = deviceResult.image_dimensions.height_px || this._imageHeight;
+    }
+
     console.log(`[ScaleCalibration] Ingested ${deviceResult.devices.length} devices from DEVICE_LOCATOR`);
   },
 

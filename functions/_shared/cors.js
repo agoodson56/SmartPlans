@@ -91,6 +91,8 @@ export function isAllowedOrigin(origin, allowMissing = false) {
  * so we implement manually using bitwise OR accumulation.
  */
 export function timingSafeCompare(a, b) {
+    // FIX #15/18: Reject empty strings — prevents bypass when both token and env are empty
+    if (a.length === 0 || b.length === 0) return false;
     // FIX #8: Pad to fixed minimum length (256) to prevent leaking target token length
     // via timing differences on different-length inputs
     const maxLen = Math.max(a.length, b.length, 256);

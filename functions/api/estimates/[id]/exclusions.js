@@ -21,10 +21,8 @@ function corsHeaders(origin) {
 
 function checkAuth(context) {
     const envToken = context.env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = context.request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(token, envToken)) return false;
-    }
+    const token = context.request.headers.get('X-App-Token') || '';
+    if (!envToken || !timingSafeCompare(token, envToken)) return false;
     return true;
 }
 

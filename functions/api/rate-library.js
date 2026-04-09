@@ -24,14 +24,12 @@ function authorize(request, env) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403, headers: corsHeaders(origin) });
     }
     const envToken = env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(token, envToken)) {
-            return Response.json(
-                { error: 'Unauthorized — invalid or missing X-App-Token' },
-                { status: 401, headers: corsHeaders(origin) }
-            );
-        }
+    const token = request.headers.get('X-App-Token') || '';
+    if (!envToken || !timingSafeCompare(token, envToken)) {
+        return Response.json(
+            { error: 'Unauthorized — invalid or missing X-App-Token' },
+            { status: 401, headers: corsHeaders(origin) }
+        );
     }
     return null; // authorized
 }

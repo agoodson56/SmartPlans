@@ -39,10 +39,8 @@ export async function onRequestGet(context) {
     }
 
     const envToken = context.env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = context.request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const token = context.request.headers.get('X-App-Token') || '';
+    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     if (!isValidId(id) || !isValidId(quoteId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
@@ -74,10 +72,8 @@ export async function onRequestPut(context) {
     }
 
     const envToken = context.env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = context.request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const token = context.request.headers.get('X-App-Token') || '';
+    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     if (!isValidId(id) || !isValidId(quoteId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
@@ -125,10 +121,8 @@ export async function onRequestDelete(context) {
     }
 
     const envToken = context.env.ESTIMATES_TOKEN;
-    if (envToken) {
-        const token = context.request.headers.get('X-App-Token') || '';
-        if (!timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const token = context.request.headers.get('X-App-Token') || '';
+    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     if (!isValidId(id) || !isValidId(quoteId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
