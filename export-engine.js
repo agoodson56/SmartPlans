@@ -46,32 +46,19 @@ const SmartPlansExport = {
         const burdenMult = state.includeBurden ? (1 + state.burdenRate / 100) : 1.0;
 
         // Pre-extract BOM for financials section
-        const bom = this._extractBOMFromAnalysis(state.aiAnalysis);
+        let bom = this._extractBOMFromAnalysis(state.aiAnalysis);
         const bomWarning = bom._warning || null;
 
-        // Apply supplier price overrides if present
-        const overrides = state.supplierPriceOverrides || {};
-        if (Object.keys(overrides).length > 0) {
-            for (const [key, override] of Object.entries(overrides)) {
-                const [catIdx, itemIdx] = key.split('-').map(Number);
-                if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
-                    const item = bom.categories[catIdx].items[itemIdx];
-                    if (override.qty != null) item.qty = override.qty;
-                    item.unitCost = override.unitCost;
-                    item.extCost = this._round(item.qty * override.unitCost);
-                    if (override.mfg) item.mfg = override.mfg;
-                    if (override.partNumber) item.partNumber = override.partNumber;
-                    if (override.isSubstitute) item._isSubstitute = true;
-                }
-            }
-            // Recalculate category subtotals and grand total
-            bom.grandTotal = 0;
-            for (const cat of bom.categories) {
-                cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0);
-                cat.subtotal = this._round(cat.subtotal);
-                bom.grandTotal += cat.subtotal;
-            }
-            bom.grandTotal = this._round(bom.grandTotal);
+        // Apply ALL user BOM edits: overrides, deletions, manual items
+        // FIX: Previously only applied overrides — deleted items were still in the
+        // export BOM, inflating financials.grandTotal with items the user removed.
+        if (bom && typeof this._applyUserBOMEdits === 'function') {
+            bom = this._applyUserBOMEdits(bom, state);
+        }
+
+        // Apply transit station-grade pricing adjustments
+        if (bom && typeof this._applyTransitAdjustments === 'function') {
+            this._applyTransitAdjustments(bom, state);
         }
 
         // Filter BOM to only include categories for selected disciplines
@@ -359,6 +346,56 @@ const SmartPlansExport = {
         bom.grandTotal = this._round(bom.grandTotal);
 
         return bom;
+    },
+
+    // ─── Apply transit/railroad pricing adjustments to BOM ──
+    // For transit projects, enforce minimum costs for transit-rated equipment
+    // (IK10 cameras, industrial NVR, managed switches). Without this, the AI
+    // may price commodity-grade equipment that doesn't meet transit specs.
+    _applyTransitAdjustments(bom, state) {
+        if (!state.isTransitRailroad || !bom?.categories) return;
+        const tc = PRICING_DB?.projectTypeMultipliers?.transit_railroad;
+        if (!tc) return;
+
+        let adjustments = 0;
+        for (const cat of bom.categories) {
+            for (const item of cat.items) {
+                const n = (item.name || item.item || '').toLowerCase();
+                const uc = item.unitCost || 0;
+
+                // Enforce minimum camera cost for transit-rated IK10 domes
+                if (/camera|dome|bullet|ptz|turret/i.test(n) && uc > 0 && uc < tc.min_camera_cost) {
+                    console.log(`[Transit] Camera "${item.name || item.item}" $${uc} → $${tc.min_camera_cost} (transit minimum)`);
+                    item.unitCost = tc.min_camera_cost;
+                    item.extCost = this._round(item.qty * item.unitCost);
+                    adjustments++;
+                }
+                // Enforce minimum NVR cost
+                if (/nvr|network\s*video\s*recorder|video\s*server/i.test(n) && uc > 0 && uc < tc.min_nvr_cost) {
+                    console.log(`[Transit] NVR "${item.name || item.item}" $${uc} → $${tc.min_nvr_cost} (transit minimum)`);
+                    item.unitCost = tc.min_nvr_cost;
+                    item.extCost = this._round(item.qty * item.unitCost);
+                    adjustments++;
+                }
+                // Enforce minimum managed switch cost
+                if (/network\s*switch|managed\s*switch|poe\s*switch/i.test(n) && uc > 0 && uc < tc.min_switch_cost) {
+                    console.log(`[Transit] Switch "${item.name || item.item}" $${uc} → $${tc.min_switch_cost} (transit minimum)`);
+                    item.unitCost = tc.min_switch_cost;
+                    item.extCost = this._round(item.qty * item.unitCost);
+                    adjustments++;
+                }
+            }
+            // Recalculate category subtotal
+            cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
+            cat.subtotal = this._round(cat.subtotal);
+        }
+        // Recalculate grand total
+        bom.grandTotal = bom.categories.reduce((s, cat) => s + (cat.subtotal || 0), 0);
+        bom.grandTotal = this._round(bom.grandTotal);
+
+        if (adjustments > 0) {
+            console.log(`[Transit] Applied ${adjustments} transit minimum price adjustments. New BOM total: $${bom.grandTotal.toLocaleString()}`);
+        }
     },
 
     // ─── Classify BOM categories into material/equipment/subs/labor ──
