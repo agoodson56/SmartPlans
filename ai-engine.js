@@ -2046,7 +2046,7 @@ YOUR MISSION: Scan EVERY sheet and count EVERY device symbol. Be exhaustive.
 WHAT TO COUNT BY DISCIPLINE:
 ${(context.disciplines || []).includes('Structured Cabling') ? '- CABLING: Data outlets, voice outlets, WAPs, fiber outlets, combo outlets' : ''}
 ${(context.disciplines || []).includes('CCTV') ? '- CCTV: Fixed cameras, PTZ cameras, dome cameras, bullet cameras, multi-sensor cameras' : ''}
-${(context.disciplines || []).includes('Access Control') ? '- ACCESS: Card readers, keypads, door contacts, REX devices, electric strikes, maglocks, intercoms' : ''}
+${(context.disciplines || []).includes('Access Control') ? '- ACCESS (Div 28 + Div 08): Card readers, keypads, door contacts, REX devices, electric strikes, maglocks, intercoms, power transfer hinges, auto-operators, delayed egress devices, gate operators, barrier arms' : ''}
 ${(context.disciplines || []).includes('Fire Alarm') ? '- FIRE: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, modules, annunciators' : ''}
 ${(context.disciplines || []).includes('Intrusion Detection') ? '- INTRUSION: Motion detectors, door contacts, glass break, keypads, sirens' : ''}
 ${(context.disciplines || []).includes('Audio Visual') ? '- AV: Speakers, displays, projectors, touch panels, microphones, signal plates' : ''}
@@ -2944,7 +2944,7 @@ CRITICAL RULES:
    - If schedule says "Card Reader: 15, Electric Strike: 15, DPS: 15, REX: 15" then price EXACTLY 15 of each — not 10, not 12
    - NEVER reduce schedule quantities — the architect counted these, you price them
 3. If NO schedule exists, use consensus counts: if consensus says 24 cameras, price EXACTLY 24 cameras
-4. For Access Control: include controllers, card readers, door contacts, REX devices, electric strikes/maglocks, door position switches, cabling, and power supplies — the DOOR COUNT must match the schedule or consensus exactly
+4. For Access Control (Div 28 + Div 08 Openings): include controllers, card readers, door contacts, REX devices, electric strikes/maglocks, power transfer hinges, delayed egress devices, auto-operators, door position switches, gate operators, barrier arms, vehicle detection loops, cabling, and power supplies — the DOOR COUNT must match the schedule or consensus exactly
 5. For each camera or access point, include mounting hardware, cable, connectors, and associated head-end equipment (NVR, switches, license)
 6. Use the EXACT prices from the pricing database. Apply the ${regionMult}× regional multiplier to all unit costs
 7. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost (VERIFY YOUR MATH on every single row)

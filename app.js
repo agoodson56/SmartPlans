@@ -348,6 +348,30 @@ const DISCIPLINES = [
   "Fire Alarm",
 ];
 
+// ═══════════════════════════════════════════════════════════════
+// CSI DIVISION MAPPING — Maps disciplines to CSI MasterFormat divisions
+// ═══════════════════════════════════════════════════════════════
+const CSI_DIVISIONS = {
+  "01": { name: "General Requirements", disciplines: ["all"], description: "Mobilization, PM, bonds, permits, travel" },
+  "08": { name: "Openings", disciplines: ["Access Control"], description: "Door hardware, frames, electrified hardware for access control" },
+  "27": { name: "Communications", disciplines: ["Structured Cabling", "Audio Visual"], description: "Cabling infrastructure, AV systems, telecom" },
+  "28": { name: "Electronic Safety & Security", disciplines: ["CCTV", "Access Control", "Fire Alarm", "Intrusion Detection"], description: "Security, surveillance, fire alarm, intrusion" },
+};
+
+// Maps a discipline to its primary CSI division(s)
+function getDivisionsForDiscipline(discipline) {
+  return Object.entries(CSI_DIVISIONS)
+    .filter(([, div]) => div.disciplines.includes('all') || div.disciplines.includes(discipline))
+    .map(([code, div]) => ({ code, ...div }));
+}
+
+// Maps a CSI division code to its disciplines
+function getDisciplinesForDivision(divCode) {
+  const div = CSI_DIVISIONS[divCode];
+  if (!div) return [];
+  return div.disciplines.includes('all') ? DISCIPLINES : div.disciplines;
+}
+
 const PROJECT_TYPES = [
   "New Construction",
   "Renovation / Remodel",
@@ -469,6 +493,23 @@ const EXCLUSION_TEMPLATES = {
     ],
     clarification: [],
   },
+  // Division 08 — Openings (auto-included when Access Control is selected)
+  _div08_openings: {
+    exclusion: [
+      { text: "Excludes door frame modifications or structural reinforcement", category: "Div 08 — Openings" },
+      { text: "Excludes hollow metal frames and door leafs (by door hardware contractor)", category: "Div 08 — Openings" },
+      { text: "Excludes finish hardware (hinges, closers, panic bars) unless electrified", category: "Div 08 — Openings" },
+      { text: "Excludes ADA automatic operators unless specifically listed", category: "Div 08 — Openings" },
+    ],
+    assumption: [
+      { text: "Assumes door prep (mortise pocket, reinforcement) is by door hardware vendor", category: "Div 08 — Openings" },
+      { text: "Assumes standard hollow metal frames compatible with electric strikes", category: "Div 08 — Openings" },
+      { text: "Assumes existing doors can accept specified electrified hardware without modification", category: "Div 08 — Openings" },
+    ],
+    clarification: [
+      { text: "Door hardware schedule coordination required between Div 08 and Div 28 contractors", category: "Div 08 — Openings" },
+    ],
+  },
 };
 
 function getDefaultExclusions(disciplines) {
@@ -485,6 +526,17 @@ function getDefaultExclusions(disciplines) {
       (tpl[type] || []).forEach((t, i) => {
         items.push({ ...t, type, sort_order: 100 + i });
       });
+    }
+  }
+  // Auto-include Div 08 (Openings) when Access Control is selected
+  if (disciplines.includes('Access Control')) {
+    const d08 = EXCLUSION_TEMPLATES._div08_openings;
+    if (d08) {
+      for (const type of ['exclusion', 'assumption', 'clarification']) {
+        (d08[type] || []).forEach((t, i) => {
+          items.push({ ...t, type, sort_order: 200 + i });
+        });
+      }
     }
   }
   return items;
@@ -536,6 +588,14 @@ const RFI_TEMPLATES = {
     { id: "ID-004", q: "Integration with access control system is referenced but not detailed. Please confirm whether intrusion arming/disarming is tied to access control events.", reason: "Integration requires compatible platforms and additional programming." },
     { id: "ID-005", q: "Siren/strobe locations for interior and exterior alarm notification are not shown. Please confirm quantities and placement.", reason: "Notification devices are code-required in many jurisdictions and affect wiring layout." },
     { id: "ID-006", q: "Central station monitoring requirements and UL listing (UL 681, UL 2050) are not specified. Please confirm monitoring level and certification requirements.", reason: "UL-listed installations have specific wiring, device spacing, and inspection requirements that increase cost." },
+  ],
+  // Division 08 — Openings (auto-included when Access Control is selected)
+  "_Div 08 — Openings": [
+    { id: "D08-001", q: "The door hardware schedule does not indicate which doors are electrified or require low-voltage prep. Please provide an electrified door matrix cross-referenced to the access control drawing.", reason: "Electrified hardware type (strike vs maglock vs ELR) determines door prep, power, and wiring." },
+    { id: "D08-002", q: "Power transfer hinge or electric hinge requirements are not shown per door. Please confirm power transfer method for each electrified door.", reason: "Power transfer type must match frame/door material and affects concealment and aesthetics." },
+    { id: "D08-003", q: "Automatic door operator locations for ADA compliance are not specified. Please confirm which doors require auto-operators.", reason: "Auto-operators are $1,200-$4,500 each and require dedicated power, significantly impacting cost." },
+    { id: "D08-004", q: "Delayed egress device locations are referenced in specs but not shown on plans. Please confirm which exit doors require delayed egress per code.", reason: "Delayed egress requires fire alarm integration, signage, and AHJ approval." },
+    { id: "D08-005", q: "Gate operator specifications (slide vs swing, solar vs hardwired, vehicle detection loops) are not provided. Please furnish gate details.", reason: "Gate systems range from $3,000-$15,000 depending on type, size, and accessories." },
   ],
   "Fire Alarm": [
     { id: "FA-001", q: "Fire alarm device symbols are shown but the device schedule (manufacturer, model, type) is not provided. Please furnish a complete device schedule.", reason: "Device selection determines compatibility with the specified FACP and affects unit pricing." },
@@ -2583,6 +2643,10 @@ function getRelevantRFIs() {
   // Always include Architectural for cross-discipline gaps
   if (!state.disciplines.includes("Architectural") && RFI_TEMPLATES["Architectural"]) {
     rfis.push(...RFI_TEMPLATES["Architectural"].map(r => ({ ...r, discipline: "Architectural" })));
+  }
+  // Auto-include Div 08 (Openings) RFIs when Access Control is selected
+  if (state.disciplines.includes("Access Control") && RFI_TEMPLATES["_Div 08 — Openings"]) {
+    rfis.push(...RFI_TEMPLATES["_Div 08 — Openings"].map(r => ({ ...r, discipline: "Div 08 — Openings" })));
   }
   return rfis;
 }
@@ -7778,7 +7842,18 @@ INSTRUCTIONS:
    | 01-006 | Travel & Per Diem (if out of town) |
    | 01-007 | Temporary Facilities / Storage |
 
-   DIVISION 27 — COMMUNICATIONS (Structured Cabling):
+   DIVISION 08 — OPENINGS (Access Control Hardware):
+   | Item | Description |
+   |------|-------------|
+   | 08-001 | Electrified Door Hardware (Strikes, Maglocks, ELR) |
+   | 08-002 | Power Transfer Hinges / Electric Hinges |
+   | 08-003 | Automatic Door Operators (ADA) |
+   | 08-004 | Door Closers (where required for access control) |
+   | 08-005 | Gate Operators & Barrier Arms |
+   | 08-006 | Delayed Egress Devices |
+   | 08-007 | Door Hardware Coordination & Prep |
+
+DIVISION 27 — COMMUNICATIONS (Structured Cabling):
    | Item | Description |
    |------|-------------|
    | 27-001 | MDF/IDF Room Build-Out (per room — list each) |

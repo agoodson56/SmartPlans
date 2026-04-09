@@ -1432,7 +1432,7 @@ const SmartPlansExport = {
 
     // Patterns for categories that are ALWAYS included regardless of discipline selection
     // (infrastructure, equipment, general conditions, subcontractors, etc.)
-    _ALWAYS_INCLUDE_PATTERN: /equipment|subcontract|special\s*condition|general\s*condition|network\s*room|telecom\s*closet|mdf|idf|mpoe|tunnel|mobiliz|bond|insurance|permit|overhead|profit|contingency|travel|per\s*diem|lift|rental|tool|safety|incidental/i,
+    _ALWAYS_INCLUDE_PATTERN: /equipment|subcontract|special\s*condition|general\s*condition|network\s*room|telecom\s*closet|mdf|idf|mpoe|tunnel|mobiliz|bond|insurance|permit|overhead|profit|contingency|travel|per\s*diem|lift|rental|tool|safety|incidental|opening|door\s*hardware|electrified|gate\s*operator/i,
 
     // ─── Filter BOM categories by selected disciplines ───────────
     // Removes categories for disciplines the user did NOT select.

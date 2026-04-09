@@ -355,6 +355,30 @@ const PRICING_DB = {
     },
 
     // ═══════════════════════════════════════════════════════════
+    // DIVISION 08 — OPENINGS (Electrified Door Hardware)
+    // Items specific to LV contractor's scope within Div 08
+    // ═══════════════════════════════════════════════════════════
+    openings: {
+        electrifiedHardware: {
+            electric_strike_std: { unit: "each", budget: 65.00, mid: 140.00, premium: 280.00, description: "Electric strike standard (fail-secure)", mfg: { budget: "SDC", mid: "HES", premium: "Von Duprin" }, partNumber: { budget: "45-A", mid: "9600-12/24-630", premium: "6211WF" } },
+            electric_strike_hd: { unit: "each", budget: 120.00, mid: 240.00, premium: 450.00, description: "Electric strike heavy-duty (storefront)", mfg: { budget: "SDC", mid: "HES", premium: "Von Duprin" }, partNumber: { budget: "55-CU", mid: "9500-12/24-630", premium: "6211AL" } },
+            maglock_600lb: { unit: "each", budget: 55.00, mid: 120.00, premium: 220.00, description: "Electromagnetic lock 600lb", mfg: { budget: "SDC", mid: "Securitron", premium: "Securitron" }, partNumber: { budget: "1511S", mid: "M62B", premium: "M82BL" } },
+            maglock_1200lb: { unit: "each", budget: 75.00, mid: 160.00, premium: 320.00, description: "Electromagnetic lock 1200lb", mfg: { budget: "SDC", mid: "Securitron", premium: "Securitron" }, partNumber: { budget: "1571S", mid: "M82B", premium: "M82BGL" } },
+            elr_device: { unit: "each", budget: 450.00, mid: 850.00, premium: 1500.00, description: "Electric latch retraction device", mfg: { budget: "SDC", mid: "Von Duprin", premium: "Von Duprin" }, partNumber: { budget: "LR100", mid: "EL99", premium: "EL9927" } },
+            auto_operator: { unit: "each", budget: 1200.00, mid: 2200.00, premium: 4500.00, description: "Automatic door operator (ADA)", mfg: { budget: "BEA", mid: "Norton", premium: "Besam/ASSA" }, partNumber: { budget: "PUSH-N-GO", mid: "5800", premium: "SW200i" } },
+            power_transfer: { unit: "each", budget: 65.00, mid: 120.00, premium: 220.00, description: "Electrified power transfer hinge", mfg: { budget: "McKinney", mid: "Hager", premium: "McKinney" }, partNumber: { budget: "QC-C4400", mid: "1257", premium: "QC-12" } },
+            electric_hinge: { unit: "each", budget: 85.00, mid: 165.00, premium: 300.00, description: "Electric hinge (concealed wiring)", mfg: { budget: "Hager", mid: "Hager", premium: "Stainless" }, partNumber: { budget: "1108", mid: "1168", premium: "BB1279" } },
+            delayed_egress: { unit: "each", budget: 350.00, mid: 650.00, premium: 1200.00, description: "Delayed egress device (15/30 sec)", mfg: { budget: "SDC", mid: "Securitron", premium: "Von Duprin" }, partNumber: { budget: "1511SDE", mid: "EEB2", premium: "XP-1" } },
+            door_closer_elec: { unit: "each", budget: 120.00, mid: 250.00, premium: 480.00, description: "Electrified door closer (hold-open)", mfg: { budget: "Yale", mid: "LCN", premium: "Norton" }, partNumber: { budget: "2721", mid: "4041DEL", premium: "7500HO" } },
+            gate_operator_slide: { unit: "each", budget: 1500.00, mid: 3500.00, premium: 7500.00, description: "Gate operator — slide gate", mfg: { budget: "LiftMaster", mid: "DoorKing", premium: "HySecurity" }, partNumber: { budget: "CSL24U", mid: "9050-380", premium: "SlideSmart HD25" } },
+            gate_operator_swing: { unit: "each", budget: 1800.00, mid: 4000.00, premium: 8500.00, description: "Gate operator — swing gate", mfg: { budget: "LiftMaster", mid: "DoorKing", premium: "HySecurity" }, partNumber: { budget: "RSW12U", mid: "9100-080", premium: "SwingSmart DCS" } },
+            barrier_arm: { unit: "each", budget: 1200.00, mid: 2800.00, premium: 5500.00, description: "Barrier arm / vehicle gate", mfg: { budget: "LiftMaster", mid: "DoorKing", premium: "FAAC" }, partNumber: { budget: "BG770", mid: "1601-080", premium: "B680H" } },
+            vehicle_loop: { unit: "each", budget: 85.00, mid: 150.00, premium: 280.00, description: "Vehicle detection loop (saw-cut)", mfg: { budget: "EMX", mid: "EMX", premium: "BEA" }, partNumber: { budget: "ULP-4x8", mid: "ULP-6x10", premium: "LOOP 10" } },
+            loop_detector: { unit: "each", budget: 65.00, mid: 120.00, premium: 220.00, description: "Loop detector module (single channel)", mfg: { budget: "EMX", mid: "EMX", premium: "BEA" }, partNumber: { budget: "D-TEK", mid: "IRB-RET", premium: "MATRIX-D" } },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
     // DEFAULT LABOR RATES (user-configurable)
     // ═══════════════════════════════════════════════════════════
     laborRates: {
