@@ -216,7 +216,7 @@ const SmartBrains = {
             // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
               const CHUNK_THRESHOLD = 45 * 1024 * 1024; // Split PDFs over 45MB into chunks (smaller files upload fine as single)
-              const PAGES_PER_CHUNK = 1; // 1 page per chunk — AI gets full attention on each sheet for maximum counting accuracy
+              const PAGES_PER_CHUNK = 20; // 20 pages per chunk — balances accuracy with API cost
               const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
 
               // Try chunking large PDFs using PDF.js
