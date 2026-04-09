@@ -14,6 +14,21 @@ export async function onRequestGet(context) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    // SEC: Require authentication for reading logs (matches POST auth pattern)
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    const appToken = request.headers.get('X-App-Token') || '';
+    let authenticated = false;
+    if (sessionToken) {
+        const user = await validateSession(env.DB, sessionToken);
+        if (user) authenticated = true;
+    }
+    if (!authenticated && env.ESTIMATES_TOKEN && appToken) {
+        if (timingSafeCompare(appToken, env.ESTIMATES_TOKEN)) authenticated = true;
+    }
+    if (!authenticated) {
+        return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
     try {
         const url = new URL(request.url);
         const projectId = url.searchParams.get('project_id') || 'default';

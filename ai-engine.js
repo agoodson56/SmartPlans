@@ -1736,12 +1736,15 @@ const SmartBrains = {
             let buf = '';
             const FB_SSE_IDLE_TIMEOUT = 60000; // 60 seconds per-read idle timeout
             while (true) {
+              let idleTimer;
               const { done, value } = await Promise.race([
                 reader.read(),
-                new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error('SSE_IDLE_TIMEOUT')), FB_SSE_IDLE_TIMEOUT)
-                ),
-              ]).catch(err => {
+                new Promise((_, reject) => {
+                  idleTimer = setTimeout(() => reject(new Error('SSE_IDLE_TIMEOUT')), FB_SSE_IDLE_TIMEOUT);
+                }),
+              ]).then(result => { clearTimeout(idleTimer); return result; })
+                .catch(err => {
+                clearTimeout(idleTimer);
                 if (err.message === 'SSE_IDLE_TIMEOUT') {
                   reader.cancel();
                   throw { _retryable: true, status: 504, message: 'Fallback SSE stream idle timeout — no data received for 60s' };
@@ -4062,20 +4065,23 @@ Return ONLY valid JSON (same schema as Symbol Scanner):
 
       // ── BRAIN 7: Discipline Deep-Dive (Wave 1.5) ──────────────
       DISCIPLINE_DEEP_DIVE: () => {
-        const primary = (context.disciplines || [])[0] || 'Structured Cabling';
-        return `You are a SPECIALIST COUNTER focused EXCLUSIVELY on ${primary} symbols. Ignore all other disciplines entirely.
+        const allDisc = (context.disciplines || []).length > 0
+          ? context.disciplines
+          : ['Structured Cabling'];
+        const discList = allDisc.join(', ');
+        return `You are a SPECIALIST COUNTER analyzing ALL selected disciplines: ${discList}.
 
 PROJECT: ${context.projectName || 'Unknown'}
-YOUR DISCIPLINE: ${primary} — count ONLY these symbols
+YOUR DISCIPLINES: ${discList} — count devices for EACH discipline separately
 
 LEGEND DICTIONARY:
-${JSON.stringify((context.wave0?.LEGEND_DECODER?.symbols || []).filter(s => s.discipline === primary), null, 2).substring(0, 3000)}
+${JSON.stringify((context.wave0?.LEGEND_DECODER?.symbols || []).filter(s => allDisc.some(d => s.discipline === d || s.category === d)), null, 2).substring(0, 4000)}
 
 FIRST READ COUNTS (for reference — verify independently):
 ${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 2000)}
 
 INSTRUCTIONS:
-1. Go sheet by sheet counting ONLY ${primary} devices
+1. Go sheet by sheet counting devices for EACH of the ${allDisc.length} discipline(s)
 2. For each device, note the exact location (room name or grid reference)
 3. Pay special attention to dense areas where devices cluster
 4. Double-check areas near MDF/IDF rooms where device density is highest
@@ -4083,9 +4089,9 @@ INSTRUCTIONS:
 
 Return ONLY valid JSON:
 {
-  "discipline": "${primary}",
+  "disciplines": ${JSON.stringify(allDisc)},
   "discipline_counts": [
-    { "device_type": "data_outlet", "total": 200, "confidence": 96, "by_sheet": {"E1.01": 80, "E1.02": 120}, "notes": "" }
+    { "discipline": "${allDisc[0]}", "device_type": "data_outlet", "total": 200, "confidence": 96, "by_sheet": {"E1.01": 80, "E1.02": 120}, "notes": "" }
   ],
   "total_devices": 250,
   "problem_areas": [

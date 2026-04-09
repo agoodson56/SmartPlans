@@ -91,24 +91,6 @@ const FormulaEngine3D = {
         },
     },
 
-    // ─── Format B rates (760 Sheriff, POA-Sac, Superior Equipment) ──
-    formatB: {
-        materialMargin: 0.30,       // 30% margin = cost / 0.70
-        laborMargin: 0.50,          // 50% margin = cost / 0.50
-        subMargin: 0.15,            // 15% margin
-        specialMaterialMargin: 0.40, // 40% margin for specialty items
-        otherMargin: 0.20,          // 20% margin
-        rates: {
-            pm:         { burdened: 60,  sell: 120 },
-            foreman:    { burdened: 55,  sell: 110 },
-            appEng:     { burdened: 40,  sell: 80 },
-            startupEng: { burdened: 60,  sell: 120 },
-            drafter:    { burdened: 60,  sell: 120 },
-            fieldTech:  { burdened: 45,  sell: 90 },
-            shopTech:   { burdened: 45,  sell: 90 },
-        },
-    },
-
     // ─── Material Markup (verified from actual bids) ──
     // NPW jobs: 42% markup (SAC JC, 500 Capitol, Indians)
     // PW jobs: 51.5% markup (Modesto Library TELEDATA)
@@ -255,12 +237,6 @@ const FormulaEngine3D = {
         engr_admin:      0.04,  // 4% of field labor hours
         warranty:        0.02,  // 2% of section total
         precon:          0.03,  // 3% precon/general conditions
-    },
-
-    // ─── SAGE Budget Factors (verified from Sam Brennan, 500 Capitol, Indians) ──
-    sageBudget: {
-        active:  { materialOH: 0.40, laborOH: 0.30 },  // Active systems (Teledata, CCTV, etc.)
-        default: { materialOH: 0.15, laborOH: 0.15 },   // Inactive/template systems
     },
 
     // ─── Production Rates (minutes per unit — verified from templates) ──

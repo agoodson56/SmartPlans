@@ -139,8 +139,8 @@ export async function onRequestPut({ request, env }) {
 
     try {
         const body = await request.json();
-        if (!body.id) {
-            return jsonResp({ error: 'id is required in body' }, 400, origin);
+        if (!body.id || typeof body.id !== 'string' || body.id.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(body.id)) {
+            return jsonResp({ error: 'Invalid or missing id' }, 400, origin);
         }
 
         const fields = [];
@@ -183,8 +183,8 @@ export async function onRequestDelete({ request, env }) {
     try {
         const url = new URL(request.url);
         const id = url.searchParams.get('id');
-        if (!id) {
-            return jsonResp({ error: 'id query parameter is required' }, 400, origin);
+        if (!id || id.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(id)) {
+            return jsonResp({ error: 'Invalid or missing id query parameter' }, 400, origin);
         }
 
         await env.DB.prepare(`DELETE FROM rate_library WHERE id = ?`).bind(id).run();

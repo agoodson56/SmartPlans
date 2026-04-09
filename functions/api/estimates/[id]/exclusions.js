@@ -159,8 +159,8 @@ export async function onRequestPut(context) {
     try {
         const body = await request.json();
 
-        if (!body.id) {
-            return Response.json({ error: 'Entry id is required' }, { status: 400, headers: corsHeaders(origin) });
+        if (!body.id || !isValidId(body.id)) {
+            return Response.json({ error: 'Invalid or missing entry id' }, { status: 400, headers: corsHeaders(origin) });
         }
 
         // Support batch sort_order updates
@@ -224,8 +224,8 @@ export async function onRequestDelete(context) {
     try {
         const body = await request.json();
 
-        if (!body.id) {
-            return Response.json({ error: 'Entry id is required' }, { status: 400, headers: corsHeaders(origin) });
+        if (!body.id || !isValidId(body.id)) {
+            return Response.json({ error: 'Invalid or missing entry id' }, { status: 400, headers: corsHeaders(origin) });
         }
 
         await env.DB.prepare(

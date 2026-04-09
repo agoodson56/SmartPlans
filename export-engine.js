@@ -863,7 +863,7 @@ const SmartPlansExport = {
             let qty = 1, unit = 'ea', unitCost = 0, extCost = 0;
 
             if (cells.length >= 5) {
-                qty = parseInt(cells[1].replace(/,/g, '')) || 1;
+                qty = parseFloat(cells[1].replace(/,/g, '')) || 1;
                 unit = cells[2].toLowerCase() || 'ea';
                 const ucMatch = cells[3].match(/\$?([\d,.]+)/);
                 const ecMatch = cells[4].match(/\$?([\d,.]+)/);
@@ -871,15 +871,15 @@ const SmartPlansExport = {
                 extCost = ecMatch ? parseFloat(ecMatch[1].replace(/,/g, '')) : (qty * unitCost);
             } else if (cells.length >= 4) {
                 // 4-column: Item | Qty | Unit Cost | Total
-                qty = parseInt(cells[1].replace(/,/g, '')) || 1;
+                qty = parseFloat(cells[1].replace(/,/g, '')) || 1;
                 const ucMatch = cells[2].match(/\$?([\d,.]+)/);
                 const ecMatch = cells[3].match(/\$?([\d,.]+)/);
                 unitCost = ucMatch ? parseFloat(ucMatch[1].replace(/,/g, '')) : 0;
                 extCost = ecMatch ? parseFloat(ecMatch[1].replace(/,/g, '')) : (qty * unitCost);
             } else if (cells.length >= 3) {
-                const qtyMatch = cells.find(c => c.match(/^\d+$/));
+                const qtyMatch = cells.find(c => c.match(/^[\d.]+$/));
                 const costMatch = cells.find(c => c.match(/\$[\d,]+/));
-                qty = qtyMatch ? parseInt(qtyMatch.replace(/,/g, '')) : 1;
+                qty = qtyMatch ? parseFloat(qtyMatch.replace(/,/g, '')) : 1;
                 extCost = costMatch ? parseFloat(costMatch.replace(/[\$,]/g, '')) : 0;
                 unitCost = qty > 0 ? extCost / qty : 0;
             }
@@ -900,7 +900,7 @@ const SmartPlansExport = {
             for (const bi of bulletItems) {
                 const bm = bi.match(/[-*•]\s+(\d+)\s*x?\s+(.+?)(?:\s+@\s*\$?([\d,.]+))?\s*$/);
                 if (bm) {
-                    const qty = parseInt(bm[1], 10) || 1;
+                    const qty = parseFloat(bm[1]) || 1;
                     const unitCost = bm[3] ? parseFloat(bm[3].replace(/,/g, '')) : 0;
                     items.push({
                         item_name: bm[2].trim(),
@@ -923,7 +923,7 @@ const SmartPlansExport = {
                     items.push({
                         item_name: nm[1].trim(),
                         category: this._guessCategory(nm[1]),
-                        budgeted_qty: parseInt(nm[2], 10) || 1,
+                        budgeted_qty: parseFloat(nm[2]) || 1,
                         unit: 'ea',
                         unit_cost: 0,
                         budgeted_cost: 0,
@@ -1241,7 +1241,7 @@ const SmartPlansExport = {
                         // Try to extract quantity
                         if (colMap.qty !== undefined && cells[colMap.qty]) {
                             const qv = cells[colMap.qty].replace(/[,\s]/g, '');
-                            qty = parseFloat(qv) || parseInt(qv, 10) || 1;
+                            qty = parseFloat(qv) || 1;
                         }
 
                         // Try to extract unit

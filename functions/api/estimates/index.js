@@ -20,14 +20,32 @@ export async function onRequestGet(context) {
     }
 
     try {
-        const res = await env.DB.prepare(
-            `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
+        // SEC: If user session present, scope results to their own estimates (admins see all)
+        const sessionToken = request.headers.get('X-Session-Token') || '';
+        const user = sessionToken ? await validateSession(env.DB, sessionToken) : null;
+
+        let query, binds;
+        if (user && !user.is_admin) {
+            query = `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
                     e.pricing_tier, e.status, e.created_at, e.updated_at,
                     e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
              FROM estimates e
              LEFT JOIN user_accounts u ON u.id = e.created_by
-             ORDER BY e.updated_at DESC LIMIT 100`
-        ).all();
+             WHERE e.created_by = ?
+             ORDER BY e.updated_at DESC LIMIT 100`;
+            binds = [user.id];
+        } else {
+            query = `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
+                    e.pricing_tier, e.status, e.created_at, e.updated_at,
+                    e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
+             FROM estimates e
+             LEFT JOIN user_accounts u ON u.id = e.created_by
+             ORDER BY e.updated_at DESC LIMIT 100`;
+            binds = [];
+        }
+
+        const stmt = env.DB.prepare(query);
+        const res = binds.length > 0 ? await stmt.bind(...binds).all() : await stmt.all();
         return Response.json({ estimates: res.results || [] });
     } catch (err) {
         console.error('Failed to load estimates:', err.message);

@@ -561,8 +561,8 @@ const ScaleCalibration = {
     if (enhanced > 0) {
       // Recalculate totals
       const runs = schedule.assignments.filter(a => a.runFt > 0);
-      schedule.totals.totalFt = schedule.assignments.reduce((s, a) => s + (a.totalFtWithWaste || a.runFt || 0), 0);
-      schedule.totals.avgRunFt = runs.length > 0 ? Math.round(runs.reduce((s, a) => s + a.runFt, 0) / runs.length) : 0;
+      schedule.totals.totalFt = schedule.assignments.reduce((sum, a) => sum + (a.totalFtWithWaste || a.runFt || 0), 0);
+      schedule.totals.avgRunFt = runs.length > 0 ? Math.round(runs.reduce((sum, a) => sum + a.runFt, 0) / runs.length) : 0;
       schedule.totals.maxRunFt = runs.length > 0 ? Math.max(...runs.map(a => a.runFt)) : 0;
       schedule.totals.minRunFt = runs.length > 0 ? Math.min(...runs.map(a => a.runFt)) : 0;
       schedule._pixelEnhancedCount = enhanced;

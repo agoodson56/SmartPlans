@@ -116,34 +116,30 @@ export async function onRequestPost(context) {
             return Response.json({ success: true, updated: 0, message: 'No actuals data to aggregate' }, { headers: corsHeaders(origin) });
         }
 
-        // Clear existing benchmarks and insert fresh
-        await env.DB.prepare('DELETE FROM cost_benchmarks').run();
+        // Atomic: DELETE + all INSERTs in a single batch to prevent data loss on failure
+        const allStmts = [
+            env.DB.prepare('DELETE FROM cost_benchmarks')
+        ];
 
-        const batchSize = 25;
-        let updated = 0;
-
-        for (let i = 0; i < items.length; i += batchSize) {
-            const batch = items.slice(i, i + batchSize);
-            const stmts = batch.map(item => {
-                return env.DB.prepare(`
-                    INSERT INTO cost_benchmarks
-                        (id, item_name, category, avg_unit_cost, min_unit_cost, max_unit_cost, avg_labor_hours, sample_count)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `).bind(
-                    crypto.randomUUID().replace(/-/g, ''),
-                    item.item_name,
-                    item.category,
-                    Math.round((item.avg_unit_cost || 0) * 100) / 100,
-                    Math.round((item.min_unit_cost || 0) * 100) / 100,
-                    Math.round((item.max_unit_cost || 0) * 100) / 100,
-                    Math.round((item.avg_labor_hours || 0) * 100) / 100,
-                    item.sample_count || 0
-                );
-            });
-
-            await env.DB.batch(stmts);
-            updated += batch.length;
+        for (const item of items) {
+            allStmts.push(env.DB.prepare(`
+                INSERT INTO cost_benchmarks
+                    (id, item_name, category, avg_unit_cost, min_unit_cost, max_unit_cost, avg_labor_hours, sample_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).bind(
+                crypto.randomUUID().replace(/-/g, ''),
+                item.item_name,
+                item.category,
+                Math.round((item.avg_unit_cost || 0) * 100) / 100,
+                Math.round((item.min_unit_cost || 0) * 100) / 100,
+                Math.round((item.max_unit_cost || 0) * 100) / 100,
+                Math.round((item.avg_labor_hours || 0) * 100) / 100,
+                item.sample_count || 0
+            ));
         }
+
+        await env.DB.batch(allStmts);
+        const updated = items.length;
 
         return Response.json({ success: true, updated }, { status: 200, headers: corsHeaders(origin) });
     } catch (err) {

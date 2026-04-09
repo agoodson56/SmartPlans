@@ -218,8 +218,9 @@ const UsageStats = {
     this._adminClicks = 0;
     this._adminTimer = null;
     const logo = document.querySelector('.header-logo');
-    if (logo) {
+    if (logo && !logo._usageStatsListenerAdded) {
       logo.style.cursor = 'pointer';
+      logo._usageStatsListenerAdded = true;
       logo.addEventListener('click', () => {
         this._adminClicks++;
         clearTimeout(this._adminTimer);
@@ -1104,7 +1105,8 @@ const SecurityDashboard = {
 
   init() {
     const logo = document.querySelector('.header-logo');
-    if (!logo) return;
+    if (!logo || logo._secDashListenerAdded) return;
+    logo._secDashListenerAdded = true;
     logo.addEventListener('click', () => {
       this._clicks++;
       clearTimeout(this._timer);
@@ -5099,14 +5101,14 @@ function renderStep6Travel(container) {
   document.querySelectorAll('.t6-input').forEach(input => {
     input.addEventListener('change', e => {
       const key = e.target.dataset.key;
-      if (key) { state.travel[key] = parseFloat(e.target.value) || 0; renderStep6Travel(container); }
+      if (key) { state.travel[key] = Math.max(0, parseFloat(e.target.value) || 0); renderStep6Travel(container); }
     });
   });
 
   document.querySelectorAll('.inc-input').forEach(input => {
     input.addEventListener('change', e => {
       const key = e.target.dataset.key;
-      if (key) { state.incidentals[key] = parseFloat(e.target.value) || 0; renderStep6Travel(container); }
+      if (key) { state.incidentals[key] = Math.max(0, parseFloat(e.target.value) || 0); renderStep6Travel(container); }
     });
   });
 
@@ -6218,7 +6220,9 @@ function renderStep7(container) {
     const catTotals = {};
     allQtyInputs.forEach((qI, idx) => {
       const k = qI.dataset.key;
-      const cI = allCostInputs[idx];
+      // Use key-based lookup instead of index to prevent mismatch after DOM changes
+      const cI = table.querySelector(`.bom-edit-cost[data-key="${k}"]`) || allCostInputs[idx];
+      if (!cI) return;
       const q = Math.max(0, parseFloat(qI.value) || 0);
       const c = Math.max(0, parseFloat(cI.value) || 0);
       // Manual items use keys like "manual-xxx" — group under their assigned catIndex
@@ -6284,6 +6288,8 @@ function renderStep7(container) {
   // ── BOM Delete Item handlers ──
   document.querySelectorAll('.bom-delete-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      const itemName = btn.closest('tr')?.querySelector('td:nth-child(2)')?.textContent?.trim() || 'this item';
+      if (!confirm(`Remove "${itemName}" from the BOM?`)) return;
       const key = btn.dataset.key;
       const manualId = btn.dataset.manualId;
       if (manualId) {
@@ -6968,6 +6974,9 @@ function renderFileUpload(container, { label, description, files, onFilesChange,
   const acceptAttr = accept || ".pdf,.dwg,.dxf,.ifc,.rvt,.png,.jpg,.jpeg,.tif,.tiff";
   const formats = acceptAttr.split(",").map(s => s.replace(".", "").toUpperCase()).join("  ·  ");
 
+  // Track current files via mutable ref to prevent stale closure on rapid drops
+  const currentFiles = { value: files };
+
   const fileListHtml = files.map((f, i) => `
     <div class="file-item">
       <div class="file-item-info">
@@ -7013,7 +7022,8 @@ function renderFileUpload(container, { label, description, files, onFilesChange,
     btn.addEventListener("click", e => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.fileIdx, 10);
-      const newFiles = files.filter((_, i) => i !== idx);
+      const newFiles = currentFiles.value.filter((_, i) => i !== idx);
+      currentFiles.value = newFiles;
       onFilesChange(newFiles);
       renderFileUpload(container, { label, description, files: newFiles, onFilesChange, accept });
     });
@@ -7022,7 +7032,8 @@ function renderFileUpload(container, { label, description, files, onFilesChange,
   function handleNewFiles(fileList) {
     const newRawFiles = Array.from(fileList);
     const arr = newRawFiles.map(f => ({ name: f.name, size: f.size, type: f.type, rawFile: f }));
-    const updated = [...files, ...arr];
+    const updated = [...currentFiles.value, ...arr];
+    currentFiles.value = updated;
     onFilesChange(updated);
     renderFileUpload(container, { label, description, files: updated, onFilesChange, accept });
   }
