@@ -5194,7 +5194,15 @@ Return ONLY valid JSON:
 
   // Brains that benefit from per-page scanning (counting-focused brains)
   PER_PAGE_BRAINS: new Set(['SYMBOL_SCANNER', 'SHADOW_SCANNER', 'ZOOM_SCANNER', 'SCOPE_EXCLUSION_SCANNER']),
-  SCANS_PER_PAGE: 2, // Each counting brain scans every page twice for higher accuracy
+  // Scans per page is now DYNAMIC based on page count:
+  // >50 pages → 1 scan (speed priority — avoids API overload on large sets)
+  // 26-50 pages → 2 scans (balanced accuracy)
+  // ≤25 pages → 4 scans (maximum accuracy on small sets)
+  _getScansPerPage(pageCount) {
+    if (pageCount > 50) return 1;
+    if (pageCount > 25) return 2;
+    return 4;
+  },
 
   async _runPerPageBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback) {
     const brain = this.BRAINS[key];
@@ -5251,7 +5259,7 @@ Return ONLY valid JSON:
         return this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback);
       }
 
-      const scansPerPage = this.SCANS_PER_PAGE || 1;
+      const scansPerPage = this._getScansPerPage(deduped.length);
       const totalScans = deduped.length * scansPerPage;
       console.log(`[Brain:${brain.name}] ═══ Per-page scanning: ${deduped.length} unique pages × ${scansPerPage} scans = ${totalScans} total scans (${pageChunks.length} chunks, ${pageChunks.length - deduped.length} duplicates removed) ═══`);
       this._brainStatus[key].status = 'running';
@@ -5285,6 +5293,33 @@ Use a DIFFERENT methodology than a standard left-to-right scan:
 Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
 ${legendContext}
 ═══ END PASS 2 INSTRUCTIONS ═══
+
+`,
+        `═══ PER-PAGE SCAN MODE — PASS 3 (Room-by-Room Scan) ═══
+You are performing a THIRD INDEPENDENT COUNT of this SINGLE PAGE.
+Use ROOM-BY-ROOM methodology:
+- Identify every distinct room, corridor, and area on this page
+- For EACH room: list every device symbol you see inside it, then count
+- After counting each room individually, sum the totals
+- Pay special attention to small rooms (closets, vestibules) that may have hidden devices
+- Check corridors and open areas for ceiling-mounted devices
+- Verify door hardware at every entrance/exit
+Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
+${legendContext}
+═══ END PASS 3 INSTRUCTIONS ═══
+
+`,
+        `═══ PER-PAGE SCAN MODE — PASS 4 (Symbol-Type Focused Scan) ═══
+You are performing a FOURTH INDEPENDENT COUNT of this SINGLE PAGE.
+Use SYMBOL-TYPE methodology — count one device type at a time across the entire page:
+- Pick one symbol type (e.g., cameras), scan the ENTIRE page for ONLY that type, record the count
+- Move to the next symbol type and repeat
+- This prevents miscounting when different symbol types are near each other
+- After scanning all symbol types individually, compile the final count
+- Double-check any symbol that appears more than 5 times on a single page
+Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
+${legendContext}
+═══ END PASS 4 INSTRUCTIONS ═══
 
 `,
       ];
