@@ -223,9 +223,9 @@ const ScaleCalibration = {
       : (measurements[medianIdx - 1].pixelsPerFt + measurements[medianIdx].pixelsPerFt) / 2;
 
     // Filter to within 20% of median for consistency check
-    const consistent = measurements.filter(m =>
+    const consistent = medianPPF > 0 ? measurements.filter(m =>
       Math.abs(m.pixelsPerFt - medianPPF) / medianPPF < 0.20
-    );
+    ) : measurements;
 
     const s = this.getSheet(sheetId);
     s.doorScale = {
@@ -384,7 +384,7 @@ const ScaleCalibration = {
       c += 0.2; // Multiple consistent doors
     }
     // Agreement bonuses
-    if (s.ocrScale && s.aiScale && s.aiScale.ftPerInch > 0) {
+    if (s.ocrScale && s.ocrScale.ftPerInch > 0 && s.aiScale && s.aiScale.ftPerInch > 0) {
       const delta = Math.abs(s.ocrScale.ftPerInch - s.aiScale.ftPerInch) / s.ocrScale.ftPerInch;
       if (delta < 0.10) c += 0.1; // OCR and AI agree closely
     }
@@ -409,9 +409,10 @@ const ScaleCalibration = {
    */
   measureDistanceFt(sheetId, x1, y1, x2, y2) {
     const s = this._sheets[sheetId];
-    if (!s?.pixelsPerFoot) return null;
+    if (!s?.pixelsPerFoot || s.pixelsPerFoot <= 0) return null;
 
     const pxDist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    if (isNaN(pxDist)) return null;
     return pxDist / s.pixelsPerFoot;
   },
 
@@ -498,11 +499,16 @@ const ScaleCalibration = {
   },
 
   _pixelDist(a, b) {
-    const ax = a.xPx ?? (a.xPct != null ? a.xPct * 10 : 0);
-    const ay = a.yPx ?? (a.yPct != null ? a.yPct * 10 : 0);
-    const bx = b.xPx ?? (b.xPct != null ? b.xPct * 10 : 0);
-    const by = b.yPx ?? (b.yPct != null ? b.yPct * 10 : 0);
-    return Math.sqrt(Math.pow(bx - ax, 2) + Math.pow(by - ay, 2));
+    // Percentage-to-pixel: use actual image dimensions if available, else default 1000px
+    // Previous code multiplied by 10 which produced nonsense pixel distances
+    const imgW = this._imageWidth || 1000;
+    const imgH = this._imageHeight || 1000;
+    const ax = a.xPx ?? (a.xPct != null && !isNaN(a.xPct) ? (a.xPct / 100) * imgW : 0);
+    const ay = a.yPx ?? (a.yPct != null && !isNaN(a.yPct) ? (a.yPct / 100) * imgH : 0);
+    const bx = b.xPx ?? (b.xPct != null && !isNaN(b.xPct) ? (b.xPct / 100) * imgW : 0);
+    const by = b.yPx ?? (b.yPct != null && !isNaN(b.yPct) ? (b.yPct / 100) * imgH : 0);
+    const dist = Math.sqrt(Math.pow(bx - ax, 2) + Math.pow(by - ay, 2));
+    return isNaN(dist) ? 0 : dist;
   },
 
   // ═══════════════════════════════════════════════════════════════

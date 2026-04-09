@@ -780,7 +780,7 @@ function startNewBid() {
   state._bidPhasesOpen = false;
   state._bidPhaseCounter = 0;
 
-  // Reset travel (keep rates, clear AI recommendations)
+  // Reset travel — FULL reset including expense rates (were leaking between bids)
   state.travel.enabled = false;
   state._travelAutoDetected = false;
   state.travel.aiRecommendedTechs = null;
@@ -791,6 +791,16 @@ function startNewBid() {
   state.travel.techCount = 4;
   state.travel.projectDays = 30;
   state.travel.numTrips = 1;
+  state.travel.hoursPerDay = 8;
+  state.travel.hotelPerNight = 175;
+  state.travel.hotelNightsPerWeek = 4;
+  state.travel.perDiemPerDay = 79;
+  state.travel.mileageRoundTrip = 0;
+  state.travel.mileageRate = 0.67;
+  state.travel.airfarePerPerson = 0;
+  state.travel.rentalCarPerDay = 0;
+  state.travel.parkingPerDay = 0;
+  state.travel.tollsPerTrip = 0;
 
   // Reset incidentals
   state.incidentals.permits = 0;
@@ -2712,7 +2722,7 @@ function renderStepNav() {
 
   nav.querySelectorAll(".step-btn.clickable").forEach(btn => {
     btn.addEventListener("click", () => {
-      state.currentStep = parseInt(btn.dataset.step);
+      state.currentStep = parseInt(btn.dataset.step, 10);
       render();
       scrollContentTop();
     });
@@ -4243,7 +4253,7 @@ function recalcBidStrategySummary() {
   const fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
   document.querySelectorAll('.bid-strategy-row').forEach(row => {
-    const catName = row.dataset.bsCat, ci = parseInt(row.dataset.bsIdx);
+    const catName = row.dataset.bsCat, ci = parseInt(row.dataset.bsIdx, 10);
     const cat = bom.categories[ci]; if (!cat) return;
     const isLabor = isLaborCat(catName);
     const cm = bs.categoryMarkups[catName] || { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup, confidence: 'medium' };
@@ -4495,10 +4505,12 @@ function computeTravelIncidentals() {
   let techs, workDays;
   if (t.calcMode === 'byTechs') {
     techs = Math.min(t.techCount || 4, MAX_TECHS);
-    workDays = totalLaborHours > 0 ? Math.ceil(totalLaborHours / (techs * t.hoursPerDay)) : (t.projectDays || 30);
+    const hrsPerDay1 = Math.max(t.hoursPerDay || 8, 1);
+    workDays = totalLaborHours > 0 ? Math.ceil(totalLaborHours / (techs * hrsPerDay1)) : (t.projectDays || 30);
   } else {
     workDays = Math.min(t.projectDays || 30, MAX_WORK_DAYS);
-    techs = totalLaborHours > 0 ? Math.min(Math.ceil(totalLaborHours / (workDays * t.hoursPerDay)), MAX_TECHS) : (t.techCount || 4);
+    const hrsPerDay2 = Math.max(t.hoursPerDay || 8, 1);
+    techs = totalLaborHours > 0 ? Math.min(Math.ceil(totalLaborHours / (workDays * hrsPerDay2)), MAX_TECHS) : (t.techCount || 4);
   }
   // Final clamp
   workDays = Math.min(workDays, MAX_WORK_DAYS);
@@ -5045,17 +5057,17 @@ function renderStep6Travel(container) {
   });
 
   const schedTechs = document.getElementById('sched-techs');
-  if (schedTechs) schedTechs.addEventListener('change', e => { state.travel.techCount = parseInt(e.target.value) || 4; renderStep6Travel(container); });
+  if (schedTechs) schedTechs.addEventListener('change', e => { state.travel.techCount = parseInt(e.target.value, 10) || 4; renderStep6Travel(container); });
 
   const schedDays = document.getElementById('sched-days');
-  if (schedDays) schedDays.addEventListener('change', e => { state.travel.projectDays = parseInt(e.target.value) || 30; renderStep6Travel(container); });
+  if (schedDays) schedDays.addEventListener('change', e => { state.travel.projectDays = parseInt(e.target.value, 10) || 30; renderStep6Travel(container); });
 
   const schedTrips = document.getElementById('sched-trips');
-  if (schedTrips) schedTrips.addEventListener('change', e => { state.travel.numTrips = parseInt(e.target.value) || 1; renderStep6Travel(container); });
+  if (schedTrips) schedTrips.addEventListener('change', e => { state.travel.numTrips = parseInt(e.target.value, 10) || 1; renderStep6Travel(container); });
 
   const hotelNightsInput = document.getElementById('t6-hotel-nights');
   if (hotelNightsInput) hotelNightsInput.addEventListener('change', e => {
-    state.travel.hotelNightsPerWeek = Math.max(0, Math.min(7, parseInt(e.target.value) || 4));
+    state.travel.hotelNightsPerWeek = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 4));
     renderStep6Travel(container);
   });
 
@@ -6257,7 +6269,7 @@ function renderStep7(container) {
   // ── BOM Add Item handlers ──
   document.querySelectorAll('.bom-add-item-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const ci = parseInt(btn.dataset.cat);
+      const ci = parseInt(btn.dataset.cat, 10);
       const row = btn.closest('tr');
       // Check if form already exists
       if (row.nextElementSibling && row.nextElementSibling.classList.contains('bom-add-form-row')) return;
@@ -6964,7 +6976,7 @@ function renderFileUpload(container, { label, description, files, onFilesChange,
   container.querySelectorAll(".file-remove-btn").forEach(btn => {
     btn.addEventListener("click", e => {
       e.stopPropagation();
-      const idx = parseInt(btn.dataset.fileIdx);
+      const idx = parseInt(btn.dataset.fileIdx, 10);
       const newFiles = files.filter((_, i) => i !== idx);
       onFilesChange(newFiles);
       renderFileUpload(container, { label, description, files: newFiles, onFilesChange, accept });
@@ -9240,6 +9252,8 @@ async function saveEstimate(showToast = true) {
 }
 
 async function loadEstimate(id) {
+  // Snapshot current state so we can roll back on failure
+  const stateBackup = JSON.parse(JSON.stringify(state, (k, v) => v instanceof Set ? [...v] : v));
   try {
     // Check if this is a localStorage-only estimate
     const localEstimates = getLocalEstimates();
@@ -9265,7 +9279,13 @@ async function loadEstimate(id) {
     spToast(`Loaded: ${state.projectName || 'Untitled'}`, 'info');
   } catch (err) {
     console.error('[SmartPlans] Load error:', err);
-    console.error('[SmartPlans]', err); spToast('Failed to load estimate. Please try again.', 'error');
+    // Roll back state to prevent half-loaded data from corrupting the session
+    try { Object.assign(state, stateBackup); } catch (_) { /* best-effort rollback */ }
+    // Restore Set types that JSON.stringify converted to arrays
+    if (Array.isArray(state.completedSteps)) state.completedSteps = new Set(state.completedSteps);
+    if (Array.isArray(state.selectedRFIs)) state.selectedRFIs = new Set(state.selectedRFIs);
+    if (Array.isArray(state._excludedCOs)) state._excludedCOs = new Set(state._excludedCOs);
+    spToast('Failed to load estimate. Please try again.', 'error');
   }
 }
 
@@ -10546,7 +10566,7 @@ function getSymbolInventoryData(st) {
       room: String(d.room || d.location || 'Unspecified').trim(),
       floor: String(d.floor || 'Unknown Floor').trim(),
       sheet: String(d.sheet || d.sheet_id || 'N/A').trim(),
-      qty: parseInt(d.qty || d.count || 1) || 1,
+      qty: parseInt(d.qty || d.count || 1, 10) || 1,
       confidence: d.confidence || null,
     }));
   } else if (Array.isArray(scanner.sheets)) {
@@ -10563,7 +10583,7 @@ function getSymbolInventoryData(st) {
               room: String(dl.room || dl.area || 'Unspecified').trim(),
               floor: '',
               sheet: String(sheetId).trim(),
-              qty: parseInt(dl.qty || dl.count || 1) || 1,
+              qty: parseInt(dl.qty || dl.count || 1, 10) || 1,
               confidence: sym.confidence || null,
             });
           });
@@ -10576,7 +10596,7 @@ function getSymbolInventoryData(st) {
             room: Array.isArray(sym.locations) ? sym.locations.join(', ') : 'Various',
             floor: '',
             sheet: String(sheetId).trim(),
-            qty: parseInt(sym.count || 1) || 1,
+            qty: parseInt(sym.count || 1, 10) || 1,
             confidence: sym.confidence || null,
           });
         }
@@ -12252,7 +12272,7 @@ function bindChangeOrderEvents(container) {
   document.querySelectorAll('.co-pdf-single').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const idx = parseInt(btn.dataset.coIdx);
+      const idx = parseInt(btn.dataset.coIdx, 10);
       const cos = extractPotentialChangeOrders(state);
       const co = cos[idx];
       if (!co) return;

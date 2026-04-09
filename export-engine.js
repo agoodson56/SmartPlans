@@ -848,7 +848,7 @@ const SmartPlansExport = {
             for (const bi of bulletItems) {
                 const bm = bi.match(/[-*•]\s+(\d+)\s*x?\s+(.+?)(?:\s+@\s*\$?([\d,.]+))?\s*$/);
                 if (bm) {
-                    const qty = parseInt(bm[1]) || 1;
+                    const qty = parseInt(bm[1], 10) || 1;
                     const unitCost = bm[3] ? parseFloat(bm[3].replace(/,/g, '')) : 0;
                     items.push({
                         item_name: bm[2].trim(),
@@ -871,7 +871,7 @@ const SmartPlansExport = {
                     items.push({
                         item_name: nm[1].trim(),
                         category: this._guessCategory(nm[1]),
-                        budgeted_qty: parseInt(nm[2]) || 1,
+                        budgeted_qty: parseInt(nm[2], 10) || 1,
                         unit: 'ea',
                         unit_cost: 0,
                         budgeted_cost: 0,
@@ -899,7 +899,7 @@ const SmartPlansExport = {
             while ((m = regex.exec(roomBlock)) !== null) {
                 cableRuns.push({
                     cable_type: cableType,
-                    budgeted_qty: parseInt(m[1]),
+                    budgeted_qty: parseInt(m[1], 10),
                     destination: roomName + ' drops',
                 });
             }
@@ -1188,7 +1188,7 @@ const SmartPlansExport = {
                         // Try to extract quantity
                         if (colMap.qty !== undefined && cells[colMap.qty]) {
                             const qv = cells[colMap.qty].replace(/[,\s]/g, '');
-                            qty = parseFloat(qv) || parseInt(qv) || 1;
+                            qty = parseFloat(qv) || parseInt(qv, 10) || 1;
                         }
 
                         // Try to extract unit
@@ -2528,7 +2528,7 @@ const SmartPlansExport = {
                         let matched = null;
                         if (colRowNum !== -1) {
                             const rawRowNum = row[colRowNum];
-                            const rowNum = parseInt(String(rawRowNum).replace(/[^\d]/g, ''));
+                            const rowNum = parseInt(String(rawRowNum).replace(/[^\d]/g, ''), 10);
                             if (!isNaN(rowNum) && rowNumToEntry[rowNum]) {
                                 matched = rowNumToEntry[rowNum];
                             }

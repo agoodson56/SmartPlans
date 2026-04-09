@@ -543,9 +543,9 @@ const FormulaEngine3D = {
             const matSupportSELL = this._round(matSupportCOS * (1 + markup));
             const shippingSELL = this._round(shippingCOS * (1 + markup));
 
-            // Tax on material COST (not sell price — avoid compound markup)
+            // Tax on material at respective price levels (COS on cost, SELL on sell)
             const taxCOS = this._round(matCOS * this.taxRate);
-            const taxSELL = this._round(matCOS * this.taxRate);
+            const taxSELL = this._round(matSELL * this.taxRate);
 
             const materialsPlusCOS = this._round(matCOS + taxCOS + matSupportCOS + shippingCOS);
             const materialsPlusSELL = this._round(matSELL + taxSELL + matSupportSELL + shippingSELL);
@@ -851,6 +851,9 @@ const FormulaEngine3D = {
                 const sameCamBids = bidArray.filter(b => b.cameras === closest.cameras);
                 const benchmark = sameCamBids.find(b => b.type === 'bafo') || sameCamBids.find(b => b.type === 'original') || closest;
 
+                if (!benchmark.cameras || benchmark.cameras <= 0) {
+                    console.warn('[3D Engine v2] Benchmark has 0 cameras — skipping calibration');
+                } else {
                 const perCameraSell = benchmark.total / benchmark.cameras;
                 const targetTotal = this._round(cameraCount * perCameraSell);
                 const formulaTotal = result.grandTotalSELL;
@@ -864,7 +867,7 @@ const FormulaEngine3D = {
                 console.log(`[3D Engine v2]   Target: $${targetTotal.toLocaleString()} | Formula: $${formulaTotal.toLocaleString()}`);
                 console.log(`[3D Engine v2]   Subs: ${(subPctOfTotal * 100).toFixed(0)}% of total`);
 
-                if (subPctOfTotal <= 0.40) {
+                if (subPctOfTotal <= 0.40 && targetTotal > 0) {
                     const deviation = formulaTotal / targetTotal;
                     if (deviation > 1.06 || deviation < 0.94) {
                         const direction = deviation > 1 ? 'OVER' : 'UNDER';
@@ -875,8 +878,10 @@ const FormulaEngine3D = {
                         console.warn(`[3D Engine v2] ⚠️ CALIBRATING ${direction}: formula ${Math.round(Math.abs(deviation - 1) * 100)}% ${direction.toLowerCase()}`);
                         console.warn(`[3D Engine v2]   Scaling from $${formulaTotal.toLocaleString()} → $${calibratedTarget.toLocaleString()} (factor: ${scaleFactor.toFixed(3)})`);
 
+                        // Preserve original margin percentage (don't scale COS by SELL factor)
+                        const origMarginPct = result.grandTotalSELL > 0 ? (result.grossMargin / result.grandTotalSELL) : 0.25;
                         result.grandTotalSELL = calibratedTarget;
-                        result.grandTotalCOS = this._round(result.grandTotalCOS * scaleFactor);
+                        result.grandTotalCOS = this._round(calibratedTarget * (1 - origMarginPct));
                         result.grossMargin = this._round(result.grandTotalSELL - result.grandTotalCOS);
                         result.grossMarginPct = result.grandTotalSELL > 0 ? this._round((result.grossMargin / result.grandTotalSELL) * 100) : 0;
                         result._calibrated = true;
@@ -889,6 +894,7 @@ const FormulaEngine3D = {
                 } else {
                     console.log(`[3D Engine v2]   ⚠️ Subs ${(subPctOfTotal * 100).toFixed(0)}% > 40% — SKIPPING calibration (infrastructure-heavy)`);
                 }
+                } // close cameras > 0 guard
             }
         }
 

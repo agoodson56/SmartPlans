@@ -234,7 +234,7 @@ const CableAnalyzer = {
         idfMap[label] = {
           x: d.x_pct || 50,
           y: d.y_pct || 50,
-          floor: parseInt(d.floor) || 1,
+          floor: parseInt(d.floor, 10) || 1,
           sheet: d.sheet_id,
           type: d.type,
         };
@@ -434,7 +434,7 @@ const CableAnalyzer = {
         map[idf.label || idf.name] = {
           x: idf.approx_x_pct || 50,
           y: idf.approx_y_pct || 50,
-          floor: parseInt(fl.floor) || 1,
+          floor: parseInt(fl.floor, 10) || 1,
           sheet: null,
           type: idf.type || 'idf',
         };
@@ -447,7 +447,7 @@ const CableAnalyzer = {
       if (!map[label]) {
         map[label] = {
           x: 50, y: 50, // no position data from this brain
-          floor: parseInt(r.floor) || 1,
+          floor: parseInt(r.floor, 10) || 1,
           sheet: null,
           type: r.type || 'idf',
         };
@@ -461,7 +461,7 @@ const CableAnalyzer = {
         map[label] = {
           x: d.x_pct || 50,
           y: d.y_pct || 50,
-          floor: parseInt(d.floor) || 1,
+          floor: parseInt(d.floor, 10) || 1,
           sheet: d.sheet_id,
           type: d.type || 'idf',
         };
@@ -538,7 +538,7 @@ const CableAnalyzer = {
       return { label: 'Unknown IDF', idf: { x: 50, y: 50, floor: 1 }, dims: { w: bldgW || 200, d: bldgD || 200 } };
     }
 
-    const devFloor = parseInt(device.floor) || 1;
+    const devFloor = parseInt(device.floor, 10) || 1;
     let bestLabel = labels[0];
     let bestDist = Infinity;
 
@@ -573,7 +573,7 @@ const CableAnalyzer = {
     const dy = Math.abs((device.y_pct || 50) - (idf?.y || 50)) / 100 * (dims?.d || 200);
     const horizontal = Math.round(dx + dy);
 
-    const devFloor = parseInt(device.floor) || 1;
+    const devFloor = parseInt(device.floor, 10) || 1;
     const idfFloor = idf?.floor || 1;
     const floorsApart = Math.abs(devFloor - idfFloor);
     const vertical = floorsApart > 0
