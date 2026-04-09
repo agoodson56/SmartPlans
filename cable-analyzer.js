@@ -96,8 +96,9 @@ const CableAnalyzer = {
     const rates = { ...this._cableRatesDefaults };
 
     // Pull current rates from pricing database if available
+    // Note: reads global `state` for pricingTier — safe because this only runs from app.js context
     if (typeof PRICING_DB !== 'undefined' && PRICING_DB.structuredCabling?.cable) {
-      const tier = (typeof state !== 'undefined' && state.pricingTier) || 'mid';
+      const tier = (typeof state !== 'undefined' && state?.pricingTier) || 'mid';
       const cables = PRICING_DB.structuredCabling.cable;
 
       if (cables.cat6a_plenum?.[tier])    rates['cat6a_plenum']   = cables.cat6a_plenum[tier];

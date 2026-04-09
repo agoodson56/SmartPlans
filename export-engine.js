@@ -43,7 +43,7 @@ const SmartPlansExport = {
         const now = new Date();
         const regionKey = state.regionalMultiplier || "national_average";
         const regionMult = PRICING_DB.regionalMultipliers[regionKey] || 1.0;
-        const burdenMult = state.includeBurden ? (1 + ((state.burdenRate ?? 35) > 1 ? (state.burdenRate ?? 35) / 100 : (state.burdenRate ?? 35))) : 1.0;
+        const burdenMult = state.includeBurden ? (1 + ((state.burdenRate ?? 35) >= 1 ? (state.burdenRate ?? 35) / 100 : (state.burdenRate ?? 35))) : 1.0;
 
         // Pre-extract BOM for financials section
         let bom = this._extractBOMFromAnalysis(state.aiAnalysis);
@@ -442,7 +442,7 @@ const SmartPlansExport = {
         const eqPct = (cfg.equipment ?? 15) / 100;
         const subPct = (cfg.subcontractor ?? 10) / 100;
         const rawBurden = state.pricingConfig?.burdenRate ?? 35;
-        const burdenRate = rawBurden > 1 ? rawBurden / 100 : rawBurden;
+        const burdenRate = rawBurden >= 1 ? rawBurden / 100 : rawBurden;
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         const contingencyPct = 0.10;
 
@@ -1851,7 +1851,7 @@ const SmartPlansExport = {
             const wb = XLSX.utils.book_new();
             const regionKey = state.regionalMultiplier || "national_average";
             const regionMult = PRICING_DB.regionalMultipliers[regionKey] || 1.0;
-            const burdenMult = state.includeBurden ? (1 + ((state.burdenRate ?? 35) > 1 ? (state.burdenRate ?? 35) / 100 : (state.burdenRate ?? 35))) : 1.0;
+            const burdenMult = state.includeBurden ? (1 + ((state.burdenRate ?? 35) >= 1 ? (state.burdenRate ?? 35) / 100 : (state.burdenRate ?? 35))) : 1.0;
             const tier = state.pricingTier;
 
             // ── Sheet 1: Project Summary ──
@@ -2074,7 +2074,7 @@ const SmartPlansExport = {
     exportMarkdown(state) {
         const regionKey = state.regionalMultiplier || "national_average";
         const regionMult = PRICING_DB.regionalMultipliers[regionKey] || 1.0;
-        const burdenMult = state.includeBurden ? (1 + ((state.burdenRate ?? 35) > 1 ? (state.burdenRate ?? 35) / 100 : (state.burdenRate ?? 35))) : 1.0;
+        const burdenMult = state.includeBurden ? (1 + ((state.burdenRate ?? 35) >= 1 ? (state.burdenRate ?? 35) / 100 : (state.burdenRate ?? 35))) : 1.0;
         const now = new Date();
 
         let md = "";
@@ -2617,7 +2617,8 @@ const SmartPlansExport = {
                     }
 
                     // Recalculate totals with overrides applied
-                    const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
+                    // Must apply user edits first so indices match the rowMap used for matching
+                    const bom = this._filterBOMByDisciplines(this._applyUserBOMEdits(this._extractBOMFromAnalysis(state.aiAnalysis), state), state.disciplines);
                     const oldTotal = bom.grandTotal;
                     let newTotal = 0;
 

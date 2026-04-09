@@ -49,7 +49,15 @@ export async function onRequest(context) {
                 { status: 429 }
             );
         }
-    } catch { /* rate limit check failure is non-fatal */ }
+    } catch (rlErr) {
+        // SEC: Fail-closed — if rate limit check fails, block the request
+        // A broken rate limiter must not allow unlimited AI API usage
+        console.error('[AI Middleware] Rate limit check failed:', rlErr.message);
+        return Response.json(
+            { error: 'Service temporarily unavailable — please try again' },
+            { status: 503 }
+        );
+    }
 
     // SEC: Authentication — require session token OR legacy ESTIMATES_TOKEN
     // This prevents anyone who discovers the URL from burning through API keys

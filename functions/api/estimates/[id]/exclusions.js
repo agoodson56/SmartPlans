@@ -19,10 +19,10 @@ function corsHeaders(origin) {
     return headers;
 }
 
+// Auth handled by estimates/_middleware.js (session token OR app token)
 function checkAuth(context) {
-    const envToken = context.env.ESTIMATES_TOKEN;
-    const token = context.request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) return false;
+    // Middleware already authenticated the request — always return true
+    // Kept as a function to avoid changing all call sites
     return true;
 }
 

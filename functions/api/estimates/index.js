@@ -12,17 +12,18 @@ export async function onRequestGet(context) {
     if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
-    // Token check — timing-safe comparison to prevent token prefix leakage
+    // Auth: accept EITHER valid app token OR valid session token
     const envToken = env.ESTIMATES_TOKEN;
     const token = request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) {
-        return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
+    const hasValidAppToken = envToken && timingSafeCompare(token, envToken);
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    const user = sessionToken ? await validateSession(env.DB, sessionToken) : null;
+
+    if (!hasValidAppToken && !user) {
+        return Response.json({ error: 'Unauthorized — invalid or missing authentication' }, { status: 401 });
     }
 
     try {
-        // SEC: If user session present, scope results to their own estimates (admins see all)
-        const sessionToken = request.headers.get('X-Session-Token') || '';
-        const user = sessionToken ? await validateSession(env.DB, sessionToken) : null;
 
         let query, binds;
         if (user?.is_admin) {
@@ -72,20 +73,20 @@ export async function onRequestPost(context) {
     if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
-    // Token check — timing-safe comparison
+    // Auth: accept EITHER valid app token OR valid session token
     const envToken = env.ESTIMATES_TOKEN;
     const token = request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) {
-        return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
+    const hasValidAppToken = envToken && timingSafeCompare(token, envToken);
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    const user = sessionToken ? await validateSession(env.DB, sessionToken) : null;
+
+    if (!hasValidAppToken && !user) {
+        return Response.json({ error: 'Unauthorized — invalid or missing authentication' }, { status: 401 });
     }
 
     try {
         const body = await request.json();
         const id = crypto.randomUUID().replace(/-/g, '');
-
-        // Resolve the creating user from session token
-        const sessionToken = request.headers.get('X-Session-Token') || '';
-        const user = await validateSession(env.DB, sessionToken);
         const createdBy = user?.id || null;
         const createdByName = user?.name || null;
 

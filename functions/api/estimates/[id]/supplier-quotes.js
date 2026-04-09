@@ -37,9 +37,7 @@ export async function onRequestGet(context) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
-    const envToken = context.env.ESTIMATES_TOKEN;
-    const token = context.request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // Auth handled by estimates/_middleware.js (session token OR app token)
 
     if (!isValidId(id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
@@ -68,9 +66,7 @@ export async function onRequestPost(context) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
-    const envToken = context.env.ESTIMATES_TOKEN;
-    const token = context.request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // Auth handled by estimates/_middleware.js (session token OR app token)
 
     if (!isValidId(id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });

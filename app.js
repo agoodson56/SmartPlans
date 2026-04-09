@@ -3565,6 +3565,8 @@ function renderStep0(container) {
     const TRANSIT_REGEX = /amtrak|bnsf|union\s*pacific|csx\s*transport|norfolk\s*southern|metra|caltrain|bart\b|wmata|septa|marta|metro\s*north|metro-north|nj\s*transit|lirr|long\s*island\s*rail|brightline|acela|capitol\s*corridor|coaster\s*rail|frontrunner|sounder|tri-?rail|ace\s*rail|metrolink|railr(oad|ail)|train\s*station|rail\s*station|light\s*rail|commuter\s*rail/;
     const shouldBeTransit = TRANSIT_REGEX.test(text);
     if (shouldBeTransit && !state.isTransitRailroad) {
+      // Save user's current markups so they can be restored if transit is toggled off
+      state._preTransitMarkups = { ...state.markup };
       state.isTransitRailroad = true;
       const transitConfig = PRICING_DB.projectTypeMultipliers?.transit_railroad;
       if (transitConfig?.markup_overrides) {
@@ -6704,6 +6706,14 @@ function renderStep7(container) {
 
       ProposalGenerator.renderExecutiveProposal(state, (pct, msg) => {
         execBtn.querySelector('.proposal-gen-btn__sub').textContent = `${pct}% — ${msg}`;
+      }).then(() => {
+        execBtn.disabled = false;
+        execBtn.classList.remove('generating');
+        execBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Executive Proposal (3 pages)';
+        execBtn.querySelector('.proposal-gen-btn__sub').textContent = 'High-impact executive summary — visually stunning, concise, designed to impress decision-makers';
+        // Show the PDF button after successful generation
+        const pdfExecBtn = document.getElementById('btn-pdf-exec-proposal');
+        if (pdfExecBtn && ProposalGenerator._lastExecProposalHTML) pdfExecBtn.style.display = 'block';
       }).catch(e => {
         console.error('[ExecProposal] Failed:', e);
         execBtn.querySelector('.proposal-gen-btn__title').textContent = '❌ Generation Failed';
@@ -6715,14 +6725,6 @@ function renderStep7(container) {
           execBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Executive Proposal (3 pages)';
           execBtn.querySelector('.proposal-gen-btn__sub').textContent = 'High-impact executive summary — visually stunning, concise, designed to impress decision-makers';
         }, 5000);
-      }).then(() => {
-        execBtn.disabled = false;
-        execBtn.classList.remove('generating');
-        execBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Executive Proposal (3 pages)';
-        execBtn.querySelector('.proposal-gen-btn__sub').textContent = 'High-impact executive summary — visually stunning, concise, designed to impress decision-makers';
-        // Show the PDF button after successful generation
-        const pdfExecBtn = document.getElementById('btn-pdf-exec-proposal');
-        if (pdfExecBtn && ProposalGenerator._lastExecProposalHTML) pdfExecBtn.style.display = 'block';
       });
     });
   }
@@ -9384,6 +9386,9 @@ async function saveEstimate(showToast = true) {
           body: JSON.stringify({ export_data: exportPkg }),
           _timeout: 120000,
         }, 3);
+        const chunkedData = await res.json();
+        if (chunkedData.error) throw new Error('Chunked export_data save failed: ' + chunkedData.error);
+        // estId already set above from lightData
       }
     } else {
       res = await fetchWithRetry(url, {
@@ -9392,11 +9397,10 @@ async function saveEstimate(showToast = true) {
         body: jsonBody,
         _timeout: 60000,
       }, 3);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (!state.estimateId && data.id) state.estimateId = data.id;
     }
-
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    if (!state.estimateId && data.id) state.estimateId = data.id;
     removeLocalEstimate(state.estimateId); // Clean up any local fallback
     if (showToast) spToast('Estimate saved ✓');
   } catch (err) {
@@ -12346,8 +12350,10 @@ function _buildCOPdfHtml(co, projectName, preparedFor) {
   const sevLabels = { critical: 'Almost certain to occur — budget for this.', high: 'Highly likely — strong probability of occurring.', medium: 'Possible — depends on site conditions or owner decisions.', low: 'Low probability but worth documenting.' };
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const bc = sevColors[co.severity] || '#D97706';
+  // Escape all user/AI-controlled strings to prevent XSS in the popup window
+  const e = s => esc(String(s || ''));
 
-  return `<!DOCTYPE html><html><head><title>${co.id} — ${projectName || 'Project'}</title>
+  return `<!DOCTYPE html><html><head><title>${e(co.id)} — ${e(projectName) || 'Project'}</title>
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
       body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;padding:40px;max-width:850px;margin:0 auto}
@@ -12363,15 +12369,15 @@ function _buildCOPdfHtml(co, projectName, preparedFor) {
       <div style="display:flex;align-items:flex-start;justify-content:space-between;">
         <div>
           <div style="font-size:11px;font-weight:700;color:${bc};text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;">Potential Change Order</div>
-          <h1 style="font-size:28px;font-weight:800;color:#1a1a2e;margin-bottom:6px;">${co.id}</h1>
-          <div style="font-size:15px;font-weight:600;color:#333;margin-bottom:2px;">${projectName || 'Project'}</div>
-          ${preparedFor ? `<div style="font-size:12px;color:#666;">Prepared for: ${preparedFor}</div>` : ''}
+          <h1 style="font-size:28px;font-weight:800;color:#1a1a2e;margin-bottom:6px;">${e(co.id)}</h1>
+          <div style="font-size:15px;font-weight:600;color:#333;margin-bottom:2px;">${e(projectName) || 'Project'}</div>
+          ${preparedFor ? `<div style="font-size:12px;color:#666;">Prepared for: ${e(preparedFor)}</div>` : ''}
           <div style="font-size:12px;color:#666;">Date: ${date}</div>
         </div>
         <div style="text-align:right;">
           <div style="font-size:32px;font-weight:900;color:${bc};">${co.estimatedCost > 0 ? fmt(co.estimatedCost) : 'TBD'}</div>
           <div style="margin-top:4px;">
-            <span style="display:inline-block;padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;color:white;background:${bc};text-transform:uppercase;letter-spacing:1px;">${co.severity}</span>
+            <span style="display:inline-block;padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;color:white;background:${bc};text-transform:uppercase;letter-spacing:1px;">${e(co.severity)}</span>
           </div>
           <div style="font-size:10px;color:#888;margin-top:4px;font-style:italic;">${sevLabels[co.severity] || ''}</div>
         </div>
@@ -12381,34 +12387,34 @@ function _buildCOPdfHtml(co, projectName, preparedFor) {
     <!-- What -->
     <div class="section">
       <div class="section-label" style="color:${bc};">What Is This Change Order?</div>
-      <div class="section-body">${co.description}</div>
+      <div class="section-body">${e(co.description)}</div>
     </div>
 
     <!-- Why -->
     ${co.justification ? `<div class="section">
       <div class="section-label" style="color:${bc};">Why This May Be Needed</div>
-      <div class="section-body" style="background:#FFF8F3;padding:12px 16px;border-radius:6px;border-left:3px solid ${bc};">${co.justification}</div>
+      <div class="section-body" style="background:#FFF8F3;padding:12px 16px;border-radius:6px;border-left:3px solid ${bc};">${e(co.justification)}</div>
     </div>` : ''}
 
     <!-- Recommendation -->
     ${co.recommendation ? `<div class="section">
       <div class="section-label" style="color:#0D9488;">Recommendation</div>
-      <div class="section-body" style="background:#F0FDFA;padding:12px 16px;border-radius:6px;border-left:3px solid #0D9488;">${co.recommendation}</div>
+      <div class="section-body" style="background:#F0FDFA;padding:12px 16px;border-radius:6px;border-left:3px solid #0D9488;">${e(co.recommendation)}</div>
     </div>` : ''}
 
     <!-- Cost Breakdown -->
     ${co.costBreakdown ? `<div class="section">
       <div class="section-label" style="color:#6366F1;">Cost Breakdown</div>
-      <div class="section-body" style="background:#F5F3FF;padding:12px 16px;border-radius:6px;border-left:3px solid #6366F1;">${co.costBreakdown}</div>
+      <div class="section-body" style="background:#F5F3FF;padding:12px 16px;border-radius:6px;border-left:3px solid #6366F1;">${e(co.costBreakdown)}</div>
     </div>` : ''}
 
     <!-- Metadata -->
     <div style="margin-top:24px;padding-top:16px;border-top:2px solid #eee;">
       <div class="meta-row">
-        <div class="meta-item"><strong>Source:</strong> ${co.source}</div>
-        ${co.discipline ? `<div class="meta-item"><strong>Discipline:</strong> ${co.discipline}</div>` : ''}
-        ${co.contractRef ? `<div class="meta-item"><strong>Contract Reference:</strong> ${co.contractRef}</div>` : ''}
-        <div class="meta-item"><strong>Severity:</strong> ${co.severity.toUpperCase()}</div>
+        <div class="meta-item"><strong>Source:</strong> ${e(co.source)}</div>
+        ${co.discipline ? `<div class="meta-item"><strong>Discipline:</strong> ${e(co.discipline)}</div>` : ''}
+        ${co.contractRef ? `<div class="meta-item"><strong>Contract Reference:</strong> ${e(co.contractRef)}</div>` : ''}
+        <div class="meta-item"><strong>Severity:</strong> ${e(co.severity).toUpperCase()}</div>
         <div class="meta-item"><strong>Estimated Impact:</strong> ${co.estimatedCost > 0 ? fmt(co.estimatedCost) : 'To Be Determined'}</div>
       </div>
     </div>

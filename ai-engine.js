@@ -208,7 +208,7 @@ const SmartBrains = {
     // Mechanical/plumbing — rarely relevant for LV
     'M':   [],  // Skip mechanical
     'P':   [],  // Skip plumbing
-    'FP':  ['Fire Alarm'], // Fire protection can overlap with fire alarm
+    // Note: 'FP' (Fire Protection) already mapped above under fire alarm sheets
   },
 
   // Content-based keywords that indicate sheet relevance (when sheet naming is ambiguous)
@@ -402,7 +402,7 @@ const SmartBrains = {
       if (spec.extractedText) {
         const text = spec.extractedText;
         // Check if this spec chunk contains any relevant division content
-        const divPattern = /(?:SECTION|DIVISION)\s*(0?[12]\d{4}|0?[12]\d)\b/gi;
+        const divPattern = /(?:SECTION|DIVISION)\s*(0?\d{5}|0?\d{1,2})\b/gi;
         const matches = [...text.matchAll(divPattern)];
 
         if (matches.length > 0) {
@@ -1923,7 +1923,7 @@ const SmartBrains = {
         const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
         const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
         if (brainDef.jsonMode || useJsonMode) fbGenConfig.responseMimeType = 'application/json';
-        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % 18 };
+        const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: Math.floor(brainDef.id) % 18 };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
         const ctrl = new AbortController();
         const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
@@ -1936,9 +1936,13 @@ const SmartBrains = {
         const fbReader = fbResp.body.getReader();
         const fbDec = new TextDecoder();
         let fbBuf = '';
+        // Idle timeout: abort if no data received for 60 seconds
+        let fbIdleTimer = setTimeout(() => ctrl.abort(), 60000);
         while (true) {
           const { done, value } = await fbReader.read();
+          clearTimeout(fbIdleTimer);
           if (done) break;
+          fbIdleTimer = setTimeout(() => ctrl.abort(), 60000);
           fbBuf += fbDec.decode(value, { stream: true });
           const fbLines = fbBuf.split('\n');
           fbBuf = fbLines.pop(); // Keep incomplete line
@@ -1993,7 +1997,7 @@ const SmartBrains = {
           contents: [{ parts: fbParts }],
           generationConfig: fbGenConfig,
           _model: this.config.model,
-          _brainSlot: hasUploadedFiles ? 0 : brainDef.id,
+          _brainSlot: hasUploadedFiles ? 0 : Math.floor(brainDef.id),
           // Pass upload key name if available (same key that uploaded the file)
           ...(uploadKeyName ? { _uploadKeyName: uploadKeyName } : {}),
         };
@@ -6358,6 +6362,8 @@ ${legendContext}
       }
     }
     if (disciplinesAdded.length > 0) {
+      // Track which disciplines were auto-added so UI can distinguish user-selected vs auto-detected
+      state._autoDetectedDisciplines = disciplinesAdded;
       console.log(`[SmartBrains] ⚡ Auto-added missing disciplines from document evidence: ${disciplinesAdded.join(', ')}`);
       progressCallback(55, `⚡ Auto-detected disciplines: ${disciplinesAdded.join(', ')}`, this._brainStatus);
     }

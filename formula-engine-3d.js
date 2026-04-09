@@ -660,16 +660,16 @@ const FormulaEngine3D = {
             const standbyCost = this._round(totalLaborHours * 0.10 * avgHourlyRate);
 
             // 9. Material premiums (tamper-proof hardware, rigid conduit, UV cable)
-            const tp = this.transitMaterialPremiums || {};
+            const matPrem = this.transitMaterialPremiums || {};
             const matPremiums = this._round(
-                (totalMaterialCost || 0) * (tp.tamper_proof_hardware_pct || 0) +
-                (totalMaterialCost || 0) * (tp.rigid_conduit_premium_pct || 0) +
-                (totalMaterialCost || 0) * (tp.uv_cable_premium_pct || 0)
+                (totalMaterialCost || 0) * (matPrem.tamper_proof_hardware_pct || 0) +
+                (totalMaterialCost || 0) * (matPrem.rigid_conduit_premium_pct || 0) +
+                (totalMaterialCost || 0) * (matPrem.uv_cable_premium_pct || 0)
             );
 
             // 10. Seismic bracing (estimate 1 rack per 30 cameras/devices minimum 1)
             const estRacks = Math.max(1, Math.ceil((totalMaterialCost || 0) / 50000));
-            const seismicBracing = this._round((tp.seismic_bracing_per_rack || 0) * estRacks);
+            const seismicBracing = this._round((matPrem.seismic_bracing_per_rack || 0) * estRacks);
 
             // 11. Hi-rail vehicle (trackside work days — estimate 40% of project days)
             const hirailDays = Math.ceil(estProjectDays * 0.40);
@@ -796,7 +796,7 @@ const FormulaEngine3D = {
             if (countSource) {
                 for (const [key, val] of Object.entries(countSource)) {
                     if (camRegex.test(key) && !camExclude.test(key)) {
-                        cameraCount += (typeof val === 'number' ? val : val?.count || val?.qty || 0);
+                        cameraCount += (typeof val === 'number' ? val : typeof val === 'string' ? (parseInt(val, 10) || 0) : val?.count || val?.qty || 0);
                     }
                 }
             }

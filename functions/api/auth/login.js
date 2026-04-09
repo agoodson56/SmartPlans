@@ -5,7 +5,7 @@
 
 import { isAllowedOrigin, timingSafeCompare } from '../../_shared/cors.js';
 
-const RATE_LIMIT_MAX = 20;
+const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_SEC = 300;
 
 async function hashPasswordPBKDF2(password, saltHex, iterations = 100000) {
