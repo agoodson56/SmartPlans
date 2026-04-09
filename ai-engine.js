@@ -484,8 +484,7 @@ const SmartBrains = {
           const ext = entry.name.toLowerCase().split('.').pop();
           const finalMime = mimeMap[ext] || mimeType;
 
-          const isSupported = supportedTypes.some(t =>
-            finalMime.startsWith(t.split('/')[0])) || finalMime === 'application/pdf';
+          const isSupported = supportedTypes.includes(finalMime);
 
           if (isSupported) {
             const fileData = {
@@ -5576,7 +5575,8 @@ Return ONLY valid JSON:
         // Extract chunk number from filename (e.g., "legend_chunk14.jpg" → "14")
         const match = f.name.match(/_chunk(\d+)\./);
         const chunkNum = match ? match[1] : f.name;
-        const sizeKey = `page${chunkNum}_${Math.round(f.size / 1024)}`; // page + approx KB size
+        // Include category (legends/plans/specs) to avoid cross-PDF collisions
+        const sizeKey = `${f.category || f.name.replace(/_chunk\d+\..*/, '')}_page${chunkNum}_${Math.round(f.size / 1024)}`;
 
         if (!seen.has(sizeKey)) {
           seen.set(sizeKey, f);
@@ -6101,7 +6101,7 @@ ${legendContext}
         });
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
-          _contextCache = { name: cacheData.cacheName, model: this.config.proModel || this.config.model || 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
+          _contextCache = { name: cacheData.cacheName, model: `models/${this.config.proModel || this.config.model || 'gemini-2.5-pro'}`, keyName: cacheData._usedKeyName };
           console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
           console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error);
@@ -6438,7 +6438,10 @@ ${legendContext}
       }
       if (_clampCount > 0) {
         _pricer.grand_total = _pCats.reduce((s, c) => s + (c.subtotal || 0), 0);
-        console.log(`[SmartBrains] Price guardrails: clamped ${_clampCount} item(s) to actual 3D cost levels`);
+        // Recalculate total_with_markup so Financial Engine uses correct clamped values
+        const _markupPct = _pricer.markup_pct || state.markup?.material || 50;
+        _pricer.total_with_markup = Math.round(_pricer.grand_total * (1 + _markupPct / 100));
+        console.log(`[SmartBrains] Price guardrails: clamped ${_clampCount} item(s) to actual 3D cost levels — grand_total: $${_pricer.grand_total}, total_with_markup: $${_pricer.total_with_markup}`);
       }
     }
     console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');

@@ -38,9 +38,7 @@ export async function onRequestGet(context) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
-    const envToken = context.env.ESTIMATES_TOKEN;
-    const token = context.request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // Auth handled by estimates/_middleware.js (session token OR app token)
 
     if (!isValidId(id) || !isValidId(quoteId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
@@ -71,9 +69,7 @@ export async function onRequestPut(context) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
-    const envToken = context.env.ESTIMATES_TOKEN;
-    const token = context.request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // Auth handled by estimates/_middleware.js (session token OR app token)
 
     if (!isValidId(id) || !isValidId(quoteId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
@@ -120,9 +116,7 @@ export async function onRequestDelete(context) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403 });
     }
 
-    const envToken = context.env.ESTIMATES_TOKEN;
-    const token = context.request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // Auth handled by estimates/_middleware.js (session token OR app token)
 
     if (!isValidId(id) || !isValidId(quoteId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });

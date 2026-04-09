@@ -159,20 +159,20 @@ export async function onRequestPut(context) {
     try {
         const body = await request.json();
 
-        if (!body.id || !isValidId(body.id)) {
-            return Response.json({ error: 'Invalid or missing entry id' }, { status: 400, headers: corsHeaders(origin) });
-        }
-
-        // Support batch sort_order updates
+        // Support batch sort_order updates (check BEFORE body.id validation)
         if (Array.isArray(body.items)) {
             for (const item of body.items) {
-                if (item.id && item.sort_order !== undefined) {
+                if (item.id && isValidId(item.id) && item.sort_order !== undefined) {
                     await env.DB.prepare(
                         `UPDATE estimate_exclusions SET sort_order = ? WHERE id = ? AND estimate_id = ?`
                     ).bind(item.sort_order, item.id, id).run();
                 }
             }
             return Response.json({ success: true }, { headers: corsHeaders(origin) });
+        }
+
+        if (!body.id || !isValidId(body.id)) {
+            return Response.json({ error: 'Invalid or missing entry id' }, { status: 400, headers: corsHeaders(origin) });
         }
 
         const allowedFields = ['text', 'type', 'category', 'sort_order'];

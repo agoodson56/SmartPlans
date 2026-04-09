@@ -599,6 +599,10 @@ const FormulaEngine3D = {
         // Merge with any item-level subcontractor costs already classified via _classifySystemType
         if (subcontractorCost > 0 || systemBreakdowns['subcontractor']) {
             const existingSub = systemBreakdowns['subcontractor'] || { materialCost: 0, totalCOS: 0, totalSELL: 0, fieldHours: 0, nptHours: 0, overheadHours: 0, totalHours: 0, laborCOS: 0, laborSELL: 0, commCOS: 0, commSELL: 0, warrantyCOS: 0, warrantySELL: 0, itemCount: 0 };
+            // Remove Step 2 full-formula values for item-level subs before replacing with flat 20%
+            // Step 2 applied markup+tax+commission+warranty; subs should only get 20% markup
+            if (existingSub.totalCOS) { grandCOS -= existingSub.totalCOS; }
+            if (existingSub.totalSELL) { grandSELL -= existingSub.totalSELL; }
             const totalSubCost = subcontractorCost + (existingSub.materialCost || 0);
             const subSELL = this._round(totalSubCost * 1.20);
             systemBreakdowns['subcontractor'] = {
@@ -618,9 +622,9 @@ const FormulaEngine3D = {
                 grossMarginPct: subSELL > 0 ? this._round(((subSELL - totalSubCost) / subSELL) * 100) : 0,
                 itemCount: existingSub.itemCount || 0,
             };
-            // Only add the NEW category-level sub cost to grand totals (item-level already counted in Step 2)
-            grandCOS += subcontractorCost;
-            grandSELL += this._round(subcontractorCost * 1.20);
+            // Add combined sub costs with flat 20% markup (Step 2 values were removed above)
+            grandCOS += totalSubCost + (existingSub.laborCOS || 0);
+            grandSELL += subSELL + (existingSub.laborSELL || 0);
         }
 
         // ── Step 4: Transit/Railroad adders (comprehensive) — before bonds so bonds include transit ──

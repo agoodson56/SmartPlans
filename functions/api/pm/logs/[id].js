@@ -14,12 +14,7 @@ export async function onRequestDelete(context) {
         return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    // Require ESTIMATES_TOKEN — fail-closed if not configured
-    const envToken = env.ESTIMATES_TOKEN;
-    const token = request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) {
-        return Response.json({ error: 'Unauthorized — invalid or missing X-App-Token' }, { status: 401 });
-    }
+    // Auth handled by pm/_middleware.js (session token OR app token)
 
     try {
         const logId = params.id;

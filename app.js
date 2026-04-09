@@ -4501,6 +4501,7 @@ function validateAndRepairBOM(analysis) {
       const name = (item.item || item.name || '').toLowerCase();
       const qty = item.qty || 0;
       const unitCost = item.unit_cost || item.unitCost || 0;
+      item.unitCost = unitCost; // normalize to canonical key for downstream consumers
       const unit = (item.unit || '').toLowerCase();
 
       // ── Check 1: $0 or $1 unit costs on real equipment (broken pricing) ──
@@ -4808,7 +4809,7 @@ function computePathwayDistances() {
 function _getCableRatePerFt(type, rating) {
   if (typeof PRICING_DB === 'undefined') return 0.32; // safe default
   const tier = state.pricingTier || 'mid';
-  const rm = state.regionalMultiplier || 1.0;
+  const rm = (PRICING_DB.regionalMultipliers && PRICING_DB.regionalMultipliers[state.regionalMultiplier]) || 1.0;
   const db = PRICING_DB.structuredCabling?.cable || {};
   const t = (type || '').toLowerCase();
   const r = (rating || '').toLowerCase();
@@ -4839,9 +4840,20 @@ function injectCalculatedCableQuantities(bom) {
   if (!pathway.hasSpatialZones || pathway.grandTotalFt <= 0) return bom;
 
   // Build a lookup of calculated totals by cable type
+  // Normalize keys to match the simplified BOM lookup keys (cat6a, cat6, cat5e, etc.)
+  const _normalizeCableKey = (raw) => {
+    const s = raw.toLowerCase();
+    if (/cat\s*6a|cat6a/.test(s)) return 'cat6a';
+    if (/cat\s*6(?!a)|cat6(?!a)/.test(s)) return 'cat6';
+    if (/cat\s*5e?|cat5/.test(s)) return 'cat5e';
+    if (/fiber.*sm|sm.*fiber|os2/.test(s)) return 'fiber_sm_os2';
+    if (/fiber.*mm|mm.*fiber|om[34]/.test(s)) return 'fiber_mm_om4';
+    if (/coax|rg.?6/.test(s)) return 'coax_rg6';
+    return s; // fallback: use raw lowercased
+  };
   const calcByType = {};
   pathway.results.forEach(r => {
-    const key = r.cableType.toLowerCase();
+    const key = _normalizeCableKey(r.cableType);
     if (!calcByType[key]) calcByType[key] = { totalFt: 0, ratePerFt: r.ratePerFt, mode: r.mode };
     r.zones.forEach(z => { calcByType[key].totalFt += z.totalFt; });
   });
@@ -6205,6 +6217,7 @@ function renderStep7(container) {
     if (!file) return;
     const resultsDiv = document.getElementById('bid-compare-results');
     const nameInput = document.getElementById('competitor-name');
+    if (!resultsDiv) return;
     resultsDiv.innerHTML = '<p style="color:#0D9488;font-size:12px;">Analyzing competitor bid...</p>';
 
     try {
@@ -6240,9 +6253,10 @@ function renderStep7(container) {
     bomToggle.addEventListener('click', () => {
       const body = document.getElementById('bom-table-collapsible');
       const icon = document.getElementById('bom-toggle-icon');
+      if (!body) return;
       const isOpen = body.style.display !== 'none';
       body.style.display = isOpen ? 'none' : 'block';
-      icon.textContent = isOpen ? '▶' : '▼';
+      if (icon) icon.textContent = isOpen ? '▶' : '▼';
     });
   }
 
@@ -8532,7 +8546,7 @@ function renderAnalysis(container) {
     const p = Math.min(Math.round(pct), 100);
     pctEl.textContent = p + "%";
     barEl.style.width = p + "%";
-    ringEl.style.background = `conic-gradient(var(--accent-sky) ${pct * 3.6}deg, rgba(255,255,255,0.05) 0deg)`;
+    ringEl.style.background = `conic-gradient(var(--accent-sky) ${p * 3.6}deg, rgba(255,255,255,0.05) 0deg)`;
     if (text) stageEl.textContent = text;
 
     // Update brain dashboard
@@ -9365,6 +9379,9 @@ async function saveEstimate(showToast = true) {
         });
         clearTimeout(timeout);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const directData = await res.json();
+        if (directData.error) throw new Error(directData.error);
+        if (!state.estimateId && directData.id) state.estimateId = directData.id;
       } catch (directErr) {
         console.warn(`[SmartPlans] Direct save failed (${directErr.message}), trying chunked fallback...`);
         // Fallback: save without export_data first, then PUT export_data separately
@@ -10029,8 +10046,8 @@ async function compareRevision(estimateId, revId) {
     function diffBadge(diff, prefix = '') {
       if (diff === 0) return '<span style="color:rgba(255,255,255,0.4);">—</span>';
       const color = diff > 0 ? '#10b981' : '#f43f5e';
-      const sign = diff > 0 ? '+' : '';
-      return `<span style="color:${color};font-weight:600;">${sign}${prefix}${typeof diff === 'number' && prefix === '$' ? Math.abs(diff).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : diff}</span>`;
+      const sign = diff > 0 ? '+' : '-';
+      return `<span style="color:${color};font-weight:600;">${sign}${prefix}${typeof diff === 'number' && prefix === '$' ? Math.abs(diff).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : Math.abs(diff)}</span>`;
     }
 
     function fmtCost(v) {
@@ -12505,6 +12522,7 @@ function bindChangeOrderEvents(container) {
       const sevLabels = { critical: 'Almost certain to occur — budget for this.', high: 'Highly likely — strong probability.', medium: 'Possible — depends on conditions.', low: 'Low probability but documented.' };
       const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
+      const e = s => esc(String(s || ''));
       let coSections = '';
       cos.forEach((c, i) => {
         const bc = sevColors[c.severity] || '#D97706';
@@ -12513,33 +12531,33 @@ function bindChangeOrderEvents(container) {
           <div style="margin-bottom:24px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
               <div style="display:flex;align-items:center;gap:10px;">
-                <span style="font-size:16px;font-weight:800;color:${bc};">${c.id}</span>
-                <span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10px;font-weight:700;color:white;background:${bc};text-transform:uppercase;">${c.severity}</span>
+                <span style="font-size:16px;font-weight:800;color:${bc};">${e(c.id)}</span>
+                <span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:10px;font-weight:700;color:white;background:${bc};text-transform:uppercase;">${e(c.severity)}</span>
                 <span style="font-size:10px;color:#888;font-style:italic;">${sevLabels[c.severity] || ''}</span>
               </div>
               <span style="font-size:18px;font-weight:800;color:${bc};">${c.estimatedCost > 0 ? fmt(c.estimatedCost) : 'TBD'}</span>
             </div>
             <div style="margin-bottom:8px;">
               <div style="font-size:10px;font-weight:700;color:${bc};text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">What Is This Change Order?</div>
-              <div style="font-size:12px;line-height:1.55;color:#333;">${c.description}</div>
+              <div style="font-size:12px;line-height:1.55;color:#333;">${e(c.description)}</div>
             </div>
             ${c.justification ? `<div style="margin-bottom:8px;">
               <div style="font-size:10px;font-weight:700;color:${bc};text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Why This May Be Needed</div>
-              <div style="font-size:12px;line-height:1.55;color:#333;background:#FFF8F3;padding:8px 12px;border-radius:4px;border-left:3px solid ${bc};">${c.justification}</div>
+              <div style="font-size:12px;line-height:1.55;color:#333;background:#FFF8F3;padding:8px 12px;border-radius:4px;border-left:3px solid ${bc};">${e(c.justification)}</div>
             </div>` : ''}
             ${c.recommendation ? `<div style="margin-bottom:8px;">
               <div style="font-size:10px;font-weight:700;color:#0D9488;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Recommendation</div>
-              <div style="font-size:12px;line-height:1.55;color:#333;background:#F0FDFA;padding:8px 12px;border-radius:4px;border-left:3px solid #0D9488;">${c.recommendation}</div>
+              <div style="font-size:12px;line-height:1.55;color:#333;background:#F0FDFA;padding:8px 12px;border-radius:4px;border-left:3px solid #0D9488;">${e(c.recommendation)}</div>
             </div>` : ''}
             ${c.costBreakdown ? `<div style="margin-bottom:8px;">
               <div style="font-size:10px;font-weight:700;color:#6366F1;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">Cost Breakdown</div>
-              <div style="font-size:12px;line-height:1.55;color:#333;background:#F5F3FF;padding:8px 12px;border-radius:4px;border-left:3px solid #6366F1;">${c.costBreakdown}</div>
+              <div style="font-size:12px;line-height:1.55;color:#333;background:#F5F3FF;padding:8px 12px;border-radius:4px;border-left:3px solid #6366F1;">${e(c.costBreakdown)}</div>
             </div>` : ''}
-            <div style="font-size:10px;color:#888;margin-top:6px;">Source: ${c.source}${c.discipline ? ' | Discipline: ' + c.discipline : ''}${c.contractRef ? ' | Ref: ' + c.contractRef : ''}</div>
+            <div style="font-size:10px;color:#888;margin-top:6px;">Source: ${e(c.source)}${c.discipline ? ' | Discipline: ' + e(c.discipline) : ''}${c.contractRef ? ' | Ref: ' + e(c.contractRef) : ''}</div>
           </div>`;
       });
 
-      const html = `<!DOCTYPE html><html><head><title>Potential Change Orders — ${state.projectName || 'Project'}</title>
+      const html = `<!DOCTYPE html><html><head><title>Potential Change Orders — ${e(state.projectName) || 'Project'}</title>
         <style>
           *{margin:0;padding:0;box-sizing:border-box}
           body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;padding:40px;max-width:900px;margin:0 auto}
@@ -12548,8 +12566,8 @@ function bindChangeOrderEvents(container) {
         <div style="display:flex;align-items:flex-start;justify-content:space-between;border-bottom:3px solid #EA580C;padding-bottom:16px;margin-bottom:28px;">
           <div>
             <h1 style="font-size:22px;color:#EA580C;margin-bottom:4px;">Potential Change Orders</h1>
-            <div style="font-size:15px;font-weight:600;">${state.projectName || 'Project'}</div>
-            <div style="font-size:12px;color:#666;">${state.preparedFor ? 'Prepared for: ' + state.preparedFor + ' | ' : ''}${date}</div>
+            <div style="font-size:15px;font-weight:600;">${e(state.projectName) || 'Project'}</div>
+            <div style="font-size:12px;color:#666;">${state.preparedFor ? 'Prepared for: ' + e(state.preparedFor) + ' | ' : ''}${date}</div>
           </div>
           <div style="text-align:right;">
             <div style="font-size:28px;font-weight:900;color:#EA580C;">${fmt(total)}</div>
@@ -12576,14 +12594,8 @@ function getBaseBidCategoryIndices(bom) { const ae = new Set(); state.bidPhases.
 function buildBidPhasesCard(st) { if (!st.aiAnalysis) return ''; const bom = getBidPhaseBOM(); if (bom.categories.length === 0) return ''; const _fmt = (v) => { const abs = Math.abs(v); const str = '$' + abs.toLocaleString('en-US', {minimumFractionDigits:0,maximumFractionDigits:0}); return v < 0 ? '(' + str + ')' : str; }; const ptm = { base: {label:'Base Bid',bc:'bid-phase-badge--base'}, add: {label:'Add Alternate',bc:'bid-phase-badge--add'}, deduct: {label:'Deduct Alt',bc:'bid-phase-badge--deduct'}, optional: {label:'Optional',bc:'bid-phase-badge--optional'} }; let pr='',sr='',rt=0; st.bidPhases.forEach((phase, pi) => { const m = ptm[phase.type]||ptm.optional; const tot = getPhaseTotal(phase,bom); const dt = phase.type==='deduct' ? -Math.abs(tot) : tot; if (phase.includeInProposal) rt += dt; let ac = phase.type==='base' ? getBaseBidCategoryIndices(bom) : phase.categoryIndices; const cn = ac.map(ci => bom.categories[ci] ? esc(bom.categories[ci].name) : '').filter(Boolean); let cah=''; if (phase.type!=='base') { const avail=[]; bom.categories.forEach((cat,ci) => { const at = st.bidPhases.find(p => p.id!=='base' && p.id!==phase.id && p.categoryIndices.includes(ci)); if (!at) avail.push({ci,name:cat.name,chk:phase.categoryIndices.includes(ci)}); else if (phase.categoryIndices.includes(ci)) avail.push({ci,name:cat.name,chk:true}); }); cah = '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">' + avail.map(a => '<label class="bid-phase-cat-chip' + (a.chk?' bid-phase-cat-chip--active':'') + '" style="cursor:pointer;"><input type="checkbox" ' + (a.chk?'checked ':'') + 'style="display:none;" data-bid-phase-cat="' + phase.id + '" data-cat-idx="' + a.ci + '">' + esc(a.name) + '</label>').join('') + (avail.length===0?'<span style="font-size:11px;color:var(--text-muted);font-style:italic;">All categories assigned to other phases</span>':'') + '</div>'; } pr += '<div class="bid-phase-row" data-phase-idx="'+pi+'" style="padding:14px 16px;border:1px solid rgba(0,0,0,0.06);margin-bottom:8px;background:var(--bg-surface-2);"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;"><span class="bid-phase-badge '+m.bc+'">'+m.label+'</span>' + (phase.type==='base' ? '<span style="font-weight:600;font-size:13px;color:var(--text-primary);">'+esc(phase.name)+'</span>' : '<input type="text" class="bid-phase-name-input" data-phase-id="'+phase.id+'" value="'+esc(phase.name)+'" style="flex:1;padding:4px 8px;border:1px solid rgba(0,0,0,0.08);background:transparent;font-size:13px;font-weight:600;color:var(--text-primary);min-width:120px;outline:none;font-family:var(--font-sans);" />') + '</div><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:14px;font-weight:700;color:'+(phase.type==='deduct'?'#D97706':'var(--accent-teal)')+';">'+_fmt(dt)+'</span><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--text-muted);" title="Include in Proposal"><input type="checkbox" '+(phase.includeInProposal?'checked ':'')+' data-bid-phase-proposal="'+phase.id+'" style="accent-color:#0D9488;">Proposal</label>' + (phase.type!=='base' ? '<button data-bid-phase-remove="'+phase.id+'" title="Remove phase" style="background:none;border:1px solid rgba(225,29,72,0.2);color:#E11D48;cursor:pointer;font-size:12px;padding:2px 6px;line-height:1;">x</button>' : '') + '</div></div><div style="margin-top:6px;font-size:11px;color:var(--text-muted);">' + (cn.length>0 ? cn.join(', ') : '<em>No categories assigned</em>') + '</div>' + cah + '</div>'; sr += '<tr style="border-bottom:1px solid rgba(0,0,0,0.04);"><td style="padding:6px 10px;font-size:12px;color:var(--text-primary);">'+esc(phase.name)+'</td><td style="padding:6px 10px;font-size:11px;"><span class="bid-phase-badge '+m.bc+'" style="font-size:10px;padding:2px 6px;">'+m.label+'</span></td><td style="padding:6px 10px;font-size:12px;color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(cn.join(', ')||'—')+'</td><td style="padding:6px 10px;font-size:13px;font-weight:600;text-align:right;color:'+(phase.type==='deduct'?'#D97706':'var(--text-primary)')+';">'+_fmt(dt)+'</td><td style="padding:6px 10px;text-align:center;font-size:12px;">'+(phase.includeInProposal?'✓':'—')+'</td></tr>'; }); const st2 = '<div style="margin-top:16px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:rgba(13,148,136,0.06);"><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Phase</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Type</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Categories</th><th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Amount</th><th style="padding:8px 10px;text-align:center;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Proposal</th></tr></thead><tbody>'+sr+'<tr style="background:rgba(13,148,136,0.08);"><td colspan="3" style="padding:8px 10px;font-size:13px;font-weight:700;color:var(--text-primary);text-align:right;">Total if all accepted</td><td style="padding:8px 10px;font-size:14px;font-weight:700;color:var(--accent-teal);text-align:right;">'+_fmt(rt)+'</td><td></td></tr></tbody></table></div>'; return '<div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div><div class="info-card" style="margin-bottom:22px;border:1px solid rgba(13,148,136,0.15);background:#FFFFFF;"><div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="bid-phases-toggle"><div class="info-card-title" style="margin-bottom:0;"><i data-lucide="layers" style="width:16px;height:16px;"></i> Bid Phases &amp; Alternates</div><span id="bid-phases-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">'+(st._bidPhasesOpen?'▼':'▶')+'</span></div><div id="bid-phases-collapsible" style="display:'+(st._bidPhasesOpen?'block':'none')+';margin-top:12px;"><div class="info-card-body" style="margin-bottom:12px;">Structure your bid with base and alternate pricing. Assign BOM categories to each phase — unassigned categories stay in the Base Bid.</div>'+pr+'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;"><button id="bid-phase-add-add" style="padding:6px 14px;border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.04);color:#059669;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Add Alternate</button><button id="bid-phase-add-deduct" style="padding:6px 14px;border:1px solid rgba(217,119,6,0.3);background:rgba(217,119,6,0.04);color:#D97706;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Deduct Alternate</button><button id="bid-phase-add-optional" style="padding:6px 14px;border:1px solid rgba(0,0,0,0.1);background:rgba(0,0,0,0.02);color:var(--text-muted);cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Optional Phase</button></div>'+st2+'</div></div>'; }
 function bindBidPhasesEvents(container) { const toggle = document.getElementById('bid-phases-toggle'); if (toggle) { toggle.addEventListener('click', () => { state._bidPhasesOpen = !state._bidPhasesOpen; const body = document.getElementById('bid-phases-collapsible'); const icon = document.getElementById('bid-phases-toggle-icon'); if (body) body.style.display = state._bidPhasesOpen ? 'block' : 'none'; if (icon) icon.textContent = state._bidPhasesOpen ? '▼' : '▶'; }); } const ah = {'bid-phase-add-add':'add','bid-phase-add-deduct':'deduct','bid-phase-add-optional':'optional'}; for (const [bi,ty] of Object.entries(ah)) { const btn = document.getElementById(bi); if (btn) btn.addEventListener('click', () => { state._bidPhaseCounter++; const n = state.bidPhases.filter(p=>p.type===ty).length+1; const lb = {add:`Add Alternate #${n}`,deduct:`Deduct Alternate #${n}`,optional:`Optional Phase #${n}`}; state.bidPhases.push({id:`phase-${Date.now()}-${state._bidPhaseCounter}`,name:lb[ty],type:ty,categoryIndices:[],includeInProposal:ty!=='optional'}); state._bidPhasesOpen=true; renderStep7(container); }); } document.querySelectorAll('[data-bid-phase-remove]').forEach(b => { b.addEventListener('click', e => { e.stopPropagation(); state.bidPhases = state.bidPhases.filter(p => p.id !== b.dataset.bidPhaseRemove); renderStep7(container); }); }); document.querySelectorAll('.bid-phase-name-input').forEach(inp => { inp.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === inp.dataset.phaseId); if (ph) ph.name = inp.value.trim() || ph.name; }); }); document.querySelectorAll('[data-bid-phase-proposal]').forEach(cb => { cb.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === cb.dataset.bidPhaseProposal); if (ph) { ph.includeInProposal = cb.checked; renderStep7(container); } }); }); document.querySelectorAll('[data-bid-phase-cat]').forEach(cb => { cb.addEventListener('change', () => { const pid = cb.dataset.bidPhaseCat; const ci = parseInt(cb.dataset.catIdx); const ph = state.bidPhases.find(p => p.id === pid); if (!ph) return; if (cb.checked) { state.bidPhases.forEach(p => { if (p.id!=='base' && p.id!==pid) p.categoryIndices = p.categoryIndices.filter(c=>c!==ci); }); if (!ph.categoryIndices.includes(ci)) ph.categoryIndices.push(ci); } else { ph.categoryIndices = ph.categoryIndices.filter(c=>c!==ci); } renderStep7(container); }); }); }
 
-// Warn before leaving page if user has unsaved work (skip if analysis complete and saved)
-window.addEventListener("beforeunload", e => {
-  const hasWork = state.projectName.trim().length > 0 || state.planFiles.length > 0;
-  if (hasWork && !state.analysisComplete) {
-    e.preventDefault();
-    e.returnValue = "";
-  }
-});
+// LOW-2 fix: Duplicate beforeunload listener removed — the more comprehensive
+// version inside DOMContentLoaded (line ~12764) checks legendFiles and analyzing state too.
 
 // ═══════════════════════════════════════════════════════════════
 // ERROR MONITORING — Log unhandled errors to /api/health

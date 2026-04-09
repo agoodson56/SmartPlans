@@ -1864,14 +1864,14 @@ const SmartPlansExport = {
                 ["Project Type", state.projectType || ""],
                 ["Location", state.projectLocation || ""],
                 ["Jurisdiction", state.codeJurisdiction || ""],
-                ["Disciplines", state.disciplines.join(", ")],
+                ["Disciplines", (state.disciplines || []).join(", ")],
                 ["Prevailing Wage", state.prevailingWage || "N/A"],
                 ["Work Shift", state.workShift || "Standard"],
                 [],
                 ["PRICING CONFIGURATION"],
                 ["Pricing Tier", tier.toUpperCase()],
                 ["Regional Multiplier", `${regionKey.replace(/_/g, " ")} (${regionMult}×)`],
-                ["Labor Burden", state.includeBurden ? (state.burdenRate / 100) : 0],
+                ["Labor Burden", state.includeBurden ? ((state.burdenRate ?? 35) / 100) : 0],
                 ["Material Markup", `${state.markup.material}%`],
                 ["Labor Markup", `${state.markup.labor}%`],
                 ["Equipment Markup", `${state.markup.equipment}%`],
@@ -2008,10 +2008,10 @@ const SmartPlansExport = {
                 ["Category", "Filename", "Size (KB)", "Type"],
             ];
             const fileCategories = {
-                "Symbol Legend": state.legendFiles,
-                "Floor Plans": state.planFiles,
-                "Specifications": state.specFiles,
-                "Addenda": state.addendaFiles,
+                "Symbol Legend": state.legendFiles || [],
+                "Floor Plans": state.planFiles || [],
+                "Specifications": state.specFiles || [],
+                "Addenda": state.addendaFiles || [],
             };
             for (const [cat, files] of Object.entries(fileCategories)) {
                 files.forEach(f => docData.push([cat, f.name, Math.round(f.size / 1024), f.type]));
@@ -2682,7 +2682,8 @@ const SmartPlansExport = {
         });
 
         // Step 2: Build our BOM item list for Gemini to match against
-        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
+        // Must apply user edits first so indices match the actual displayed BOM
+        const bom = this._filterBOMByDisciplines(this._applyUserBOMEdits(this._extractBOMFromAnalysis(state.aiAnalysis), state), state.disciplines);
         const bomItems = [];
         for (let ci = 0; ci < bom.categories.length; ci++) {
             const cat = bom.categories[ci];
@@ -3067,7 +3068,7 @@ Return ONLY the JSON array. No other text.`;
      * Returns { matched, onlyOurs, onlyTheirs, summary }.
      */
     compareWithCompetitorBid(state, competitorData) {
-        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
+        const bom = this._filterBOMByDisciplines(this._applyUserBOMEdits(this._extractBOMFromAnalysis(state.aiAnalysis), state), state.disciplines);
 
         // Flatten our BOM into items
         const ourItems = [];

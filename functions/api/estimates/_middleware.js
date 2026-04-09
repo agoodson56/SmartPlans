@@ -36,11 +36,12 @@ export async function onRequest(context) {
     const appToken = request.headers.get('X-App-Token') || '';
     const envToken = env.ESTIMATES_TOKEN;
     let authenticated = false;
+    let validatedUser = null;
 
     // Path 1: Session-based auth (new account system)
     if (sessionToken) {
-        const user = await validateSession(env.DB, sessionToken);
-        if (user) authenticated = true;
+        validatedUser = await validateSession(env.DB, sessionToken);
+        if (validatedUser) authenticated = true;
     }
 
     // Path 2: Legacy ESTIMATES_TOKEN auth
@@ -60,9 +61,9 @@ export async function onRequest(context) {
 
     // SEC: Pass validated user to downstream handlers for ownership checks
     // Handlers access via context.data.user (Cloudflare Pages convention)
-    if (sessionToken) {
-        const user = await validateSession(env.DB, sessionToken);
-        if (user) context.data = { ...context.data, user };
+    // Uses cached result from Path 1 above — avoids redundant DB call
+    if (validatedUser) {
+        context.data = { ...context.data, user: validatedUser };
     }
 
     // Process the actual request

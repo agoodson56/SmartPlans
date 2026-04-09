@@ -4,8 +4,8 @@
     {
       "name": "smartplans-dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["http-server", ".", "-p", "8787", "-c-1", "--cors"],
-      "port": 8787
+      "runtimeArgs": ["wrangler", "pages", "dev", ".", "--port", "8788"],
+      "port": 8788
     }
   ]
 }
