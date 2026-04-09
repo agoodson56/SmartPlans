@@ -1455,11 +1455,11 @@ function generateMasterReport() {
   const financialEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
   const devilsAdvocate = state.brainResults?.wave3?.DEVILS_ADVOCATE;
   const specialConditions = state.brainResults?.wave1?.SPECIAL_CONDITIONS;
-  const bidStrategy = state.brainResults?.wave3?.BID_STRATEGIST;
+  const bidStrategy = state.bidStrategy || null; // Loaded from state, not from a brain (BID_STRATEGIST brain doesn't exist)
   const cablePath = state.brainResults?.wave1?.CABLE_PATHWAY;
   const symbolScanner = state.brainResults?.wave1?.SYMBOL_SCANNER;
   const reportWriter = state.brainResults?.wave4?.REPORT_WRITER;
-  const estimateCorrector = state.brainResults?.wave3_5?.ESTIMATE_CORRECTOR;
+  const estimateCorrector = state.brainResults?.wave3_85_corrected || state.brainResults?.wave3_85?.ESTIMATE_CORRECTOR || null;
   const crossValidator = state.brainResults?.wave3?.CROSS_VALIDATOR;
   const annotationReader = state.brainResults?.wave1?.ANNOTATION_READER;
   const codeCompliance = state.brainResults?.wave1?.CODE_COMPLIANCE;
@@ -1467,7 +1467,18 @@ function generateMasterReport() {
   const specCrossRef = state.brainResults?.wave1?.SPEC_CROSS_REF;
   const riserDiagram = state.brainResults?.wave1?.RISER_DIAGRAM_ANALYZER;
 
-  const confidence = financialEngine?.confidence_score || financialEngine?.confidence || 85;
+  // Compute confidence from actual analysis quality — NOT hardcoded
+  const _brainSuccessRate = state.brainStats
+    ? Math.round((state.brainStats.successfulBrains / Math.max(state.brainStats.totalBrains, 1)) * 100)
+    : null;
+  const _crossValidatorConf = crossValidator?.confidence_score || crossValidator?.confidence || null;
+  const _financialConf = financialEngine?.confidence_score || financialEngine?.confidence || null;
+  const _statsConf = state.brainResults?.stats?.confidence || null;
+  // Average available real confidence signals, fall back to brain success rate, then 75 (conservative)
+  const _confSignals = [_crossValidatorConf, _financialConf, _statsConf].filter(v => v != null && v > 0);
+  const confidence = _confSignals.length > 0
+    ? Math.round(_confSignals.reduce((s, v) => s + v, 0) / _confSignals.length)
+    : (_brainSuccessRate || 75);
   // Use the SAME deterministic calculation as export-engine and proposal-generator:
   // BOM materials × markup + labor × markup + equipment + subs + burden + travel + contingency.
   // This ensures Master Report, Excel BOM, JSON export, and proposals all show ONE number.
@@ -4571,7 +4582,8 @@ function injectTravelIntoBOM(bom) {
   };
 
   // Remove any existing travel category and append new one
-  const filtered = (bom.categories || []).filter(c => c.name !== 'Travel, Per Diem & Incidentals');
+  // Use regex to catch variant names (AI may generate "Travel & Per Diem", "Travel/Incidentals", etc.)
+  const filtered = (bom.categories || []).filter(c => !/^travel[\s,&/|]+/i.test(c.name || ''));
   filtered.push(travelCategory);
   const newTotal = filtered.reduce((sum, c) => sum + (c.subtotal || 0), 0);
 
@@ -11779,10 +11791,11 @@ function computeProjectFitness(st) {
 
   // ── 5. EXPERIENCE / FAMILIARITY (10 pts) — PW familiarity, transit experience
   let expScore = 5;
+  const _hasPW = st.prevailingWage && st.prevailingWage !== '' && st.prevailingWage !== 'none';
   if (isTransit) { expScore = 10; factors.push({ label: '3D has established Amtrak/transit track record', positive: true }); }
-  else if (st.prevailingWage === 'yes') { expScore = 8; factors.push({ label: 'Prevailing wage — 3D has extensive PW experience', positive: true }); }
+  else if (_hasPW) { expScore = 8; factors.push({ label: 'Prevailing wage — 3D has extensive PW experience', positive: true }); }
   else { expScore = 7; factors.push({ label: 'Standard commercial project — routine for 3D', positive: true }); }
-  scores.experience = { score: expScore, max: 10, label: 'Experience', detail: isTransit ? 'Transit/Railroad veteran' : st.prevailingWage === 'yes' ? 'PW experienced' : 'Standard commercial', icon: 'award', color: expScore >= 8 ? '#10B981' : '#F59E0B' };
+  scores.experience = { score: expScore, max: 10, label: 'Experience', detail: isTransit ? 'Transit/Railroad veteran' : _hasPW ? 'PW experienced' : 'Standard commercial', icon: 'award', color: expScore >= 8 ? '#10B981' : '#F59E0B' };
 
   // ── TOTAL
   const totalScore = Object.values(scores).reduce((s, v) => s + v.score, 0);

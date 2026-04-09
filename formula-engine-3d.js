@@ -406,7 +406,8 @@ const FormulaEngine3D = {
     },
 
     _getRateTable(state) {
-        const isPW = (state.prevailingWage === 'yes' || state.prevailingWage === true);
+        const pwVal = (state.prevailingWage || '').toString().toLowerCase();
+        const isPW = (pwVal === 'yes' || pwVal === 'true' || pwVal === 'davis-bacon' || pwVal === 'state-prevailing' || pwVal === 'pla' || pwVal === 'dir' || state.prevailingWage === true);
         if (!isPW) return this.laborRates.npw;
         // PW rate selection: Sacramento-specific jurisdictions use pw_sacramento,
         // otherwise use pw_general (higher rates = safer default for PW bids)
@@ -457,7 +458,8 @@ const FormulaEngine3D = {
     // CORE: Compute 3D-style bid breakdown from BOM + state
     // ═══════════════════════════════════════════════════════════
     computeBid(state, bom) {
-        const isPW = (state.prevailingWage === 'yes' || state.prevailingWage === true);
+        const pwVal = (state.prevailingWage || '').toString().toLowerCase();
+        const isPW = (pwVal === 'yes' || pwVal === 'true' || pwVal === 'davis-bacon' || pwVal === 'state-prevailing' || pwVal === 'pla' || pwVal === 'dir' || state.prevailingWage === true);
         const isTransit = state.isTransitRailroad || false;
         const rates = this._getRateTable(state);
 

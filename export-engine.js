@@ -170,6 +170,8 @@ const SmartPlansExport = {
                 })),
                 totalLineItems: filteredBom.categories.reduce((s, c) => s + c.items.length, 0),
                 supplierOverrides: state.supplierPriceOverrides || {},
+                manualBomItems: state.manualBomItems || [],
+                deletedBomItems: state.deletedBomItems || {},
                 // Phase assignment per category for SmartPM SOV
                 phaseAssignments: this._buildPhaseAssignments(state, filteredBom),
             },
@@ -259,7 +261,101 @@ const SmartPlansExport = {
                 aiCrewBreakdown: state.travel?.aiCrewBreakdown || null,
                 aiReasoning: state.travel?.aiReasoning || null,
             },
+
+            // ── Brain Results & Strategy (CRITICAL for reload — labor hours, financial engine, consensus) ──
+            brainResults: state.brainResults || null,
+            bidStrategy: state.bidStrategy || null,
+            brainStats: state.brainStats || null,
+            failedBrains: state.failedBrains || null,
+
+            // ── Exclusions raw array (restore needs full array with type field) ──
+            exclusionsRaw: state.exclusions || [],
+            // ── Bid Phases raw (user-created alternates) ──
+            bidPhasesRaw: state.bidPhases || [],
+            _bidPhaseCounter: state._bidPhaseCounter || 0,
+            // ── Excluded Change Orders (Set → Array for JSON serialization) ──
+            excludedChangeOrders: state._excludedCOs ? [...state._excludedCOs] : [],
+            // ── Selected RFIs (Set → Array for JSON serialization) ──
+            selectedRFIs: state.selectedRFIs ? [...state.selectedRFIs] : [],
         };
+    },
+
+    // ─── Apply user BOM edits: price overrides, deletions, manual items ──
+    // Without this, exported Excel/Supplier BOMs show original AI prices, ignoring all user changes.
+    _applyUserBOMEdits(bom, state) {
+        if (!bom || !bom.categories) return bom;
+
+        // 1. Apply supplier price overrides (same logic as buildExportPackage)
+        const overrides = state.supplierPriceOverrides || {};
+        if (Object.keys(overrides).length > 0) {
+            for (const [key, override] of Object.entries(overrides)) {
+                const [catIdx, itemIdx] = key.split('-').map(Number);
+                if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
+                    const item = bom.categories[catIdx].items[itemIdx];
+                    if (override.qty != null) item.qty = override.qty;
+                    item.unitCost = override.unitCost;
+                    item.extCost = this._round(item.qty * override.unitCost);
+                    if (override.mfg) item.mfg = override.mfg;
+                    if (override.partNumber) item.partNumber = override.partNumber;
+                    if (override.isSubstitute) item._isSubstitute = true;
+                }
+            }
+        }
+
+        // 2. Remove deleted BOM items
+        const deleted = state.deletedBomItems || {};
+        if (Object.keys(deleted).length > 0) {
+            for (const cat of bom.categories) {
+                if (!cat._origIndex && cat._origIndex !== 0) continue;
+            }
+            // Delete by key "catIdx-itemIdx" — iterate in reverse to preserve indices
+            const deleteKeys = Object.keys(deleted).sort((a, b) => {
+                const [ac, ai] = a.split('-').map(Number);
+                const [bc, bi] = b.split('-').map(Number);
+                return bc !== ac ? bc - ac : bi - ai; // reverse order
+            });
+            for (const key of deleteKeys) {
+                const [catIdx, itemIdx] = key.split('-').map(Number);
+                if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
+                    bom.categories[catIdx].items.splice(itemIdx, 1);
+                }
+            }
+            // Remove empty categories
+            bom.categories = bom.categories.filter(c => c.items.length > 0);
+        }
+
+        // 3. Add manually added BOM items
+        const manualItems = state.manualBomItems || [];
+        if (manualItems.length > 0) {
+            let manualCat = bom.categories.find(c => c.name === 'Manual Additions');
+            if (!manualCat) {
+                manualCat = { name: 'Manual Additions', items: [], subtotal: 0 };
+                bom.categories.push(manualCat);
+            }
+            for (const mi of manualItems) {
+                manualCat.items.push({
+                    item: mi.item || mi.name || 'Manual Item',
+                    qty: mi.qty || 1,
+                    unit: mi.unit || 'ea',
+                    unitCost: this._round(mi.unitCost || 0),
+                    extCost: this._round((mi.qty || 1) * (mi.unitCost || 0)),
+                    mfg: mi.mfg || '',
+                    partNumber: mi.partNumber || '',
+                    category: mi.category || 'other',
+                });
+            }
+        }
+
+        // 4. Recalculate subtotals and grand total
+        bom.grandTotal = 0;
+        for (const cat of bom.categories) {
+            cat.subtotal = cat.items.reduce((s, it) => s + (it.extCost || 0), 0);
+            cat.subtotal = this._round(cat.subtotal);
+            bom.grandTotal += cat.subtotal;
+        }
+        bom.grandTotal = this._round(bom.grandTotal);
+
+        return bom;
     },
 
     // ─── Classify BOM categories into material/equipment/subs/labor ──
@@ -701,12 +797,14 @@ const SmartPlansExport = {
             if (cells.length < 2) continue;
             if (cells[0].match(/^[-:]+$/) || cells.every(c => c.match(/^[-:]+$/))) { isHeaderRow = false; continue; }
             if (isHeaderRow && (cells[0].toLowerCase() === 'item' || cells[0].toLowerCase() === 'equipment' || cells[0].toLowerCase() === 'description')) { isHeaderRow = false; continue; }
-            if (cells[0].includes('continue') || cells[0].includes('...') || cells[0].toLowerCase() === 'total' || cells[0].toLowerCase() === 'subtotal') continue;
+            // Skip total/subtotal rows — these re-state category sums and would double-count
+            const firstCellLower = cells[0].toLowerCase().replace(/\*+/g, '').trim();
+            if (cells[0].includes('continue') || cells[0].includes('...') || /^(total|subtotal|grand\s*total|sum|sub-total)/.test(firstCellLower)) continue;
 
             let qty = 1, unit = 'ea', unitCost = 0, extCost = 0;
 
             if (cells.length >= 5) {
-                qty = parseInt(cells[1]) || 1;
+                qty = parseInt(cells[1].replace(/,/g, '')) || 1;
                 unit = cells[2].toLowerCase() || 'ea';
                 const ucMatch = cells[3].match(/\$?([\d,.]+)/);
                 const ecMatch = cells[4].match(/\$?([\d,.]+)/);
@@ -714,7 +812,7 @@ const SmartPlansExport = {
                 extCost = ecMatch ? parseFloat(ecMatch[1].replace(/,/g, '')) : (qty * unitCost);
             } else if (cells.length >= 4) {
                 // 4-column: Item | Qty | Unit Cost | Total
-                qty = parseInt(cells[1]) || 1;
+                qty = parseInt(cells[1].replace(/,/g, '')) || 1;
                 const ucMatch = cells[2].match(/\$?([\d,.]+)/);
                 const ecMatch = cells[3].match(/\$?([\d,.]+)/);
                 unitCost = ucMatch ? parseFloat(ucMatch[1].replace(/,/g, '')) : 0;
@@ -722,7 +820,7 @@ const SmartPlansExport = {
             } else if (cells.length >= 3) {
                 const qtyMatch = cells.find(c => c.match(/^\d+$/));
                 const costMatch = cells.find(c => c.match(/\$[\d,]+/));
-                qty = qtyMatch ? parseInt(qtyMatch) : 1;
+                qty = qtyMatch ? parseInt(qtyMatch.replace(/,/g, '')) : 1;
                 extCost = costMatch ? parseFloat(costMatch.replace(/[\$,]/g, '')) : 0;
                 unitCost = qty > 0 ? extCost / qty : 0;
             }
@@ -1396,6 +1494,9 @@ const SmartPlansExport = {
                 bom.grandTotal = bom.categories.reduce((s, c) => s + c.subtotal, 0);
             }
         }
+
+        // ── Apply user BOM edits (price overrides, deletions, manual items) ──
+        bom = this._applyUserBOMEdits(bom, state);
 
         // Filter BOM to only include categories for selected disciplines
         // (travel & incidentals are injected automatically by _filterBOMByDisciplines)
@@ -2125,7 +2226,8 @@ const SmartPlansExport = {
      * a supplier_quote record.
      */
     exportSupplierBOM(state, supplierName, format) {
-        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
+        const rawBom = this._applyUserBOMEdits(this._extractBOMFromAnalysis(state.aiAnalysis), state);
+        const bom = this._filterBOMByDisciplines(rawBom, state.disciplines);
         const rowMap = this.generateSupplierRowMap(state);
         const now = new Date();
         const projectName = state.projectName || 'Untitled Project';
