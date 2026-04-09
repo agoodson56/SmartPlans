@@ -1467,6 +1467,8 @@ const SmartBrains = {
           const SSE_IDLE_TIMEOUT = brainDef.useProModel ? 180000 : 90000;
           let lastActivity = Date.now();
           while (true) {
+            // Clear any leftover interval from previous iteration to prevent timer leaks
+            if (reader._idleCheck) { clearInterval(reader._idleCheck); reader._idleCheck = null; }
             const { done, value } = await Promise.race([
               reader.read(),
               new Promise((_, reject) => {
@@ -1622,7 +1624,7 @@ const SmartBrains = {
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
         const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
-        if (brainDef.jsonMode) fbGenConfig.responseMimeType = 'application/json';
+        if (brainDef.jsonMode || useJsonMode) fbGenConfig.responseMimeType = 'application/json';
         const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: brainDef.id % 18 };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
         const ctrl = new AbortController();

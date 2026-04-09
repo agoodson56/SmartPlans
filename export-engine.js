@@ -264,10 +264,13 @@ const SmartPlansExport = {
 
     // ─── Classify BOM categories into material/equipment/subs/labor ──
     _classifyBOM(bom) {
-        let materials = 0, equipment = 0, subs = 0, labor = 0;
+        let materials = 0, equipment = 0, subs = 0, labor = 0, bomTravel = 0;
         for (const cat of (bom?.categories || [])) {
             const n = (cat.name || '').toLowerCase();
-            if (/subcontract|civil|traffic|insurance|parking/.test(n)) {
+            if (/travel|per\s*diem|lodging|hotel|mileage|fuel|incidental/i.test(n)) {
+                // Travel/incidentals injected into BOM — track separately to avoid double-counting
+                bomTravel += (cat.subtotal || 0);
+            } else if (/subcontract|civil|traffic|insurance|parking/.test(n)) {
                 subs += (cat.subtotal || 0);
             } else if (/equipment|air.?condition|hvac.?condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
@@ -280,7 +283,7 @@ const SmartPlansExport = {
                 materials += (cat.subtotal || 0);
             }
         }
-        return { materials, equipment, subs, labor };
+        return { materials, equipment, subs, labor, bomTravel };
     },
 
     // ─── Compute full bid price breakdown with all markups ──
@@ -288,7 +291,7 @@ const SmartPlansExport = {
     // If FormulaEngine3D produced a result, the breakdown is SCALED to match its grand total
     // so that the Master Report financial table and the grand total are always consistent.
     _computeFullBreakdown(state, bom) {
-        const { materials, equipment, subs, labor: bomLabor } = this._classifyBOM(bom);
+        const { materials, equipment, subs, labor: bomLabor, bomTravel } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
         const matPct = (cfg.material ?? 50) / 100;
         const labPct = (cfg.labor ?? 50) / 100;
@@ -318,50 +321,28 @@ const SmartPlansExport = {
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
         const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
-        const travel = (state.travel?.enabled && typeof computeTravelIncidentals === 'function')
-            ? this._round(computeTravelIncidentals().grandTotal || 0) : 0;
+        // Use travel from BOM if it was already injected; otherwise compute from Stage 6.
+        // This prevents double-counting when injectTravelIntoBOM adds travel as a BOM category.
+        let travel = 0;
+        if (bomTravel > 0) {
+            travel = this._round(bomTravel);
+            console.log(`[Export] Travel from BOM category: $${travel.toLocaleString()} (not adding Stage 6 to avoid double-count)`);
+        } else if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
+            travel = this._round(computeTravelIncidentals().grandTotal || 0);
+        }
 
         let subtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
         let contingency = this._round(subtotal * contingencyPct);
         let grandTotal = this._round(subtotal + contingency);
 
-        // ── RECONCILE with FormulaEngine3D if available ──
-        // The 3D engine is the authoritative pricing source. If it produced a grand total,
-        // scale the breakdown proportionally so the financial table matches the bid price.
+        // ── 3D Engine Reference Comparison (logging only, no scaling) ──
+        // FormulaEngine3D double-marks AI BOM prices. Log the delta for diagnostics
+        // but do NOT scale the breakdown — the Financial Engine / BOM computation is correct.
         const engine3DTotal = state._engine3DResult?.grandTotalSELL;
-        if (engine3DTotal && engine3DTotal > 1000 && Math.abs(engine3DTotal - grandTotal) > 100) {
-            let scaleFactor = engine3DTotal / grandTotal;
-            // Guard: cap reconciliation scale factor at 2.0x to prevent extreme swings
-            if (scaleFactor > 2.0) {
-                console.warn(`[Export] Reconciliation scale factor ${scaleFactor.toFixed(3)} exceeds 2.0x cap — clamping to 2.0`);
-                scaleFactor = 2.0;
-            }
-            if (scaleFactor < 0.5) {
-                console.warn(`[Export] Reconciliation scale factor ${scaleFactor.toFixed(3)} below 0.5x floor — clamping to 0.5`);
-                scaleFactor = 0.5;
-            }
-            console.log(`[Export] Reconciling breakdown with FormulaEngine3D: $${grandTotal.toLocaleString()} → $${engine3DTotal.toLocaleString()} (scale: ${scaleFactor.toFixed(3)})`);
-            // Scale each component proportionally to preserve relative ratios
-            const scaledMatSell = this._round(matSell * scaleFactor);
-            const scaledLabSell = this._round(labSell * scaleFactor);
-            const scaledEqSell = this._round(eqSell * scaleFactor);
-            const scaledSubSell = this._round(subSell * scaleFactor);
-            const scaledBurden = this._round(burden * scaleFactor);
-            const scaledTravel = travel; // Travel is deterministic — don't scale it
-            subtotal = this._round(scaledMatSell + scaledLabSell + scaledEqSell + scaledSubSell + scaledBurden + scaledTravel);
-            contingency = this._round(engine3DTotal - subtotal);
-            // Prevent negative contingency (rounding edge case)
-            if (contingency < 0) { contingency = 0; subtotal = engine3DTotal; }
-            grandTotal = engine3DTotal;
-
-            return {
-                materials, equipment, subs, laborBase,
-                matPct, labPct, eqPct, subPct,
-                matSell: scaledMatSell, labSell: scaledLabSell, eqSell: scaledEqSell, subSell: scaledSubSell,
-                burden: scaledBurden, burdenRate: includeBurden ? burdenRate : 0,
-                travel: scaledTravel, subtotal, contingency, contingencyPct, grandTotal,
-                _reconciledWith3DEngine: true, _scaleFactor: scaleFactor
-            };
+        if (engine3DTotal && engine3DTotal > 1000) {
+            const delta = engine3DTotal - grandTotal;
+            const deltaPct = grandTotal > 0 ? ((delta / grandTotal) * 100).toFixed(1) : 'N/A';
+            console.log(`[Export] 📊 3D Engine comparison: $${engine3DTotal.toLocaleString()} vs computed $${grandTotal.toLocaleString()} (delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()}, ${deltaPct}%)`);
         }
 
         return {
@@ -394,32 +375,24 @@ const SmartPlansExport = {
             console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
         }
 
-        // Priority 0: 3D Formula Engine — deterministic bid using 3D Technology Services actual formulas
-        // This is the PRIMARY pricing engine. It handles transit/SAGE vs commercial/Format A automatically.
+        // 3D Formula Engine — run for REFERENCE ONLY (card display + comparison logging)
+        // DISABLED as primary pricing source: AI BOM unit costs are already at distributor/near-sell
+        // levels, so applying 42-51.5% markup on top produces bids 50-100% too high.
+        // The Financial Engine brain understands the BOM prices are pre-marked and computes correctly.
         if (typeof FormulaEngine3D !== 'undefined' && bom?.categories?.length > 0) {
             try {
                 const result3D = FormulaEngine3D.computeBid(state, bom);
                 if (result3D?.grandTotalSELL > 1000) {
-                    let val = this._round(result3D.grandTotalSELL);
-                    // Add Stage 6 travel ONLY if NOT calibrated
-                    // Calibrated total already includes travel (benchmark is the complete bid price)
-                    if (stage6Travel > 0 && !result3D._calibrated) {
-                        val = this._round(val + stage6Travel);
-                        console.log(`[Export] Added Stage 6 travel ($${stage6Travel.toLocaleString()}) to 3D Engine total`);
-                    } else if (result3D._calibrated) {
-                        console.log(`[Export] Skipping Stage 6 travel add — calibrated total already includes all costs`);
-                    }
-                    console.log(`[Export] ✅ Grand total from 3D Formula Engine: $${val.toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED]' : ''}`);
-                    // Store result for UI card rendering
+                    // Store for UI card rendering only — do NOT use as bid price
                     state._engine3DResult = result3D;
-                    return val;
+                    console.log(`[Export] 📊 3D Formula Engine (REFERENCE ONLY): $${this._round(result3D.grandTotalSELL).toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED]' : ''}`);
                 }
             } catch (err) {
-                console.warn(`[Export] 3D Formula Engine error, falling back: ${err.message}`);
+                console.warn(`[Export] 3D Formula Engine reference calc error: ${err.message}`);
             }
         }
 
-        // Priority 1: Financial Engine brain (fully-loaded bid price with labor, overhead, profit, contingency)
+        // Priority 1 (PRIMARY): Financial Engine brain (fully-loaded bid price with labor, overhead, profit, contingency)
         const finEngine = state.brainResults?.wave2_5_fin?.FINANCIAL_ENGINE;
         if (finEngine?.project_summary?.grand_total > 1000) {
             let val = this._round(finEngine.project_summary.grand_total);

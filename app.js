@@ -808,6 +808,20 @@ function startNewBid() {
   state.exclusions = [];
   state._exclusionsLoaded = false;
 
+  // Reset stale pricing/engine state that was leaking between bids
+  state._restoredFinancials = null;
+  state._engine3DResult = null;
+  state._bomBreakdown = null;
+  state._bomGrandTotal = null;
+  state._bomValidationWarnings = null;
+  state.brainStats = null;
+  state.failedBrains = null;
+
+  // Reset markups to defaults (transit override was persisting after toggle-off)
+  state.markup = { material: 50, labor: 50, equipment: 15, subcontractor: 10 };
+  state.burdenRate = 35;
+  state.includeBurden = true;
+
   render();
   scrollContentTop();
   spToast('Ready for a new bid', 'success');
@@ -3405,6 +3419,8 @@ function renderStep0(container) {
     transitToggle.addEventListener("change", () => {
       state.isTransitRailroad = transitToggle.checked;
       if (state.isTransitRailroad) {
+        // Save user's current markups before overriding with transit values
+        state._preTransitMarkups = { ...state.markup };
         // Auto-apply transit markup overrides from pricing database
         const transitConfig = PRICING_DB.projectTypeMultipliers?.transit_railroad;
         if (transitConfig?.markup_overrides) {
@@ -3414,11 +3430,19 @@ function renderStep0(container) {
           state.markup.subcontractor = transitConfig.markup_overrides.subcontractor;
         }
       } else {
-        // Revert to standard markups
-        state.markup.material = 50;
-        state.markup.labor = 50;
-        state.markup.equipment = 15;
-        state.markup.subcontractor = 10;
+        // Restore user's pre-transit markups (not hardcoded defaults)
+        if (state._preTransitMarkups) {
+          state.markup.material = state._preTransitMarkups.material;
+          state.markup.labor = state._preTransitMarkups.labor;
+          state.markup.equipment = state._preTransitMarkups.equipment;
+          state.markup.subcontractor = state._preTransitMarkups.subcontractor;
+          state._preTransitMarkups = null;
+        } else {
+          state.markup.material = 50;
+          state.markup.labor = 50;
+          state.markup.equipment = 15;
+          state.markup.subcontractor = 10;
+        }
       }
       renderStep0(container);
       renderFooter();
@@ -9246,17 +9270,8 @@ function _restoreStateFromPayload(id, pkg, est) {
   state.prevailingWage = pkg?.project?.prevailingWage || '';
   state.workShift = pkg?.project?.workShift || '';
   state.isTransitRailroad = pkg?.project?.isTransitRailroad || false;
-  // Auto-detect transit from project name/customer even on load if not already flagged
-  if (!state.isTransitRailroad) {
-    const loadText = `${state.projectName} ${state.preparedFor}`.toLowerCase();
-    const TRANSIT_RE = /amtrak|bnsf|union\s*pacific|csx\s*transport|norfolk\s*southern|metra|caltrain|bart\b|wmata|septa|marta|metro\s*north|metro-north|nj\s*transit|lirr|brightline|railr(oad|ail)|train\s*station|rail\s*station|light\s*rail|commuter\s*rail/;
-    if (TRANSIT_RE.test(loadText)) {
-      state.isTransitRailroad = true;
-      const tc = PRICING_DB?.projectTypeMultipliers?.transit_railroad?.markup_overrides;
-      if (tc) { state.markup.material = tc.material; state.markup.labor = tc.labor; state.markup.equipment = tc.equipment; state.markup.subcontractor = tc.subcontractor; }
-      console.log(`[AutoDetect] Transit/Railroad auto-detected on load from: "${loadText.substring(0, 60)}"`);
-    }
-  }
+  // Transit auto-detect is deferred until AFTER markup restore (line ~9329) to avoid
+  // overwriting saved markups. See _restoreTransitAutoDetect() called below.
   state.floorPlateWidth = pkg?.project?.floorPlateWidth || 0;
   state.floorPlateDepth = pkg?.project?.floorPlateDepth || 0;
   state.ceilingHeight = pkg?.project?.ceilingHeight || 10;
@@ -9303,6 +9318,21 @@ function _restoreStateFromPayload(id, pkg, est) {
     state.burdenRate = pkg.pricingConfig.burdenRate || 35;
     if (pkg.pricingConfig.laborRates) state.laborRates = { ...state.laborRates, ...pkg.pricingConfig.laborRates };
     if (pkg.pricingConfig.markup) state.markup = { ...state.markup, ...pkg.pricingConfig.markup };
+  }
+
+  // ── Deferred transit auto-detect (runs AFTER markup restore so saved markups aren't overwritten) ──
+  if (!state.isTransitRailroad) {
+    const loadText = `${state.projectName} ${state.preparedFor}`.toLowerCase();
+    const TRANSIT_RE = /amtrak|bnsf|union\s*pacific|csx\s*transport|norfolk\s*southern|metra|caltrain|bart\b|wmata|septa|marta|metro\s*north|metro-north|nj\s*transit|lirr|brightline|railr(oad|ail)|train\s*station|rail\s*station|light\s*rail|commuter\s*rail/;
+    if (TRANSIT_RE.test(loadText)) {
+      state.isTransitRailroad = true;
+      // Only apply transit markup overrides if no saved markups were restored
+      if (!pkg?.pricingConfig?.markup) {
+        const tc = PRICING_DB?.projectTypeMultipliers?.transit_railroad?.markup_overrides;
+        if (tc) { state.markup.material = tc.material; state.markup.labor = tc.labor; state.markup.equipment = tc.equipment; state.markup.subcontractor = tc.subcontractor; }
+      }
+      console.log(`[AutoDetect] Transit/Railroad auto-detected on load from: "${loadText.substring(0, 60)}"`);
+    }
   }
 
   // ── Restore supplier price overrides & manual BOM edits ──
