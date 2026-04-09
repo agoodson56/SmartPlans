@@ -199,7 +199,7 @@ const PRICING_DB = {
             prox_card: { unit: "each", budget: 0.85, mid: 1.50, premium: 3.00, description: "Proximity card (HID compatible)" },
             smart_card: { unit: "each", budget: 3.50, mid: 6.00, premium: 12.00, description: "Smart card (iCLASS SE / SEOS)" },
             key_fob: { unit: "each", budget: 2.50, mid: 5.00, premium: 10.00, description: "Key fob" },
-            mobile_license: { unit: "per user", budget: 0.00, mid: 2.00, premium: 5.00, description: "Mobile credential license (annual)" },
+            mobile_license: { unit: "per user", budget: 1.00, mid: 2.00, premium: 5.00, description: "Mobile credential license (annual)" },
         },
         software: {
             ac_software_base: { unit: "each", budget: 150.00, mid: 500.00, premium: 2500.00, description: "Access control software base license" },
@@ -341,7 +341,7 @@ const PRICING_DB = {
         },
         signage: {
             signage_player: { unit: "each", budget: 120.00, mid: 280.00, premium: 600.00, description: "Digital signage media player" },
-            signage_license: { unit: "per display/yr", budget: 0.00, mid: 150.00, premium: 400.00, description: "Digital signage CMS license" },
+            signage_license: { unit: "per display/yr", budget: 50.00, mid: 150.00, premium: 400.00, description: "Digital signage CMS license" },
             signage_mount: { unit: "each", budget: 45.00, mid: 95.00, premium: 200.00, description: "Signage display mount" },
         },
         infrastructure: {

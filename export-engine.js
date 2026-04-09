@@ -96,6 +96,9 @@ const SmartPlansExport = {
                 disciplines: [...(state.disciplines || [])],
                 fileFormat: state.fileFormat || "",
                 prevailingWage: state.prevailingWage || "",
+                pwCounty: state._pwCounty || "",
+                pwState: state._pwState || "",
+                pwMetro: state._pwMetro || "",
                 workShift: state.workShift || "",
                 isTransitRailroad: state.isTransitRailroad || false,
                 floorPlateWidth: state.floorPlateWidth || 0,
@@ -285,41 +288,41 @@ const SmartPlansExport = {
     _applyUserBOMEdits(bom, state) {
         if (!bom || !bom.categories) return bom;
 
-        // 1. Apply supplier price overrides (same logic as buildExportPackage)
+        // Stamp stable _origKey on each item BEFORE any modifications.
+        // Keys like "catIdx-itemIdx" become invalid after deletions re-index items.
+        bom.categories.forEach((cat, ci) => {
+            cat.items.forEach((item, ii) => {
+                if (!item._origKey) item._origKey = ci + '-' + ii;
+            });
+        });
+
+        // 1. Apply supplier price overrides (using stable _origKey lookup)
         const overrides = state.supplierPriceOverrides || {};
         if (Object.keys(overrides).length > 0) {
+            const itemsByKey = {};
+            bom.categories.forEach((cat, ci) => {
+                cat.items.forEach((item, ii) => {
+                    itemsByKey[item._origKey || (ci + '-' + ii)] = item;
+                });
+            });
             for (const [key, override] of Object.entries(overrides)) {
-                const [catIdx, itemIdx] = key.split('-').map(Number);
-                if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
-                    const item = bom.categories[catIdx].items[itemIdx];
-                    if (override.qty != null) item.qty = override.qty;
-                    item.unitCost = override.unitCost;
-                    item.extCost = this._round(item.qty * override.unitCost);
-                    if (override.mfg) item.mfg = override.mfg;
-                    if (override.partNumber) item.partNumber = override.partNumber;
-                    if (override.isSubstitute) item._isSubstitute = true;
-                }
+                const item = itemsByKey[key];
+                if (!item) continue;
+                if (override.qty != null) item.qty = override.qty;
+                item.unitCost = override.unitCost;
+                item.extCost = this._round(item.qty * override.unitCost);
+                if (override.mfg) item.mfg = override.mfg;
+                if (override.partNumber) item.partNumber = override.partNumber;
+                if (override.isSubstitute) item._isSubstitute = true;
             }
         }
 
-        // 2. Remove deleted BOM items
+        // 2. Remove deleted BOM items (using stable _origKey)
         const deleted = state.deletedBomItems || {};
         if (Object.keys(deleted).length > 0) {
-            for (const cat of bom.categories) {
-                if (!cat._origIndex && cat._origIndex !== 0) continue;
-            }
-            // Delete by key "catIdx-itemIdx" — iterate in reverse to preserve indices
-            const deleteKeys = Object.keys(deleted).sort((a, b) => {
-                const [ac, ai] = a.split('-').map(Number);
-                const [bc, bi] = b.split('-').map(Number);
-                return bc !== ac ? bc - ac : bi - ai; // reverse order
+            bom.categories.forEach((cat) => {
+                cat.items = cat.items.filter((item) => !deleted[item._origKey]);
             });
-            for (const key of deleteKeys) {
-                const [catIdx, itemIdx] = key.split('-').map(Number);
-                if (bom.categories[catIdx] && bom.categories[catIdx].items[itemIdx]) {
-                    bom.categories[catIdx].items.splice(itemIdx, 1);
-                }
-            }
             // Remove empty categories
             bom.categories = bom.categories.filter(c => c.items.length > 0);
         }
@@ -498,7 +501,25 @@ const SmartPlansExport = {
         // the Master Report, export JSON, and Proposal to show three different totals.
         // Now: deterministic BOM computation is ALWAYS primary. AI is logged for reference only.
 
-        // Priority 1 (PRIMARY): Deterministic BOM computation with user-configured markups
+        // Priority 1 (HIGHEST): Bid Strategy — when user explicitly applied per-category
+        // markups and confidence-based contingency, that IS the bid price.
+        // FIX: Previously at Priority 2 (never reached because _computeFullBreakdown
+        // always succeeds), making Apply Strategy button cosmetic-only.
+        if (state.bidStrategy?.applied) {
+            const result = this.applyBidStrategy?.(state);
+            if (result?.grandTotalWithStrategy > 1000) {
+                // Also compute base breakdown for reference logging
+                if (bom?.categories?.length > 0) {
+                    const baseBreakdown = this._computeFullBreakdown(state, bom);
+                    const delta = result.grandTotalWithStrategy - baseBreakdown.grandTotal;
+                    console.log(`[Export] 📊 Base computation reference: $${baseBreakdown.grandTotal.toLocaleString()} (strategy delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()})`);
+                }
+                console.log(`[Export] ✅ Grand total from Bid Strategy (user-applied): $${result.grandTotalWithStrategy.toLocaleString()}`);
+                return this._round(result.grandTotalWithStrategy);
+            }
+        }
+
+        // Priority 2 (PRIMARY): Deterministic BOM computation with user-configured markups
         // This matches proposal-generator.js _extractGrandTotal exactly.
         if (bom?.categories?.length > 0) {
             const breakdown = this._computeFullBreakdown(state, bom);
@@ -513,15 +534,6 @@ const SmartPlansExport = {
                 }
                 console.log(`[Export] ✅ Grand total from deterministic BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
                 return breakdown.grandTotal;
-            }
-        }
-
-        // Priority 2: Bid strategy if user applied one
-        if (state.bidStrategy?.applied) {
-            const result = this.applyBidStrategy?.(state);
-            if (result?.grandTotalWithStrategy > 1000) {
-                console.log(`[Export] Grand total from Bid Strategy: $${result.grandTotalWithStrategy.toLocaleString()}`);
-                return this._round(result.grandTotalWithStrategy);
             }
         }
 
@@ -3239,7 +3251,13 @@ Return ONLY the JSON array. No other text.`;
 
     // ─── Apply Bid Strategy — per-category markups & contingency ───
     applyBidStrategy(state) {
-        const bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
+        let bom = this._filterBOMByDisciplines(this._extractBOMFromAnalysis(state.aiAnalysis), state.disciplines);
+        // FIX: Apply user BOM edits (overrides, deletions, manual items) so the
+        // Pricing Strategy Summary matches the actual proposal/export totals.
+        // Without this, strategy totals ignore all user changes to the BOM.
+        if (bom && typeof this._applyUserBOMEdits === 'function') {
+            bom = this._applyUserBOMEdits(bom, state);
+        }
         if (!bom || !bom.categories || bom.categories.length === 0) {
             return { grandTotalWithStrategy: 0, categories: [], totalMaterial: 0, totalLabor: 0, totalMarkup: 0, totalContingency: 0 };
         }

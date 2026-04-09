@@ -8,6 +8,17 @@ function isValidId(id) {
     return id && String(id).length <= 64 && /^[a-zA-Z0-9_-]+$/.test(String(id));
 }
 
+// SEC: Verify the requesting user owns the estimate (or is admin)
+async function checkOwnership(env, id, context) {
+    const user = context.data?.user;
+    if (!user) return true;
+    const est = await env.DB.prepare('SELECT created_by FROM estimates WHERE id = ?').bind(id).first();
+    if (!est) return false;
+    if (user.is_admin) return true;
+    if (est.created_by && user.id !== est.created_by) return false;
+    return true;
+}
+
 import { isAllowedOrigin, timingSafeCompare } from '../../../../_shared/cors.js';
 
 function corsHeaders(origin) {
@@ -35,6 +46,9 @@ export async function onRequestGet(context) {
 
     if (!isValidId(id) || !isValidId(quoteId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
+    }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403, headers: corsHeaders(origin) });
     }
 
     try {
@@ -67,6 +81,9 @@ export async function onRequestPut(context) {
 
     if (!isValidId(id) || !isValidId(quoteId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
+    }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403, headers: corsHeaders(origin) });
     }
 
     try {
@@ -115,6 +132,9 @@ export async function onRequestDelete(context) {
 
     if (!isValidId(id) || !isValidId(quoteId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
+    }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403, headers: corsHeaders(origin) });
     }
 
     try {

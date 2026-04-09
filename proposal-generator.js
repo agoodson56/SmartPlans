@@ -1044,29 +1044,52 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
   _extractGrandTotal(state) {
     // ALWAYS recompute from BOM to avoid stale cached values from Financial Engine AI
     try {
-      if (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._computeFullBreakdown) {
-        const analysis = state.aiAnalysis || '';
-        let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
-
-        // Apply ALL user BOM edits (price overrides, deletions, manual items)
-        // Uses _applyUserBOMEdits which handles all three edit types consistently
-        if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') {
-          bom = SmartPlansExport._applyUserBOMEdits(bom, state);
+      if (typeof SmartPlansExport !== 'undefined') {
+        // Priority 1: Bid Strategy — when user explicitly applied per-category markups,
+        // that IS the bid price. Without this, "Apply Strategy" button was cosmetic-only.
+        if (state.bidStrategy?.applied && SmartPlansExport.applyBidStrategy) {
+          const stratResult = SmartPlansExport.applyBidStrategy(state);
+          if (stratResult?.grandTotalWithStrategy > 1000) {
+            state._bomGrandTotal = stratResult.grandTotalWithStrategy;
+            // Still compute base breakdown for reference display
+            const analysis = state.aiAnalysis || '';
+            let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+            if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') bom = SmartPlansExport._applyUserBOMEdits(bom, state);
+            if (bom && typeof SmartPlansExport._applyTransitAdjustments === 'function') SmartPlansExport._applyTransitAdjustments(bom, state);
+            if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
+            if (bom?.categories?.length > 0 && SmartPlansExport._computeFullBreakdown) {
+              state._bomBreakdown = SmartPlansExport._computeFullBreakdown(state, bom);
+            }
+            console.log(`[ProposalGen] Grand total from Bid Strategy: $${stratResult.grandTotalWithStrategy.toLocaleString()}`);
+            return stratResult.grandTotalWithStrategy;
+          }
         }
 
-        // Apply transit station-grade pricing adjustments
-        if (bom && typeof SmartPlansExport._applyTransitAdjustments === 'function') {
-          SmartPlansExport._applyTransitAdjustments(bom, state);
-        }
-        if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
-          bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
-        }
-        if (bom?.categories?.length > 0) {
-          const bd = SmartPlansExport._computeFullBreakdown(state, bom);
-          if (bd.grandTotal > 1000) {
-            state._bomGrandTotal = bd.grandTotal;
-            state._bomBreakdown = bd;
-            return bd.grandTotal;
+        // Priority 2: Deterministic BOM computation with base markups
+        if (SmartPlansExport._computeFullBreakdown) {
+          const analysis = state.aiAnalysis || '';
+          let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+
+          // Apply ALL user BOM edits (price overrides, deletions, manual items)
+          // Uses _applyUserBOMEdits which handles all three edit types consistently
+          if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') {
+            bom = SmartPlansExport._applyUserBOMEdits(bom, state);
+          }
+
+          // Apply transit station-grade pricing adjustments
+          if (bom && typeof SmartPlansExport._applyTransitAdjustments === 'function') {
+            SmartPlansExport._applyTransitAdjustments(bom, state);
+          }
+          if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') {
+            bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
+          }
+          if (bom?.categories?.length > 0) {
+            const bd = SmartPlansExport._computeFullBreakdown(state, bom);
+            if (bd.grandTotal > 1000) {
+              state._bomGrandTotal = bd.grandTotal;
+              state._bomBreakdown = bd;
+              return bd.grandTotal;
+            }
           }
         }
       }

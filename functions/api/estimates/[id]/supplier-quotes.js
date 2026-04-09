@@ -7,6 +7,17 @@ function isValidId(id) {
     return id && String(id).length <= 64 && /^[a-zA-Z0-9_-]+$/.test(String(id));
 }
 
+// SEC: Verify the requesting user owns the estimate (or is admin)
+async function checkOwnership(env, id, context) {
+    const user = context.data?.user;
+    if (!user) return true; // No auth middleware = legacy setup, allow
+    const est = await env.DB.prepare('SELECT created_by FROM estimates WHERE id = ?').bind(id).first();
+    if (!est) return false;
+    if (user.is_admin) return true;
+    if (est.created_by && user.id !== est.created_by) return false;
+    return true;
+}
+
 import { isAllowedOrigin, timingSafeCompare } from '../../../_shared/cors.js';
 
 function corsHeaders(origin) {
@@ -34,6 +45,9 @@ export async function onRequestGet(context) {
 
     if (!isValidId(id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
+    }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403, headers: corsHeaders(origin) });
     }
 
     try {
@@ -65,9 +79,12 @@ export async function onRequestPost(context) {
     if (!isValidId(id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
     }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403, headers: corsHeaders(origin) });
+    }
 
     try {
-        // SEC: Verify estimate exists (ownership enforced by middleware session)
+        // SEC: Verify estimate exists
         const estimate = await env.DB.prepare('SELECT id FROM estimates WHERE id = ?').bind(id).first();
         if (!estimate) {
             return Response.json({ error: 'Estimate not found' }, { status: 404 });

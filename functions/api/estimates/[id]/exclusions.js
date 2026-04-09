@@ -28,6 +28,17 @@ function checkAuth(context) {
     return true;
 }
 
+// SEC: Verify the requesting user owns the estimate (or is admin)
+async function checkOwnership(env, id, context) {
+    const user = context.data?.user;
+    if (!user) return true; // No auth middleware = legacy setup, allow
+    const est = await env.DB.prepare('SELECT created_by FROM estimates WHERE id = ?').bind(id).first();
+    if (!est) return false;
+    if (user.is_admin) return true;
+    if (est.created_by && user.id !== est.created_by) return false;
+    return true;
+}
+
 // GET — List all exclusions/assumptions/clarifications for an estimate
 export async function onRequestGet(context) {
     const { env, request, params } = context;
@@ -42,6 +53,9 @@ export async function onRequestGet(context) {
     }
     if (!isValidId(id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
+    }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403, headers: corsHeaders(origin) });
     }
 
     try {
@@ -69,6 +83,9 @@ export async function onRequestPost(context) {
     }
     if (!isValidId(id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
+    }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403, headers: corsHeaders(origin) });
     }
 
     const contentLength = parseInt(request.headers.get('content-length') || '0');
@@ -137,6 +154,9 @@ export async function onRequestPut(context) {
     if (!isValidId(id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
     }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403, headers: corsHeaders(origin) });
+    }
 
     try {
         const body = await request.json();
@@ -198,6 +218,9 @@ export async function onRequestDelete(context) {
     }
     if (!isValidId(id)) {
         return Response.json({ error: 'Invalid estimate ID' }, { status: 400 });
+    }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403, headers: corsHeaders(origin) });
     }
 
     try {

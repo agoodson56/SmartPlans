@@ -570,6 +570,9 @@ const state = {
   codeJurisdiction: "",
   projectLocation: "",
   prevailingWage: "",
+  _pwCounty: "",              // CA prevailing wage county selection
+  _pwState: "",               // National prevailing wage state selection
+  _pwMetro: "",               // National prevailing wage metro area selection
   workShift: "",
   priorEstimate: "",
   isTransitRailroad: false,  // Explicit toggle — triggers higher markups, RWIC, RPL, etc.
@@ -733,6 +736,9 @@ function startNewBid() {
   state.codeJurisdiction = '';
   state.projectLocation = '';
   state.prevailingWage = '';
+  state._pwCounty = '';
+  state._pwState = '';
+  state._pwMetro = '';
   state.workShift = '';
   state.priorEstimate = '';
   state.isTransitRailroad = false;
@@ -1384,11 +1390,17 @@ function sanitizeHtml(html) {
 // ── Shared BOM Override Application — single source of truth for supplier price overrides ──
 function applyBOMOverrides(bom, overrides) {
   if (!bom || !overrides || Object.keys(overrides).length === 0) return bom;
+  // Build lookup by _origKey for stable matching after deletions
+  const itemsByKey = {};
+  (bom.categories || []).forEach((cat, ci) => {
+    cat.items.forEach((item, ii) => {
+      const key = item._origKey || (ci + '-' + ii);
+      itemsByKey[key] = item;
+    });
+  });
   for (const [key, override] of Object.entries(overrides)) {
-    const [catIdx, itemIdx] = key.split('-').map(Number);
-    if (isNaN(catIdx) || isNaN(itemIdx) || catIdx < 0 || itemIdx < 0) continue;
-    if (!bom.categories?.[catIdx]?.items?.[itemIdx]) continue;
-    const item = bom.categories[catIdx].items[itemIdx];
+    const item = itemsByKey[key];
+    if (!item) continue;
     if (override.qty != null) item.qty = override.qty;
     if (typeof override.unitCost === 'number' && override.unitCost >= 0 && isFinite(override.unitCost)) {
       item.unitCost = override.unitCost;
@@ -2619,14 +2631,24 @@ function getFilteredBOM(aiAnalysis, disciplines) {
     }
   }
 
+  // ── Stamp stable _origKey on each item BEFORE any deletions ──
+  // This prevents positional key corruption when items are deleted and re-indexed.
+  // Without this, deleting item "1-1" causes item "1-2" to become "1-1" in the UI,
+  // making subsequent deletions and overrides target wrong items.
+  bom.categories.forEach((cat, ci) => {
+    cat.items.forEach((item, ii) => {
+      if (!item._origKey) item._origKey = ci + '-' + ii;
+    });
+  });
+
   // ── Apply manual item edits (add/delete) ──
   const deleted = state.deletedBomItems || {};
   const manual = state.manualBomItems || [];
 
-  // Remove deleted items
+  // Remove deleted items (using stable _origKey, not positional index)
   if (Object.keys(deleted).length > 0) {
-    bom.categories.forEach((cat, ci) => {
-      cat.items = cat.items.filter((_, ii) => !deleted[ci + '-' + ii]);
+    bom.categories.forEach((cat) => {
+      cat.items = cat.items.filter((item) => !deleted[item._origKey]);
     });
   }
 
@@ -5482,7 +5504,7 @@ function renderStep7(container) {
       </tr>`;
       cat.items.forEach((item, ii) => {
         _bomRowNum++;
-        const _key = ci + '-' + ii;
+        const _key = item._origKey || (ci + '-' + ii);
         const _isEdited = !!_bomOverrides[_key];
         const _editBg = _isEdited ? 'background:rgba(13,148,136,0.10);' : '';
         const _tipText = _bomDescribe(item.name || item.item, cat.name, item.mfg, item.partNumber, item.unit, item.category);
@@ -6154,11 +6176,16 @@ function renderStep7(container) {
     const extCell = document.querySelector(`.bom-ext-cost[data-key="${key}"]`);
     if (extCell) extCell.textContent = _fmtD(extCost);
 
-    // Store override
-    const [ci, ii] = key.split('-').map(Number);
+    // Store override — use _origKey for stable lookup after deletions
     // Get original values to detect if this is a real edit
     const origBom = getFilteredBOM(state.aiAnalysis, state.disciplines);
-    const origItem = origBom.categories[ci] && origBom.categories[ci].items[ii];
+    let origItem = null;
+    for (const cat of origBom.categories) {
+      for (const it of cat.items) {
+        if (it._origKey === key) { origItem = it; break; }
+      }
+      if (origItem) break;
+    }
     const origQty = origItem ? origItem.qty : 0;
     const origCost = origItem ? origItem.unitCost : 0;
 
@@ -9315,6 +9342,9 @@ function _restoreStateFromPayload(id, pkg, est) {
   state.pricingTier = pkg?.pricingConfig?.tier || est?.pricing_tier || 'mid';
   state.codeJurisdiction = pkg?.project?.codeJurisdiction || pkg?.project?.jurisdiction || '';
   state.prevailingWage = pkg?.project?.prevailingWage || '';
+  state._pwCounty = pkg?.project?.pwCounty || '';
+  state._pwState = pkg?.project?.pwState || '';
+  state._pwMetro = pkg?.project?.pwMetro || '';
   state.workShift = pkg?.project?.workShift || '';
   state.isTransitRailroad = pkg?.project?.isTransitRailroad || false;
   // Transit auto-detect is deferred until AFTER markup restore (line ~9329) to avoid

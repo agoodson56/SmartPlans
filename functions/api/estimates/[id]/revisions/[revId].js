@@ -7,12 +7,26 @@ function isValidId(id) {
     return id && String(id).length <= 64 && /^[a-zA-Z0-9_-]+$/.test(String(id));
 }
 
+// SEC: Verify the requesting user owns the estimate (or is admin)
+async function checkOwnership(env, id, context) {
+    const user = context.data?.user;
+    if (!user) return true; // No auth middleware = legacy setup, allow
+    const est = await env.DB.prepare('SELECT created_by FROM estimates WHERE id = ?').bind(id).first();
+    if (!est) return false;
+    if (user.is_admin) return true;
+    if (est.created_by && user.id !== est.created_by) return false;
+    return true;
+}
+
 export async function onRequestGet(context) {
     const { env, params } = context;
     const { id, revId } = params;
 
     if (!isValidId(id) || !isValidId(revId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
+    }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403 });
     }
 
     try {
@@ -43,6 +57,9 @@ export async function onRequestDelete(context) {
 
     if (!isValidId(id) || !isValidId(revId)) {
         return Response.json({ error: 'Invalid ID' }, { status: 400 });
+    }
+    if (!(await checkOwnership(env, id, context))) {
+        return Response.json({ error: 'Access denied' }, { status: 403 });
     }
 
     try {
