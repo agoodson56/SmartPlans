@@ -4141,7 +4141,7 @@ function buildBidStrategyCard(st) {
   const confColors = { high: '#10b981', medium: '#f59e0b', low: '#ef4444' };
   const confBgColors = { high: 'rgba(16,185,129,0.08)', medium: 'rgba(245,158,11,0.08)', low: 'rgba(239,68,68,0.08)' };
   const confBorderColors = { high: 'rgba(16,185,129,0.3)', medium: 'rgba(245,158,11,0.3)', low: 'rgba(239,68,68,0.3)' };
-  const isLaborCat = (name) => /labor|install|rough|trim|commission|program|test|mobiliz/i.test(name);
+  const isLaborCat = (name) => /\blabor\b|\binstall(ation)?\b|rough[\s-]?in|trim[\s-]?out|\bcommission(ing)?\b|\bprogram(ming)?\s+(labor|service|hours)\b|\btest(ing)?\s*[&,]\s*commission|\bmobiliz/i.test(name);
   let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
   let catRows = '';
   bom.categories.forEach((cat, ci) => {
@@ -4274,7 +4274,7 @@ function recalcBidStrategySummary() {
   const bom = getFilteredBOM(state.aiAnalysis, state.disciplines);
   if (!bom || !bom.categories) return;
   const bs = state.bidStrategy;
-  const isLaborCat = (name) => /labor|install|rough|trim|commission|program|test|mobiliz/i.test(name);
+  const isLaborCat = (name) => /\blabor\b|\binstall(ation)?\b|rough[\s-]?in|trim[\s-]?out|\bcommission(ing)?\b|\bprogram(ming)?\s+(labor|service|hours)\b|\btest(ing)?\s*[&,]\s*commission|\bmobiliz/i.test(name);
   const fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
   document.querySelectorAll('.bid-strategy-row').forEach(row => {
@@ -4782,7 +4782,7 @@ function injectCalculatedCableQuantities(bom) {
   const updatedCategories = (bom.categories || []).map(cat => {
     if (!/(cabling|structured|cable|network|telecom)/i.test(cat.name)) return cat;
     const updatedItems = (cat.items || []).map(item => {
-      const name = (item.name || '').toLowerCase();
+      const name = (item.name || item.item || '').toLowerCase();
       let matchKey = null;
       if (/cat\s*6a|cat6a/.test(name)) matchKey = 'cat6a';
       else if (/cat\s*6(?!a)|cat6(?!a)/.test(name)) matchKey = 'cat6';
@@ -10102,7 +10102,8 @@ function _renderActualsTable(estimateId, projectName, bom, actualsMap) {
     rows += '<tr style="background:rgba(13,148,136,0.08);"><td colspan="10" style="padding:10px 12px;font-weight:700;font-size:13px;color:var(--accent-teal);border-bottom:1px solid rgba(13,148,136,0.12);">' + esc(cat.name) + '</td></tr>';
     cat.items.forEach((item, ii) => {
       rowIdx++;
-      const existing = actualsMap[(cat.name || '') + '::' + (item.name || '')] || {};
+      const _itemName = item.name || item.item || '';
+      const existing = actualsMap[(cat.name || '') + '::' + _itemName] || {};
       const estQty = item.qty || 0, estUC = item.unitCost || 0, estExt = estQty * estUC, estLab = item.laborHours || 0;
       const actQty = existing.actual_qty ?? estQty, actUC = existing.actual_unit_cost ?? estUC;
       const actLab = existing.actual_labor_hours ?? estLab, actExt = actQty * actUC;
@@ -10110,7 +10111,7 @@ function _renderActualsTable(estimateId, projectName, bom, actualsMap) {
       totalEstCost += estExt; totalActCost += actExt; totalEstLabor += estLab; totalActLabor += actLab;
       rows += '<tr style="border-bottom:1px solid var(--border-subtle);" data-actuals-row="' + ci + '-' + ii + '">' +
         '<td style="padding:6px 8px;font-size:11px;color:var(--text-muted);text-align:center;">' + rowIdx + '</td>' +
-        '<td style="padding:6px 8px;font-size:12px;color:var(--text-primary);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(item.name) + '">' + esc(item.name) + '</td>' +
+        '<td style="padding:6px 8px;font-size:12px;color:var(--text-primary);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(_itemName) + '">' + esc(_itemName) + '</td>' +
         '<td style="padding:6px 8px;font-size:12px;color:var(--text-muted);text-align:center;">' + estQty + '</td>' +
         '<td style="padding:6px 4px;text-align:center;"><input type="number" class="actuals-input actuals-qty" data-key="' + ci + '-' + ii + '" value="' + actQty + '" min="0" step="1" /></td>' +
         '<td style="padding:6px 8px;font-size:12px;color:var(--text-muted);text-align:right;">' + _fmtActDollar(estUC) + '</td>' +
@@ -10231,7 +10232,7 @@ function _collectActualsItems(bom, projectName) {
       var row = document.querySelector('[data-actuals-row="' + ci + '-' + ii + '"]');
       if (!row) return;
       items.push({
-        project_name: projectName || '', category: cat.name || 'General', item_name: item.name || '',
+        project_name: projectName || '', category: cat.name || 'General', item_name: item.name || item.item || '',
         estimated_qty: item.qty || 0, actual_qty: parseFloat(row.querySelector('.actuals-qty').value) || 0,
         estimated_unit_cost: item.unitCost || 0, actual_unit_cost: parseFloat(row.querySelector('.actuals-cost').value) || 0,
         estimated_labor_hours: item.laborHours || 0, actual_labor_hours: parseFloat(row.querySelector('.actuals-labor').value) || 0,

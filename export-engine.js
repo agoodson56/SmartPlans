@@ -373,9 +373,13 @@ const SmartPlansExport = {
                 subs += (cat.subtotal || 0);
             } else if (/equipment|air.?condition|hvac.?condition|scissor|boom|excavat|tugger|drill|saw|scanner/.test(n)) {
                 equipment += (cat.subtotal || 0);
-            } else if (/labor|install|rough.?in|trim|commission|program|test|mobiliz|phase\s*\d/i.test(n)) {
+            } else if (/\blabor\b|\binstall(ation)?\b|rough[\s-]?in|trim[\s-]?out|\bcommission(ing)?\b|\bprogram(ming)?\s+(labor|service|hours)\b|\btest(ing)?\s*[&,]\s*commission|\bmobiliz/i.test(n)) {
                 // Labor categories that leaked past the BOM parser filter —
-                // segregate them so they don't inflate the material total
+                // segregate them so they don't inflate the material total.
+                // NOTE: Patterns are tightened to avoid false positives:
+                // - "test" alone would catch "Testing Equipment" (material)
+                // - "program" alone would catch "Programming Licenses" (material)
+                // - "phase N" would catch "Phase 1 - Camera Equipment" (material)
                 labor += (cat.subtotal || 0);
                 console.warn(`[Export] BOM category "${cat.name}" classified as LABOR (not material) — $${(cat.subtotal || 0).toLocaleString()}`);
             } else {
@@ -3263,7 +3267,7 @@ Return ONLY the JSON array. No other text.`;
         }
 
         const bs = state.bidStrategy;
-        const isLaborCat = (name) => /labor|install|rough.?in|trim|commission|program|test|mobiliz|phase\s*\d/i.test(name);
+        const isLaborCat = (name) => /\blabor\b|\binstall(ation)?\b|rough[\s-]?in|trim[\s-]?out|\bcommission(ing)?\b|\bprogram(ming)?\s+(labor|service|hours)\b|\btest(ing)?\s*[&,]\s*commission|\bmobiliz/i.test(name);
 
         let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
         const categoryBreakdown = [];
