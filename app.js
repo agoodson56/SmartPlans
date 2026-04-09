@@ -9157,7 +9157,11 @@ function removeLocalEstimate(id) {
 
 async function saveEstimate(showToast = true) {
   if (window._savingEstimate) {
-    console.log('[SmartPlans] Save already in progress, skipping');
+    // Queue this save to run after the current one finishes instead of silently dropping it
+    if (!window._saveQueued) {
+      window._saveQueued = true;
+      console.log('[SmartPlans] Save already in progress — queuing');
+    }
     return;
   }
   window._savingEstimate = true;
@@ -9253,6 +9257,12 @@ async function saveEstimate(showToast = true) {
   }
   } finally {
     window._savingEstimate = false;
+    // Process queued save if one was requested during the current save
+    if (window._saveQueued) {
+      window._saveQueued = false;
+      console.log('[SmartPlans] Processing queued save');
+      saveEstimate(showToast);
+    }
   }
 }
 
@@ -9420,6 +9430,9 @@ function _restoreStateFromPayload(id, pkg, est) {
   if (pkg?.sectionCompleteness) state.sectionCompleteness = pkg.sectionCompleteness;
   if (pkg?.failedBrains) state.failedBrains = pkg.failedBrains;
   if (pkg?.brainStats) state.brainStats = pkg.brainStats;
+
+  // ── Restore 3D Engine reference result (was saved but never restored) ──
+  if (pkg?.engine3D) state._engine3DResult = pkg.engine3D;
 
   // ── Restore Travel & Incidentals (CRITICAL — without this, bid total drops on reload) ──
   if (pkg?.travelConfig) {
