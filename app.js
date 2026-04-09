@@ -6810,7 +6810,7 @@ function initExclusionsPanel(container) {
     if (state.estimateId) {
       fetch(`/api/estimates/${state.estimateId}/exclusions`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
         body: JSON.stringify({ id: filtered[idx].id, items: [{ id: filtered[idx].id, sort_order: filtered[idx].sort_order }, { id: filtered[swapIdx].id, sort_order: filtered[swapIdx].sort_order }] })
-      }).catch(err => console.warn('[SmartPlans] Sort order update failed:', err));
+      }).catch(err => { console.warn('[SmartPlans] Sort order update failed:', err); if (typeof spToast === 'function') spToast('Sort order update failed', 'error'); });
     }
     renderExclList();
   }
@@ -6960,7 +6960,7 @@ function initExclusionsPanel(container) {
     state._exclusionsLoaded = true;
     fetch(`/api/estimates/${state.estimateId}/exclusions`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken } }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(data => {
       if (data.exclusions && data.exclusions.length > 0) { state.exclusions = data.exclusions.map(e => ({ ...e, _saved: true })); renderExclList(); }
-    }).catch(err => console.warn('[SmartPlans] Failed to load exclusions:', err));
+    }).catch(err => { console.warn('[SmartPlans] Failed to load exclusions:', err); if (typeof spToast === 'function') spToast('Failed to load exclusions', 'error'); });
   }
   renderExclList();
 }
@@ -8137,7 +8137,7 @@ function validateAnalysisMath(analysisText) {
     if (cells.length < 3) continue;
 
     // ── Detect header rows by looking for column labels ──
-    const upperCells = cells.map(c => c.toUpperCase().replace(/[^A-Z0-9 /]/g, ''));
+    const upperCells = cells.map(c => c.toUpperCase().replace(/[^A-Z0-9 /.]/g, ''));
     const qtyColIdx = upperCells.findIndex(c => /^QTY$/.test(c.trim()));
     const unitCostIdx = upperCells.findIndex(c => /UNIT\s*(COST|PRICE)|COST.*UNIT|RATE.*HR|RATE\/HR|DAILY.*COST|UNIT.*COST/.test(c.trim()));
     const extCostIdx = upperCells.findIndex(c => /^EXT\s*(COST)?$|EXTENDED|LABOR\s*COST|TOTAL\s*COST/.test(c.trim()));
@@ -8164,10 +8164,10 @@ function validateAnalysisMath(analysisText) {
     const extStr = cells[currentHeader.extCostCol];
     if (!qtyStr || !unitStr || !extStr) continue;
 
-    // Parse qty — allow comma-formatted numbers, but skip non-numeric
-    const qtyMatch = qtyStr.match(/^([\d,]+)$/);
+    // Parse qty — allow comma-formatted and fractional numbers, skip non-numeric
+    const qtyMatch = qtyStr.match(/^([\d,.]+)$/);
     if (!qtyMatch) continue;
-    const qty = parseInt(qtyMatch[1].replace(/,/g, ''));
+    const qty = parseFloat(qtyMatch[1].replace(/,/g, ''));
     if (!qty || qty <= 0) continue;
 
     // Parse unit cost — extract dollar value

@@ -37,6 +37,12 @@
    └─────────────────────────────────────────────────────────┘
    ═══════════════════════════════════════════════════════════════ */
 
+// Safe JSON.stringify — catches circular refs and non-serializable objects
+function _safeJSON(obj, indent, maxLen) {
+  try { const s = JSON.stringify(obj, null, indent); return maxLen ? s.substring(0, maxLen) : s; }
+  catch { return '{}'; }
+}
+
 const SmartBrains = {
 
   VERSION: '5.0.0',
@@ -3742,36 +3748,25 @@ CRITICAL RULES:
 - Use the EXACT prices from the pricing database provided
 - Number every item (SC-001, CC-001, AC-001, FA-001, L-001, etc.)
 
-VALIDATED DATA FROM ALL 21 BRAINS (6-READ CONSENSUS):
+VALIDATED DATA — 6-READ CONSENSUS (use FINAL RECONCILIATION as authoritative):
 
-SYMBOL COUNTS (1st Read):
-${JSON.stringify(context.wave1?.SYMBOL_SCANNER || {}, null, 2).substring(0, 6000)}
+FINAL RECONCILIATION COUNTS (AUTHORITATIVE — 6 independent reads):
+${JSON.stringify(context.wave3_75?.FINAL_RECONCILIATION?.final_counts || context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 5000)}
 
-TRIPLE-READ CONSENSUS COUNTS (Reads 1-3):
-${JSON.stringify(context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 3000)}
-
-DETAIL VERIFIER (4th Read — precision area audit):
-${JSON.stringify(context.wave3_5?.DETAIL_VERIFIER?.verified_counts || context.wave3_5?.DETAIL_VERIFIER?.corrections || {}, null, 2).substring(0, 3000)}
-
-CROSS-SHEET ANALYZER (5th Read — inter-sheet consistency):
-${JSON.stringify(context.wave3_5?.CROSS_SHEET_ANALYZER?.adjusted_counts || {}, null, 2).substring(0, 3000)}
-
-FINAL RECONCILIATION (6th Read — AUTHORITATIVE counts — USE THESE):
-${JSON.stringify(context.wave3_75?.FINAL_RECONCILIATION?.final_counts || {}, null, 2).substring(0, 4000)}
-
-IMPORTANT: If Final Reconciliation counts are available, use THOSE as the definitive quantities. They represent 6 independent reads.
+DETAIL VERIFIER CORRECTIONS:
+${JSON.stringify(context.wave3_5?.DETAIL_VERIFIER?.verified_counts || context.wave3_5?.DETAIL_VERIFIER?.corrections || {}, null, 2).substring(0, 2000)}
 
 CODE COMPLIANCE:
-${JSON.stringify(context.wave1?.CODE_COMPLIANCE || {}, null, 2).substring(0, 4000)}
+${JSON.stringify(context.wave1?.CODE_COMPLIANCE || {}, null, 2).substring(0, 3000)}
 
 MDF/IDF ROOMS:
-${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 5000)}
+${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 4000)}
 
 CABLE & PATHWAY:
-${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 4000)}
+${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 3000)}
 
 SPECIAL CONDITIONS:
-${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 3000)}
+${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 2000)}
 
 MATERIAL PRICING (use these exact numbers):
 ${(() => {
@@ -3785,10 +3780,10 @@ Original grand total: $${corrected.original_grand_total?.toLocaleString() || 'N/
 Corrected grand total: $${corrected.corrected_grand_total?.toLocaleString() || 'N/A'}
 
 CORRECTED CATEGORIES:
-${JSON.stringify(corrected.corrected_categories, null, 2).substring(0, 8000)}
+${JSON.stringify(corrected.corrected_categories, null, 2).substring(0, 6000)}
 
 CORRECTION LOG:
-${JSON.stringify(corrected.correction_log || [], null, 2).substring(0, 3000)}`;
+${JSON.stringify(corrected.correction_log || [], null, 2).substring(0, 2000)}`;
   }
   // Fallback: use original pricer data
   return JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000);

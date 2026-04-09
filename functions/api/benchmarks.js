@@ -108,6 +108,7 @@ export async function onRequestPost(context) {
             WHERE actual_unit_cost > 0
             GROUP BY LOWER(item_name), category
             ORDER BY category, item_name
+            LIMIT 5000
         `).all();
 
         const items = aggregated.results || [];

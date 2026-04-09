@@ -1044,32 +1044,6 @@ const FormulaEngine3D = {
         return this._round(qty * 0.5);
     },
 
-    // ═══════════════════════════════════════════════════════════
-    // COMPARISON: Run 3D engine alongside standard engine
-    // ═══════════════════════════════════════════════════════════
-    compareWithStandard(state, bom, standardBreakdown) {
-        const result3D = this.computeBid(state, bom);
-        const stdTotal = standardBreakdown?.grandTotal || standardBreakdown?.finalTotal || 0;
-        const delta = result3D.grandTotalSELL - stdTotal;
-        const deltaPct = stdTotal > 0 ? this._round((delta / stdTotal) * 100) : 0;
-
-        console.log(`[3D Engine v2] ═══ COMPARISON ═══`);
-        console.log(`[3D Engine v2]   Standard: $${stdTotal.toLocaleString()}`);
-        console.log(`[3D Engine v2]   3D formula: $${result3D.grandTotalSELL.toLocaleString()}`);
-        console.log(`[3D Engine v2]   Delta: $${delta.toLocaleString()} (${deltaPct > 0 ? '+' : ''}${deltaPct}%)`);
-
-        return {
-            engine3D: result3D,
-            standardTotal: stdTotal,
-            delta,
-            deltaPct,
-            recommendation: Math.abs(deltaPct) <= 10
-                ? "Within 10% — both estimates are in the competitive range"
-                : deltaPct > 10
-                    ? "3D formula is higher — standard may be underpricing vs 3D historical"
-                    : "3D formula is lower — standard may be overpricing vs 3D historical",
-        };
-    },
 };
 
 if (typeof window !== 'undefined') window.FormulaEngine3D = FormulaEngine3D;

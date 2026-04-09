@@ -94,8 +94,8 @@ export async function onRequestPost(context) {
         let disciplines = null;
         if (body.disciplines != null) {
             disciplines = typeof body.disciplines === 'string'
-                ? body.disciplines
-                : JSON.stringify(body.disciplines);
+                ? body.disciplines.substring(0, 2000)
+                : JSON.stringify(body.disciplines).substring(0, 2000);
         }
 
         await env.DB.prepare(`
