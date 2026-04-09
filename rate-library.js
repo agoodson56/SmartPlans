@@ -366,6 +366,8 @@ async function applyRateLibraryToEstimate(container) {
       return;
     }
 
+    // Snapshot current overrides BEFORE applyRateLibrary mutates state
+    const previousOverrides = { ...(state.supplierPriceOverrides || {}) };
     const result = SmartPlansExport.applyRateLibrary(state, rates);
 
     if (result.itemsMatched === 0) {
@@ -388,8 +390,8 @@ async function applyRateLibraryToEstimate(container) {
     );
 
     if (!confirmed) {
-      // Undo the overrides that applyRateLibrary wrote
-      state.supplierPriceOverrides = {};
+      // Restore the original overrides that existed before applyRateLibrary mutated state
+      state.supplierPriceOverrides = previousOverrides;
       return;
     }
 

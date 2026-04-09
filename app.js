@@ -1380,7 +1380,7 @@ function applyBOMOverrides(bom, overrides) {
     if (!bom.categories?.[catIdx]?.items?.[itemIdx]) continue;
     const item = bom.categories[catIdx].items[itemIdx];
     if (override.qty != null) item.qty = override.qty;
-    if (typeof override.unitCost === 'number' && override.unitCost > 0 && isFinite(override.unitCost)) {
+    if (typeof override.unitCost === 'number' && override.unitCost >= 0 && isFinite(override.unitCost)) {
       item.unitCost = override.unitCost;
     }
     item.extCost = Math.round((item.qty * item.unitCost) * 100) / 100;
@@ -4402,31 +4402,31 @@ function validateAndRepairBOM(analysis) {
       if (/camera|dome|ptz|bullet|fisheye|panoramic|multisensor/i.test(name) && unit === 'ea' && qty > 500) {
         warnings.push(`⚠️ CAPPED: "${item.item || item.name}" qty ${qty} → 500 (max realistic camera count)`);
         item.qty = 500;
-        item.ext_cost = item.qty * unitCost;
+        item.extCost = item.qty * unitCost;
       }
       // Switches, NVRs, racks should never exceed 50
       if (/switch|nvr|server|rack|cabinet/i.test(name) && unit === 'ea' && qty > 50) {
         warnings.push(`⚠️ CAPPED: "${item.item || item.name}" qty ${qty} → 50`);
         item.qty = 50;
-        item.ext_cost = item.qty * unitCost;
+        item.extCost = item.qty * unitCost;
       }
       // Cable in feet: cap at 500,000 ft (~95 miles)
       if (unit === 'ft' && qty > 500000) {
         warnings.push(`⚠️ CAPPED: "${item.item || item.name}" qty ${qty}ft → 500,000ft`);
         item.qty = 500000;
-        item.ext_cost = item.qty * unitCost;
+        item.extCost = item.qty * unitCost;
       }
 
       // ── Check 3: Math verification — ext_cost must equal qty × unit_cost ──
       const expectedExt = Math.round(item.qty * unitCost * 100) / 100;
-      if (item.ext_cost && Math.abs(item.ext_cost - expectedExt) > 1) {
-        warnings.push(`⚠️ MATH FIX: "${item.item || item.name}" ext_cost $${item.ext_cost} → $${expectedExt} (${item.qty} × $${unitCost})`);
-        item.ext_cost = expectedExt;
+      if (item.extCost && Math.abs(item.extCost - expectedExt) > 1) {
+        warnings.push(`⚠️ MATH FIX: "${item.item || item.name}" extCost $${item.extCost} → $${expectedExt} (${item.qty} × $${unitCost})`);
+        item.extCost = expectedExt;
       }
     }
 
     // Recalculate category subtotal
-    cat.subtotal = cat.items.reduce((s, i) => s + (i.ext_cost || 0), 0);
+    cat.subtotal = cat.items.reduce((s, i) => s + (i.extCost || 0), 0);
   }
 
   // Recalculate grand total
@@ -4692,7 +4692,7 @@ function _getCableRatePerFt(type, rating) {
   if (typeof PRICING_DB === 'undefined') return 0.32; // safe default
   const tier = state.pricingTier || 'mid';
   const rm = state.regionalMultiplier || 1.0;
-  const db = PRICING_DB.structured_cabling?.cable || {};
+  const db = PRICING_DB.structuredCabling?.cable || {};
   const t = (type || '').toLowerCase();
   const r = (rating || '').toLowerCase();
   let key;

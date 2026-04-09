@@ -96,9 +96,9 @@ const CableAnalyzer = {
     const rates = { ...this._cableRatesDefaults };
 
     // Pull current rates from pricing database if available
-    if (typeof PRICING_DB !== 'undefined' && PRICING_DB.categories?.structured_cabling?.cables) {
+    if (typeof PRICING_DB !== 'undefined' && PRICING_DB.structuredCabling?.cable) {
       const tier = (typeof state !== 'undefined' && state.pricingTier) || 'mid';
-      const cables = PRICING_DB.categories.structured_cabling.cables;
+      const cables = PRICING_DB.structuredCabling.cable;
 
       if (cables.cat6a_plenum?.[tier])    rates['cat6a_plenum']   = cables.cat6a_plenum[tier];
       if (cables.cat6a_riser?.[tier])     rates['cat6a_riser']    = cables.cat6a_riser[tier];

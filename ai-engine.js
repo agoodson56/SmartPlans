@@ -2261,7 +2261,10 @@ Search the specifications and drawings for ANY of these indicators that prevaili
 - "Public works" or "publicly funded" → likely PW
 - "State-funded" or "federally funded" → likely PW
 - Government/public agency owner (VA, DOD, GSA, state, county, city, school district) → likely PW
-Report "prevailing_wage_detected": true/false and "prevailing_wage_type": "davis-bacon" | "state-prevailing" | "pla" | "none"
+You MUST include these as REQUIRED TOP-LEVEL fields in your JSON response:
+  "prevailing_wage_detected": true/false (boolean — did you find ANY prevailing wage indicators?)
+  "prevailing_wage_type": "davis-bacon" | "state-prevailing" | "pla" | "none" (string — which type?)
+These two fields are MANDATORY and must appear at the top level of the JSON object. The validator will REJECT your response if they are missing.
 
 ═══ CHECK EVERY CATEGORY BELOW — DO NOT SKIP ANY ═══
 
@@ -2504,6 +2507,8 @@ CRITICAL — TRANSIT/RAILROAD PROJECTS: If the project is for Amtrak, BNSF, a tr
 
 Return ONLY valid JSON:
 {
+  "prevailing_wage_detected": false,
+  "prevailing_wage_type": "none",
   "equipment_rentals": [
     { "item": "Scissor Lift", "duration_days": 20, "daily_rate": 185, "reason": "Ceiling height 15ft+" }
   ],
