@@ -1065,7 +1065,14 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
           }
         }
 
-        // Priority 2: Deterministic BOM computation with base markups
+        // Priority 2: Transit/Railroad — use FormulaEngine3D (calibrated to actual winning Amtrak bids)
+        if (state.isTransitRailroad && state._engine3DResult?.grandTotalSELL > 1000) {
+          state._bomGrandTotal = state._engine3DResult.grandTotalSELL;
+          console.log(`[ProposalGen] 🚂 Grand total from 3D Formula Engine (transit): $${state._engine3DResult.grandTotalSELL.toLocaleString()}${state._engine3DResult._calibrated ? ' [CALIBRATED]' : ''}`);
+          return state._engine3DResult.grandTotalSELL;
+        }
+
+        // Priority 3: Deterministic BOM computation with base markups
         if (SmartPlansExport._computeFullBreakdown) {
           const analysis = state.aiAnalysis || '';
           let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);

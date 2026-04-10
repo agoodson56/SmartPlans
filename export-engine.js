@@ -523,20 +523,26 @@ const SmartPlansExport = {
             console.log(`[Export] Stage 6 Travel & Incidentals: $${stage6Travel.toLocaleString()}`);
         }
 
-        // 3D Formula Engine — run for REFERENCE ONLY (card display + comparison logging)
-        // DISABLED as primary pricing source: AI BOM unit costs are already at distributor/near-sell
-        // levels, so applying 42-51.5% markup on top produces bids 50-100% too high.
-        // The Financial Engine brain understands the BOM prices are pre-marked and computes correctly.
+        // 3D Formula Engine — run always for UI card rendering.
+        // For TRANSIT/RAILROAD projects: FormulaEngine3D is the PRIMARY pricing source because
+        // it's calibrated against actual winning Amtrak bids (Emeryville, Martinez, Sacramento).
+        // For NON-TRANSIT projects: reference only — AI BOM costs are already near-sell, so
+        // applying 42-51.5% markup on top would produce bids 50-100% too high.
         if (typeof FormulaEngine3D !== 'undefined' && bom?.categories?.length > 0) {
             try {
                 const result3D = FormulaEngine3D.computeBid(state, bom);
                 if (result3D?.grandTotalSELL > 1000) {
-                    // Store for UI card rendering only — do NOT use as bid price
                     state._engine3DResult = result3D;
+                    // Transit projects: use FormulaEngine3D as the bid price — it's calibrated to real wins
+                    if (state.isTransitRailroad) {
+                        console.log(`[Export] 🚂 3D Formula Engine (TRANSIT PRIMARY): $${this._round(result3D.grandTotalSELL).toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED to Amtrak actuals]' : ''}`);
+                        console.log(`[Export] ✅ Grand total from 3D Formula Engine (transit): $${this._round(result3D.grandTotalSELL).toLocaleString()}`);
+                        return this._round(result3D.grandTotalSELL);
+                    }
                     console.log(`[Export] 📊 3D Formula Engine (REFERENCE ONLY): $${this._round(result3D.grandTotalSELL).toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED]' : ''}`);
                 }
             } catch (err) {
-                console.warn(`[Export] 3D Formula Engine reference calc error: ${err.message}`);
+                console.warn(`[Export] 3D Formula Engine calc error: ${err.message}`);
             }
         }
 
