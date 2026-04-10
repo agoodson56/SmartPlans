@@ -4814,14 +4814,41 @@ function computePathwayDistances() {
   return { results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD };
 }
 
-// Helper: look up cable cost rate from pricing database
+// Helper: look up cable cost rate — prefers Company Profile (actual distributor cost)
+// then falls back to PRICING_DB tier pricing with regional multiplier
 function _getCableRatePerFt(type, rating) {
-  if (typeof PRICING_DB === 'undefined') return 0.32; // safe default
+  const t = (type || '').toLowerCase();
+  const r = (rating || '').toLowerCase();
+
+  // Try Company Profile first (actual distributor pricing from bids)
+  if (typeof COMPANY_PROFILE !== 'undefined') {
+    const cp = COMPANY_PROFILE.materials?.cable || {};
+    let cpKey;
+    if (t.includes('6a') || t.includes('cat6a')) {
+      if (r.includes('riser')) cpKey = 'cat6a_riser';
+      else if (r.includes('plenum') || r.includes('cmp')) cpKey = 'cat6a_cmp';
+      else cpKey = 'cat6a_cmp';
+    } else if (t.includes('cat6') || t === 'cat6') {
+      if (r.includes('riser') || r.includes('cmr')) cpKey = 'cat6_cmr';
+      else if (r.includes('pvc')) cpKey = 'cat6_pvc';
+      else cpKey = 'cat6_cmp';
+    } else if (t.includes('5e') || t.includes('cat5')) {
+      cpKey = null; // No Cat5e in company profile — fall through to PRICING_DB
+    } else if (t.includes('fiber') && t.includes('sm')) {
+      cpKey = 'fiber_sm_12_armored';
+    } else if (t.includes('fiber') && t.includes('mm')) {
+      cpKey = 'fiber_mm_12_armored';
+    } else if (t.includes('coax') || t.includes('rg6')) {
+      cpKey = 'rg6_quad';
+    }
+    if (cpKey && cp[cpKey]) return cp[cpKey].cost;
+  }
+
+  // Fallback: PRICING_DB tier pricing with regional multiplier
+  if (typeof PRICING_DB === 'undefined') return 0.32;
   const tier = state.pricingTier || 'mid';
   const rm = (PRICING_DB.regionalMultipliers && PRICING_DB.regionalMultipliers[state.regionalMultiplier]) || 1.0;
   const db = PRICING_DB.structuredCabling?.cable || {};
-  const t = (type || '').toLowerCase();
-  const r = (rating || '').toLowerCase();
   let key;
   if (t.includes('6a') || t.includes('cat6a')) key = r.includes('riser') ? 'cat6a_riser' : 'cat6a_plenum';
   else if (t.includes('cat6') || t === 'cat6') key = r.includes('riser') ? 'cat6_riser' : 'cat6_plenum';
@@ -7327,7 +7354,80 @@ COST CALCULATION RULES:
 6. Subcontractor Sell Price = Sub Cost × (1 + ${state.markup.subcontractor}%)
 7. Total Project Price = Material Sell + Labor Sell + Equipment Sell + Sub Sell + Travel
 8. Apply these calculations to produce ACTUAL DOLLAR AMOUNTS in every summary table and in the SOV
+${_buildCompanyProfileContext()}
 `;
+  return ctx;
+}
+
+// ─── Company Profile Context ──────────────────────────────────
+// Injects actual distributor pricing, overhead rates, and benchmarks
+// from 3D Technology Services' historical bids into the AI prompt.
+// DOES NOT include labor rates, burden, PW, or tax — those are project-specific.
+function _buildCompanyProfileContext() {
+  if (typeof COMPANY_PROFILE === 'undefined') return '';
+
+  const cp = COMPANY_PROFILE;
+  let ctx = '\n\n═══ COMPANY CALIBRATION DATA (3D Technology Services — from ' + cp.bidCount + ' actual bids) ═══\n';
+  ctx += 'IMPORTANT: When the company profile provides an actual cost for a material or equipment item, PREFER it over the generic PRICING_DB tier price. These are real distributor costs from winning bids.\n\n';
+
+  // Material costs — cables
+  ctx += 'PREFERRED CABLE COSTS (actual distributor pricing — use these instead of tier prices when matching):\n';
+  for (const [key, item] of Object.entries(cp.materials.cable || {})) {
+    ctx += `   ${key.replace(/_/g, ' ')}: $${item.cost.toFixed(3)} ${item.unit}${item.mfg ? ' (' + item.mfg + ')' : ''}\n`;
+  }
+
+  // Material costs — connectivity
+  ctx += '\nPREFERRED CONNECTIVITY COSTS:\n';
+  for (const [key, item] of Object.entries(cp.materials.connectivity || {})) {
+    ctx += `   ${key.replace(/_/g, ' ')}: $${item.cost.toFixed(2)} ${item.unit}${item.mfg ? ' (' + item.mfg + ')' : ''}\n`;
+  }
+
+  // Equipment pricing — cameras, servers, access control
+  ctx += '\nPREFERRED EQUIPMENT COSTS (actual distributor quotes):\n';
+  const equipGroups = { 'Axis Cameras': [], 'Avigilon': [], 'Recording/Servers': [], 'VMS Licensing': [], 'Networking': [], 'Access Control': [], 'Monitors': [], 'UPS': [], 'Other': [] };
+  for (const [key, item] of Object.entries(cp.equipment || {})) {
+    const cost = typeof item.cost === 'number' ? '$' + item.cost.toFixed(2) : '$' + item.cost;
+    const line = `   ${item.description || key.replace(/_/g, ' ')}: ${cost}${item.unit ? ' ' + item.unit : ' each'}${item.mfg ? ' (' + item.mfg + ')' : ''}`;
+    if (key.startsWith('axis_') && !key.includes('s12') && !key.includes('s9301') && !key.includes('t85') && !key.includes('t81') && !key.includes('cs_core')) equipGroups['Axis Cameras'].push(line);
+    else if (key.includes('avigilon') || key.includes('h6a')) equipGroups['Avigilon'].push(line);
+    else if (key.includes('server') || key.includes('_ws') || key.includes('s1232') || key.includes('s1264') || key.includes('s9301') || key.includes('gcon') || key.includes('lenovo') || key.includes('exacq_ip')) equipGroups['Recording/Servers'].push(line);
+    else if (key.includes('license') || key.includes('unity') || key.includes('milestone') || key.includes('exacq_cam') || key.includes('exacq_ssa')) equipGroups['VMS Licensing'].push(line);
+    else if (key.includes('switch') || key.includes('poe') || key.includes('cisco') || key.includes('midspan') || key.includes('sigmanax')) equipGroups['Networking'].push(line);
+    else if (key.includes('schlage') || key.includes('hid') || key.includes('hes') || key.includes('bosch') || key.includes('gri') || key.includes('s2_') || key.includes('lsp_') || key.includes('pushbar') || key.includes('door') || key.includes('rex')) equipGroups['Access Control'].push(line);
+    else if (key.includes('monitor') || key.includes('lg_') || key.includes('samsung') || key.includes('sony') || key.includes('kvm')) equipGroups['Monitors'].push(line);
+    else if (key.includes('ups') || key.includes('apc') || key.includes('eaton')) equipGroups['UPS'].push(line);
+    else equipGroups['Other'].push(line);
+  }
+  for (const [group, lines] of Object.entries(equipGroups)) {
+    if (lines.length > 0) {
+      ctx += `  ${group}:\n${lines.join('\n')}\n`;
+    }
+  }
+
+  // Overhead percentages
+  const oh = cp.overhead;
+  ctx += '\nSTANDARD OVERHEAD PERCENTAGES (use these for all estimates):\n';
+  ctx += `   Project Management: ${oh.pm_pct.default}% of total labor hours (range: ${oh.pm_pct.min}-${oh.pm_pct.max}%)\n`;
+  ctx += `   Admin/Engineering/CAD: ${oh.admin_pct.default}% of total labor hours (range: ${oh.admin_pct.min}-${oh.admin_pct.max}%)\n`;
+  ctx += `   Non-Productive Time (NPT): ${oh.npt_pct.default}% (range: ${oh.npt_pct.min}-${oh.npt_pct.max}% — scales with distance/complexity)\n`;
+  ctx += `   Material Support: ${oh.material_support_pct.default}% (range: ${oh.material_support_pct.min}-${oh.material_support_pct.max}%)\n`;
+  ctx += `   Shipping: ${oh.shipping_pct.default}% (range: ${oh.shipping_pct.min}-${oh.shipping_pct.max}%)\n`;
+  ctx += `   Warranty (1-yr): ${oh.warranty_1yr_pct}% | Warranty (2-yr): ${oh.warranty_2yr_pct}%\n`;
+  ctx += `   Precon General Conditions: ${oh.precon_gen_conditions_pct}%\n`;
+  ctx += `   Safety Meetings: ${oh.safety_meeting_pct.default}% (range: ${oh.safety_meeting_pct.min}-${oh.safety_meeting_pct.max}%)\n`;
+
+  // Install hour benchmarks
+  ctx += '\nINSTALL HOUR BENCHMARKS (hours per unit from actual bids):\n';
+  for (const [key, item] of Object.entries(cp.installHours || {})) {
+    ctx += `   ${item.description}: ${item.hours} hrs\n`;
+  }
+
+  // Per-unit sanity checks
+  ctx += '\nPER-UNIT COST BENCHMARKS (flag estimate if outside these ranges):\n';
+  for (const [key, item] of Object.entries(cp.benchmarks || {})) {
+    ctx += `   ${item.description}: $${item.min.toLocaleString()}-$${item.max.toLocaleString()} ${item.unit} (avg $${item.avg.toLocaleString()})\n`;
+  }
+
   return ctx;
 }
 
