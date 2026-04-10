@@ -1964,10 +1964,17 @@ const SmartBrains = {
 
       // If context cache is available, use it instead of sending files
       // Remove fileData parts since they're already in the cache
+      // FIX #20b: Don't use cache if the cache's model is blacklisted — the cache is tied to that model
       let finalParts = parts;
-      const useCache = this._contextCache && hasUploadedFiles;
+      const cacheModel = this._contextCache?.model;
+      const cacheBlacklisted = cacheModel && this._model400Blacklist.has(cacheModel);
+      const useCache = this._contextCache && hasUploadedFiles && !cacheBlacklisted;
       if (useCache) {
         finalParts = parts.filter(p => !p.fileData); // Strip file references — they're in the cache
+      }
+      if (cacheBlacklisted && hasUploadedFiles) {
+        // Cache model is blacklisted — send files directly with the working model
+        if (attempt === 0) console.log(`[Brain:${brainDef.name}] Cache model ${cacheModel} is blacklisted — sending files directly with ${modelName}`);
       }
 
       const body = {
@@ -2025,9 +2032,10 @@ const SmartBrains = {
         if (response.status === 400) {
           const errData = await response.json().catch(() => ({}));
           const msg400 = errData?.error?.message || 'Bad Request';
-          // FIX #20: Blacklist this model for the rest of the session
-          this._model400Blacklist.add(modelName);
-          console.warn(`[Brain:${brainDef.name}] HTTP 400 — ${msg400}, blacklisting ${modelName} for session, skipping to fallback`);
+          // FIX #20: Blacklist the ACTUAL model sent (cache may override modelName)
+          const actualModelSent = useCache ? cacheModel : modelName;
+          this._model400Blacklist.add(actualModelSent);
+          console.warn(`[Brain:${brainDef.name}] HTTP 400 — ${msg400}, blacklisting ${actualModelSent} for session, skipping to fallback`);
           lastError = new Error(`API 400: ${msg400}`);
           break;
         }
@@ -2199,9 +2207,10 @@ const SmartBrains = {
 
         // 400 = bad request — retrying won't help. Break immediately to model fallback.
         if (err._fatal400) {
-          // FIX #20: Blacklist this model for the rest of the session
-          this._model400Blacklist.add(modelName);
-          console.warn(`[Brain:${brainDef.name}] 400 Bad Request — blacklisting ${modelName}, skipping ${maxRetries - attempt - 1} remaining retries`);
+          // FIX #20: Blacklist the ACTUAL model sent (cache may override modelName)
+          const actualModelSent = useCache ? cacheModel : modelName;
+          this._model400Blacklist.add(actualModelSent);
+          console.warn(`[Brain:${brainDef.name}] 400 Bad Request — blacklisting ${actualModelSent}, skipping ${maxRetries - attempt - 1} remaining retries`);
           break;
         }
 

@@ -127,7 +127,7 @@
           initialScope: { tags: { app: 'smartplans' } },
         });
         console.log('[SmartPlans] Sentry error tracking initialized');
-        console.log('[SmartPlans] Build: v5.101.0 — 2026-04-09');
+        console.log('[SmartPlans] Build: v5.102.0 — 2026-04-09');
       }
     </script>
     <script>
@@ -211,7 +211,7 @@
         // If the old SW is serving stale files, nuke everything and reload fresh
         (async function cacheBuster() {
             if (!('serviceWorker' in navigator)) return;
-            var EXPECTED_VERSION = 'smartplans-v5.101.0';
+            var EXPECTED_VERSION = 'smartplans-v5.102.0';
             try {
                 // Check what cache version we have locally
                 var keys = await caches.keys();
