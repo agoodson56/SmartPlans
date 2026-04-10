@@ -398,6 +398,14 @@ const SmartBrains = {
     let specSkipped = 0;
 
     for (const spec of specs) {
+      // Never filter out full project manuals — they contain ALL divisions including 27/28
+      // Only filter individual spec section PDFs (typically named by division)
+      if (!spec._isChunk && specs.length <= 2) {
+        // Single/dual spec uploads are likely full project manuals — always include
+        filteredSpecs.push(spec);
+        continue;
+      }
+
       // If spec has extracted text, check for division relevance
       if (spec.extractedText) {
         const text = spec.extractedText;
@@ -408,8 +416,10 @@ const SmartBrains = {
         if (matches.length > 0) {
           // Has division markers — check if any are relevant
           const foundDivs = matches.map(m => {
-            const num = m[1].replace(/^0/, '');
-            return num.length >= 5 ? num.substring(0, 2) : num;
+            let num = m[1].replace(/^0+/, ''); // Strip leading zeros
+            if (num.length >= 5) num = num.substring(0, 2); // 5-digit CSI → first 2
+            // Pad to 2 digits for consistent comparison with SPEC_DIVISION_MAP keys
+            return num.padStart(2, '0');
           });
           const hasRelevant = foundDivs.some(d => relevantDivisions.has(d));
 
@@ -5850,7 +5860,7 @@ Return ONLY valid JSON:
       for (const category of brain.needsFiles) {
         const files = encodedFiles[category] || [];
         for (const f of files) {
-          if (f.name && f.name.includes('_chunk') && (f.mimeType === 'image/jpeg' || f.mimeType === 'image/png') && f.fileUri) {
+          if (f.name && (f.name.includes('_chunk') || f.name.includes('_page')) && (f.mimeType === 'image/jpeg' || f.mimeType === 'image/png') && f.fileUri) {
             pageChunks.push(f);
           } else if (f.extractedText) {
             // Non-chunk files with text (specs, etc.) — include as context
@@ -5864,11 +5874,11 @@ Return ONLY valid JSON:
       const deduped = [];
       const seen = new Map(); // key: chunkNumber, value: file
       for (const f of pageChunks) {
-        // Extract chunk number from filename (e.g., "legend_chunk14.jpg" → "14")
-        const match = f.name.match(/_chunk(\d+)\./);
+        // Extract page/chunk number from filename (e.g., "legend_chunk14.jpg" → "14", "set_page5_T-101.jpg" → "5")
+        const match = f.name.match(/_(?:chunk|page)(\d+)/);
         const chunkNum = match ? match[1] : f.name;
         // Include category (legends/plans/specs) to avoid cross-PDF collisions
-        const sizeKey = `${f.category || f.name.replace(/_chunk\d+\..*/, '')}_page${chunkNum}_${Math.round(f.size / 1024)}`;
+        const sizeKey = `${f.category || f.name.replace(/_(?:chunk|page)\d+.*/, '')}_page${chunkNum}_${Math.round(f.size / 1024)}`;
 
         if (!seen.has(sizeKey)) {
           seen.set(sizeKey, f);
