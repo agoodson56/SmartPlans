@@ -1449,8 +1449,14 @@ const SmartBrains = {
     const chunkCount = Math.ceil(totalPages / pagesPerChunk);
     console.log(`[SmartBrains] PDF has ${totalPages} pages → ${chunkCount} chunks of ~${pagesPerChunk} pages`);
 
-    // Strategy: slice the original file into byte-range chunks
-    // This won't create valid standalone PDFs, so instead we render pages to canvas → PNG → blob
+    // Strategy: render each page to canvas, then combine into per-chunk JPEG images
+    // Use 2x scale for upload (good quality, within browser canvas pixel limits)
+    // Use 3x scale for scale bar detection only (on individual pages before combining)
+    const RENDER_SCALE = 2.0;   // 2x = 144 effective DPI — sharp enough for symbol detection
+    const DETECT_SCALE = 3.0;   // 3x for scale bar detection accuracy (individual pages only)
+    const MAX_PIXELS = 200_000_000; // Stay well under browser's ~268M pixel canvas limit
+    const MAX_COMBINED_HEIGHT = 16000; // Conservative height limit for combined canvas
+
     for (let c = 0; c < chunkCount; c++) {
       const startPage = c * pagesPerChunk + 1;
       const endPage = Math.min((c + 1) * pagesPerChunk, totalPages);
@@ -1460,23 +1466,32 @@ const SmartBrains = {
       for (let p = startPage; p <= endPage; p++) {
         try {
           const page = await pdf.getPage(p);
-          const scale = 3.0; // 3x for maximum symbol detection accuracy on construction drawings
-          const viewport = page.getViewport({ scale });
-          const canvas = document.createElement('canvas');
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          const ctx = canvas.getContext('2d');
-          await page.render({ canvasContext: ctx, viewport }).promise;
 
-          // Run canvas-based scale bar detection BEFORE converting to JPEG
+          // ── Scale bar detection at high res (3x) on individual page canvas ──
           try {
-            const scaleResult = this._detectScaleBarFromCanvas(canvas, p);
+            const detectVP = page.getViewport({ scale: DETECT_SCALE });
+            const detectCanvas = document.createElement('canvas');
+            detectCanvas.width = detectVP.width;
+            detectCanvas.height = detectVP.height;
+            const detectCtx = detectCanvas.getContext('2d');
+            await page.render({ canvasContext: detectCtx, viewport: detectVP }).promise;
+            const scaleResult = this._detectScaleBarFromCanvas(detectCanvas, p);
             canvasScaleResults.push(scaleResult);
+            // Free high-res canvas immediately
+            detectCanvas.width = 0;
+            detectCanvas.height = 0;
           } catch (scaleErr) {
             console.warn(`[SmartBrains] Canvas scale detection error on page ${p}:`, scaleErr.message);
             canvasScaleResults.push({ found: false, pixelsPerFoot: 0, confidence: 0, method: 'scale_bar_canvas', pageNum: p });
           }
 
+          // ── Render at upload resolution (2x) for the chunk image ──
+          const viewport = page.getViewport({ scale: RENDER_SCALE });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport }).promise;
           canvases.push(canvas);
         } catch (e) {
           console.warn(`[SmartBrains] Failed to render page ${p}:`, e.message);
@@ -1485,24 +1500,74 @@ const SmartBrains = {
 
       if (canvases.length === 0) continue;
 
-      // Combine canvases into a single tall image
-      const totalHeight = canvases.reduce((h, c) => h + c.height, 0);
-      const maxWidth = Math.max(...canvases.map(c => c.width));
+      // Combine canvases into a single tall image (within browser limits)
+      const totalHeight = canvases.reduce((h, cv) => h + cv.height, 0);
+      const maxWidth = Math.max(...canvases.map(cv => cv.width));
+      let combinedHeight = Math.min(totalHeight, MAX_COMBINED_HEIGHT);
+      // Also enforce pixel count limit
+      if (maxWidth * combinedHeight > MAX_PIXELS) {
+        combinedHeight = Math.floor(MAX_PIXELS / maxWidth);
+        console.warn(`[SmartBrains] Chunk ${c + 1}: capped height to ${combinedHeight}px (pixel limit)`);
+      }
       const combined = document.createElement('canvas');
       combined.width = maxWidth;
-      combined.height = Math.min(totalHeight, 32000); // Canvas height limit
-      const ctx = combined.getContext('2d');
+      combined.height = combinedHeight;
+      const combCtx = combined.getContext('2d');
       let y = 0;
-      for (const c of canvases) {
-        if (y + c.height > combined.height) break;
-        ctx.drawImage(c, 0, y);
-        y += c.height;
+      for (const cv of canvases) {
+        if (y + cv.height > combined.height) break;
+        combCtx.drawImage(cv, 0, y);
+        y += cv.height;
+        // Free individual page canvas
+        cv.width = 0;
+        cv.height = 0;
       }
 
-      // Convert to JPEG blob (much smaller than PNG for drawings)
-      const blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.92));
+      // Convert to JPEG blob
+      let blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.90));
+
+      // Fallback: if toBlob failed (canvas too large), try lower quality
+      if (!blob) {
+        console.warn(`[SmartBrains] Chunk ${c + 1}: toBlob failed at 0.90 quality, trying 0.70…`);
+        blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.70));
+      }
+
+      // Fallback 2: if still null, upload individual pages instead
+      if (!blob) {
+        console.warn(`[SmartBrains] Chunk ${c + 1}: combined canvas too large (${maxWidth}×${combinedHeight}), uploading pages individually`);
+        for (let i = 0; i < canvases.length; i++) {
+          // Re-render page individually since we freed the canvas
+          try {
+            const page = await pdf.getPage(startPage + i);
+            const vp = page.getViewport({ scale: RENDER_SCALE });
+            const singleCanvas = document.createElement('canvas');
+            singleCanvas.width = vp.width;
+            singleCanvas.height = vp.height;
+            const sCtx = singleCanvas.getContext('2d');
+            await page.render({ canvasContext: sCtx, viewport: vp }).promise;
+            const pageBlob = await new Promise(resolve => singleCanvas.toBlob(resolve, 'image/jpeg', 0.85));
+            if (pageBlob) {
+              const pageFile = new File([pageBlob], `chunk_${c + 1}_page${startPage + i}.jpg`, { type: 'image/jpeg' });
+              chunks.push(pageFile);
+              console.log(`[SmartBrains] Chunk ${c + 1} page ${startPage + i}: ${Math.round(pageBlob.size / 1024)} KB JPEG (individual fallback)`);
+            }
+            singleCanvas.width = 0;
+            singleCanvas.height = 0;
+          } catch (pgErr) {
+            console.warn(`[SmartBrains] Failed to render individual page ${startPage + i}:`, pgErr.message);
+          }
+        }
+        // Free combined canvas and skip to next chunk
+        combined.width = 0;
+        combined.height = 0;
+        continue;
+      }
+
+      // Free combined canvas
+      combined.width = 0;
+      combined.height = 0;
+
       if (blob) {
-        // Create a File object so it works with _uploadToFileAPI
         const chunkFile = new File([blob], `chunk_${c + 1}.jpg`, { type: 'image/jpeg' });
         chunks.push(chunkFile);
         console.log(`[SmartBrains] Chunk ${c + 1}: pages ${startPage}-${endPage} → ${Math.round(blob.size / 1024)} KB JPEG`);
