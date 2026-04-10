@@ -506,15 +506,16 @@ const SmartBrains = {
                 console.log(`[SmartBrains] Splitting ${entry.name} (${fileSizeMB} MB) into ${PAGES_PER_CHUNK}-page chunks…`);
 
                 try {
-                  const chunks = await this._splitPDFIntoChunks(entry.rawFile, PAGES_PER_CHUNK);
+                  const chunks = await this._splitPDFIntoChunks(entry.rawFile, PAGES_PER_CHUNK, state.disciplines);
                   console.log(`[SmartBrains] Split ${entry.name} into ${chunks.length} chunks`);
 
                   let chunkIdx = 0;
                   for (const chunk of chunks) {
                     chunkIdx++;
-                    const chunkName = `${entry.name.replace('.pdf', '')}_chunk${chunkIdx}.jpg`;
-                    const chunkMime = chunk.type || 'image/jpeg'; // Chunks are rendered as JPEG
-                    progressCallback(pct, `Uploading chunk ${chunkIdx}/${chunks.length}: ${chunkName} (${Math.round(chunk.size / 1024 / 1024)} MB)…`, null);
+                    // Chunk filename now includes sheet ID (e.g., "page5_T-101.jpg") set by _splitPDFIntoChunks
+                    const chunkName = `${entry.name.replace('.pdf', '')}_${chunk.name}`;
+                    const chunkMime = chunk.type || 'image/jpeg';
+                    progressCallback(pct, `Uploading page ${chunkIdx}/${chunks.length}: ${chunk._sheetId || chunk.name}…`, null);
 
                     const chunkData = {
                       name: chunkName,
@@ -525,6 +526,8 @@ const SmartBrains = {
                       _chunkIndex: chunkIdx,
                       _totalChunks: chunks.length,
                       _originalName: entry.name,
+                      _pageNum: chunk._pageNum,
+                      _sheetId: chunk._sheetId,
                     };
 
                     try {
@@ -1433,7 +1436,7 @@ const SmartBrains = {
   },
 
   // Split a large PDF into smaller chunk files using PDF.js
-  async _splitPDFIntoChunks(rawFile, pagesPerChunk) {
+  async _splitPDFIntoChunks(rawFile, pagesPerChunk, selectedDisciplines) {
     const arrayBuffer = await rawFile.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const totalPages = pdf.numPages;
@@ -1443,144 +1446,198 @@ const SmartBrains = {
     if (!this._canvasScaleData) this._canvasScaleData = [];
     const canvasScaleResults = [];
 
-    // For each chunk of pages, render to a new PDF-like blob
-    // Since PDF.js can't create PDFs, we split the raw bytes by uploading page ranges
-    // Alternative: create image-based chunks from rendered pages
-    const chunkCount = Math.ceil(totalPages / pagesPerChunk);
-    console.log(`[SmartBrains] PDF has ${totalPages} pages → ${chunkCount} chunks of ~${pagesPerChunk} pages`);
+    // ── Per-page discipline filter setup ──
+    // Extract text from each page to identify sheet IDs (e.g., T-101, FA-201, A-101)
+    // then check against selected disciplines BEFORE rendering/uploading
+    const hasDisciplineFilter = selectedDisciplines && selectedDisciplines.length > 0;
+    const selectedSet = hasDisciplineFilter ? new Set(selectedDisciplines) : null;
+    let skippedPages = 0;
+    let includedPages = 0;
 
-    // Strategy: render each page to canvas, then combine into per-chunk JPEG images
-    // Use 2x scale for upload (good quality, within browser canvas pixel limits)
-    // Use 3x scale for scale bar detection only (on individual pages before combining)
-    const RENDER_SCALE = 2.0;   // 2x = 144 effective DPI — sharp enough for symbol detection
-    const DETECT_SCALE = 3.0;   // 3x for scale bar detection accuracy (individual pages only)
-    const MAX_PIXELS = 200_000_000; // Stay well under browser's ~268M pixel canvas limit
-    const MAX_COMBINED_HEIGHT = 16000; // Conservative height limit for combined canvas
+    // Sheet ID patterns to extract from page text (title block)
+    const sheetIdPatterns = [
+      /\b([A-Z]{1,3}[-.]?\d{1,3}[.\-]\d{1,3}[a-zA-Z]?)\b/,  // T-101, FA-2.01, E1.01
+      /\b([A-Z]{1,3}[-.]?\d{3,4}[a-zA-Z]?)\b/,                // T101, FA201, E101a
+      /\b([A-Z]{1,3}[-.]?\d{1,2})\b/,                          // T-1, FA-2 (short form)
+    ];
 
-    for (let c = 0; c < chunkCount; c++) {
-      const startPage = c * pagesPerChunk + 1;
-      const endPage = Math.min((c + 1) * pagesPerChunk, totalPages);
+    // Map sheet prefixes to disciplines (mirrors SHEET_DISCIPLINE_MAP but for text-extracted IDs)
+    const prefixDisciplineMap = this.SHEET_DISCIPLINE_MAP;
 
-      // Render pages to images and combine into a single blob
-      const canvases = [];
-      for (let p = startPage; p <= endPage; p++) {
+    console.log(`[SmartBrains] PDF has ${totalPages} pages — rendering 1 page per chunk`);
+    if (hasDisciplineFilter) {
+      console.log(`[SmartBrains] 🎯 Pre-upload discipline filter: [${selectedDisciplines.join(', ')}]`);
+    }
+
+    // ── Render scale (2x for upload, 3x for scale detection) ──
+    const RENDER_SCALE = 2.0;
+    const DETECT_SCALE = 3.0;
+
+    for (let p = 1; p <= totalPages; p++) {
+      try {
+        const page = await pdf.getPage(p);
+
+        // ── STEP 1: Extract text to identify sheet ID ──
+        let sheetId = null;
+        let sheetPrefix = null;
+        let pageText = '';
         try {
-          const page = await pdf.getPage(p);
+          const content = await page.getTextContent();
+          const viewport1x = page.getViewport({ scale: 1.0 });
+          const textItems = content.items.map(item => ({
+            str: item.str,
+            x: item.transform[4],
+            y: item.transform[5],
+          }));
+          pageText = textItems.map(t => t.str).join(' ');
 
-          // ── Scale bar detection at high res (3x) on individual page canvas ──
-          try {
-            const detectVP = page.getViewport({ scale: DETECT_SCALE });
-            const detectCanvas = document.createElement('canvas');
-            detectCanvas.width = detectVP.width;
-            detectCanvas.height = detectVP.height;
-            const detectCtx = detectCanvas.getContext('2d');
-            await page.render({ canvasContext: detectCtx, viewport: detectVP }).promise;
-            const scaleResult = this._detectScaleBarFromCanvas(detectCanvas, p);
-            canvasScaleResults.push(scaleResult);
-            // Free high-res canvas immediately
-            detectCanvas.width = 0;
-            detectCanvas.height = 0;
-          } catch (scaleErr) {
-            console.warn(`[SmartBrains] Canvas scale detection error on page ${p}:`, scaleErr.message);
-            canvasScaleResults.push({ found: false, pixelsPerFoot: 0, confidence: 0, method: 'scale_bar_canvas', pageNum: p });
-          }
+          // Focus on title block area (bottom-right of page) for sheet ID
+          const pageH = viewport1x.height;
+          const pageW = viewport1x.width;
+          const titleBlockItems = textItems.filter(t =>
+            t.y < pageH * 0.25 && t.x > pageW * 0.5
+          );
+          const titleBlockText = titleBlockItems.map(t => t.str).join(' ');
 
-          // ── Render at upload resolution (2x) for the chunk image ──
-          const viewport = page.getViewport({ scale: RENDER_SCALE });
-          const canvas = document.createElement('canvas');
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          const ctx = canvas.getContext('2d');
-          await page.render({ canvasContext: ctx, viewport }).promise;
-          canvases.push(canvas);
-        } catch (e) {
-          console.warn(`[SmartBrains] Failed to render page ${p}:`, e.message);
-        }
-      }
+          // Also check bottom strip and right edge
+          const bottomItems = textItems.filter(t => t.y < pageH * 0.15);
+          const bottomText = bottomItems.map(t => t.str).join(' ');
+          const rightItems = textItems.filter(t => t.x > pageW * 0.75);
+          const rightText = rightItems.map(t => t.str).join(' ');
 
-      if (canvases.length === 0) continue;
-
-      // Combine canvases into a single tall image (within browser limits)
-      const totalHeight = canvases.reduce((h, cv) => h + cv.height, 0);
-      const maxWidth = Math.max(...canvases.map(cv => cv.width));
-      let combinedHeight = Math.min(totalHeight, MAX_COMBINED_HEIGHT);
-      // Also enforce pixel count limit
-      if (maxWidth * combinedHeight > MAX_PIXELS) {
-        combinedHeight = Math.floor(MAX_PIXELS / maxWidth);
-        console.warn(`[SmartBrains] Chunk ${c + 1}: capped height to ${combinedHeight}px (pixel limit)`);
-      }
-      const combined = document.createElement('canvas');
-      combined.width = maxWidth;
-      combined.height = combinedHeight;
-      const combCtx = combined.getContext('2d');
-      let y = 0;
-      for (const cv of canvases) {
-        if (y + cv.height > combined.height) break;
-        combCtx.drawImage(cv, 0, y);
-        y += cv.height;
-        // Free individual page canvas
-        cv.width = 0;
-        cv.height = 0;
-      }
-
-      // Convert to JPEG blob
-      let blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.90));
-
-      // Fallback: if toBlob failed (canvas too large), try lower quality
-      if (!blob) {
-        console.warn(`[SmartBrains] Chunk ${c + 1}: toBlob failed at 0.90 quality, trying 0.70…`);
-        blob = await new Promise(resolve => combined.toBlob(resolve, 'image/jpeg', 0.70));
-      }
-
-      // Fallback 2: if still null, upload individual pages instead
-      if (!blob) {
-        console.warn(`[SmartBrains] Chunk ${c + 1}: combined canvas too large (${maxWidth}×${combinedHeight}), uploading pages individually`);
-        for (let i = 0; i < canvases.length; i++) {
-          // Re-render page individually since we freed the canvas
-          try {
-            const page = await pdf.getPage(startPage + i);
-            const vp = page.getViewport({ scale: RENDER_SCALE });
-            const singleCanvas = document.createElement('canvas');
-            singleCanvas.width = vp.width;
-            singleCanvas.height = vp.height;
-            const sCtx = singleCanvas.getContext('2d');
-            await page.render({ canvasContext: sCtx, viewport: vp }).promise;
-            const pageBlob = await new Promise(resolve => singleCanvas.toBlob(resolve, 'image/jpeg', 0.85));
-            if (pageBlob) {
-              const pageFile = new File([pageBlob], `chunk_${c + 1}_page${startPage + i}.jpg`, { type: 'image/jpeg' });
-              chunks.push(pageFile);
-              console.log(`[SmartBrains] Chunk ${c + 1} page ${startPage + i}: ${Math.round(pageBlob.size / 1024)} KB JPEG (individual fallback)`);
+          // Search title block first (most reliable), then bottom, then full page
+          const searchTexts = [titleBlockText, bottomText, rightText, pageText];
+          for (const text of searchTexts) {
+            for (const pat of sheetIdPatterns) {
+              const match = text.match(pat);
+              if (match) {
+                sheetId = match[1].toUpperCase();
+                break;
+              }
             }
-            singleCanvas.width = 0;
-            singleCanvas.height = 0;
-          } catch (pgErr) {
-            console.warn(`[SmartBrains] Failed to render individual page ${startPage + i}:`, pgErr.message);
+            if (sheetId) break;
+          }
+        } catch (textErr) {
+          // Text extraction failed — include page by default
+        }
+
+        // ── STEP 2: Determine discipline from sheet ID prefix ──
+        let skipThisPage = false;
+        if (hasDisciplineFilter && sheetId) {
+          // Extract the letter prefix from sheet ID (e.g., "T" from "T-101", "FA" from "FA-201")
+          const prefixMatch = sheetId.match(/^([A-Z]{1,3})/);
+          if (prefixMatch) {
+            sheetPrefix = prefixMatch[1];
+            const mappedDisciplines = prefixDisciplineMap[sheetPrefix];
+
+            if (mappedDisciplines !== undefined) {
+              if (mappedDisciplines.includes('all')) {
+                // General/cover sheets — always include
+                skipThisPage = false;
+              } else if (mappedDisciplines.length === 0) {
+                // Structural, mechanical, plumbing — skip (not ELV-relevant)
+                skipThisPage = true;
+              } else {
+                // Check if any mapped discipline is in user's selection
+                const overlap = mappedDisciplines.some(d => selectedSet.has(d));
+                skipThisPage = !overlap;
+              }
+            }
+            // If prefix not in map, include by default (unknown = safe to include)
+          }
+
+          // Also check for discipline keywords in page text (backup detection)
+          if (!skipThisPage && sheetPrefix) {
+            const upperText = pageText.toUpperCase();
+            // If page clearly belongs to an unselected discipline by keyword
+            const keywordChecks = [
+              { kw: 'PLUMBING', disc: [] },
+              { kw: 'MECHANICAL', disc: [] },
+              { kw: 'STRUCTURAL', disc: [] },
+              { kw: 'HVAC', disc: [] },
+            ];
+            for (const { kw, disc } of keywordChecks) {
+              if (upperText.includes(kw) && disc.length === 0) {
+                // Only skip if sheet prefix is also not ELV-relevant
+                if (!prefixDisciplineMap[sheetPrefix] || prefixDisciplineMap[sheetPrefix].length === 0) {
+                  skipThisPage = true;
+                  break;
+                }
+              }
+            }
           }
         }
-        // Free combined canvas and skip to next chunk
-        combined.width = 0;
-        combined.height = 0;
-        continue;
-      }
 
-      // Free combined canvas
-      combined.width = 0;
-      combined.height = 0;
+        // ── STEP 3: Scale bar detection (always, even on skipped pages — fast & useful) ──
+        try {
+          const detectVP = page.getViewport({ scale: DETECT_SCALE });
+          const detectCanvas = document.createElement('canvas');
+          detectCanvas.width = detectVP.width;
+          detectCanvas.height = detectVP.height;
+          const detectCtx = detectCanvas.getContext('2d');
+          await page.render({ canvasContext: detectCtx, viewport: detectVP }).promise;
+          const scaleResult = this._detectScaleBarFromCanvas(detectCanvas, p);
+          scaleResult.sheetId = sheetId || `page_${p}`;
+          canvasScaleResults.push(scaleResult);
+          detectCanvas.width = 0;
+          detectCanvas.height = 0;
+        } catch (scaleErr) {
+          canvasScaleResults.push({ found: false, pixelsPerFoot: 0, confidence: 0, method: 'scale_bar_canvas', pageNum: p, sheetId: sheetId || `page_${p}` });
+        }
 
-      if (blob) {
-        const chunkFile = new File([blob], `chunk_${c + 1}.jpg`, { type: 'image/jpeg' });
-        chunks.push(chunkFile);
-        console.log(`[SmartBrains] Chunk ${c + 1}: pages ${startPage}-${endPage} → ${Math.round(blob.size / 1024)} KB JPEG`);
+        // ── STEP 4: Skip page if discipline filter says so ──
+        if (skipThisPage) {
+          const reason = sheetPrefix ? `prefix "${sheetPrefix}" not in selected disciplines` : 'not relevant';
+          console.log(`[SmartBrains] ✗ Skipping page ${p}/${totalPages} (${sheetId || 'unknown'}) — ${reason}`);
+          skippedPages++;
+          continue;
+        }
+
+        // ── STEP 5: Render page at upload resolution (2x) → JPEG ──
+        const viewport = page.getViewport({ scale: RENDER_SCALE });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.90));
+        canvas.width = 0;
+        canvas.height = 0;
+
+        if (blob) {
+          // Name chunk with sheet ID if available (makes filtering logs clearer)
+          const chunkName = sheetId
+            ? `page${p}_${sheetId}.jpg`
+            : `page${p}.jpg`;
+          const chunkFile = new File([blob], chunkName, { type: 'image/jpeg' });
+          chunkFile._pageNum = p;
+          chunkFile._sheetId = sheetId;
+          chunks.push(chunkFile);
+          includedPages++;
+          console.log(`[SmartBrains] ✓ Page ${p}/${totalPages} (${sheetId || 'no ID'}) → ${Math.round(blob.size / 1024)} KB JPEG`);
+        }
+      } catch (e) {
+        console.warn(`[SmartBrains] Failed to process page ${p}:`, e.message);
       }
     }
 
     pdf.destroy();
 
-    // Store canvas scale detection results on the SmartBrains object for fallback use
+    // Store canvas scale detection results
     this._canvasScaleData = canvasScaleResults;
     const canvasFound = canvasScaleResults.filter(r => r.found);
     if (canvasFound.length > 0) {
       console.log(`[SmartBrains] Canvas scale bar detection: found on ${canvasFound.length}/${totalPages} pages`);
+    }
+
+    // Log filtering summary
+    if (hasDisciplineFilter) {
+      const savings = totalPages > 0 ? Math.round((skippedPages / totalPages) * 100) : 0;
+      console.log(`[SmartBrains] ═══ PAGE FILTER RESULTS ═══`);
+      console.log(`[SmartBrains]   Total pages: ${totalPages}`);
+      console.log(`[SmartBrains]   Included: ${includedPages} pages (${chunks.length} chunks to upload)`);
+      console.log(`[SmartBrains]   Skipped: ${skippedPages} pages (${savings}% savings — you won't be charged for these)`);
     }
 
     return chunks;
