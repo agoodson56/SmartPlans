@@ -512,7 +512,7 @@ const SmartBrains = {
 
             // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
-              const CHUNK_THRESHOLD = 45 * 1024 * 1024; // Split PDFs over 45MB into chunks (smaller files upload fine as single)
+              const CHUNK_THRESHOLD = 20 * 1024 * 1024; // Split PDFs over 20MB into chunks — Gemini 3.1 Pro needs per-page scanning for accuracy
               const PAGES_PER_CHUNK = 5; // 5 pages per chunk — smaller canvas, better AI accuracy, safer for browser limits
               const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
 
