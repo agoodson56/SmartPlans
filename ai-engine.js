@@ -6543,7 +6543,7 @@ ${legendContext}
         });
         const cacheData = await cacheResp.json();
         if (cacheData.success && cacheData.cacheName) {
-          _contextCache = { name: cacheData.cacheName, model: `models/${this.config.proModel || this.config.model || 'gemini-2.5-pro'}`, keyName: cacheData._usedKeyName };
+          _contextCache = { name: cacheData.cacheName, model: this.config.proModel || this.config.model || 'gemini-2.5-pro', keyName: cacheData._usedKeyName };
           console.log(`[SmartBrains] ✓ Context cache created: ${cacheData.cacheName} (${cacheData.tokenCount} tokens, expires: ${cacheData.expireTime})`);
         } else {
           console.warn('[SmartBrains] Context cache creation failed, falling back to per-request file sending:', cacheData.error);
