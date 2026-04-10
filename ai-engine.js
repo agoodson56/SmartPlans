@@ -1875,6 +1875,15 @@ const SmartBrains = {
           continue;
         }
 
+        // HTTP 400 = bad request (wrong model, File API refs, etc.) — don't retry, skip to next model
+        if (response.status === 400) {
+          const errData = await response.json().catch(() => ({}));
+          const msg400 = errData?.error?.message || 'Bad Request';
+          console.warn(`[Brain:${brainDef.name}] HTTP 400 — ${msg400}, skipping to model fallback`);
+          lastError = new Error(`API 400: ${msg400}`);
+          break;
+        }
+
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData?.error?.message || `API ${response.status}`);
