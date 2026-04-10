@@ -127,6 +127,7 @@
           initialScope: { tags: { app: 'smartplans' } },
         });
         console.log('[SmartPlans] Sentry error tracking initialized');
+        console.log('[SmartPlans] Build: v5.93.0 — 2026-04-09');
       }
     </script>
     <script>
@@ -206,11 +207,43 @@
     </script>
     <script src="rate-library.js"></script>
     <script>
+        // ═══ CACHE BUSTER — Runs FIRST, before SW registration ═══
+        // If the old SW is serving stale files, nuke everything and reload fresh
+        (async function cacheBuster() {
+            if (!('serviceWorker' in navigator)) return;
+            var EXPECTED_VERSION = 'smartplans-v5.93.0';
+            try {
+                // Check what cache version we have locally
+                var keys = await caches.keys();
+                var hasCurrentCache = keys.some(function(k) { return k === EXPECTED_VERSION; });
+                var hasStaleCache = keys.some(function(k) { return k.startsWith('smartplans-') && k !== EXPECTED_VERSION; });
+
+                if (hasStaleCache) {
+                    console.log('[CacheBuster] Stale cache detected: ' + keys.join(', ') + ' — nuking all caches');
+                    // Delete ALL caches
+                    await Promise.all(keys.map(function(k) { return caches.delete(k); }));
+                    // Unregister ALL service workers
+                    var regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(regs.map(function(r) { return r.unregister(); }));
+                    console.log('[CacheBuster] All caches and SWs destroyed — reloading fresh');
+                    // Hard reload bypassing cache
+                    if (!window._cacheBustReloading) {
+                        window._cacheBustReloading = true;
+                        location.reload();
+                    }
+                    return; // Stop — page will reload
+                }
+            } catch (e) {
+                console.warn('[CacheBuster] Error:', e);
+            }
+        })();
+    </script>
+    <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(reg => {
                 console.log('[SmartPlans] Service Worker registered');
 
-                // Check for updates every 60 seconds (was 5 min)
+                // Check for updates every 60 seconds
                 setInterval(() => reg.update(), 60 * 1000);
 
                 // When a new SW is found, tell it to take over immediately
@@ -219,7 +252,6 @@
                     if (!newWorker) return;
                     newWorker.addEventListener('statechange', () => {
                         if (newWorker.state === 'installed' && reg.waiting) {
-                            // Tell the waiting SW to skip waiting and take over
                             reg.waiting.postMessage('SKIP_WAITING');
                             _showUpdateBanner();
                         }
