@@ -68,7 +68,7 @@ const SmartBrains = {
     proModel: 'gemini-3.1-pro-preview',        // ALL brains use 3.1 Pro
     useProxy: true,                          // ENABLED — route all calls through server-side proxy
     proxyEndpoint: '/api/ai/invoke',
-    maxRetries: 10,                          // Original: 10 retries with key rotation
+    maxRetries: 5,                           // FIX: Reduced from 10 — blacklist handles model failures, retries are for transient errors only
     retryBaseDelay: 1500,
     timeout: 150000,                         // 2.5 min for standard brains
     proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
@@ -1887,18 +1887,23 @@ const SmartBrains = {
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
 
     // FIX #20: Skip models that have been blacklisted due to persistent 400s this session
-    // e.g., gemini-3.1-pro-preview consistently 400s with File API references
-    if (this._model400Blacklist.has(modelName)) {
+    // Normalize: strip "models/" prefix for consistent blacklist matching
+    const _normalizeModel = (m) => m ? m.replace(/^models\//, '') : m;
+    const _isBlacklisted = (m) => this._model400Blacklist.has(_normalizeModel(m));
+    const _blacklistModel = (m) => { this._model400Blacklist.add(_normalizeModel(m)); };
+
+    if (_isBlacklisted(modelName)) {
       const fallback = hasUploadedFiles
-        ? ['gemini-2.5-flash', 'gemini-2.0-flash'].find(m => !this._model400Blacklist.has(m))
-        : ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'].find(m => !this._model400Blacklist.has(m));
+        ? ['gemini-2.5-flash', 'gemini-2.0-flash'].find(m => !_isBlacklisted(m))
+        : ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'].find(m => !_isBlacklisted(m));
       if (fallback) {
         console.log(`[Brain:${brainDef.name}] Skipping blacklisted model ${modelName} → using ${fallback}`);
         modelName = fallback;
+      } else {
+        // ALL models blacklisted — skip retry loop entirely, go straight to fallback
+        console.warn(`[Brain:${brainDef.name}] All models blacklisted — skipping to fallback`);
       }
     }
-
-    let force25ProMode = false;
 
     // ── Key Selection (resolved once, used by both retry loop AND fallback) ──
     // Files uploaded via Gemini File API are owned by the uploading API key.
@@ -1936,7 +1941,7 @@ const SmartBrains = {
         temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
         maxOutputTokens: brainDef.maxTokens,
       };
-      if (useJsonMode && !force25ProMode) {
+      if (useJsonMode) {
         genConfig.responseMimeType = 'application/json';
       }
       // NOTE: thinkingConfig disabled — causes Cloudflare 524 timeouts (>100s)
@@ -1967,14 +1972,14 @@ const SmartBrains = {
       // FIX #20b: Don't use cache if the cache's model is blacklisted — the cache is tied to that model
       let finalParts = parts;
       const cacheModel = this._contextCache?.model;
-      const cacheBlacklisted = cacheModel && this._model400Blacklist.has(cacheModel);
+      const cacheBlacklisted = cacheModel && _isBlacklisted(cacheModel);
       const useCache = this._contextCache && hasUploadedFiles && !cacheBlacklisted;
       if (useCache) {
         finalParts = parts.filter(p => !p.fileData); // Strip file references — they're in the cache
       }
       if (cacheBlacklisted && hasUploadedFiles) {
         // Cache model is blacklisted — send files directly with the working model
-        if (attempt === 0) console.log(`[Brain:${brainDef.name}] Cache model ${cacheModel} is blacklisted — sending files directly with ${modelName}`);
+        if (attempt === 0) console.log(`[Brain:${brainDef.name}] Cache model ${_normalizeModel(cacheModel)} is blacklisted — sending files directly with ${modelName}`);
       }
 
       const body = {
@@ -2034,8 +2039,8 @@ const SmartBrains = {
           const msg400 = errData?.error?.message || 'Bad Request';
           // FIX #20: Blacklist the ACTUAL model sent (cache may override modelName)
           const actualModelSent = useCache ? cacheModel : modelName;
-          this._model400Blacklist.add(actualModelSent);
-          console.warn(`[Brain:${brainDef.name}] HTTP 400 — ${msg400}, blacklisting ${actualModelSent} for session, skipping to fallback`);
+          _blacklistModel(actualModelSent);
+          console.warn(`[Brain:${brainDef.name}] HTTP 400 — ${msg400}, blacklisting ${_normalizeModel(actualModelSent)} for session, skipping to fallback`);
           lastError = new Error(`API 400: ${msg400}`);
           break;
         }
@@ -2209,8 +2214,8 @@ const SmartBrains = {
         if (err._fatal400) {
           // FIX #20: Blacklist the ACTUAL model sent (cache may override modelName)
           const actualModelSent = useCache ? cacheModel : modelName;
-          this._model400Blacklist.add(actualModelSent);
-          console.warn(`[Brain:${brainDef.name}] 400 Bad Request — blacklisting ${actualModelSent}, skipping ${maxRetries - attempt - 1} remaining retries`);
+          _blacklistModel(actualModelSent);
+          console.warn(`[Brain:${brainDef.name}] 400 Bad Request — blacklisting ${_normalizeModel(actualModelSent)}, skipping ${maxRetries - attempt - 1} remaining retries`);
           break;
         }
 
@@ -2240,9 +2245,11 @@ const SmartBrains = {
     const triedModel = modelName;
     for (const fbModel of fallbackModels) {
       if (fbModel === triedModel) continue; // skip the one that already failed
+      if (_isBlacklisted(fbModel)) continue; // FIX: skip blacklisted models in fallback too
       console.warn(`[Brain:${brainDef.name}] ${triedModel} failed — falling back to ${fbModel}`);
       try {
-        const fbParts = [{ text: promptText }, ...cleanFileParts.filter(p => !p.fileData)];
+        // FIX: Keep fileData refs — brains analyzing images NEED them. Only strip if no upload key.
+        const fbParts = [{ text: promptText }, ...cleanFileParts];
         const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
         if (brainDef.jsonMode || useJsonMode) fbGenConfig.responseMimeType = 'application/json';
         const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: Math.floor(brainDef.id) % 18 };
@@ -2251,6 +2258,12 @@ const SmartBrains = {
         const tmr = setTimeout(() => ctrl.abort(), this.config.timeout);
         const fbResp = await fetch('/api/ai/invoke', { method: 'POST', headers: this._authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(fbBody), signal: ctrl.signal });
         clearTimeout(tmr);
+        if (fbResp.status === 400) {
+            // FIX: Blacklist this fallback model too, so next brain doesn't retry it
+            _blacklistModel(fbModel);
+            console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned 400 — blacklisting, trying next`);
+            continue;
+        }
         if (!fbResp.ok) {
             throw new Error(`Fallback HTTP ${fbResp.status}: ${fbResp.statusText}`);
         }
@@ -2272,7 +2285,11 @@ const SmartBrains = {
             if (!line.startsWith('data: ')) continue;
             try {
               const ch = JSON.parse(line.substring(6));
-              if (ch._proxyError) { if (ch.status === 503 || ch.status >= 500) break; continue; }
+              if (ch._proxyError) {
+                if (ch.status === 400) { _blacklistModel(fbModel); throw new Error(`Fallback proxy 400 from ${fbModel}`); }
+                if (ch.status === 503 || ch.status >= 500) break;
+                continue;
+              }
               for (const p of (ch?.candidates?.[0]?.content?.parts || [])) {
                 if (p.text && p.thought) fbThought += p.text;
                 else if (p.text) fbText += p.text;
@@ -2302,7 +2319,8 @@ const SmartBrains = {
     }
 
     // ── Legacy fallback path (kept for backward compat) ──
-    if (brainDef.useProModel && modelName !== this.config.model) {
+    // Only try if the config model isn't blacklisted and is different from what we already tried
+    if (brainDef.useProModel && modelName !== this.config.model && !_isBlacklisted(this.config.model)) {
       console.warn(`[Brain:${brainDef.name}] All fallbacks failed — last attempt with ${this.config.model}`);
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts];
@@ -2313,14 +2331,12 @@ const SmartBrains = {
         if (useJsonMode) {
           fbGenConfig.responseMimeType = 'application/json';
         }
-        // No thinkingConfig for Flash model
 
         const fbBody = {
           contents: [{ parts: fbParts }],
           generationConfig: fbGenConfig,
           _model: this.config.model,
           _brainSlot: hasUploadedFiles ? 0 : Math.floor(brainDef.id),
-          // Pass upload key name if available (same key that uploaded the file)
           ...(uploadKeyName ? { _uploadKeyName: uploadKeyName } : {}),
         };
 
@@ -5803,8 +5819,9 @@ Return ONLY valid JSON:
     const brain = this.BRAINS[key];
 
     // Critical brains that MUST succeed — they get the full retry budget
+    // FIX: Cap validation retries to 3 (was up to 8-10, each triggering full _invokeBrain with 10 retries = up to 100 API calls)
     const CRITICAL_BRAINS = ['SYMBOL_SCANNER', 'MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE', 'CONSENSUS_ARBITRATOR', 'ESTIMATE_CORRECTOR', 'REPORT_WRITER'];
-    const MAX_VALIDATION_RETRIES = CRITICAL_BRAINS.includes(key) ? (this.config.maxRetries || 8) : Math.ceil((this.config.maxRetries || 8) / 2);
+    const MAX_VALIDATION_RETRIES = CRITICAL_BRAINS.includes(key) ? 3 : 2;
 
     try {
       // Build prompt with context
