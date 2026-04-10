@@ -323,7 +323,157 @@ const SmartBrains = {
   // Supports both inline base64 and Gemini File API URIs
   // ═══════════════════════════════════════════════════════════
 
-  _buildFileParts(brainDef, encodedFiles) {
+  // ═══════════════════════════════════════════════════════════
+  // DISCIPLINE → SHEET PREFIX MAPPING
+  // Maps each selectable discipline to the construction sheet prefixes
+  // and spec section numbers that belong to it.
+  // Files whose names match an EXCLUDED discipline are skipped.
+  // Files that don't match ANY known prefix are ALWAYS INCLUDED (safe default).
+  // ═══════════════════════════════════════════════════════════
+
+  _DISCIPLINE_SHEET_PREFIXES: {
+    // Division 27 — Communications
+    'Structured Cabling':                ['T-', 'TD-', 'TEL-', 'COM-', 'D-', 'TC-', 'IT-', 'T0', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9'],
+    'Audio Visual':                      ['AV-', 'AV0', 'AV1', 'AV2'],
+    'Distributed Antenna Systems (DAS)': ['DAS-', 'DAS0', 'DAS1'],
+    'Paging / Intercom':                 ['PA-', 'PA0', 'IC-', 'IC0'],
+    'Nurse Call Systems':                ['NC-', 'NC0', 'NC1'],
+    // Division 28 — Electronic Safety & Security
+    'CCTV':                              ['CCTV-', 'CCTV0', 'CCTV1', 'V-', 'V0', 'V1', 'CAM-'],
+    'Access Control':                    ['AC-', 'AC0', 'AC1', 'ACS-', 'ACS0'],
+    'Intrusion Detection':               ['IDS-', 'IDS0', 'ID-', 'ID0', 'INTR-'],
+    'Fire Alarm':                        ['FA-', 'FA0', 'FA1', 'FA2', 'FA3', 'FALP-', 'FP-', 'FP0', 'FP1', 'FP2'],
+    // Division 8 — Openings
+    'Door Hardware / Electrified Hardware': ['HW-', 'HW0', 'DH-', 'DH0', 'DR-', 'DR0'],
+    // Division 1 — General Requirements
+    'General Requirements / Conditions': ['G-', 'G0', 'G1', 'GN-', 'GR-'],
+  },
+
+  // Spec section numbers per discipline (CSI MasterFormat)
+  _DISCIPLINE_SPEC_SECTIONS: {
+    'Structured Cabling':                ['27 10', '27 11', '27 13', '27 15', '271'],
+    'Audio Visual':                      ['27 41', '27 42', '27 51', '274'],
+    'Distributed Antenna Systems (DAS)': ['27 21', '27 22', '272'],
+    'Paging / Intercom':                 ['27 51', '27 52', '275'],
+    'Nurse Call Systems':                ['27 52', '275'],
+    'CCTV':                              ['28 23', '282'],
+    'Access Control':                    ['28 13', '281'],
+    'Intrusion Detection':               ['28 16', '281'],
+    'Fire Alarm':                        ['28 31', '28 30', '283'],
+    'Door Hardware / Electrified Hardware': ['08 71', '08 74', '08 75', '087'],
+    'General Requirements / Conditions': ['01 00', '01 10', '01 20', '01 30', '01 40', '01 50', '01 70', '01 73', '01 77', '01 78', '011', '012', '013', '014', '015', '017'],
+  },
+
+  /**
+   * Check if a file should be SKIPPED based on selected disciplines.
+   * Returns true if the file clearly belongs to an UNSELECTED discipline.
+   * Returns false (include the file) if:
+   *   - No discipline filtering is active
+   *   - File can't be matched to any known discipline (safe default)
+   *   - File matches a SELECTED discipline
+   */
+  _shouldSkipFile(fileName, category, selectedDisciplines) {
+    // No filtering if no disciplines selected (include everything)
+    if (!selectedDisciplines || selectedDisciplines.length === 0) return false;
+
+    const upper = (fileName || '').toUpperCase().replace(/\s+/g, '');
+    const selectedSet = new Set(selectedDisciplines);
+
+    // For specs: also check spec section numbers in the filename
+    if (category === 'specs') {
+      let matchedDiscipline = null;
+      for (const [discipline, sections] of Object.entries(this._DISCIPLINE_SPEC_SECTIONS)) {
+        for (const sec of sections) {
+          const secNorm = sec.replace(/\s+/g, '');
+          if (upper.includes(secNorm)) {
+            matchedDiscipline = discipline;
+            break;
+          }
+        }
+        if (matchedDiscipline) break;
+      }
+
+      // If file matched a discipline, only include if that discipline is selected
+      if (matchedDiscipline) {
+        if (!selectedSet.has(matchedDiscipline)) {
+          console.log(`[Filter] Skipping spec "${fileName}" — matches "${matchedDiscipline}" (not selected)`);
+          return true;
+        }
+        return false;
+      }
+      // Didn't match any spec section → include it (could be general specs)
+      return false;
+    }
+
+    // For plans and legends: check sheet prefixes
+    let matchedDiscipline = null;
+    for (const [discipline, prefixes] of Object.entries(this._DISCIPLINE_SHEET_PREFIXES)) {
+      for (const prefix of prefixes) {
+        const prefixUpper = prefix.toUpperCase().replace(/\s+/g, '');
+        // Match prefix at start of filename (after stripping path), or after common separators
+        if (upper.startsWith(prefixUpper) || upper.includes('/' + prefixUpper) || upper.includes('\\' + prefixUpper) || upper.includes('_' + prefixUpper)) {
+          matchedDiscipline = discipline;
+          break;
+        }
+      }
+      if (matchedDiscipline) break;
+    }
+
+    // Also check for common keywords in filenames
+    if (!matchedDiscipline) {
+      const KEYWORD_MAP = {
+        'Fire Alarm':        ['FIRE ALARM', 'FIRE_ALARM', 'FIREALARM', 'FIRE-ALARM'],
+        'CCTV':              ['CCTV', 'CAMERA', 'VIDEO SURVEILLANCE', 'VIDEOSURVEILLANCE'],
+        'Access Control':    ['ACCESS CONTROL', 'ACCESS_CONTROL', 'ACCESSCONTROL', 'CARD READER', 'CARDREADER'],
+        'Intrusion Detection': ['INTRUSION', 'BURGLAR', 'IDS', 'INTRUSION DETECTION'],
+        'Structured Cabling': ['TELECOM', 'TELECOMMUNICATIONS', 'STRUCTURED CABLING', 'STRUCTUREDCABLING', 'DATA CABLING', 'DATACABLING'],
+        'Audio Visual':      ['AUDIO VISUAL', 'AUDIOVISUAL', 'AUDIO-VISUAL', 'AV SYSTEM'],
+        'Distributed Antenna Systems (DAS)': ['DAS ', 'DISTRIBUTED ANTENNA', 'DISTRIBUTEDANTENNA'],
+        'Paging / Intercom': ['PAGING', 'INTERCOM', 'PA SYSTEM'],
+        'Nurse Call Systems': ['NURSE CALL', 'NURSECALL'],
+        'Door Hardware / Electrified Hardware': ['DOOR HARDWARE', 'DOORHARDWARE', 'ELECTRIFIED HARDWARE', 'DOOR SCHEDULE', 'DOORSCHEDULE'],
+        'General Requirements / Conditions': ['GENERAL REQUIREMENTS', 'GENERALREQUIREMENTS', 'GENERAL CONDITIONS', 'GENERALCONDITIONS', 'DIVISION 01', 'DIVISION01', 'DIV 01', 'DIV01'],
+      };
+
+      for (const [discipline, keywords] of Object.entries(KEYWORD_MAP)) {
+        for (const kw of keywords) {
+          if (upper.includes(kw.replace(/\s+/g, ''))) {
+            matchedDiscipline = discipline;
+            break;
+          }
+        }
+        if (matchedDiscipline) break;
+      }
+    }
+
+    // File matched a discipline → skip if that discipline is NOT selected
+    if (matchedDiscipline) {
+      if (!selectedSet.has(matchedDiscipline)) {
+        console.log(`[Filter] Skipping "${fileName}" — matches "${matchedDiscipline}" (not selected)`);
+        return true;
+      }
+      return false;
+    }
+
+    // ── ELECTRICAL SHEET FILTER ──
+    // Sheets starting with E- are general electrical (Division 26) — NOT low-voltage.
+    // Skip them unless they also match a selected discipline keyword above.
+    // This prevents electrical power plans from polluting ELV symbol counts.
+    if (category === 'plans' && /^E[-\s]?\d/i.test(fileName)) {
+      // Check if the filename also contains an ELV keyword (e.g., "E-101 TELECOM PLAN")
+      const elvKeywords = ['TELECOM', 'LOW VOLTAGE', 'CCTV', 'ACCESS', 'FIRE ALARM', 'SECURITY', 'DATA', 'COMM', 'ELV', 'TECHNOLOGY', 'DAS', 'AUDIO', 'NURSE'];
+      const hasElvKeyword = elvKeywords.some(kw => upper.includes(kw));
+      if (!hasElvKeyword) {
+        console.log(`[Filter] Skipping electrical sheet "${fileName}" — Division 26 (not ELV)`);
+        return true;
+      }
+    }
+
+    // No match → INCLUDE the file (safe default — don't accidentally drop relevant docs)
+    return false;
+  },
+
+  _buildFileParts(brainDef, encodedFiles, selectedDisciplines) {
     // Supported MIME types for Gemini API
     const SUPPORTED_MIMES = new Set([
       'application/pdf',
@@ -333,9 +483,17 @@ const SmartBrains = {
     ]);
 
     const parts = [];
+    let skippedCount = 0;
+
     for (const category of brainDef.needsFiles) {
       const files = encodedFiles[category] || [];
       for (const f of files) {
+        // ── DISCIPLINE FILTER: Skip files that belong to unselected disciplines ──
+        if (this._shouldSkipFile(f.name, category, selectedDisciplines)) {
+          skippedCount++;
+          continue;
+        }
+
         // Skip unsupported file types (Word, Excel, PowerPoint, etc.)
         if (f.mimeType && !SUPPORTED_MIMES.has(f.mimeType) && !f.fileUri) {
           console.warn(`[SmartBrains] Skipping unsupported file: ${f.name} (${f.mimeType})`);
@@ -364,6 +522,11 @@ const SmartBrains = {
         }
       }
     }
+
+    if (skippedCount > 0) {
+      console.log(`[SmartBrains] Discipline filter: skipped ${skippedCount} file(s) not matching selected disciplines`);
+    }
+
     return parts;
   },
 
@@ -383,10 +546,15 @@ const SmartBrains = {
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
 
     // ── Model compatibility: gemini-3.1-pro-preview does NOT support fileData (File API) ──
-    // Auto-downgrade to gemini-2.5-pro for brains that reference uploaded files
+    // Auto-downgrade to gemini-2.5-pro for brains that reference uploaded files.
+    // IMPORTANT: gemini-2.5-pro has MANDATORY thinking/reasoning that is mutually exclusive
+    // with JSON mode (responseMimeType). We must disable JSON mode when using 2.5-pro —
+    // the _parseJSON method with 7 recovery strategies handles free-text JSON fine.
+    let force25ProMode = false;
     if (hasUploadedFiles && modelName.includes('3.1-pro-preview')) {
       console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (3.1 preview doesn't support File API references)`);
       modelName = 'gemini-2.5-pro';
+      force25ProMode = true;
     }
 
     // ── Key Selection (resolved once, used by both retry loop AND fallback) ──
@@ -418,12 +586,13 @@ const SmartBrains = {
         temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
         maxOutputTokens: brainDef.maxTokens,
       };
-      if (useJsonMode) {
+      if (useJsonMode && !force25ProMode) {
         genConfig.responseMimeType = 'application/json';
       }
       // NOTE: thinkingConfig disabled — causes Cloudflare 524 timeouts (>100s)
       // Gemini 3.1 Pro produces excellent results without thinking mode
       // thinkingConfig is also MUTUALLY EXCLUSIVE with JSON mode (responseMimeType)
+      // gemini-2.5-pro has MANDATORY thinking — cannot use JSON mode with it
 
       // keySlot is still used as fallback if _uploadKeyName is not available
       let keySlot;
@@ -588,6 +757,8 @@ const SmartBrains = {
           console.warn(`[Brain:${brainDef.name}] Proxy reported API ${err.status}, rotating to key slot ${nextSlot}, retrying…`);
         } else if (err.name === 'AbortError') {
           console.warn(`[Brain:${brainDef.name}] Timeout, attempt ${attempt + 1}`);
+        } else {
+          console.warn(`[Brain:${brainDef.name}] Error (attempt ${attempt + 1}/${maxRetries}): ${err.message}`);
         }
         if (attempt < maxRetries - 1) {
           await new Promise(r => setTimeout(r, Math.min(this.config.retryBaseDelay * Math.pow(2, attempt), 15000)));
@@ -596,7 +767,9 @@ const SmartBrains = {
     }
 
     // ── Model Fallback: If Pro model failed, retry once with Flash ──
-    if (brainDef.useProModel && modelName !== this.config.model) {
+    // Skip fallback to 3.1-pro-preview if the request contains File API references
+    // (3.1 preview doesn't support fileData — it would just fail with 400 INVALID_ARGUMENT)
+    if (brainDef.useProModel && modelName !== this.config.model && !(hasUploadedFiles && this.config.model.includes('3.1-pro-preview'))) {
       console.warn(`[Brain:${brainDef.name}] Pro model failed — falling back to ${this.config.model}`);
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts];
@@ -915,16 +1088,22 @@ const SmartBrains = {
 
 PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
+NOTE: Documents have been pre-filtered to only include sheets/specs matching the selected disciplines above. Only count devices belonging to these disciplines — ignore any symbols from other trades that may appear on shared sheets.
 
-YOUR MISSION: Scan EVERY sheet and count EVERY device symbol. Be exhaustive.
+YOUR MISSION: Scan EVERY sheet and count EVERY device symbol for the selected disciplines. Be exhaustive.
 
 WHAT TO COUNT BY DISCIPLINE:
-${(context.disciplines || []).includes('Structured Cabling') ? '- CABLING: Data outlets, voice outlets, WAPs, fiber outlets, combo outlets' : ''}
-${(context.disciplines || []).includes('CCTV') ? '- CCTV: Fixed cameras, PTZ cameras, dome cameras, bullet cameras, multi-sensor cameras' : ''}
-${(context.disciplines || []).includes('Access Control') ? '- ACCESS: Card readers, keypads, door contacts, REX devices, electric strikes, maglocks, intercoms' : ''}
-${(context.disciplines || []).includes('Fire Alarm') ? '- FIRE: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, modules, annunciators' : ''}
-${(context.disciplines || []).includes('Intrusion Detection') ? '- INTRUSION: Motion detectors, door contacts, glass break, keypads, sirens' : ''}
-${(context.disciplines || []).includes('Audio Visual') ? '- AV: Speakers, displays, projectors, touch panels, microphones, signal plates' : ''}
+${(context.disciplines || []).includes('Structured Cabling') ? '- CABLING: Data outlets, voice outlets, WAPs, fiber outlets, combo outlets, patch panels, cable trays' : ''}
+${(context.disciplines || []).includes('CCTV') ? '- CCTV: Fixed cameras, PTZ cameras, dome cameras, bullet cameras, multi-sensor cameras, NVRs, encoders' : ''}
+${(context.disciplines || []).includes('Access Control') ? '- ACCESS: Card readers, keypads, door contacts, REX devices, electric strikes, maglocks, intercoms, controllers' : ''}
+${(context.disciplines || []).includes('Fire Alarm') ? '- FIRE: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, modules, annunciators, NACs, SLCs' : ''}
+${(context.disciplines || []).includes('Intrusion Detection') ? '- INTRUSION: Motion detectors, door contacts, glass break, keypads, sirens, panels' : ''}
+${(context.disciplines || []).includes('Audio Visual') ? '- AV: Speakers, displays, projectors, touch panels, microphones, signal plates, amplifiers, DSPs' : ''}
+${(context.disciplines || []).includes('Distributed Antenna Systems (DAS)') ? '- DAS: Antennas, remote units, head-end equipment, splitters, couplers, fiber trunk cables, coax runs' : ''}
+${(context.disciplines || []).includes('Paging / Intercom') ? '- PAGING/INTERCOM: Speakers, amplifiers, paging stations, intercom substations, master stations, door stations' : ''}
+${(context.disciplines || []).includes('Nurse Call Systems') ? '- NURSE CALL: Patient stations, staff stations, pillow speakers, dome lights, pull cords, corridor lights, master panels' : ''}
+${(context.disciplines || []).includes('Door Hardware / Electrified Hardware') ? '- DOOR HARDWARE: Electric strikes, maglocks, auto-operators, door closers, electrified hinges, power transfers, door position switches' : ''}
+${(context.disciplines || []).includes('General Requirements / Conditions') ? '- GENERAL: Mobilization items, temporary facilities, testing/commissioning requirements, submittals, closeout documents' : ''}
 - POWER & INFRASTRUCTURE (ALWAYS scan for these regardless of discipline):
   UPS units, inverters, power inverters, transfer switches (ATS/STS), power supplies, battery backup units,
   PDUs, surge protectors, generators, solar inverters, rectifiers, battery chargers, power conditioners
@@ -3095,7 +3274,7 @@ Return ONLY valid JSON:
         return;
       }
       
-      const fileParts = brain.needsFiles.length > 0 ? this._buildFileParts(brain, encodedFiles) : [];
+      const fileParts = brain.needsFiles.length > 0 ? this._buildFileParts(brain, encodedFiles, context.disciplines) : [];
       const useJsonMode = key !== 'REPORT_WRITER';
 
       this._brainStatus[key].status = 'running';
@@ -3260,6 +3439,19 @@ Return ONLY valid JSON:
     const encodedFiles = await this._encodeAllFiles(state, progressCallback);
     const totalFiles = Object.values(encodedFiles).reduce((s, arr) => s + arr.length, 0);
     console.log(`[SmartBrains] Encoded ${totalFiles} files`);
+
+    // Log discipline filtering summary
+    const selectedDisc = state.disciplines || [];
+    if (selectedDisc.length > 0) {
+      console.log(`[SmartBrains] 🎯 Discipline filter active: [${selectedDisc.join(', ')}]`);
+      for (const cat of ['legends', 'plans', 'specs']) {
+        const files = encodedFiles[cat] || [];
+        const skipped = files.filter(f => this._shouldSkipFile(f.name, cat, selectedDisc));
+        if (skipped.length > 0) {
+          console.log(`[SmartBrains]   → ${cat}: ${skipped.length}/${files.length} files will be skipped: [${skipped.map(f => f.name).join(', ')}]`);
+        }
+      }
+    }
 
     // Build shared context — expanded for 7 waves
     const context = {
