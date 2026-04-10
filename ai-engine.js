@@ -497,7 +497,7 @@ const SmartBrains = {
             // Large files → split into chunks then upload each via File API
             if (entry.rawFile.size > INLINE_THRESHOLD) {
               const CHUNK_THRESHOLD = 45 * 1024 * 1024; // Split PDFs over 45MB into chunks (smaller files upload fine as single)
-              const PAGES_PER_CHUNK = 20; // 20 pages per chunk — balances accuracy with API cost
+              const PAGES_PER_CHUNK = 10; // 10 pages per chunk — better accuracy for symbol detection
               const fileSizeMB = Math.round(entry.rawFile.size / 1024 / 1024);
 
               // Try chunking large PDFs using PDF.js
@@ -1748,17 +1748,11 @@ const SmartBrains = {
     // Check for uploaded file URIs — needed for key pinning in both main loop and fallback
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
 
-    // ── Model compatibility: gemini-3.1-pro-preview does NOT support fileData (File API) ──
-    // Auto-downgrade to gemini-2.5-pro for brains that reference uploaded files.
-    // IMPORTANT: gemini-2.5-pro has MANDATORY thinking/reasoning that is mutually exclusive
-    // with JSON mode (responseMimeType). We must disable JSON mode when using 2.5-pro —
-    // the _parseJSON method with 7 recovery strategies handles free-text JSON fine.
+    // ── Model compatibility note ──
+    // gemini-3.1-pro-preview DOES support fileData (File API references) —
+    // confirmed in production. Previous auto-switch to gemini-2.5-pro caused
+    // persistent 400 errors. Keep 3.1-pro-preview as primary for all brains.
     let force25ProMode = false;
-    if (hasUploadedFiles && modelName.includes('3.1-pro-preview')) {
-      console.log(`[Brain:${brainDef.name}] Auto-switching from ${modelName} → gemini-2.5-pro (3.1 preview doesn't support File API references)`);
-      modelName = 'gemini-2.5-pro';
-      force25ProMode = true;
-    }
 
     // ── Key Selection (resolved once, used by both retry loop AND fallback) ──
     // Files uploaded via Gemini File API are owned by the uploading API key.
@@ -1782,28 +1776,13 @@ const SmartBrains = {
       return p;
     });
 
-    let _fileDataStripped = false;
-    let _fileDataStripAttempts = 0; // FIX #17: Track how many retries used stripped mode
     const _exhaustedSlots = new Set(); // FIX #5: Track 429'd key slots to skip them
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       // FIX #19: Wait if circuit breaker is tripped (all keys rate-limited)
       await this._circuitBreaker.waitIfTripped();
 
-      // FIX #17: If fileData was stripped, try restoring it after 2 retries (transient 400s)
-      let activeParts = cleanFileParts;
-      if (_fileDataStripped) {
-        _fileDataStripAttempts++;
-        if (_fileDataStripAttempts > 2) {
-          // Try again with fileData in case the 400 was transient
-          _fileDataStripped = false;
-          _fileDataStripAttempts = 0;
-          if (this.config.DEBUG) console.log(`[Brain:${brainDef.name}] Re-enabling fileData after ${_fileDataStripAttempts} stripped retries`);
-        } else {
-          activeParts = cleanFileParts.filter(p => !p.fileData);
-          if (this.config.DEBUG) console.warn(`[Brain:${brainDef.name}] Retrying WITHOUT fileData (inline_data only) — attempt ${attempt + 1}`);
-        }
-      }
+      const activeParts = cleanFileParts;
       const hasFileData = activeParts.some(p => p.fileData);
       const parts = [{ text: promptText }, ...activeParts];
       // Low temperature for deterministic construction analysis
@@ -1970,9 +1949,9 @@ const SmartBrains = {
                     if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
                       throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
                     }
-                    // 400 with fileData = file reference rejected. Mark for inline-only retry
-                    if (errStatus === 400 && hasFileData) {
-                      throw { _retryable: true, _stripFileData: true, status: 400, message: 'fileData rejected — will retry with inline_data only' };
+                    // 400 = bad request — don't waste retries, go straight to fallback
+                    if (errStatus === 400) {
+                      throw { _fatal400: true, status: 400, message: chunk.message || 'Bad Request — skipping to model fallback' };
                     }
                     throw new Error(`Proxy error ${errStatus}: ${chunk.message || 'Unknown'}`);
                   }
@@ -2060,12 +2039,14 @@ const SmartBrains = {
 
       } catch (err) {
         lastError = err;
+
+        // 400 = bad request — retrying won't help. Break immediately to model fallback.
+        if (err._fatal400) {
+          console.warn(`[Brain:${brainDef.name}] 400 Bad Request — skipping ${maxRetries - attempt - 1} remaining retries, going to model fallback`);
+          break;
+        }
+
         if (err._retryable) {
-          if (err._stripFileData && !_fileDataStripped) {
-            _fileDataStripped = true;
-            _fileDataStripAttempts = 0;
-            console.warn(`[Brain:${brainDef.name}] fileData rejected by Google — will retry with inline_data only`);
-          }
           // FIX #5: Track exhausted slots from proxy-reported errors too
           if (err.status === 429 || err.status === 403) {
             _exhaustedSlots.add(keySlot);
@@ -2084,7 +2065,10 @@ const SmartBrains = {
     }
 
     // ── Model Fallback: If primary model failed, try alternative models ──
-    const fallbackModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    // When File API refs are present, prefer models that support fileData
+    const fallbackModels = hasUploadedFiles
+      ? ['gemini-2.5-flash', 'gemini-2.0-flash']  // Skip 2.5-pro (400s with File API)
+      : ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
     const triedModel = modelName;
     for (const fbModel of fallbackModels) {
       if (fbModel === triedModel) continue; // skip the one that already failed
