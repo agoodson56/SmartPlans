@@ -113,6 +113,7 @@ const SmartBrains = {
   BRAINS: {
     // ── Wave 0: Legend Pre-Processing + Spatial Layout (Gemini 3.1 Pro) ──
     LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 65536, useProModel: true },
+    PLAN_LEGEND_SCANNER: { id: 0.25, name: 'Plan Legend Scanner', wave: 0, emoji: '🗺️', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
     // ── Wave 1: First Read — Document Intelligence ──
     SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
@@ -4452,6 +4453,60 @@ Return ONLY valid JSON:
   "disciplines_covered": ["Structured Cabling", "CCTV"]
 }`,
 
+      // ── BRAIN 0.25: Plan Legend Scanner (Wave 0 — finds legends embedded in plan sheets) ──
+      PLAN_LEGEND_SCANNER: () => `You are a CONSTRUCTION PLAN LEGEND HUNTER. Your job is to find SYMBOL LEGENDS, SYMBOL KEYS, ABBREVIATION TABLES, and DEVICE SCHEDULES that are embedded WITHIN construction plan sheets — NOT on a separate legend sheet.
+
+PROJECT: ${context.projectName || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+═══ WHY THIS MATTERS ═══
+Many construction plan sets embed legends directly on individual discipline sheets (e.g., T-001 has a telecom symbol key, E-001 has an electrical legend, FA-001 has a fire alarm legend). These are often in a corner or margin of the plan sheet and contain CRITICAL symbol definitions that the separate legend sheet may not include. Missing these causes miscounting.
+
+═══ WHAT TO LOOK FOR ON EACH PAGE ═══
+1. SYMBOL LEGENDS / KEYS — tables or grouped areas showing symbol shapes with labels
+   - Usually titled "SYMBOL LEGEND", "LEGEND", "SYMBOL KEY", "DEVICE LEGEND", or similar
+   - Often in top-right, bottom-right, or right margin of the sheet
+   - May be inside a bordered box or just a grouped list
+2. ABBREVIATION TABLES — lists of abbreviations and their meanings (e.g., "WAP = Wireless Access Point")
+3. DEVICE SCHEDULES — tables listing device types, models, quantities per room
+4. GENERAL NOTES with symbol definitions embedded in text
+5. KEYNOTES — numbered references that define what symbols mean
+
+═══ FOR EACH LEGEND FOUND ═══
+- Note which sheet/page it appears on (use the sheet ID like T-001, E-101, FA-001 if visible)
+- Extract EVERY symbol definition: what the symbol looks like and what it represents
+- Note the discipline it covers (Telecom, Fire Alarm, Electrical, Security, etc.)
+- Flag any symbols not found on the dedicated legend sheet (if one exists)
+
+Return ONLY valid JSON:
+{
+  "legends_found": [
+    {
+      "page": "page5_T-001.jpg",
+      "sheet_id": "T-001",
+      "legend_type": "symbol_legend",
+      "legend_title": "TELECOM SYMBOL LEGEND",
+      "location_on_page": "right margin",
+      "discipline": "Structured Cabling",
+      "symbols": [
+        { "symbol_id": "PL1", "visual": "Triangle with D inside", "device_type": "data_outlet", "label": "Data Outlet - Cat6A", "confidence": 95 },
+        { "symbol_id": "PL2", "visual": "Circle with W inside", "device_type": "wireless_access_point", "label": "WAP - Ceiling Mount", "confidence": 92 }
+      ]
+    }
+  ],
+  "abbreviations_found": [
+    { "page": "page5_T-001.jpg", "abbreviation": "WAP", "meaning": "Wireless Access Point" },
+    { "page": "page5_T-001.jpg", "abbreviation": "MDF", "meaning": "Main Distribution Frame" }
+  ],
+  "device_schedules_found": [
+    { "page": "page8_T-004.jpg", "sheet_id": "T-004", "schedule_type": "device_schedule", "devices": [] }
+  ],
+  "total_legends_found": 3,
+  "total_symbols_extracted": 18,
+  "pages_with_legends": ["T-001", "E-001", "FA-001"],
+  "pages_without_legends": "most plan sheets"
+}`,
+
       // ── BRAIN 0.5: Spatial Layout (Wave 0 — parallel with Legend Decoder) ──
       SPATIAL_LAYOUT: () => `You are a BUILDING SPATIAL ANALYST. Your job is to extract floor plan geometry, IDF/MDF room positions, and device zone positions so cable run lengths can be precisely calculated.
 
@@ -5918,18 +5973,34 @@ Return ONLY valid JSON:
       progressCallback(baseProgress, `${brain.emoji} ${brain.name} per-page scanning (${deduped.length} pages × ${scansPerPage} passes)…`, this._brainStatus);
 
       // Build decoded legend context to include in every per-page call
+      // Includes both dedicated legend sheet symbols AND plan-embedded legend symbols
       const legendSymbols = context.wave0?.LEGEND_DECODER?.symbols;
-      const legendContext = legendSymbols
-        ? `\nDECODED LEGEND — Symbol Meanings (from Wave 0 analysis):\n${JSON.stringify(legendSymbols, null, 2).substring(0, 5000)}\n`
-        : '';
+      const abbreviations = context.wave0?.LEGEND_DECODER?._abbreviations;
+      const planLegendPages = context.wave0?.LEGEND_DECODER?._plan_legend_pages || [];
+      let legendContext = '';
+      if (legendSymbols && legendSymbols.length > 0) {
+        legendContext = `\nDECODED LEGEND — Symbol Meanings (from legend sheets + plan-embedded legends):\n${JSON.stringify(legendSymbols, null, 2).substring(0, 5000)}\n`;
+        if (abbreviations && abbreviations.length > 0) {
+          legendContext += `\nABBREVIATIONS (from plan sheets):\n${JSON.stringify(abbreviations, null, 2).substring(0, 1500)}\n`;
+        }
+        if (planLegendPages.length > 0) {
+          legendContext += `\nNOTE: Embedded legends were found on these plan pages: ${planLegendPages.join(', ')}. Use these symbol definitions for accurate counting.\n`;
+        }
+      } else {
+        legendContext = '\nNO LEGEND DECODED — If this page contains a symbol legend/key, use it to identify devices.\n';
+      }
 
       // Per-page prompt wrappers (different approach for each scan pass)
+      const legendOnPageNote = `
+IMPORTANT — EMBEDDED LEGEND CHECK: If this page contains a SYMBOL LEGEND, SYMBOL KEY, ABBREVIATION TABLE, or DEVICE SCHEDULE (often in a corner or margin), USE those definitions to identify devices on this page. Include any legend symbols you find in your "page_legend" field. If no legend is on this page, omit the "page_legend" field.`;
+
       const scanPrefixes = [
         `═══ PER-PAGE SCAN MODE — PASS 1 (Standard Scan) ═══
 You are scanning a SINGLE PAGE of a multi-page construction document set.
 Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
 If this page is a title sheet, cover page, or has no ELV devices, return empty counts.
 Count every symbol carefully — examine each room on this page individually.
+${legendOnPageNote}
 ${legendContext}
 ═══ END PER-PAGE INSTRUCTIONS ═══
 
@@ -5943,6 +6014,7 @@ Use a DIFFERENT methodology than a standard left-to-right scan:
 - Look for "TYP" annotations — multiply the device by matching locations on this page
 - Check door openings for access control devices (reader + REX + contact + strike per door)
 Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
+${legendOnPageNote}
 ${legendContext}
 ═══ END PASS 2 INSTRUCTIONS ═══
 
@@ -5957,6 +6029,7 @@ Use ROOM-BY-ROOM methodology:
 - Check corridors and open areas for ceiling-mounted devices
 - Verify door hardware at every entrance/exit
 Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
+${legendOnPageNote}
 ${legendContext}
 ═══ END PASS 3 INSTRUCTIONS ═══
 
@@ -5970,6 +6043,7 @@ Use SYMBOL-TYPE methodology — count one device type at a time across the entir
 - After scanning all symbol types individually, compile the final count
 - Double-check any symbol that appears more than 5 times on a single page
 Count ONLY the devices visible on THIS ONE PAGE. Do NOT estimate or extrapolate.
+${legendOnPageNote}
 ${legendContext}
 ═══ END PASS 4 INSTRUCTIONS ═══
 
@@ -6193,6 +6267,7 @@ ${legendContext}
       const totals = {};
       const deviceInventory = [];
       const unidentified = [];
+      const discoveredLegends = []; // Legends found embedded in plan pages during scanning
 
       for (const r of successResults) {
         if (r.data.sheets) sheets.push(...r.data.sheets);
@@ -6203,9 +6278,18 @@ ${legendContext}
             totals[k] = (totals[k] || 0) + (typeof v === 'number' ? v : 0);
           }
         }
+        // Capture any legends discovered on individual pages during scanning
+        if (r.data.page_legend && Array.isArray(r.data.page_legend) && r.data.page_legend.length > 0) {
+          discoveredLegends.push({ page: r.page, symbols: r.data.page_legend });
+        }
+      }
+
+      if (discoveredLegends.length > 0) {
+        console.log(`[SmartBrains] 🗺️ Per-page scanning discovered embedded legends on ${discoveredLegends.length} page(s)`);
       }
 
       return { ...meta, sheets, totals, device_inventory: deviceInventory, unidentified_symbols: unidentified,
+        _discovered_legends: discoveredLegends.length > 0 ? discoveredLegends : undefined,
         notes: `Per-page scan: ${successResults.length}/${pageResults.length} pages analyzed individually` };
     }
 
@@ -6495,16 +6579,76 @@ ${legendContext}
     }
 
     // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) — NON-FATAL ═══
-    progressCallback(5, '📖 Wave 0: Decoding legend + mapping spatial layout…', this._brainStatus);
+    progressCallback(5, '📖 Wave 0: Decoding legend + scanning plans for embedded legends + mapping spatial layout…', this._brainStatus);
     let wave0Results = {};
     try {
-      wave0Results = await this._runWave(0, ['LEGEND_DECODER', 'SPATIAL_LAYOUT'], encodedFiles, state, context, progressCallback);
-      console.log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded + Spatial layout mapped ═══');
+      wave0Results = await this._runWave(0, ['LEGEND_DECODER', 'PLAN_LEGEND_SCANNER', 'SPATIAL_LAYOUT'], encodedFiles, state, context, progressCallback);
+      console.log('[SmartBrains] ═══ Wave 0 Complete — Legend decoded + Plan legends scanned + Spatial layout mapped ═══');
     } catch (wave0Err) {
       console.warn('[SmartBrains] ⚠️ Wave 0 failed — continuing without legend/spatial context:', wave0Err.message);
       this._brainStatus['LEGEND_DECODER'] = { status: 'failed', progress: 0, result: null, error: wave0Err.message };
+      this._brainStatus['PLAN_LEGEND_SCANNER'] = { status: 'failed', progress: 0, result: null, error: wave0Err.message };
       this._brainStatus['SPATIAL_LAYOUT'] = { status: 'failed', progress: 0, result: null, error: wave0Err.message };
-      wave0Results = { LEGEND_DECODER: { _failed: true, _error: wave0Err.message }, SPATIAL_LAYOUT: { _failed: true, _error: wave0Err.message } };
+      wave0Results = { LEGEND_DECODER: { _failed: true, _error: wave0Err.message }, PLAN_LEGEND_SCANNER: { _failed: true, _error: wave0Err.message }, SPATIAL_LAYOUT: { _failed: true, _error: wave0Err.message } };
+    }
+
+    // ═══ POST-WAVE 0: Merge Plan Legend Scanner results into Legend Decoder ═══
+    // Legends found embedded in plan sheets get combined with dedicated legend sheet analysis
+    const planLegends = wave0Results.PLAN_LEGEND_SCANNER;
+    if (planLegends && !planLegends._failed && planLegends.legends_found?.length > 0) {
+      // Ensure LEGEND_DECODER has a symbols array
+      if (!wave0Results.LEGEND_DECODER) wave0Results.LEGEND_DECODER = {};
+      if (!wave0Results.LEGEND_DECODER.symbols) wave0Results.LEGEND_DECODER.symbols = [];
+
+      // Convert plan legend symbols into LEGEND_DECODER format and merge
+      let mergedCount = 0;
+      const existingIds = new Set(wave0Results.LEGEND_DECODER.symbols.map(s =>
+        `${(s.visual || '').toLowerCase()}_${(s.device_type || '').toLowerCase()}`
+      ));
+
+      for (const legend of planLegends.legends_found) {
+        if (!legend.symbols) continue;
+        for (const sym of legend.symbols) {
+          // Deduplicate: skip if same visual+device_type already exists from dedicated legend
+          const dedupeKey = `${(sym.visual || '').toLowerCase()}_${(sym.device_type || '').toLowerCase()}`;
+          if (existingIds.has(dedupeKey)) continue;
+          existingIds.add(dedupeKey);
+
+          wave0Results.LEGEND_DECODER.symbols.push({
+            symbol_id: sym.symbol_id || `PL${mergedCount + 1}`,
+            visual: sym.visual,
+            discipline: sym.discipline || legend.discipline,
+            device_type: sym.device_type,
+            label_on_legend: sym.label || sym.label_on_legend,
+            similar_to: sym.similar_to || null,
+            confidence: sym.confidence || 80,
+            _source: `plan_sheet:${legend.sheet_id || legend.page}`,
+          });
+          mergedCount++;
+        }
+      }
+
+      // Also merge abbreviations into a top-level field
+      if (planLegends.abbreviations_found?.length > 0) {
+        wave0Results.LEGEND_DECODER._abbreviations = planLegends.abbreviations_found;
+      }
+
+      // Track which pages had legends (useful for downstream brains)
+      wave0Results.LEGEND_DECODER._plan_legend_pages = planLegends.pages_with_legends || [];
+      wave0Results.LEGEND_DECODER._plan_legends_merged = mergedCount;
+
+      if (mergedCount > 0) {
+        console.log(`[SmartBrains] 🗺️ Merged ${mergedCount} NEW symbols from plan-embedded legends into Legend Decoder (total: ${wave0Results.LEGEND_DECODER.symbols.length} symbols)`);
+        console.log(`[SmartBrains] 🗺️ Pages with embedded legends: ${(planLegends.pages_with_legends || []).join(', ')}`);
+      } else {
+        console.log(`[SmartBrains] 🗺️ Plan Legend Scanner found ${planLegends.legends_found.length} legend(s) but all symbols already in dedicated legend — no new symbols to merge`);
+      }
+
+      if (planLegends.abbreviations_found?.length > 0) {
+        console.log(`[SmartBrains] 🗺️ Found ${planLegends.abbreviations_found.length} abbreviations from plan sheets`);
+      }
+    } else if (planLegends && !planLegends._failed) {
+      console.log('[SmartBrains] 🗺️ Plan Legend Scanner: No embedded legends found in plan sheets');
     }
 
     // ═══ POST-WAVE 0: Merge OCR scale data into SPATIAL_LAYOUT results ═══
