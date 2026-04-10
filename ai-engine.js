@@ -75,6 +75,11 @@ const SmartBrains = {
     DEBUG: false,                            // FIX #18: Gate verbose logging behind debug flag
   },
 
+  // FIX #20: Session-level model blacklist — skip models that consistently 400
+  // After the first 400 from a model (e.g., gemini-3.1-pro-preview rejects File API refs),
+  // blacklist it for the remainder of this session to avoid wasting API calls
+  _model400Blacklist: new Set(),
+
   // FIX #19: Circuit breaker — pause all brains when API is overwhelmed
   _circuitBreaker: {
     consecutive429s: 0,
@@ -1880,10 +1885,18 @@ const SmartBrains = {
     // Check for uploaded file URIs — needed for key pinning in both main loop and fallback
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
 
-    // ── Model compatibility note ──
-    // gemini-3.1-pro-preview DOES support fileData (File API references) —
-    // confirmed in production. Previous auto-switch to gemini-2.5-pro caused
-    // persistent 400 errors. Keep 3.1-pro-preview as primary for all brains.
+    // FIX #20: Skip models that have been blacklisted due to persistent 400s this session
+    // e.g., gemini-3.1-pro-preview consistently 400s with File API references
+    if (this._model400Blacklist.has(modelName)) {
+      const fallback = hasUploadedFiles
+        ? ['gemini-2.5-flash', 'gemini-2.0-flash'].find(m => !this._model400Blacklist.has(m))
+        : ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'].find(m => !this._model400Blacklist.has(m));
+      if (fallback) {
+        console.log(`[Brain:${brainDef.name}] Skipping blacklisted model ${modelName} → using ${fallback}`);
+        modelName = fallback;
+      }
+    }
+
     let force25ProMode = false;
 
     // ── Key Selection (resolved once, used by both retry loop AND fallback) ──
@@ -2011,7 +2024,9 @@ const SmartBrains = {
         if (response.status === 400) {
           const errData = await response.json().catch(() => ({}));
           const msg400 = errData?.error?.message || 'Bad Request';
-          console.warn(`[Brain:${brainDef.name}] HTTP 400 — ${msg400}, skipping to model fallback`);
+          // FIX #20: Blacklist this model for the rest of the session
+          this._model400Blacklist.add(modelName);
+          console.warn(`[Brain:${brainDef.name}] HTTP 400 — ${msg400}, blacklisting ${modelName} for session, skipping to fallback`);
           lastError = new Error(`API 400: ${msg400}`);
           break;
         }
@@ -2183,7 +2198,9 @@ const SmartBrains = {
 
         // 400 = bad request — retrying won't help. Break immediately to model fallback.
         if (err._fatal400) {
-          console.warn(`[Brain:${brainDef.name}] 400 Bad Request — skipping ${maxRetries - attempt - 1} remaining retries, going to model fallback`);
+          // FIX #20: Blacklist this model for the rest of the session
+          this._model400Blacklist.add(modelName);
+          console.warn(`[Brain:${brainDef.name}] 400 Bad Request — blacklisting ${modelName}, skipping ${maxRetries - attempt - 1} remaining retries`);
           break;
         }
 
