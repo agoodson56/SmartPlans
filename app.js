@@ -340,12 +340,21 @@ const STEPS = [
 ];
 
 const DISCIPLINES = [
+  // Division 27 — Communications
   "Structured Cabling",
+  "Audio Visual",
+  "Distributed Antenna Systems (DAS)",
+  "Paging / Intercom",
+  "Nurse Call Systems",
+  // Division 28 — Electronic Safety & Security
   "CCTV",
   "Access Control",
-  "Audio Visual",
   "Intrusion Detection",
   "Fire Alarm",
+  // Division 8 — Openings (Door Hardware)
+  "Door Hardware / Electrified Hardware",
+  // Division 1 — General Requirements
+  "General Requirements / Conditions",
 ];
 
 // ═══════════════════════════════════════════════════════════════
