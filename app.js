@@ -795,6 +795,7 @@ function startNewBid() {
   state.currentStep = 0;
   state.completedSteps.clear();
   state.analyzing = false;
+  AnalysisTimer.reset();
   state.analysisComplete = false;
   state.projectName = '';
   state.preparedFor = '';
@@ -916,6 +917,54 @@ function startNewBid() {
 let _appToken = '';
 let _sessionToken = '';
 let _currentUser = null;
+
+// ═══════════════════════════════════════════════════════════════
+// ADMIN ANALYSIS TIMER — visible only to admin, starts on analysis
+// ═══════════════════════════════════════════════════════════════
+const AnalysisTimer = {
+  _interval: null,
+  _startTime: null,
+
+  start() {
+    if (!_currentUser?.is_admin) return;
+    this._startTime = Date.now();
+    const el = document.getElementById('admin-analysis-timer');
+    const display = document.getElementById('admin-timer-display');
+    if (el) el.style.display = 'flex';
+    if (display) display.textContent = '00:00';
+    clearInterval(this._interval);
+    this._interval = setInterval(() => {
+      if (!this._startTime) return;
+      const elapsed = Math.floor((Date.now() - this._startTime) / 1000);
+      const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const s = String(elapsed % 60).padStart(2, '0');
+      const d = document.getElementById('admin-timer-display');
+      if (d) d.textContent = `${m}:${s}`;
+    }, 1000);
+  },
+
+  stop() {
+    clearInterval(this._interval);
+    this._interval = null;
+    // Keep the final time visible for 30s after completion, then fade out
+    setTimeout(() => {
+      const el = document.getElementById('admin-analysis-timer');
+      if (el && !state.analyzing) {
+        el.style.transition = 'opacity 1s';
+        el.style.opacity = '0';
+        setTimeout(() => { el.style.display = 'none'; el.style.opacity = '1'; el.style.transition = ''; }, 1000);
+      }
+    }, 30000);
+  },
+
+  reset() {
+    clearInterval(this._interval);
+    this._interval = null;
+    this._startTime = null;
+    const el = document.getElementById('admin-analysis-timer');
+    if (el) { el.style.display = 'none'; el.style.opacity = '1'; el.style.transition = ''; }
+  },
+};
 
 // ═══════════════════════════════════════════════════════════════
 // AUTH — Session-based account system (@3dtsi.com only)
@@ -2940,6 +2989,7 @@ function renderFooter() {
         return;
       }
       state.analyzing = true;
+      AnalysisTimer.start();
       render();
     } else {
       state.currentStep++;
@@ -4177,6 +4227,14 @@ function build3DEngineCard(st) {
                   <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Documentation (As-builts + O&M Manuals)</td>
                   <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.docsCost)}</td>
                 </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Per Diem (${result.transitCosts.crewSize} crew × ${result.transitCosts.projectDays} days × $38/day)</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.perDiemCost)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px 14px;color:rgba(0,0,0,0.5);font-weight:600;">Mileage / Travel</td>
+                  <td style="padding:6px 14px;text-align:right;font-weight:700;">${fmt(result.transitCosts.mileageCost)}</td>
+                </tr>
                 ${result.transitCosts.aiPlanSpecificCost > 0 ? `
                 <tr style="border-bottom:1px solid rgba(0,0,0,0.04);background:rgba(99,102,241,0.03);">
                   <td style="padding:6px 14px;color:#6366F1;font-weight:700;">AI-Found Plan Items (${result.transitCosts.aiPlanItems.length} items)</td>
@@ -4829,7 +4887,8 @@ function _getCableRatePerFt(type, rating) {
       else if (r.includes('plenum') || r.includes('cmp')) cpKey = 'cat6a_cmp';
       else cpKey = 'cat6a_cmp';
     } else if (t.includes('cat6') || t === 'cat6') {
-      if (r.includes('riser') || r.includes('cmr')) cpKey = 'cat6_cmr';
+      if (r.includes('osp') || r.includes('outdoor') || r.includes('direct burial')) cpKey = 'cat6_osp';
+      else if (r.includes('riser') || r.includes('cmr')) cpKey = 'cat6_cmr';
       else if (r.includes('pvc')) cpKey = 'cat6_pvc';
       else cpKey = 'cat6_cmp';
     } else if (t.includes('5e') || t.includes('cat5')) {
@@ -7395,7 +7454,8 @@ function _buildCompanyProfileContext() {
     else if (key.includes('switch') || key.includes('poe') || key.includes('cisco') || key.includes('midspan') || key.includes('sigmanax')) equipGroups['Networking'].push(line);
     else if (key.includes('schlage') || key.includes('hid') || key.includes('hes') || key.includes('bosch') || key.includes('gri') || key.includes('s2_') || key.includes('lsp_') || key.includes('pushbar') || key.includes('door') || key.includes('rex')) equipGroups['Access Control'].push(line);
     else if (key.includes('monitor') || key.includes('lg_') || key.includes('samsung') || key.includes('sony') || key.includes('kvm')) equipGroups['Monitors'].push(line);
-    else if (key.includes('ups') || key.includes('apc') || key.includes('eaton')) equipGroups['UPS'].push(line);
+    else if (key.includes('ups') || key.includes('apc') || key.includes('eaton') || key.includes('battery_system') || key.includes('inverter')) equipGroups['UPS'].push(line);
+    else if (key.includes('access_ctrl') || key.includes('power_circuit') || key.includes('blast_film') || key.includes('fluted_glazing') || key.includes('sd_card')) equipGroups['Other'].push(line);
     else equipGroups['Other'].push(line);
   }
   for (const [group, lines] of Object.entries(equipGroups)) {
@@ -7427,6 +7487,19 @@ function _buildCompanyProfileContext() {
   for (const [key, item] of Object.entries(cp.benchmarks || {})) {
     ctx += `   ${item.description}: $${item.min.toLocaleString()}-$${item.max.toLocaleString()} ${item.unit} (avg $${item.avg.toLocaleString()})\n`;
   }
+
+  // Margin targets by project type
+  ctx += '\nMARGIN TARGETS BY PROJECT TYPE (target gross margin % from actual winning bids):\n';
+  for (const [key, item] of Object.entries(cp.marginTargets || {})) {
+    ctx += `   ${item.description}: ${item.gm}% GM\n`;
+  }
+
+  // Transit/civil site-specific warning
+  ctx += '\n⚠️ TRANSIT/RAILROAD CRITICAL NOTES:\n';
+  ctx += '   - Civil/trenching costs are HIGHLY site-specific ($85-$281/LF from actual bids) — always flag as "requires site-specific pricing"\n';
+  ctx += '   - UPS/power systems range from $2,554 to $187,550 depending on station size — do NOT use a single default\n';
+  ctx += '   - Target margin for transit/railroad is 45-50% ("3× cost" rule) — much higher than commercial work\n';
+  ctx += '   - Per diem ($38/day) and mileage ($0.65/mi) are standard for Amtrak crew travel\n';
 
   return ctx;
 }
@@ -8720,6 +8793,7 @@ async function runGeminiAnalysis(updateProgress) {
     if (window._analysisAborted) {
       console.log('[SmartPlans] Analysis was stopped by user — discarding results');
       state.analyzing = false;
+      AnalysisTimer.stop();
       render();
       return;
     }
@@ -8819,6 +8893,7 @@ async function runGeminiAnalysis(updateProgress) {
 
     setTimeout(() => {
       state.analyzing = false;
+      AnalysisTimer.stop();
       state.analysisComplete = true;
       state.completedSteps.add("review");
       // ── BOM & labor validation disabled — letting AI output run unmodified ──
@@ -8910,6 +8985,7 @@ async function runGeminiAnalysis(updateProgress) {
       UsageStats.reportBid(state.projectName || 'Unknown', 0.02); // ~single brain cost
       setTimeout(() => {
         state.analyzing = false;
+        AnalysisTimer.stop();
         state.analysisComplete = true;
         state.completedSteps.add("review");
         state.currentStep = 6;
@@ -8923,6 +8999,7 @@ async function runGeminiAnalysis(updateProgress) {
       updateProgress(100, "Analysis complete (with errors)", null);
       setTimeout(() => {
         state.analyzing = false;
+        AnalysisTimer.stop();
         state.analysisComplete = true;
         state.completedSteps.add("review");
         state.currentStep = 6;
@@ -8958,6 +9035,7 @@ function runSimulatedAnalysis(updateProgress) {
       state.aiError = null;
       setTimeout(() => {
         state.analyzing = false;
+        AnalysisTimer.stop();
         state.analysisComplete = true;
         state.completedSteps.add("review");
         state.currentStep = 6;
@@ -9806,6 +9884,7 @@ function _restoreStateFromPayload(id, pkg, est) {
 
   state.aiError = null;
   state.analyzing = false;
+  AnalysisTimer.reset();
 }
 
 async function deleteEstimate(id, name) {
@@ -12848,6 +12927,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             state.completedSteps.add('addenda');
             state.completedSteps.add('travel');
             state.analyzing = true;
+            AnalysisTimer.start();
             render();
           } else if (state.planFiles.length === 0) {
             spToast('Upload plan files first before starting analysis', 'warning');
@@ -12857,6 +12937,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           if (state.analyzing) {
             window._analysisAborted = true;
             state.analyzing = false;
+            AnalysisTimer.stop();
             state.analysisComplete = false;
             state.aiError = 'Analysis stopped by user';
             spToast('Analysis stopped', 'warning');

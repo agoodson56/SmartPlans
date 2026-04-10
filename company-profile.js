@@ -13,8 +13,8 @@ const COMPANY_PROFILE = {
     version: "2026-Q2",
     company: "3D Technology Services",
     lastUpdated: "2026-04-10",
-    bidCount: 18,
-    notes: "Material costs are actual distributor pricing. Overhead percentages are consistent across bids. Labor rates, burden, PW/Davis-Bacon, and tax are NEVER included — those are always project-specific.",
+    bidCount: 25,  // 18 non-Amtrak + 7 Amtrak/railroad bids
+    notes: "Material costs are actual distributor pricing. Overhead percentages are consistent across bids. Labor rates, burden, PW/Davis-Bacon, and tax are NEVER included — those are always project-specific. Includes transit/Amtrak calibration from Emeryville, Martinez, and Sacramento bids.",
 
     // ─── MATERIAL COSTS ───────────────────────────────────────
     // Actual distributor pricing from winning bids
@@ -24,6 +24,7 @@ const COMPANY_PROFILE = {
             cat6_cmp:               { cost: 0.242, unit: "per ft", mfg: "Berk Tek", partNumber: "10136226", source: "500 Capitol Mall, 1515 S Street" },
             cat6_cmr:               { cost: 0.300, unit: "per ft", mfg: "Various", source: "Auburn Indians" },
             cat6_pvc:               { cost: 0.260, unit: "per ft", mfg: "Berk Tek", source: "CHP North Sac, CHP Dublin" },
+            cat6_osp:               { cost: 0.922, unit: "per ft", mfg: "Various", source: "Emeryville Amtrak" },
             cat6a_cmp_white:        { cost: 0.494, unit: "per ft", mfg: "Superior Essex", partNumber: "6B-246-4B", source: "Sam Brennan" },
             cat6a_cmp:              { cost: 0.600, unit: "per ft", mfg: "Berk Tek", source: "SAC Juvenile Court" },
             cat6a_riser:            { cost: 0.396, unit: "per ft", mfg: "Leviton", source: "San Joaquin Juvenile" },
@@ -56,6 +57,9 @@ const COMPANY_PROFILE = {
             fa_18_4_jacketed:       { cost: 0.255, unit: "per ft", source: "VA Spinal Cord" },
             // Perimeter / sensor
             fo_sensor_cable:        { cost: 3.950, unit: "per ft", mfg: "Senstar", source: "Ethos Energy" },
+            // Transit/Amtrak composite cables (from Sacramento bids)
+            fiber_6strand_os2_w_18_2: { cost: 2.00, unit: "per ft", description: "6-strand OS2 + 18-2 copper composite", source: "Sacramento V1" },
+            os2_36strand:           { cost: 1.46, unit: "per ft", description: "36-strand OS2 singlemode", source: "Sacramento V1" },
         },
         connectivity: {
             cat6_jack_leviton:      { cost: 5.50,  unit: "each", mfg: "Leviton", partNumber: "61110-RL6", source: "500 Capitol Mall, 1515 S Street" },
@@ -157,6 +161,11 @@ const COMPANY_PROFILE = {
         axis_m4308_ple:         { cost: 1213.24, mfg: "Axis", description: "M4308-PLE panoramic dome" },
         axis_p3818_pve:         { cost: 1384.62, mfg: "Axis", description: "P3818-PVE 180° 13MP fixed dome" },
         axis_q6300_e:           { cost: 1714.14, mfg: "Axis", description: "Q6300-E 5MP 360 multidirectional" },
+        // ── Axis Cameras — Amtrak distributor pricing (from Emeryville/Martinez bids) ──
+        axis_p3267_lme_amtrak:  { cost: 729.36,  mfg: "Axis", description: "P3267-LME fixed dome (Amtrak Emeryville)", source: "Emeryville" },
+        axis_p3268_lve_amtrak:  { cost: 778.97,  mfg: "Axis", description: "P3268-LVE 8MP dome (Amtrak Emeryville)", source: "Emeryville" },
+        axis_p3738_ple_amtrak:  { cost: 1416.91, mfg: "Axis", description: "P3738-PLE 32MP panoramic (Amtrak Emeryville)", source: "Emeryville" },
+        axis_p4708_plve_amtrak: { cost: 977.44,  mfg: "Axis", description: "P4708-PLVE panoramic ERA (Amtrak Emeryville)", source: "Emeryville" },
         // ── Avigilon Cameras ──
         avigilon_3x8mp_multisensor: { cost: 1530.96, mfg: "Avigilon", description: "3x8MP WDR 270° multisensor" },
         avigilon_h6a_4mp:       { cost: 1828.37, mfg: "Avigilon", description: "H6A 4MP outdoor IR dome" },
@@ -227,6 +236,19 @@ const COMPANY_PROFILE = {
         eaton_9px2000rt:        { cost: 2583.40, mfg: "Eaton", description: "9PX2000RT-L UPS" },
         eaton_9px1500rt:        { cost: 2337.79, mfg: "Eaton", description: "9PX1500RT-L UPS" },
         eaton_9px10k:           { cost: 8000.34, mfg: "Eaton", description: "9PX10KSP UPS" },
+        eaton_5px3000rtng2:     { cost: 2554.00, mfg: "Eaton", description: "5PX3000RTNG2 3kVA UPS (Sacramento Amtrak)", source: "Sacramento V1" },
+        // ── Transit/Amtrak Station-Scale Equipment (from Emeryville/Martinez bids) ──
+        ups_station_system:     { cost: 34943.00, description: "Station-scale UPS system (Amtrak)", source: "Emeryville" },
+        ups_battery_system:     { cost: 98477.00, description: "Station battery backup system (Amtrak)", source: "Emeryville" },
+        ups_inverter_large:     { cost: 187550.00, description: "UPS/Inverter system — large station (Amtrak)", source: "Martinez" },
+        // ── Transit Access Control (from Martinez bid) ──
+        access_ctrl_door_transit: { cost: 7500.00, description: "Access control per door — transit station", source: "Martinez" },
+        access_ctrl_panel_transit: { cost: 9500.00, description: "Access control panel — transit station", source: "Martinez" },
+        power_circuit_dedicated: { cost: 33989.00, description: "Dedicated power circuit — transit station", source: "Martinez" },
+        // ── Misc Transit ──
+        sd_card_128gb:          { cost: 250.00, description: "128GB SD card for edge storage", source: "Emeryville" },
+        blast_film_per_window:  { cost: 350.00, description: "Blast/security window film per window (Martinez)", source: "Martinez" },
+        fluted_glazing_per_sf:  { cost: 200.00, description: "Fluted glazing replacement per SF", source: "Martinez" },
         // ── Networking (Enterprise) ──
         cisco_c9500_24y4c:      { cost: 15791.00, mfg: "Cisco", partNumber: "C9500-24Y4C-A", description: "Catalyst 9500 24x1G" },
         cisco_c9300x_24hx:      { cost: 4583.00, mfg: "Cisco", partNumber: "C9300X-24HX-A", description: "Catalyst 9300 24-port" },
@@ -272,6 +294,7 @@ const COMPANY_PROFILE = {
         perimeter_detection:    { gm: 63, description: "Perimeter fence detection systems", source: "Ethos Energy" },
         demo:                   { gm: 31, description: "Demolition / cable removal", source: "Sam Brennan, 1515 S Street" },
         intercom:               { gm: 25, description: "Intercom (subcontractor-heavy)", source: "Sam Brennan" },
+        transit_railroad:       { gm: 45, description: "Transit/Railroad (Amtrak, BART, UP) — target 45-50% per '3× cost' rule", source: "Sacramento V1/V2, Emeryville, Martinez" },
     },
 
     // ─── PER-UNIT BENCHMARK RANGES ────────────────────────────
@@ -287,6 +310,11 @@ const COMPANY_PROFILE = {
         card_reader_unit:             { min: 2600, max: 3200, avg: 2900, unit: "$/reader", description: "Card reader installed", source: "Auburn Indians, 1515 S Street" },
         wap_indoor:                   { min: 2000, max: 2000, avg: 2000, unit: "$/WAP", description: "Indoor wireless AP installed", source: "1515 S Street" },
         wap_outdoor:                  { min: 2300, max: 2300, avg: 2300, unit: "$/WAP", description: "Outdoor wireless AP installed", source: "1515 S Street" },
+        // Transit/Amtrak benchmarks
+        camera_amtrak_per_unit:       { min: 6150, max: 6965, avg: 6400, unit: "$/camera", description: "Amtrak per-camera all-in (camera + cable + labor)", source: "Emeryville, Martinez" },
+        camera_amtrak_per_total:      { min: 21346, max: 29497, avg: 25000, unit: "$/camera", description: "Amtrak total ÷ camera count (includes civil, GC, everything)", source: "Emeryville ($21K), Martinez ($29K)" },
+        trench_transit_per_lf:        { min: 85, max: 281, avg: 175, unit: "$/LF", description: "Transit trenching — SITE SPECIFIC (Emeryville $85, Martinez $281)", source: "Emeryville, Martinez" },
+        ups_station_range:            { min: 2554, max: 187550, avg: 50000, unit: "$/system", description: "Station UPS system — varies wildly by station size", source: "Sacramento, Emeryville, Martinez" },
     },
 
     // ─── CAMERA INSTALL HOURS ─────────────────────────────────
@@ -304,6 +332,10 @@ const COMPANY_PROFILE = {
         access_door_rfid:       { hours: 4, description: "RFID wireless lock per door", source: "Auburn Indians" },
         mobilization:           { hours: 8, description: "Standard mobilization", source: "Multiple" },
         training:               { hours: 4, description: "Standard end-user training", source: "Multiple" },
+        // Transit/Amtrak install hours (restricted work windows increase duration)
+        camera_transit_outdoor: { hours: 12, description: "Transit outdoor camera (includes RWIC wait, safety briefing)", source: "Emeryville, Martinez" },
+        camera_transit_pole:    { hours: 16, description: "Transit pole-mount camera (includes civil, pole, foundation)", source: "Emeryville" },
+        access_door_transit:    { hours: 12, description: "Transit access control door install", source: "Martinez" },
     },
 
     // ─── SOURCE BIDS ──────────────────────────────────────────
@@ -327,6 +359,14 @@ const COMPANY_PROFILE = {
         { id: "53854", name: "San Joaquin Juvenile", type: "Cabling + CCTV", total: 1010877, date: "2026-04-07", pw: true },
         { id: "53855", name: "Lovelock NV", type: "CCTV (correctional)", total: 2121145, date: "2026-04-07", pw: true },
         { id: "54008", name: "CHP Dublin", type: "CCTV", total: 48397, date: "2025-04-08", pw: false },
+        // Amtrak / Railroad bids
+        { id: "AMT-EMV", name: "Amtrak Emeryville Original", type: "Transit CCTV", total: 1302128, date: "2024-06-15", pw: true, transit: true },
+        { id: "AMT-EMV-VE", name: "Amtrak Emeryville VE", type: "Transit CCTV (Value Eng)", total: 1033760, date: "2024-06-15", pw: true, transit: true },
+        { id: "AMT-MTZ", name: "Amtrak Martinez Original", type: "Transit CCTV+Access", total: 2035277, date: "2024-08-20", pw: true, transit: true },
+        { id: "AMT-MTZ-VE", name: "Amtrak Martinez VE", type: "Transit CCTV+Access (Value Eng)", total: 1731418, date: "2024-08-20", pw: true, transit: true },
+        { id: "AMT-SAC-V1", name: "Amtrak Sacramento V1", type: "Transit Backbone+Racks", total: 244293, date: "2024-04-10", pw: true, transit: true },
+        { id: "AMT-SAC-V2", name: "Amtrak Sacramento V2", type: "Transit Backbone+Racks", total: 244293, date: "2024-05-01", pw: true, transit: true },
+        { id: "AMT-SAC-CCTV", name: "Amtrak Sacramento CCTV", type: "Transit CCTV (placeholder)", total: 0, date: "2024-05-01", pw: true, transit: true },
     ],
 };
 

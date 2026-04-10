@@ -689,7 +689,15 @@ const FormulaEngine3D = {
             // 14. Documentation (as-builts + O&M)
             const docsCost = this._round(this.testingRates.om_manual_per_system * 2 + this.testingRates.asbuilt_per_sheet * 15);
 
-            // 15. AI-found plan-specific items (bollards, blast film, emergency phones, etc.)
+            // 15. Travel costs (per diem + mileage — transit sites are typically remote/distant)
+            const perDiemDaily = this.sageRates?.sage_transit?.per_diem?.cost || 38;
+            const mileagePerMile = this.sageRates?.sage_transit?.mileage?.cost || 0.65;
+            const perDiemCost = this._round(estCrewSize * estProjectDays * perDiemDaily);
+            // Mileage: estimate 100mi round-trip per crew member, first/last week only (2 trips)
+            const mileageTrips = Math.max(2, Math.ceil(estProjectDays / 5));
+            const mileageCost = this._round(estCrewSize * 100 * mileageTrips * mileagePerMile);
+
+            // 16. AI-found plan-specific items (bollards, blast film, emergency phones, etc.)
             // These come from the SPECIAL_CONDITIONS brain's transit_railroad_checklist
             let aiPlanSpecificCost = 0;
             const aiPlanItems = [];
@@ -725,7 +733,7 @@ const FormulaEngine3D = {
                 rrpli + insurance + mobilization + crewCompliance + rwicCost +
                 safetyBriefingCost + workWindowPremium + standbyCost + matPremiums +
                 seismicBracing + hirailCost + multiMobCost + testingMin + docsCost +
-                aiPlanSpecificCost
+                perDiemCost + mileageCost + aiPlanSpecificCost
             );
 
             transitCosts = {
@@ -746,13 +754,15 @@ const FormulaEngine3D = {
                 multiMobCost,
                 mobilizations: estMobilizations,
                 testingMin,
+                perDiemCost,
+                mileageCost,
                 aiPlanSpecificCost,
                 aiPlanItems,
                 docsCost,
                 total: transitTotal,
             };
             grandSELL += transitTotal;
-            grandCOS += this._round(transitTotal * 0.82); // ~18% margin on transit adders
+            grandCOS += this._round(transitTotal * 0.58); // ~42% margin on transit adders (Sacramento "3× cost" rule → target 45% GM)
         }
 
         // ── Step 5: Bonds (2% of total sell — after transit so bonds include transit costs) ──

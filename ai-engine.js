@@ -2115,6 +2115,11 @@ const SmartBrains = {
                     const errStatus = chunk.status || 500;
                     // Log the actual Google error for ALL error codes (not just 400)
                     if (chunk._debug) console.error(`[Brain:${brainDef.name}] Google ${errStatus} detail: ${chunk._debug}`);
+                    // FIX: Detect expired context cache — 403 "CachedContent not found" is NOT a rate limit,
+                    // it's a permanent error that won't resolve by retrying. Invalidate cache immediately.
+                    if (errStatus === 403 && chunk._debug && chunk._debug.includes('CachedContent not found')) {
+                      throw { _cacheExpired: true, status: 403, message: 'Context cache expired — invalidating' };
+                    }
                     // Throw retryable errors so the retry loop handles them
                     if (errStatus === 429 || errStatus === 403 || errStatus >= 500) {
                       throw { _retryable: true, status: errStatus, message: chunk.message || `API ${errStatus}` };
@@ -2156,6 +2161,8 @@ const SmartBrains = {
                     }
                   }
                 } catch (e) {
+                  // If it's a cache expiration, rethrow immediately
+                  if (e._cacheExpired) throw e;
                   // If it's a retryable error from proxy, rethrow it
                   if (e._retryable) throw e;
                   // If it's a real Error (e.g. proxy 400), rethrow — don't silently swallow
@@ -2209,6 +2216,17 @@ const SmartBrains = {
 
       } catch (err) {
         lastError = err;
+
+        // FIX #21: Cache expired — invalidate immediately, don't waste retries or trip circuit breaker.
+        // 403 "CachedContent not found" is permanent — no amount of retrying or waiting will bring it back.
+        if (err._cacheExpired) {
+          if (this._contextCache) {
+            console.warn(`[Brain:${brainDef.name}] ⚠️ Context cache EXPIRED — invalidating cache for all remaining brains`);
+            this._contextCache = null; // Kill the cache reference globally
+          }
+          // Break to fallback — fallback builds fresh body without _cacheName
+          break;
+        }
 
         // 400 = bad request — retrying won't help. Break immediately to model fallback.
         if (err._fatal400) {
@@ -6908,8 +6926,10 @@ ${legendContext}
       const _pCats = _pricer.categories || _pricer.material_categories || [];
       // MAX prices differ by project type — transit cameras cost 2-3x more than commercial
       const _maxCosts = _isTransit ? {
-        'camera': 4500, 'dome': 3500, 'bullet': 2500, 'ptz': 4000,
-        'fisheye': 3500, 'panoram': 3500, 'multi-sensor': 4500, 'multi-lens': 4500,
+        // Transit clamps: calibrated to actual Amtrak distributor pricing + 50% buffer
+        // Actual costs: P3267 $729, P3268 $779, P4708 $977, P3738 $1,417, Q6300 $1,714
+        'camera': 2500, 'dome': 2000, 'bullet': 2000, 'ptz': 3000,
+        'fisheye': 2500, 'panoram': 2500, 'multi-sensor': 2500, 'multi-lens': 2500,
         'nvr': 18000, 'server': 18000, 'switch': 6000, 'reader': 800,
         'panel': 4000, 'controller': 4000, 'ups': 9000, 'patch panel': 800,
         'jack': 50, 'faceplate': 25, 'cable': 1500,
