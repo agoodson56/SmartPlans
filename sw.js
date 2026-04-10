@@ -1,4 +1,4 @@
-const CACHE_NAME = 'smartplans-v5.92.0';
+const CACHE_NAME = 'smartplans-v5.93.0';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -19,22 +19,35 @@ const APP_SHELL = [
     '/smartplans-logo.png',
 ];
 
-// Install — cache app shell
+// Install — cache app shell, immediately take over
 self.addEventListener('install', (event) => {
+    // Force skip waiting — don't wait for old tabs to close
+    self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
     );
-    self.skipWaiting();
 });
 
-// Activate — clean old caches
+// Activate — nuke ALL old caches, claim all clients immediately
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then(keys =>
-            Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-        )
+            Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => {
+                console.log(`[SW] Deleting old cache: ${k}`);
+                return caches.delete(k);
+            }))
+        ).then(() => {
+            console.log(`[SW] ${CACHE_NAME} activated — claiming all clients`);
+            return self.clients.claim();
+        })
     );
-    self.clients.claim();
+});
+
+// Message handler — allows page to force-skip waiting
+self.addEventListener('message', (event) => {
+    if (event.data === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
 });
 
 // Fetch — network-first for API, stale-while-revalidate for same-origin assets

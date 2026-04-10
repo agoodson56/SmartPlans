@@ -39,7 +39,13 @@
   Content-Type: application/javascript; charset=utf-8
   Cache-Control: no-cache, must-revalidate
 
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/
+  Cache-Control: no-cache, no-store, must-revalidate
+
 /sw.js
   Content-Type: application/javascript; charset=utf-8
-  Cache-Control: no-cache, must-revalidate
+  Cache-Control: no-cache, no-store, must-revalidate
   Service-Worker-Allowed: /

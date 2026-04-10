@@ -207,26 +207,33 @@
     <script src="rate-library.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').then(reg => {
+            navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(reg => {
                 console.log('[SmartPlans] Service Worker registered');
 
                 // Check for updates every 60 seconds (was 5 min)
                 setInterval(() => reg.update(), 60 * 1000);
 
-                // When a new SW is found, auto-apply it
+                // When a new SW is found, tell it to take over immediately
                 reg.addEventListener('updatefound', () => {
                     const newWorker = reg.installing;
                     if (!newWorker) return;
                     newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && reg.waiting) {
+                            // Tell the waiting SW to skip waiting and take over
+                            reg.waiting.postMessage('SKIP_WAITING');
+                            _showUpdateBanner();
+                        }
                         if (newWorker.state === 'activated') {
-                            // New version is live — show update banner
                             _showUpdateBanner();
                         }
                     });
                 });
 
-                // Also handle the case where a new SW is already waiting
-                if (reg.waiting) _showUpdateBanner();
+                // If a SW is already waiting from a previous visit, activate it now
+                if (reg.waiting) {
+                    reg.waiting.postMessage('SKIP_WAITING');
+                    _showUpdateBanner();
+                }
             }).catch(err => console.warn('[SmartPlans] SW registration failed:', err));
 
             // Listen for the new SW taking control
