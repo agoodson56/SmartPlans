@@ -2682,6 +2682,13 @@ YOUR MISSION: Scan EVERY sheet and count EVERY device symbol for the selected di
 
 WHAT TO COUNT BY DISCIPLINE:
 ${(context.disciplines || []).includes('Structured Cabling') ? '- CABLING: Data outlets, voice outlets, WAPs, fiber outlets, combo outlets, patch panels, cable trays' : ''}
+${(context.disciplines || []).includes('Structured Cabling') ? `═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
+  Many plans use a NUMERIC PREFIX on data outlet symbols to indicate HOW MANY CABLES go to that location.
+  Examples: "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops, "1D" = 1 data drop, "6D" = 6 data drops.
+  A triangle symbol labeled "2D" means TWO data cables at that location — NOT one symbol = one outlet.
+  Count each "2D" as 2 data_outlets, each "4D" as 4 data_outlets, etc.
+  Similarly "2V" = 2 voice drops, "1V" = 1 voice drop. The total data_outlet count = SUM of all multiplied values.
+  DO NOT count the number of symbols — count the number of CABLES indicated by each symbol label.` : ''}
 ${(context.disciplines || []).includes('CCTV') ? '- CCTV: Fixed cameras, PTZ cameras, dome cameras, bullet cameras, multi-sensor cameras, NVRs, encoders' : ''}
 ${(context.disciplines || []).includes('Access Control') ? '- ACCESS (Div 28 + Div 08): Card readers, keypads, door contacts, REX devices, electric strikes, maglocks, intercoms, controllers, power transfer hinges, auto-operators, delayed egress devices, gate operators, barrier arms' : ''}
 ${(context.disciplines || []).includes('Fire Alarm') ? '- FIRE: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, modules, annunciators, NACs, SLCs' : ''}
@@ -4483,6 +4490,9 @@ INSTRUCTIONS:
 4. Note any symbols that are ambiguous or could be confused with others
 5. Rate overall legend quality (excellent/good/fair/poor)
 
+═══ CRITICAL — DATA DROP MULTIPLIER SYMBOLS ═══
+Look for symbols with NUMERIC PREFIXES like "2D", "4D", "1D", "6D" — these indicate the number of data cables at each drop location. Example: a triangle labeled "2D" = 2 data drops (2 Cat6 cables). Similarly "2V" = 2 voice drops. These multipliers are ESSENTIAL for accurate cable counting. Record the multiplier in the symbol definition so downstream counters know "2D" = qty 2, not qty 1.
+
 Return ONLY valid JSON:
 {
   "symbols": [
@@ -4514,6 +4524,9 @@ Many construction plan sets embed legends directly on individual discipline shee
 3. DEVICE SCHEDULES — tables listing device types, models, quantities per room
 4. GENERAL NOTES with symbol definitions embedded in text
 5. KEYNOTES — numbered references that define what symbols mean
+
+═══ CRITICAL — DATA DROP MULTIPLIER SYMBOLS ═══
+Look for symbols with NUMERIC PREFIXES like "2D", "4D", "1D", "6D" — these indicate the number of data cables at each drop location. Example: a triangle labeled "2D" = 2 data drops (2 Cat6 cables). Similarly "2V" = 2 voice drops. Record these multiplier definitions so counters know that each "2D" symbol = qty 2 data outlets, NOT qty 1.
 
 ═══ FOR EACH LEGEND FOUND ═══
 - Note which sheet/page it appears on (use the sheet ID like T-001, E-101, FA-001 if visible)
@@ -4737,6 +4750,9 @@ YOUR METHODOLOGY — ROOM-BY-ROOM SCAN:
 
 CRITICAL: You have NOT seen the first count. You are a completely independent reader. Do NOT guess — if you cannot clearly identify a symbol, mark it as "uncertain".
 
+═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total data_outlet count = SUM of all multiplied values, NOT the number of symbols. Similarly "2V" = 2 voice drops.
+
 Return ONLY valid JSON (same schema as Symbol Scanner):
 {
   "sheets": [
@@ -4779,6 +4795,9 @@ INSTRUCTIONS:
 4. Double-check areas near MDF/IDF rooms where device density is highest
 5. Report any devices that are partially hidden behind text or other symbols
 
+═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total data_outlet count = SUM of multiplied values, NOT the number of symbols. Similarly "2V" = 2 voice drops.
+
 Return ONLY valid JSON:
 {
   "disciplines": ${JSON.stringify(allDisc)},
@@ -4806,6 +4825,9 @@ For each sheet:
 4. This catches devices missed by room-based scanning (devices in undefined spaces, on boundaries)
 
 WHY THIS WORKS: Devices at room boundaries, in ceiling spaces, or in areas without clear room labels are often missed by room-based counting. Zone-based counting catches them.
+
+═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops, "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total = SUM of multiplied values, NOT number of symbols.
 
 Return ONLY valid JSON:
 {
@@ -4881,6 +4903,13 @@ CONSENSUS RULES:
    - Glass break sensors: Often shown on enlarged interior elevation details, NOT on floor plans
    - If your total count seems LOW compared to the building size, it probably IS low — recount
 
+═══ CRITICAL: DATA DROP MULTIPLIER NOTATION ═══
+Many plans use a NUMERIC PREFIX on data outlet symbols to indicate HOW MANY CABLES go to that location.
+Examples: "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops, "1D" = 1 data drop, "6D" = 6 data drops.
+A triangle symbol labeled "2D" means TWO data cables — NOT one symbol = one outlet.
+When comparing reads, verify ALL scanners interpreted the multiplier correctly. If one read counts 30 symbols and another counts 80 data_outlets, the higher number likely correctly multiplied the prefix values.
+Total data_outlet count = SUM of all (prefix × symbol) values across the plan. Similarly "2V"/"4V" = voice drops.
+
 ═══ CRITICAL: TYPICAL NOTE MULTIPLICATION ═══
 When an annotation says "TYP" or "TYPICAL" (e.g., "Card reader TYP at each secure door"):
 - Check the Per-Floor Analyzer for the count of matching locations (e.g., how many "secure doors" exist)
@@ -4939,6 +4968,10 @@ INSTRUCTIONS:
      with 20 offices means 20 speakers, not 1.
    - DETECTORS: Smoke/heat detectors marked "TYP" in a corridor = one per code-required spacing interval (~30ft)
    - DATA OUTLETS: "TYP" at a workstation = one per workstation of that type on the floor
+   ═══ DATA DROP MULTIPLIER NOTATION ═══
+   Symbols with numeric prefixes like "2D", "4D", "1D" indicate HOW MANY CABLES at that location.
+   "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4.
+   Total data_outlet count = SUM of multiplied values, NOT number of symbols. A sheet with 20x "2D" symbols and 5x "4D" symbols = 60 data outlets (40+20), NOT 25.
 5. CHECK EVERY FLOOR: Devices often repeat on multiple floors — count each floor separately and add
 6. If a symbol is ambiguous, describe what you see and your best judgment
 7. When in doubt, prefer the HIGHER count — undercounting loses bids, overcounting gets corrected at submittal
@@ -5648,6 +5681,9 @@ METHOD — For EACH sheet, divide into 4 quadrants (top-left, top-right, bottom-
 - Pay special attention to: dense areas, stacked symbols, devices behind text
 - Don't double-count at quadrant boundaries
 
+═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops, "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total = SUM of multiplied values, NOT number of symbols.
+
 Return ONLY valid JSON:
 {
   "quadrant_counts": [
@@ -5688,6 +5724,9 @@ YOUR METHOD — FLOOR-BY-FLOOR ISOLATION:
    c. Do specialty floors (penthouse, basement, mechanical) have unique requirements?
 
 ANOMALY DETECTION: Flag any floor that deviates >20% from the average of similar floors. This often indicates missed symbols.
+
+═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops, "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total = SUM of multiplied values, NOT number of symbols.
 
 Return ONLY valid JSON:
 {

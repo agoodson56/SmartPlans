@@ -328,6 +328,231 @@ textarea:focus {
   /* visible by default, hidden on mobile */
 }
 
+/* ─── PDF Tool Modal ─── */
+.pdf-tool-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+.pdf-tool-modal {
+  background: #fff;
+  width: 640px;
+  max-width: 92vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(180, 140, 20, 0.5);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+}
+.pdf-tool-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(180, 140, 20, 0.3);
+}
+.pdf-tool-header h3 {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 400;
+  margin: 0;
+  color: var(--text-primary);
+}
+.pdf-tool-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px 8px;
+}
+.pdf-tool-close:hover { color: var(--text-primary); }
+.pdf-tool-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.pdf-tool-section {
+  margin-bottom: 18px;
+}
+.pdf-tool-section label {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.pdf-tool-section .hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.pdf-tool-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(180, 140, 20, 0.5);
+  border-radius: 0;
+  font-size: 14px;
+  font-family: var(--font-mono);
+  background: #FAFBFC;
+  box-sizing: border-box;
+}
+.pdf-tool-input:focus {
+  outline: none;
+  border-color: #0D9488;
+}
+.pdf-tool-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(13, 148, 136, 0.06);
+  border: 1px solid rgba(13, 148, 136, 0.2);
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+}
+.pdf-tool-info strong { color: var(--text-primary); }
+.pdf-tool-filename {
+  padding: 10px 14px;
+  background: #FAFBFC;
+  border: 1px solid rgba(180, 140, 20, 0.5);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.pdf-tool-filename .name { font-weight: 600; color: var(--text-primary); }
+.pdf-tool-filename .meta { color: var(--text-muted); font-size: 12px; }
+.pdf-tool-actions {
+  display: flex;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid rgba(180, 140, 20, 0.3);
+  justify-content: flex-end;
+}
+.pdf-tool-btn {
+  padding: 10px 22px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid rgba(180, 140, 20, 0.65);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+}
+.pdf-tool-btn:hover {
+  border-color: #0D9488;
+  color: #0D9488;
+  background: rgba(13, 148, 136, 0.04);
+}
+.pdf-tool-btn--primary {
+  background: #0D9488;
+  color: #fff;
+  border-color: #0D9488;
+}
+.pdf-tool-btn--primary:hover {
+  background: #0B7C72;
+  border-color: #0B7C72;
+  color: #fff;
+}
+.pdf-tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pdf-tool-drop {
+  border: 1px dashed rgba(180, 140, 20, 0.7);
+  padding: 32px 24px;
+  text-align: center;
+  cursor: pointer;
+  position: relative;
+  background: #fff;
+  transition: all 0.15s;
+}
+.pdf-tool-drop:hover,
+.pdf-tool-drop.drag-over {
+  border-color: #0D9488;
+  background: rgba(13, 148, 136, 0.02);
+}
+.pdf-tool-drop input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.pdf-tool-drop .icon { font-size: 28px; margin-bottom: 6px; opacity: 0.6; }
+.pdf-tool-drop .text { font-size: 13px; color: var(--text-secondary); }
+.pdf-tool-preview {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid rgba(180, 140, 20, 0.3);
+  margin-top: 10px;
+}
+.pdf-tool-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.pdf-tool-preview th {
+  background: #FAFBFC;
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid rgba(180, 140, 20, 0.3);
+  position: sticky;
+  top: 0;
+}
+.pdf-tool-preview td {
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+  color: var(--text-secondary);
+}
+.pdf-tool-preview tr.kept td { color: var(--text-primary); font-weight: 500; }
+.pdf-tool-preview tr.removed td { color: var(--text-muted); text-decoration: line-through; opacity: 0.5; }
+.pdf-tool-status {
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-top: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.06);
+  color: #065f46;
+}
+.pdf-tool-status.error {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.06);
+  color: #991b1b;
+}
+.pdf-tool-output-name {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(180, 140, 20, 0.5);
+  border-radius: 0;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  background: #FAFBFC;
+  box-sizing: border-box;
+}
+.pdf-tool-output-name:focus {
+  outline: none;
+  border-color: #0D9488;
+}
+
 /* ─── API Health Traffic Light ─── */
 .api-health-indicator {
   position: relative;

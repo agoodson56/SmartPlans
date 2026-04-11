@@ -12824,6 +12824,271 @@ window.addEventListener('unhandledrejection', (event) => {
   } catch (e) { console.warn('Rejection handler failed:', e); }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// PDF PAGE EXTRACTOR TOOL
+// ═══════════════════════════════════════════════════════════════
+
+function openPdfPageTool() {
+  // Remove existing modal if any
+  document.querySelector('.pdf-tool-overlay')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'pdf-tool-overlay';
+  overlay.innerHTML = `
+    <div class="pdf-tool-modal">
+      <div class="pdf-tool-header">
+        <h3>PDF Page Extractor</h3>
+        <button class="pdf-tool-close" data-action="close-pdf-tool">&times;</button>
+      </div>
+      <div class="pdf-tool-body">
+        <div class="pdf-tool-section" id="pdfToolUpload">
+          <label>1. Select a PDF</label>
+          <p class="hint">Upload a plan set or specification document to extract specific pages from.</p>
+          <div class="pdf-tool-drop" id="pdfToolDrop">
+            <input type="file" accept=".pdf" id="pdfToolFileInput">
+            <div class="icon">📄</div>
+            <div class="text">Drop a PDF here or click to browse</div>
+          </div>
+        </div>
+        <div id="pdfToolLoaded" style="display:none;">
+          <div class="pdf-tool-filename" id="pdfToolFileInfo">
+            <span class="name"></span>
+            <span class="meta"></span>
+          </div>
+          <div class="pdf-tool-section">
+            <label>2. Pages to Keep</label>
+            <p class="hint">Enter page numbers or ranges. Examples: "1-10" or "1, 5, 8-12, 15" or "88-109"</p>
+            <input type="text" class="pdf-tool-input" id="pdfToolPages" placeholder="e.g. 1-10, 15, 20-25">
+          </div>
+          <div class="pdf-tool-section">
+            <label>3. Output File Name</label>
+            <p class="hint">Name for the extracted PDF. It will be downloaded to your browser.</p>
+            <input type="text" class="pdf-tool-output-name" id="pdfToolOutputName" placeholder="e.g. Electrical Pages.pdf">
+          </div>
+          <div id="pdfToolPreview"></div>
+          <div id="pdfToolStatus"></div>
+        </div>
+      </div>
+      <div class="pdf-tool-actions">
+        <button class="pdf-tool-btn" data-action="close-pdf-tool">Cancel</button>
+        <button class="pdf-tool-btn pdf-tool-btn--primary" id="pdfToolExtractBtn" disabled>Extract & Download</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Close on overlay click or close button
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay || e.target.closest('[data-action="close-pdf-tool"]')) {
+      overlay.remove();
+    }
+  });
+
+  // Close on Escape
+  const escHandler = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); } };
+  document.addEventListener('keydown', escHandler);
+
+  // State
+  let loadedPdfBytes = null;
+  let loadedPdfDoc = null;
+  let loadedFileName = '';
+
+  const drop = document.getElementById('pdfToolDrop');
+  const fileInput = document.getElementById('pdfToolFileInput');
+  const pagesInput = document.getElementById('pdfToolPages');
+  const outputNameInput = document.getElementById('pdfToolOutputName');
+  const extractBtn = document.getElementById('pdfToolExtractBtn');
+
+  // Drag & drop
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('drag-over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
+  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('drag-over'); if (e.dataTransfer.files[0]) loadPdf(e.dataTransfer.files[0]); });
+  fileInput.addEventListener('change', (e) => { if (e.target.files[0]) loadPdf(e.target.files[0]); });
+
+  async function loadPdf(file) {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      showStatus('Please select a PDF file.', true);
+      return;
+    }
+    try {
+      loadedFileName = file.name;
+      loadedPdfBytes = await file.arrayBuffer();
+
+      // Use pdf-lib to count pages
+      if (typeof PDFLib === 'undefined') {
+        showStatus('PDF library not loaded. Please refresh the page.', true);
+        return;
+      }
+      loadedPdfDoc = await PDFLib.PDFDocument.load(loadedPdfBytes, { ignoreEncryption: true });
+      const pageCount = loadedPdfDoc.getPageCount();
+
+      // Show loaded state
+      document.getElementById('pdfToolUpload').style.display = 'none';
+      const loaded = document.getElementById('pdfToolLoaded');
+      loaded.style.display = 'block';
+
+      const fileInfo = document.getElementById('pdfToolFileInfo');
+      fileInfo.querySelector('.name').textContent = file.name;
+      fileInfo.querySelector('.meta').textContent = `${pageCount} pages  ·  ${formatFileSize(file.size)}`;
+
+      // Default output name
+      const baseName = file.name.replace(/\.pdf$/i, '');
+      outputNameInput.value = baseName + ' - extracted.pdf';
+
+      // Auto-focus pages input
+      pagesInput.focus();
+    } catch (err) {
+      showStatus('Failed to load PDF: ' + err.message, true);
+    }
+  }
+
+  // Parse page ranges like "1-10, 15, 20-25"
+  function parsePageRanges(input, maxPages) {
+    const pages = new Set();
+    const parts = input.split(',').map(s => s.trim()).filter(Boolean);
+    for (const part of parts) {
+      const rangeMatch = part.match(/^(\d+)\s*[-–]\s*(\d+)$/);
+      if (rangeMatch) {
+        const start = parseInt(rangeMatch[1], 10);
+        const end = parseInt(rangeMatch[2], 10);
+        if (start < 1 || end > maxPages || start > end) return null;
+        for (let i = start; i <= end; i++) pages.add(i);
+      } else if (/^\d+$/.test(part)) {
+        const p = parseInt(part, 10);
+        if (p < 1 || p > maxPages) return null;
+        pages.add(p);
+      } else {
+        return null;
+      }
+    }
+    return Array.from(pages).sort((a, b) => a - b);
+  }
+
+  // Update preview when pages input changes
+  pagesInput?.addEventListener('input', () => {
+    if (!loadedPdfDoc) return;
+    const totalPages = loadedPdfDoc.getPageCount();
+    const text = pagesInput.value.trim();
+    const preview = document.getElementById('pdfToolPreview');
+
+    if (!text) {
+      preview.innerHTML = '';
+      extractBtn.disabled = true;
+      return;
+    }
+
+    const kept = parsePageRanges(text, totalPages);
+    if (!kept || kept.length === 0) {
+      preview.innerHTML = `<div class="pdf-tool-status error">Invalid page range. Use numbers 1-${totalPages}. Examples: "1-10" or "1, 5, 8-12"</div>`;
+      extractBtn.disabled = true;
+      return;
+    }
+
+    const keptSet = new Set(kept);
+    const removed = totalPages - kept.length;
+
+    let tableRows = '';
+    for (let i = 1; i <= totalPages; i++) {
+      const isKept = keptSet.has(i);
+      tableRows += `<tr class="${isKept ? 'kept' : 'removed'}"><td>${i}</td><td>${isKept ? '✓ Keep' : '✕ Remove'}</td></tr>`;
+    }
+
+    preview.innerHTML = `
+      <div class="pdf-tool-info">
+        <strong>${kept.length}</strong> pages kept &nbsp;·&nbsp; <strong>${removed}</strong> pages removed &nbsp;·&nbsp; from ${totalPages} total
+      </div>
+      <div class="pdf-tool-preview">
+        <table>
+          <thead><tr><th>Page</th><th>Action</th></tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    `;
+    extractBtn.disabled = false;
+  });
+
+  // Extract button
+  extractBtn?.addEventListener('click', async () => {
+    if (!loadedPdfDoc) return;
+    const totalPages = loadedPdfDoc.getPageCount();
+    const kept = parsePageRanges(pagesInput.value.trim(), totalPages);
+    if (!kept || kept.length === 0) return;
+
+    extractBtn.disabled = true;
+    extractBtn.textContent = 'Extracting...';
+
+    try {
+      // Create new PDF with only the kept pages
+      const newPdf = await PDFLib.PDFDocument.create();
+      const indices = kept.map(p => p - 1); // Convert to 0-based
+      const copiedPages = await newPdf.copyPages(loadedPdfDoc, indices);
+      copiedPages.forEach(page => newPdf.addPage(page));
+
+      const pdfBytes = await newPdf.save();
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+
+      // Download
+      let outputName = outputNameInput.value.trim() || 'extracted.pdf';
+      if (!outputName.toLowerCase().endsWith('.pdf')) outputName += '.pdf';
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = outputName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showStatus(`Saved "${outputName}" — ${kept.length} pages extracted from ${totalPages} total.`, false);
+      extractBtn.textContent = 'Extract & Download';
+      extractBtn.disabled = false;
+
+      // Also offer to load into current step's file list
+      const fileObj = { name: outputName, size: blob.size, type: 'application/pdf', rawFile: new File([blob], outputName, { type: 'application/pdf' }) };
+
+      const statusEl = document.getElementById('pdfToolStatus');
+      if (statusEl && !statusEl.querySelector('.pdf-tool-add-btns')) {
+        const addBtns = document.createElement('div');
+        addBtns.className = 'pdf-tool-add-btns';
+        addBtns.style.cssText = 'display:flex;gap:8px;margin-top:10px;';
+        addBtns.innerHTML = `
+          <button class="pdf-tool-btn" id="pdfToolAddToPlans">+ Add to Floor Plans</button>
+          <button class="pdf-tool-btn" id="pdfToolAddToSpecs">+ Add to Specifications</button>
+          <button class="pdf-tool-btn" id="pdfToolAddToLegend">+ Add to Legend</button>
+        `;
+        statusEl.appendChild(addBtns);
+
+        document.getElementById('pdfToolAddToPlans')?.addEventListener('click', () => {
+          state.planFiles = [...state.planFiles, fileObj];
+          spToast(`Added "${outputName}" to Floor Plans`, 'success');
+          addBtns.innerHTML = '<div style="color:#065f46;font-weight:600;padding:4px 0;">✓ Added to Floor Plans</div>';
+        });
+        document.getElementById('pdfToolAddToSpecs')?.addEventListener('click', () => {
+          state.specFiles = [...state.specFiles, fileObj];
+          spToast(`Added "${outputName}" to Specifications`, 'success');
+          addBtns.innerHTML = '<div style="color:#065f46;font-weight:600;padding:4px 0;">✓ Added to Specifications</div>';
+        });
+        document.getElementById('pdfToolAddToLegend')?.addEventListener('click', () => {
+          state.legendFiles = [...state.legendFiles, fileObj];
+          spToast(`Added "${outputName}" to Symbol Legend`, 'success');
+          addBtns.innerHTML = '<div style="color:#065f46;font-weight:600;padding:4px 0;">✓ Added to Symbol Legend</div>';
+        });
+      }
+    } catch (err) {
+      showStatus('Extraction failed: ' + err.message, true);
+      extractBtn.textContent = 'Extract & Download';
+      extractBtn.disabled = false;
+    }
+  });
+
+  function showStatus(msg, isError) {
+    const el = document.getElementById('pdfToolStatus');
+    if (el) el.innerHTML = `<div class="pdf-tool-status ${isError ? 'error' : ''}">${msg}</div>`;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   try {
   // Initialize app token if not already set
@@ -12914,6 +13179,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             btn.getAttribute('data-rev-id'),
             parseInt(btn.getAttribute('data-rev-num'), 10)
           );
+          break;
+        case 'open-pdf-tool':
+          openPdfPageTool();
           break;
         case 'start-new-bid':
           startNewBid();

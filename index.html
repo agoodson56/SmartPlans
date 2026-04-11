@@ -37,6 +37,9 @@
                     <span style="font-size:14px;">⏱️</span>
                     <span id="admin-timer-display" style="font-size:13px;font-weight:700;color:#6366F1;letter-spacing:0.5px;">00:00</span>
                 </div>
+                <button id="btn-pdf-tool" class="header-btn" data-action="open-pdf-tool" title="Extract pages from PDF files">
+                    <i data-lucide="scissors"></i> <span class="header-btn-label">PDF Tool</span>
+                </button>
                 <button id="btn-new-bid" class="header-btn" data-action="start-new-bid" title="Start a new bid from scratch">
                     <i data-lucide="plus-circle"></i> <span class="header-btn-label">New Bid</span>
                 </button>
@@ -193,6 +196,7 @@
             );
         })();
     </script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js" crossorigin="anonymous" integrity="sha384-ieG+IKD0d/ZPXyCBTMVAbqsQdns8QGJR/e26WMw7M4fkaI/rHcS/YIoi+ah9WGge"></script>
     <script src="pricing-database.js"></script>
     <script src="company-profile.js"></script>
