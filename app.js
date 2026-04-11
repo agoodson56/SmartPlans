@@ -2527,12 +2527,18 @@ function generateMasterReport() {
     }
     // Equipment Rentals
     if (specialConditions.equipment_rentals && Array.isArray(specialConditions.equipment_rentals) && specialConditions.equipment_rentals.length > 0) {
-      html += `<h3>Equipment Rentals</h3><table><tr><th>Equipment</th><th style="text-align:center;">Duration</th><th style="text-align:right;">Daily Rate</th><th style="text-align:right;">Est. Total</th><th>Reason</th></tr>`;
+      html += `<h3>Equipment Rentals</h3><table><tr><th>Equipment</th><th style="text-align:center;">Duration</th><th style="text-align:right;">Rate</th><th style="text-align:right;">Est. Total</th><th>Reason</th></tr>`;
       specialConditions.equipment_rentals.forEach(er => {
         if (typeof er === 'string') { html += `<tr><td colspan="5">${esc(er)}</td></tr>`; }
         else {
-          const total = (er.duration_days || 0) * (er.daily_rate || 0);
-          html += `<tr><td style="font-weight:600;">${esc(er.item || er.name || '')}</td><td style="text-align:center;">${er.duration_days || '—'} days</td><td style="text-align:right;">${er.daily_rate ? fmt(er.daily_rate) : '—'}</td><td style="text-align:right;font-weight:600;">${total > 0 ? fmt(total) : '—'}</td><td style="font-size:9pt;">${esc(er.reason || '')}</td></tr>`;
+          // Support both weekly and daily rates
+          const isWeekly = er.duration_weeks > 0 && er.weekly_rate > 0;
+          const total = isWeekly
+            ? (er.duration_weeks || 0) * (er.weekly_rate || 0)
+            : (er.duration_days || 0) * (er.daily_rate || 0);
+          const durLabel = isWeekly ? `${er.duration_weeks} weeks` : `${er.duration_days || '—'} days`;
+          const rateLabel = isWeekly ? (er.weekly_rate ? fmt(er.weekly_rate) + '/wk' : '—') : (er.daily_rate ? fmt(er.daily_rate) + '/day' : '—');
+          html += `<tr><td style="font-weight:600;">${esc(er.item || er.name || '')}</td><td style="text-align:center;">${durLabel}</td><td style="text-align:right;">${rateLabel}</td><td style="text-align:right;font-weight:600;">${total > 0 ? fmt(total) : '—'}</td><td style="font-size:9pt;">${esc(er.reason || '')}</td></tr>`;
         }
       });
       html += `</table>`;
@@ -5061,8 +5067,8 @@ function injectCalculatedCableQuantities(bom) {
     if (/cat\s*6a|cat6a/.test(s)) return 'cat6a';
     if (/cat\s*6(?!a)|cat6(?!a)/.test(s)) return 'cat6';
     if (/cat\s*5e?|cat5/.test(s)) return 'cat5e';
-    if (/fiber.*sm|sm.*fiber|os2/.test(s)) return 'fiber_sm_os2';
-    if (/fiber.*mm|mm.*fiber|om[34]/.test(s)) return 'fiber_mm_om4';
+    if (/fiber.*sm|sm.*fiber|os2|single\s*mode/i.test(s)) return 'fiber_sm_os2';
+    if (/fiber.*mm|mm.*fiber|om[34]|multi\s*mode/i.test(s)) return 'fiber_mm_om4';
     if (/coax|rg.?6/.test(s)) return 'coax_rg6';
     return s;
   };
@@ -5142,7 +5148,18 @@ function injectCalculatedCableQuantities(bom) {
 
   // ── FALLBACK: When NO zone data at all but we have building dims + consensus count ──
   // Use building-dimension average run (same as cable-analyzer.js 50/50 fallback)
-  if (Object.keys(calcByType).length === 0 && consensusCableDrops > 0 && pathway.hasDimensions) {
+  const allZeroFt = Object.keys(calcByType).length > 0 && Object.values(calcByType).every(c => (c.totalFt || 0) <= 0);
+  if (allZeroFt && consensusCableDrops > 0 && pathway.hasDimensions) {
+    // BUG #5 FIX: Zones existed but all had 0 totalFt — override with building avg
+    for (const [key, calc] of Object.entries(calcByType)) {
+      calc.totalFt = Math.round(consensusCableDrops * buildingAvgRun * WASTE);
+      calc.avgRunFt = buildingAvgRun;
+      calc.deviceCount = consensusCableDrops;
+      calc.mode = 'zero-zone-fallback';
+      console.log(`[CableInjection] BUG#5 fix — ${key}: zones had 0 ft, overriding → ${calc.totalFt.toLocaleString()} ft (${consensusCableDrops} drops × ${buildingAvgRun} ft avg × ${WASTE} waste)`);
+    }
+  }
+  if ((Object.keys(calcByType).length === 0 || allZeroFt) && consensusCableDrops > 0 && pathway.hasDimensions) {
     const totalFt = Math.round(consensusCableDrops * buildingAvgRun * WASTE);
     const ratePerFt = _getCableRatePerFt('cat6a', 'plenum');
     calcByType['cat6a'] = { totalFt, ratePerFt, mode: 'building-avg-fallback', deviceCount: consensusCableDrops, avgRunFt: buildingAvgRun };
@@ -5165,7 +5182,7 @@ function injectCalculatedCableQuantities(bom) {
   // Walk BOM categories and update cable + tray line items
   const updatedCategories = (bom.categories || []).map(cat => {
     const catName = (cat.name || '').toLowerCase();
-    const isCablingCat = /(cabling|structured|cable|network|telecom|infrastructure|pathway)/i.test(catName);
+    const isCablingCat = /(cabling|structured|cable|network|telecom|infrastructure|pathway|data|voice|low.voltage|material|mdf|idf|horizontal|backbone|fiber|cat\s*[56])/i.test(catName);
     if (!isCablingCat) return cat;
 
     const updatedItems = (cat.items || []).map(item => {
@@ -5176,11 +5193,11 @@ function injectCalculatedCableQuantities(bom) {
       if (/cat\s*6a|cat6a/.test(name)) matchKey = 'cat6a';
       else if (/cat\s*6(?!a)|cat6(?!a)/.test(name)) matchKey = 'cat6';
       else if (/cat\s*5e?|cat5/.test(name)) matchKey = 'cat5e';
-      else if (/fiber.*sm|sm.*fiber|os2/.test(name)) matchKey = 'fiber_sm_os2';
-      else if (/fiber.*mm|mm.*fiber|om[34]/.test(name)) matchKey = 'fiber_mm_om4';
+      else if (/fiber.*sm|sm.*fiber|os2|single\s*mode/i.test(name)) matchKey = 'fiber_sm_os2';
+      else if (/fiber.*mm|mm.*fiber|om[34]|multi\s*mode/i.test(name)) matchKey = 'fiber_mm_om4';
       else if (/coax|rg.?6/.test(name)) matchKey = 'coax_rg6';
 
-      if (matchKey && calcByType[matchKey] && item.unit === 'ft') {
+      if (matchKey && calcByType[matchKey] && /^(ft|lf|linear\s*f|feet|foot)$/i.test(item.unit || '')) {
         const calc = calcByType[matchKey];
         const newQty  = Math.round(calc.totalFt);
         const newCost = Math.round(newQty * (item.unitCost || calc.ratePerFt) * 100) / 100;
@@ -5205,8 +5222,8 @@ function injectCalculatedCableQuantities(bom) {
       if (calcByType[fiberKey] && calcByType[fiberKey].totalFt > 0) {
         const alreadyInBOM = updatedItems.some(item => {
           const n = (item.name || item.item || '').toLowerCase();
-          return (fiberKey === 'fiber_sm_os2' && (/fiber.*sm|sm.*fiber|os2/.test(n)))
-              || (fiberKey === 'fiber_mm_om4' && (/fiber.*mm|mm.*fiber|om[34]/.test(n)));
+          return (fiberKey === 'fiber_sm_os2' && (/fiber.*sm|sm.*fiber|os2|single\s*mode/i.test(n)))
+              || (fiberKey === 'fiber_mm_om4' && (/fiber.*mm|mm.*fiber|om[34]|multi\s*mode/i.test(n)));
         });
         if (!alreadyInBOM) {
           const calc = calcByType[fiberKey];
@@ -5233,6 +5250,41 @@ function injectCalculatedCableQuantities(bom) {
           extCost: Math.round(pathway.trayTotalFt * (tray?.unitCost || 10.50) * 100) / 100,
           _calculatedRun: true, _injected: true
         });
+      }
+    }
+
+    // ── BUG #3 FIX: J-hook quantity injection ──
+    // J-hooks = 1 every 4-5 ft of horizontal cable run. Recalculate from grand total cable footage.
+    if (hasCalcData) {
+      const grandTotalCableFt = Object.values(calcByType)
+        .filter(c => !c.mode?.includes('backbone'))
+        .reduce((s, c) => s + (c.totalFt || 0), 0);
+      if (grandTotalCableFt > 0) {
+        const correctJhookQty = Math.ceil(grandTotalCableFt / 4.5);
+        const jhookIdx = updatedItems.findIndex(item =>
+          /j[\s-]*hook/i.test(item.name || item.item || '')
+        );
+        if (jhookIdx >= 0) {
+          const item = updatedItems[jhookIdx];
+          const oldQty = item.qty || 0;
+          if (correctJhookQty > oldQty * 1.5 || correctJhookQty < oldQty * 0.5) {
+            const unitCost = item.unitCost || 1.85;
+            updatedItems[jhookIdx] = {
+              ...item, qty: correctJhookQty, extCost: Math.round(correctJhookQty * unitCost * 100) / 100,
+              _calculatedRun: true, _jhookCorrected: true
+            };
+            console.log(`[CableInjection] J-hook corrected: ${oldQty} → ${correctJhookQty} (${grandTotalCableFt.toLocaleString()} ft ÷ 4.5)`);
+          }
+        } else {
+          // No J-hook line exists — inject one
+          const unitCost = 1.85;
+          updatedItems.push({
+            name: 'J-Hook (2" or 4")', qty: correctJhookQty, unit: 'ea',
+            unitCost, extCost: Math.round(correctJhookQty * unitCost * 100) / 100,
+            _calculatedRun: true, _injected: true, _jhookCorrected: true
+          });
+          console.log(`[CableInjection] J-hook injected: ${correctJhookQty} ea (${grandTotalCableFt.toLocaleString()} ft ÷ 4.5)`);
+        }
       }
     }
 

@@ -2885,12 +2885,15 @@ YOUR MISSION: Identify and detail EVERY telecom room (MDF, IDF, TR, Server Room,
 
 FOR EACH ROOM, DETERMINE:
 1. Room name, type (MDF/IDF/TR), floor, room number
-2. Equipment requirements: racks, patch panels, switches, UPS, PDU, fiber panels
+2. Equipment requirements: racks/cabinets (use 7ft floor-mount cabinet if shown), patch panels, switches, UPS, PDU, fiber panels
+   — FIBER ENCLOSURES ARE CRITICAL: Include a Corning Rack-Mount Fiber Enclosure 1RU (CCH-01U) at EVERY room with backbone fiber (minimum 2 total — one at MDF, one at each IDF).
+   — LC ADAPTER PANELS: Include Corning LC Adapter Panel 6-Pack (CCH-CP06-E4) at BOTH ends. Qty = fiber strand count ÷ 6, round UP, PER END. Example: 24-strand = 4 panels × 2 ends = 8 total.
+   — FIBER CABLE: Include the correct footage of fiber between rooms (measure the backbone route on plans).
 3. Cable management: horizontal/vertical managers, ladder rack/cable runway
    — LADDER RACK IS CRITICAL: Check plans for overhead ladder rack (cable runway) shown entering/exiting each TR.
    — Look for symbols showing ladder rack runs connecting rooms to corridor ceiling pathways.
    — Common notation: "LR", "CR", "Cable Runway", "Ladder Rack", or drawn as parallel lines overhead.
-   — Include length in feet (count from rack top to corridor pathway junction).
+   — Include TOTAL length in feet (measure the FULL route from rack top through corridor to all rooms — typical clinic/hospital is ~100 LF).
    — If plans show ladder rack entering the room, include ALL ladder rack components as SEPARATE equipment line items:
      • Ladder Rack / Cable Runway (qty in LF — the straight sections, typically 12" or 18" wide)
      • Trapeze / Support Kit (1 every 5 ft of ladder rack run — includes crossbar bracket)
@@ -2916,16 +2919,18 @@ Return ONLY valid JSON:
       "room_number": "101",
       "building": "Main",
       "equipment": [
-        { "item": "42U Floor-Mount Rack", "qty": 2, "unit": "ea", "notes": "" },
-        { "item": "Ladder Rack / Cable Runway 12\"", "qty": 20, "unit": "lf", "notes": "Overhead from rack to corridor pathway" },
-        { "item": "Ladder Rack Trapeze/Support Kit", "qty": 4, "unit": "ea", "notes": "1 every 5 ft of run (20 LF ÷ 5)" },
-        { "item": "Threaded Rod 3/8\" x 48\"", "qty": 8, "unit": "ea", "notes": "2 per support (4 supports × 2)" },
-        { "item": "Beam Clamp 3/8\"", "qty": 8, "unit": "ea", "notes": "2 per support (4 supports × 2)" },
-        { "item": "Ladder Rack Splice Plate", "qty": 2, "unit": "ea", "notes": "1 per joint (20 LF ÷ 10 ft sections)" },
-        { "item": "Ladder Rack 90° Elbow", "qty": 1, "unit": "ea", "notes": "Turn into corridor" },
-        { "item": "Ladder Rack Wall Bracket", "qty": 2, "unit": "ea", "notes": "Wall penetration support" },
-        { "item": "Rack-to-Runway Mounting Kit", "qty": 2, "unit": "ea", "notes": "1 per rack (transition from runway to rack top)" },
-        { "item": "Ladder Rack Ground Lug", "qty": 2, "unit": "ea", "notes": "Bonding per TIA-607" },
+        { "item": "7ft Floor-Mount Cabinet (84\"H)", "qty": 2, "unit": "ea", "notes": "Full-height telecom cabinet" },
+        { "item": "Chatsworth Ladder Rack / Cable Runway 12\"", "qty": 100, "unit": "lf", "notes": "Overhead from rack to corridor pathway — measure FULL route" },
+        { "item": "Chatsworth Ladder Rack Trapeze/Support Kit", "qty": 20, "unit": "ea", "notes": "1 every 5 ft of run (100 LF ÷ 5)" },
+        { "item": "Threaded Rod 3/8\" x 48\"", "qty": 40, "unit": "ea", "notes": "2 per support (20 supports × 2)" },
+        { "item": "Beam Clamp 3/8\"", "qty": 40, "unit": "ea", "notes": "2 per support (20 supports × 2)" },
+        { "item": "Chatsworth Ladder Rack Splice Plate", "qty": 5, "unit": "ea", "notes": "1 per joint where 10-12 ft sections connect" },
+        { "item": "Chatsworth Ladder Rack 90° Elbow", "qty": 6, "unit": "ea", "notes": "Count every turn in the routing path" },
+        { "item": "Chatsworth Ladder Rack Wall Bracket", "qty": 4, "unit": "ea", "notes": "2 per wall penetration" },
+        { "item": "Chatsworth Rack-to-Runway Kit", "qty": 3, "unit": "ea", "notes": "1 per rack (transition from runway to rack top)" },
+        { "item": "Ladder Rack Ground Lug", "qty": 10, "unit": "ea", "notes": "1 per 10ft section for bonding per TIA-607" },
+        { "item": "Corning Rack-Mount Fiber Enclosure 1RU (CCH-01U)", "qty": 1, "unit": "ea", "notes": "MDF end — MUST have enclosure at BOTH ends" },
+        { "item": "Corning LC Adapter Panel 6-Pack (CCH-CP06-E4)", "qty": 4, "unit": "ea", "notes": "24-strand ÷ 6 per pack = 4 panels (MDF end)" },
         { "item": "Horizontal Cable Manager 2U", "qty": 4, "unit": "ea", "notes": "Between patch panels" },
         { "item": "Vertical Cable Manager", "qty": 2, "unit": "ea", "notes": "Side-mount, 42U" }
       ],
@@ -2933,6 +2938,22 @@ Return ONLY valid JSON:
       "power": { "dedicated_circuits": 2, "ups_kva": 3, "generator": false },
       "hvac": { "dedicated": true, "tonnage": 1.5 },
       "observations": "Room shown as 10x12, adequate for 2 racks per TIA-569"
+    },
+    {
+      "name": "IDF — Room 201",
+      "type": "idf",
+      "floor": "2",
+      "room_number": "201",
+      "building": "Main",
+      "equipment": [
+        { "item": "7ft Floor-Mount Cabinet (84\"H)", "qty": 1, "unit": "ea", "notes": "" },
+        { "item": "Corning Rack-Mount Fiber Enclosure 1RU (CCH-01U)", "qty": 1, "unit": "ea", "notes": "IDF end — fiber enclosure REQUIRED at BOTH ends" },
+        { "item": "Corning LC Adapter Panel 6-Pack (CCH-CP06-E4)", "qty": 4, "unit": "ea", "notes": "24-strand ÷ 6 per pack = 4 panels (IDF end)" }
+      ],
+      "grounding": { "tmgb": false, "tgb": true, "tbb_length_ft": 25 },
+      "power": { "dedicated_circuits": 1, "ups_kva": 1.5, "generator": false },
+      "hvac": { "dedicated": false, "tonnage": 0 },
+      "observations": "Remote IDF — must have fiber enclosure + adapter panels at this end too"
     }
   ],
   "backbone_connections": [
@@ -3199,9 +3220,9 @@ These two fields are MANDATORY and must appear at the top level of the JSON obje
    - City/county inspection fees
    - Utility crossing permits (water, gas, sewer, power)
 
-8. SPECIALTY TOOLS & TESTING EQUIPMENT:
-   - Cable certifier (Fluke DSX/Versiv) — rental or technician time
-   - Fusion splicer + cleaver (for fiber termination)
+8. SPECIALTY TOOLS & TESTING EQUIPMENT (use WEEKLY rental, minimum 2 weeks each):
+   - Cable certifier (Fluke DSX/Versiv) — 2-week rental minimum (~$1,200/wk)
+   - Fusion splicer + cleaver (for fiber termination) — 2-week rental minimum (~$1,500/wk)
    - OTDR (optical time-domain reflectometer)
    - Thermal imager (for cable tray/pathway routing)
    - Pipe/cable locator (for underground detection)
@@ -3295,9 +3316,11 @@ These two fields are MANDATORY and must appear at the top level of the JSON obje
     - Additional insured endorsements: 1% of contract value
     - Railroad will NOT issue NTP without active RRPLI policy
 
-    EQUIPMENT:
+    EQUIPMENT (all lifts & specialty tools: minimum 2-WEEK rental):
     - Hi-rail vehicle: $1,000/day (trackside work, ~40% of project days)
-    - Scissor lift: $285/day, Boom 40-60': $425/day, Boom 60-80': $700/day
+    - Scissor lift: $925/week (2-week minimum), Boom 40-60': $1,700/week, Boom 60-80': $2,800/week
+    - Cable certifier (Fluke DSX): $1,200/week (2-week minimum)
+    - Fusion splicer kit: $1,500/week (2-week minimum)
     - Generator (trackside power): $325/day + $250 delivery
     - Fall protection equipment: $500/project
 
@@ -3358,7 +3381,9 @@ Return ONLY valid JSON:
   "prevailing_wage_detected": false,
   "prevailing_wage_type": "none",
   "equipment_rentals": [
-    { "item": "Scissor Lift", "duration_days": 20, "daily_rate": 185, "reason": "Ceiling height 15ft+" }
+    { "item": "Scissor Lift", "duration_weeks": 2, "weekly_rate": 925, "reason": "Ceiling height 15ft+" },
+    { "item": "Cable Certifier (Fluke DSX)", "duration_weeks": 2, "weekly_rate": 1200, "reason": "Cat 6/6A certification per TIA" },
+    { "item": "Fusion Splicer Kit", "duration_weeks": 2, "weekly_rate": 1500, "reason": "Fiber optic splicing & termination" }
   ],
   "conduit_infrastructure": [
     { "type": "EMT 1-inch", "quantity_ft": 500, "location": "Above ceiling corridors", "install_method": "straps on unistrut" },
@@ -4015,17 +4040,20 @@ A system with missing components DOES NOT WORK. For each discipline, you MUST in
   □ AV Rack Shelf or mounting hardware for head-end equipment
 
 🏗️ MDF / IDF — Every telecom room needs:
-  □ Rack(s) (2-post or 4-post per plan)
+  □ 7ft Floor-Mount Cabinet (84"H) or Rack(s) (2-post or 4-post per plan) — use 7ft cabinet if plans show enclosed cabinets
   □ Patch Panels — enough ports for ALL drops served (total drops ÷ 48, round UP)
   □ Horizontal Cable Managers (minimum 2 per rack — above and below patch panels)
   □ Vertical Cable Manager (1 per rack)
   □ PDU (minimum 2 per rack for redundancy)
   □ UPS (sized for equipment load)
-  □ Fiber Shelf / Fiber Enclosure (at BOTH ends — MDF AND every IDF)
+  □ Fiber Enclosure (Corning CCH-01U or equiv) — minimum 2: one at MDF + one at EACH IDF (BOTH ENDS required!)
+  □ LC Adapter Panel 6-Pack (Corning CCH-CP06-E4 or equiv) — fiber strand count ÷ 6, round UP, × 2 (BOTH ends!)
+    ⚠️ Example: 24-strand fiber = 24÷6 = 4 panels PER END × 2 ends = 8 total adapter panels
+    ⚠️ COMMON ERROR: 1 fiber enclosure + 1 adapter panel = fiber cannot terminate at remote end
   □ Grounding Busbar (TMGB at MDF, TGB at each IDF)
   □ Bonding Conductor (#6 AWG from busbar to building ground)
-  □ LADDER RACK / CABLE RUNWAY — ALL of these parts are required:
-    - Ladder Rack straight sections (qty in LF — measure from rack top to corridor junction)
+  □ LADDER RACK / CABLE RUNWAY — ALL of these parts are required (typical clinic ~100 LF):
+    - Chatsworth Ladder Rack straight sections (qty in LF — measure FULL route, typical clinic ~100 LF)
     - Trapeze / Support Kit (1 every 5 ft of ladder rack run)
     - Threaded Rod 3/8" (2 per support × length needed, typically 36-48" each)
     - Beam Clamp or Ceiling Anchor (2 per support — attaches rod to structure)

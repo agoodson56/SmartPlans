@@ -62,6 +62,7 @@ const PRICING_DB = {
             rack_2post: { unit: "each", budget: 120.00, mid: 220.00, premium: 380.00, description: "2-post relay rack 7ft 45RU" },
             rack_4post: { unit: "each", budget: 280.00, mid: 480.00, premium: 850.00, description: "4-post equipment rack 42RU" },
             rack_4post_enclosed: { unit: "each", budget: 450.00, mid: 750.00, premium: 1400.00, description: "4-post enclosed cabinet 42RU w/ fans" },
+            cabinet_7ft_42u: { unit: "each", budget: 800.00, mid: 1400.00, premium: 2400.00, description: "7ft floor-mount cabinet 42RU (84\"H × 24\"W × 42\"D) w/ locking doors, fans, casters" },
             wall_cabinet_6ru: { unit: "each", budget: 85.00, mid: 160.00, premium: 280.00, description: "Wall-mount cabinet 6RU" },
             wall_cabinet_12ru: { unit: "each", budget: 120.00, mid: 240.00, premium: 420.00, description: "Wall-mount cabinet 12RU" },
             wall_cabinet_18ru: { unit: "each", budget: 165.00, mid: 320.00, premium: 550.00, description: "Wall-mount cabinet 18RU" },
