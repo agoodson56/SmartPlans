@@ -187,24 +187,47 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
         _timeout: 300000, // 5 minutes for Pro model
         _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
       }, 3);
+      // Check response INSIDE try block so fallback can fire on 400/404/etc.
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        throw new Error(`Primary model API error: ${response.status} — ${errText.substring(0, 200)}`);
+      }
     } catch (primaryErr) {
-      // Fallback to Flash model if Pro fails
+      // Fallback to Flash model if Pro fails (network error, timeout, OR bad status)
       console.warn('[ProposalGen] Pro model failed, falling back to Flash:', primaryErr.message);
       progressCallback(15, 'Retrying with alternate AI model…');
       requestBody._model = 'gemini-2.5-flash';
       requestBody._brainSlot = 0;
-      response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
-        method: 'POST',
-        headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(requestBody),
-        _timeout: 180000,
-        _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
-      }, 3);
-    }
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      throw new Error(`API Error: ${response.status} — ${errText.substring(0, 200)}`);
+      try {
+        response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(requestBody),
+          _timeout: 180000,
+          _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
+        }, 3);
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          throw new Error(`Flash model API error: ${response.status} — ${errText.substring(0, 200)}`);
+        }
+      } catch (flashErr) {
+        // Both models failed — try one more time with base config model
+        console.warn('[ProposalGen] Flash also failed, final attempt with default model:', flashErr.message);
+        progressCallback(15, 'Final retry with default model…');
+        requestBody._model = GEMINI_CONFIG.model || 'gemini-2.5-flash';
+        requestBody._brainSlot = 0;
+        response = await fetchWithRetry(GEMINI_CONFIG.endpoint, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(requestBody),
+          _timeout: 180000,
+          _apiKeyRotator: () => GEMINI_CONFIG.rotateKey(),
+        }, 3);
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          throw new Error(`All AI models failed. Last error: ${response.status} — ${errText.substring(0, 200)}`);
+        }
+      }
     }
 
     // ── Read response (SSE streaming or JSON) ──
