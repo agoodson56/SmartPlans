@@ -7,31 +7,61 @@
 
 const CableAnalyzer = {
 
-  // ── Default assumptions (user-configurable via Phase 4 UI) ──
+  // ── Default assumptions — BICSI TDMM compliant (user-configurable via Phase 4 UI) ──
+  // Reference: BICSI TDMM 14th Ed, TIA-568.2-D, TIA-569.1
   defaults: {
-    slackFt:          15,    // Termination + dressing + slack loops (both ends)
-    wastePct:         12,    // Cable waste percentage
-    ceilingHeightFt:  10,    // Typical finished ceiling height
-    floorToFloorFt:   14,    // Slab-to-slab height for riser runs
-    stubUpFt:         10,    // Vertical stub-up from device to plenum
-    tiaMaxFt:         295,   // TIA-568 horizontal cable distance limit (100m)
-    defaultRunFt:     150,   // Fallback when no spatial data available
-    minRunFt:         75,    // Minimum cable run (no real cable run is shorter than this in commercial)
-    routingFactor:    1.25,  // Routing multiplier — cables follow corridors/pathways, not straight lines
-    jHookSpacingFt:   4.5,   // J-hook every 4.5 ft of horizontal run
+    // ── BICSI Service Loops & Termination ──
+    serviceLoopTR_Ft:  10,    // BICSI: 10 ft service loop at telecom room (minimum for re-termination)
+    serviceLoopWA_Ft:   1,    // BICSI: 12" service loop at work area outlet
+    dressingFt:         5,    // Patch panel dressing, cable management, lacing within rack
+    // ── Vertical Components ──
+    stubUpFt:          15,    // Device to ceiling plenum (wall cavity + stub-up above drop ceiling)
+    idfDropFt:         10,    // Plenum drop-down into IDF rack (ceiling to patch panel height)
+    ceilingHeightFt:   10,    // Typical finished ceiling height (AFF to grid)
+    floorToFloorFt:    14,    // Slab-to-slab height for riser runs
+    // ── Horizontal Pathway ──
+    routingFactor:     1.30,  // BICSI pathway routing multiplier — cables follow J-hook runs, cable tray,
+                              // and corridor pathways NOT straight lines. BICSI TDMM recommends:
+                              //   1.15-1.20 open plan, 1.25-1.35 standard commercial,
+                              //   1.35-1.50 complex corridors (medical/govt/schools)
+    // ── Cable Plant Standards ──
+    wastePct:          12,    // Cable waste percentage (pull waste, cut ends, misstakes)
+    tiaMaxFt:         295,    // TIA-568 horizontal cable distance limit (90m = 295 ft, permanent link)
+    defaultRunFt:     175,    // Fallback when no spatial data available (BICSI avg for commercial)
+    minRunFt:          75,    // Minimum cable run — even closest device has stub-up + service loops + rack routing
+    jHookSpacingFt:   4.5,    // J-hook every 4.5 ft of horizontal run (BICSI pathway support)
+  },
+
+  // Computed total vertical + slack overhead per run (BICSI compliant)
+  get _bicsiOverheadFt() {
+    const d = this.defaults;
+    return (d.serviceLoopTR_Ft || 10) + (d.serviceLoopWA_Ft || 1) + (d.dressingFt || 5)
+         + (d.stubUpFt || 15) + (d.idfDropFt || 10);
+    // = 41 ft of non-horizontal overhead per cable run
+  },
+
+  // Legacy slackFt getter for backward compatibility with existing config overrides
+  get _effectiveSlackFt() {
+    // If user has overridden slackFt directly (legacy), use it; otherwise compute from BICSI components
+    return (this._userSlackOverride != null)
+      ? this._userSlackOverride
+      : (this.defaults.serviceLoopTR_Ft + this.defaults.serviceLoopWA_Ft + this.defaults.dressingFt);
   },
 
   // ── Config schema for UI rendering (Phase 4) ──
   configSchema: {
-    slackFt:         { label: 'Slack / Termination (ft)',  min: 5,   max: 50,  step: 1   },
+    serviceLoopTR_Ft:{ label: 'TR Service Loop (ft)',      min: 5,   max: 20,  step: 1   },
+    serviceLoopWA_Ft:{ label: 'Outlet Service Loop (ft)',  min: 0,   max: 5,   step: 0.5 },
+    dressingFt:      { label: 'Rack Dressing (ft)',        min: 0,   max: 15,  step: 1   },
+    stubUpFt:        { label: 'Stub-Up to Plenum (ft)',    min: 5,   max: 25,  step: 1   },
+    idfDropFt:       { label: 'IDF Plenum Drop (ft)',      min: 5,   max: 20,  step: 1   },
     wastePct:        { label: 'Waste Factor (%)',          min: 0,   max: 30,  step: 1   },
     ceilingHeightFt: { label: 'Ceiling Height (ft)',       min: 8,   max: 30,  step: 0.5 },
     floorToFloorFt:  { label: 'Floor-to-Floor (ft)',       min: 10,  max: 25,  step: 0.5 },
-    stubUpFt:        { label: 'Stub-Up Height (ft)',       min: 0,   max: 20,  step: 1   },
     tiaMaxFt:        { label: 'TIA-568 Max (ft)',          min: 200, max: 328, step: 1   },
     defaultRunFt:    { label: 'Default Avg Run (ft)',      min: 50,  max: 300, step: 10  },
     minRunFt:        { label: 'Minimum Run (ft)',          min: 25,  max: 150, step: 5   },
-    routingFactor:   { label: 'Routing Factor (x)',        min: 1.0, max: 1.5, step: 0.05},
+    routingFactor:   { label: 'Routing Factor (x)',        min: 1.0, max: 1.6, step: 0.05},
     jHookSpacingFt:  { label: 'J-Hook Spacing (ft)',       min: 3,   max: 6,   step: 0.5 },
   },
 
@@ -308,14 +338,19 @@ const CableAnalyzer = {
             const dims = (z.sheet_id && sheetDims[z.sheet_id]) || { w: bldgW, d: bldgD };
             const dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * (dims.w || 200);
             const dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * (dims.d || 200);
-            const routingMult = cfg.routingFactor || 1.25;
+            // BICSI TDMM routing: pathway multiplier + vertical + service loops
+            const routingMult = cfg.routingFactor || 1.30;
             const floorsApart = Math.abs((z.floor || 1) - (idf.floor || 1));
-            const vert = floorsApart > 0 ? floorsApart * cfg.floorToFloorFt : cfg.ceilingHeightFt;
-            runFt = Math.round((dx + dy) * routingMult + vert + cfg.slackFt);
+            const stubUp = cfg.stubUpFt || 15;
+            const idfDrop = cfg.idfDropFt || 10;
+            const riser = floorsApart > 0 ? floorsApart * cfg.floorToFloorFt : 0;
+            const vert = stubUp + idfDrop + riser;
+            const slackFt = (cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5);
+            runFt = Math.round((dx + dy) * routingMult + vert + slackFt);
             // Enforce minimum
             const minRun = cfg.minRunFt || 75;
             if (runFt < minRun) runFt = minRun;
-            basis = 'zone spatial calc';
+            basis = 'zone spatial (BICSI TDMM)';
           } else if (z.est_run_ft) {
             runFt = z.est_run_ft;
             basis = 'AI zone estimate';
@@ -336,9 +371,9 @@ const CableAnalyzer = {
             cableType,
             cableTypeLabel: this._cableLabel(cableType),
             runFt,
-            horizontal: Math.max(0, runFt - cfg.slackFt - (z.vertical_ft || cfg.ceilingHeightFt)),
-            vertical: z.vertical_ft || cfg.ceilingHeightFt,
-            slack: cfg.slackFt,
+            horizontal: Math.max(0, runFt - slackFt - (z.vertical_ft || ((cfg.stubUpFt || 15) + (cfg.idfDropFt || 10)))),
+            vertical: z.vertical_ft || ((cfg.stubUpFt || 15) + (cfg.idfDropFt || 10)),
+            slack: slackFt,
             qty,
             totalFtWithWaste,
             costPerFt,
@@ -368,9 +403,9 @@ const CableAnalyzer = {
           cableType,
           cableTypeLabel: this._cableLabel(cableType),
           runFt,
-          horizontal: Math.max(0, runFt - cfg.slackFt - cfg.ceilingHeightFt),
-          vertical: cfg.ceilingHeightFt,
-          slack: cfg.slackFt,
+          horizontal: Math.max(0, runFt - ((cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5)) - ((cfg.stubUpFt || 15) + (cfg.idfDropFt || 10))),
+          vertical: (cfg.stubUpFt || 15) + (cfg.idfDropFt || 10),
+          slack: (cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5),
           qty,
           totalFtWithWaste,
           costPerFt,
@@ -582,21 +617,30 @@ const CableAnalyzer = {
     const dx = Math.abs((device.x_pct || 50) - (idf?.x || 50)) / 100 * (dims?.w || 200);
     const dy = Math.abs((device.y_pct || 50) - (idf?.y || 50)) / 100 * (dims?.d || 200);
 
-    // Apply routing factor — cables follow corridors, pathways, and J-hook runs,
-    // they do NOT travel in straight Manhattan lines. Industry standard is 1.15-1.40x.
-    // Use ScaleCalibration routing constants if available, else cfg.routingFactor.
-    const routingMult = cfg.routingFactor || 1.25;
+    // ── BICSI TDMM Pathway Routing ──
+    // Cables follow J-hook runs, cable tray, and corridor pathways — NOT straight lines.
+    // BICSI TDMM recommends: 1.15-1.20 open plan, 1.25-1.35 standard, 1.35-1.50 complex (medical/govt).
+    const routingMult = cfg.routingFactor || 1.30;
     const horizontal = Math.round((dx + dy) * routingMult);
 
+    // ── BICSI Vertical Components ──
+    // Device end: stub-up from device through wall/ceiling to plenum space
+    // IDF end: drop from plenum down into telecom room rack
     const devFloor = parseInt(device.floor, 10) || 1;
     const idfFloor = idf?.floor || 1;
     const floorsApart = Math.abs(devFloor - idfFloor);
-    const vertical = floorsApart > 0
-      ? floorsApart * cfg.floorToFloorFt + cfg.stubUpFt
-      : cfg.stubUpFt;
+    const stubUp = cfg.stubUpFt || 15;       // Device → plenum (one end)
+    const idfDrop = cfg.idfDropFt || 10;      // Plenum → patch panel (other end)
+    const riser = floorsApart > 0 ? floorsApart * cfg.floorToFloorFt : 0;
+    const vertical = stubUp + idfDrop + riser;
+
+    // ── BICSI Service Loops & Termination ──
+    // TR service loop: 10 ft minimum per BICSI TDMM for re-termination capability
+    // WA service loop: 12" at work area outlet (coiled in junction box)
+    // Dressing: patch panel routing, cable management, lacing within rack
+    const slackFt = (cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5);
 
     // Cross-building detection: device and IDF are in different buildings
-    // Detected via different sheet_id OR explicit building assignment
     let interBuildingFt = 0;
     let crossBuilding = false;
     const devSheet = device.sheet_id || null;
@@ -605,24 +649,19 @@ const CableAnalyzer = {
     const idfBuilding = idf?.building_id || idf?.building || null;
 
     if (devBuilding && idfBuilding && devBuilding !== idfBuilding) {
-      // Explicit different buildings — look up inter-building distance if available
       crossBuilding = true;
       interBuildingFt = this._getInterBuildingDistance(devBuilding, idfBuilding, cfg)
         || this.INTER_BUILDING_PENALTY_FT;
     } else if (!devBuilding && !idfBuilding && devSheet && idfSheet && devSheet !== idfSheet) {
-      // No building labels but different sheets — heuristic: may be different buildings
-      // Only apply penalty if spatial layout flagged multi_building
       if (cfg._multiBuilding) {
         crossBuilding = true;
         interBuildingFt = this.INTER_BUILDING_PENALTY_FT;
       }
     }
 
-    let totalFt = Math.round(horizontal + vertical + cfg.slackFt + interBuildingFt);
+    let totalFt = Math.round(horizontal + vertical + slackFt + interBuildingFt);
 
-    // Enforce minimum cable run — no real commercial cable run is shorter than ~75 ft.
-    // Even a device 10 ft from the IDF has patch panel routing, slack loops, stub-up,
-    // and pathway routing that makes the actual cable much longer than the map distance.
+    // Enforce minimum cable run — BICSI: even closest device has service loops + vertical + rack routing
     const minRun = cfg.minRunFt || 75;
     if (totalFt < minRun && dims?.w > 0) {
       totalFt = minRun;
@@ -631,11 +670,11 @@ const CableAnalyzer = {
     return {
       horizontal,
       vertical: Math.round(vertical),
-      slack: cfg.slackFt,
+      slack: slackFt,
       interBuildingFt,
       crossBuilding,
       totalFt,
-      basis: dims?.w > 0 ? 'spatial calculation' : 'estimated',
+      basis: dims?.w > 0 ? 'spatial (BICSI TDMM)' : 'estimated',
     };
   },
 

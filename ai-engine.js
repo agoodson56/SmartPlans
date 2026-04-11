@@ -2787,6 +2787,18 @@ ${(context.disciplines || []).includes('General Requirements / Conditions') ? '-
   PDUs, surge protectors, generators, solar inverters, rectifiers, battery chargers, power conditioners
   — If ANY of these appear on plans or in schedules, count them with location and specs
 
+═══ CRITICAL: READ ALL NOTES ON EVERY PAGE ═══
+On EVERY sheet you scan, you MUST read and report ALL text notes including:
+- General Notes blocks (usually at right side or bottom of sheet)
+- Keynotes (numbered/lettered references)
+- Specifications written directly on the plan (cable types, installation methods, conduit requirements)
+- "Note:" or "N:" callouts near specific devices or areas
+- Title block notes, scope notes, responsibility notes
+- Any text that says "Provide...", "Install...", "Furnish...", "Contractor shall...", "By others..."
+- Mounting height notes, conduit routing notes, cable type requirements
+- Any references to conduits being provided by electrical contractor or others
+Include ALL notes you find in the "notes" field of your response. These notes often contain critical scope information.
+
 INSTRUCTIONS:
 1. Study the legend first to learn what each symbol means
 2. Go sheet by sheet systematically
@@ -2794,6 +2806,7 @@ INSTRUCTIONS:
 4. Note any symbols you cannot identify
 5. For each count, provide your confidence (0-100)
 6. LOCATION TAG EVERY DEVICE — list the specific room or area name for each device
+7. READ AND RECORD every General Note, Keynote, and annotation on every page
 
 LOCATION TAGGING RULES:
 - For EVERY device counted, record WHICH ROOM or AREA it is in
@@ -2921,24 +2934,47 @@ ${(() => {
 
 BUILDING HEIGHTS: Ceiling=${context.ceilingHeight || 10}ft, Floor-to-Floor=${context.floorToFloorHeight || 14}ft
 
-YOUR MISSION: Analyze ALL cable pathways, conduit (every type and size), cable tray, underground routes, and estimate cable/conduit quantities WITH PER-ZONE RUN LENGTHS.
+YOUR MISSION: Analyze ALL cable pathways, cable tray, underground routes, and estimate cable quantities WITH PER-ZONE RUN LENGTHS calculated to BICSI TDMM standards.
 
-═══ CABLE RUN LENGTH CALCULATION — CRITICAL ═══
+═══ CRITICAL: READ ALL NOTES ON EVERY PAGE ═══
+Before counting anything, READ every General Note, Keynote, and annotation on each sheet.
+Notes often contain critical scope information like:
+- "Conduit provided by electrical contractor" → Do NOT include conduit in your quantities
+- "Cable type shall be Cat6A plenum rated" → Use specified cable type
+- "All cabling shall be home run to TR-101" → routing instruction
+- "Provide 10ft service loop at each end" → affects run length calculation
+- Installation method requirements, mounting heights, pathway specifications
+Include ALL notes you find in the "notes" field of your response.
+
+═══ CONDUIT SCOPE — IMPORTANT ═══
+On many projects, conduit (EMT, rigid, PVC, etc.) is provided and installed by the ELECTRICAL CONTRACTOR, not the low-voltage contractor. READ THE NOTES to determine this. If the notes or specifications say conduit is by the electrical contractor or "by others", then:
+- Still LIST the conduit runs for reference (the low-voltage contractor needs to know the pathway)
+- Mark each conduit run with "by_others": true
+- Do NOT include conduit in the low-voltage contractor's material quantities
+- The low-voltage contractor only pulls cable through conduits provided by others
+
+═══ CABLE RUN LENGTH CALCULATION — BICSI TDMM STANDARD ═══
 For each cable type, break the run estimate down by ZONE (floor area served by one IDF):
 - Use the Spatial Layout data above — it includes PER-SHEET scale and dimensions
 - Use OCR scale data when available (it is more reliable than AI-estimated scale)
 - Each zone has a "sheet_id" linking it to the correct sheet's scale and dimensions
-- For each zone, calculate: horizontal distance from zone centroid to IDF + ceiling height + 15ft slack
-- Manhattan distance formula: |zone_x - IDF_x| + |zone_y - IDF_y| (in feet, using that sheet's dimensions)
-- Add ceiling height for the vertical stub-up (default 10ft)
-- Add 15ft for termination, dressing, and slack loops
-- DO NOT use a flat 150ft average — calculate each zone separately
+- BICSI TDMM cable run formula per zone:
+  1. Horizontal pathway distance = Manhattan distance × routing factor (1.30x for standard commercial, 1.40x for medical/govt)
+     Manhattan distance: |zone_x - IDF_x| + |zone_y - IDF_y| (in feet, using that sheet's dimensions)
+  2. Stub-up at device end: 15 ft (device through wall/ceiling to plenum pathway)
+  3. IDF drop: 10 ft (plenum down to patch panel in telecom room)
+  4. Service loop at TR: 10 ft (BICSI minimum for re-termination)
+  5. Service loop at outlet: 1 ft (coiled in outlet box)
+  6. Dressing/rack routing: 5 ft (cable management within rack)
+  7. Riser (if cross-floor): floor-to-floor height × number of floors
+  TOTAL = horizontal + stub-up(15) + IDF drop(10) + service loops(11) + dressing(5) + riser
+- DO NOT use a flat average — calculate each zone separately
 
-ZONE RUN LENGTH EXAMPLES:
-- Zone directly next to IDF: 50ft horizontal + 10ft vertical + 15ft slack = 75ft per drop
-- Zone across the building: 180ft horizontal + 10ft vertical + 15ft slack = 205ft per drop
-- Zone one floor above IDF: 80ft horizontal + 14ft floor-to-floor + 10ft ceiling + 15ft slack = 119ft per drop
-- TIA-568 horizontal limit: 295ft (295ft is 100m max for Category cable — flag any zone exceeding this!)
+ZONE RUN LENGTH EXAMPLES (BICSI compliant):
+- Zone directly next to IDF: 40ft horiz×1.3=52 + 15 stub + 10 drop + 11 loops + 5 dress = 93ft per drop
+- Zone across the building: 140ft horiz×1.3=182 + 15 stub + 10 drop + 11 loops + 5 dress = 223ft per drop
+- Zone one floor above IDF: 80ft horiz×1.3=104 + 14 riser + 15 stub + 10 drop + 11 loops + 5 dress = 159ft per drop
+- TIA-568 horizontal limit: 295ft (90m permanent link — flag any zone exceeding this!)
 
 ANALYZE THOROUGHLY:
 1. Horizontal cable runs — type (Cat5e/6/6A), PER-ZONE run lengths (not flat average)
@@ -3008,10 +3044,10 @@ Return ONLY valid JSON:
     { "type": "conduit_emt", "size": "1 inch", "length_ft": 200, "location": "Exposed walls" }
   ],
   "conduit_runs": [
-    { "type": "EMT", "size": "1 inch", "length_ft": 200, "location": "Above ceiling - MDF to IDF", "purpose": "backbone fiber" },
-    { "type": "EMT", "size": "3/4 inch", "length_ft": 400, "location": "Stub-ups to device locations", "purpose": "camera/reader drops" },
-    { "type": "PVC Sch 40", "size": "2 inch", "length_ft": 150, "location": "Underground parking lot to bldg entry", "purpose": "exterior camera feeds" },
-    { "type": "Rigid", "size": "1 inch", "length_ft": 80, "location": "Exposed exterior wall", "purpose": "outdoor camera pathway" }
+    { "type": "EMT", "size": "1 inch", "length_ft": 200, "location": "Above ceiling - MDF to IDF", "purpose": "backbone fiber", "by_others": false },
+    { "type": "EMT", "size": "3/4 inch", "length_ft": 400, "location": "Stub-ups to device locations", "purpose": "camera/reader drops", "by_others": true, "by_others_note": "Conduit provided by electrical contractor per General Note 5" },
+    { "type": "PVC Sch 40", "size": "2 inch", "length_ft": 150, "location": "Underground parking lot to bldg entry", "purpose": "exterior camera feeds", "by_others": false },
+    { "type": "Rigid", "size": "1 inch", "length_ft": 80, "location": "Exposed exterior wall", "purpose": "outdoor camera pathway", "by_others": false }
   ],
   "underground_pathways": [
     { "route": "Building A to Building B", "distance_ft": 200, "conduit_type": "PVC Sch 40", "conduit_size": "2 inch", "conduit_qty": 2, "depth_in": 24, "surface": "parking lot", "method": "directional_boring" },
@@ -4666,6 +4702,12 @@ ${(() => {
 ═══ CRITICAL: PER-SHEET SCALE DETECTION ═══
 Different sheets in a plan set often use DIFFERENT SCALES. A warehouse floor plan might be 1/16"=1'-0" while an office detail is 1/4"=1'-0". You MUST determine the scale for EACH SHEET independently.
 
+═══ CRITICAL: READ ALL NOTES ON EVERY PAGE ═══
+On EVERY sheet, READ and CAPTURE all General Notes, Keynotes, and annotations. Include them in your response.
+Notes often specify: conduit routing, cable types, pathway requirements, ceiling types (hard lid vs drop ceiling),
+who provides conduit (electrical contractor vs. low-voltage contractor), mounting heights, fire-rated assemblies,
+and scope delineations. These are essential for accurate estimation.
+
 YOUR MISSION — For each floor plan sheet:
 1. FIND THE SCALE — check these sources IN ORDER (OCR data above is PRIORITY 0):
    a. Title block scale notation (e.g., "SCALE: 1/8" = 1'-0"" or "1:96")
@@ -4832,6 +4874,9 @@ YOUR METHODOLOGY — ROOM-BY-ROOM SCAN:
 5. Sum by room to get sheet totals, then grand totals
 
 CRITICAL: You have NOT seen the first count. You are a completely independent reader. Do NOT guess — if you cannot clearly identify a symbol, mark it as "uncertain".
+
+═══ READ ALL NOTES ON EVERY PAGE ═══
+Read and record ALL General Notes, Keynotes, and annotations on every sheet. Include them in your "notes" field. Notes contain critical scope info (conduit by others, cable types, mounting heights, etc.).
 
 ═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
 Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total data_outlet count = SUM of all multiplied values, NOT the number of symbols. Similarly "2V" = 2 voice drops.
@@ -5397,10 +5442,13 @@ Each item MUST have ALL of these fields:
 PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
-YOUR MISSION: Capture every piece of text information on the drawings that describes equipment, quantities, or installation requirements.
+YOUR MISSION: Capture EVERY piece of text information on EVERY page of the drawings. Read ALL notes, annotations, callouts, and schedules. Do NOT skip any page or any note.
+
+═══ CRITICAL: READ ALL NOTES ON EVERY SINGLE PAGE ═══
+You must read EVERY note on EVERY sheet — not just the ones near devices. Notes contain critical scope information that directly affects the bid price. Missing a single note like "conduit provided by electrical contractor" can cost thousands of dollars.
 
 WHAT TO CAPTURE:
-1. General notes and keynotes (numbered or lettered notes)
+1. General notes and keynotes (numbered or lettered notes) — READ EVERY ONE
 2. Detail callout bubbles (e.g., "See Detail 3/E6.01")
 3. Equipment schedules and tables shown on drawings — READ EVERY ROW
 4. Typical installation notes (e.g., "TYP." or "TYPICAL — provide at each door")
@@ -5408,6 +5456,11 @@ WHAT TO CAPTURE:
 6. Quantity notes like "QTY: 4" or "(x3)" next to symbols
 7. Demolition notes (items to be removed or replaced)
 8. References to addenda changes
+9. CONDUIT NOTES — who provides conduit? "Conduit by electrical contractor", "conduit by others", "EC to provide conduit" all mean the low-voltage contractor does NOT provide conduit
+10. Cable type specifications — "All data cabling shall be Cat6A", "Provide plenum-rated cable above drop ceiling"
+11. Mounting height notes — "Mount cameras at 12' AFF", "Card readers at 48" AFF"
+12. Pathway routing notes — "Route cables in cable tray", "Use J-hooks at 5' spacing"
+13. Testing and certification requirements — "Test and certify all data drops per TIA-568"
 
 ═══ CRITICAL: EQUIPMENT SCHEDULE EXTRACTION ═══
 Many ELV drawings include EQUIPMENT SCHEDULES — tables that list every device with its tag, type, location, and specifications. These are the MOST ACCURATE source of device counts because the design engineer created them.
@@ -5562,6 +5615,14 @@ STRUCTURED CABLING:
 - UPS may be owner furnished
 - PDUs may be owner furnished
 - Grounding/bonding may be "by EC" (electrical contractor)
+- CONDUIT — CRITICAL: Conduit (EMT, rigid, PVC, liquidtight) is very often provided and installed by the ELECTRICAL CONTRACTOR (Division 26), not the low-voltage contractor. Look for:
+  - "Conduit by EC" or "Conduit by electrical contractor"
+  - "Conduit provided by others"
+  - "Division 26 to provide all conduit"
+  - "Electrical contractor to provide empty conduit"
+  - "Low-voltage contractor to pull cable in conduit provided by EC"
+  - Responsibility matrix showing "Conduit" under "By EC" column
+  If conduit is by EC, it is a MAJOR cost exclusion — all conduit material and conduit labor is NOT in our scope
 
 INTRUSION:
 - Alarm panel may be "vendor furnished" by monitoring company
