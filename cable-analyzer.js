@@ -172,7 +172,7 @@ const CableAnalyzer = {
 
     // Build IDF/MDF position map
     const idfMap = this._buildIdfMap(spatial, mdfIdf, deviceLocator);
-    const sheetDims = this._buildSheetDims(spatial);
+    const sheetDims = this._buildSheetDims(spatial, state.planSheetSize);
     const bldgW = spatial.building_dimensions?.overall_width_ft || state.floorPlateWidth || 0;
     const bldgD = spatial.building_dimensions?.overall_depth_ft || state.floorPlateDepth || 0;
 
@@ -538,13 +538,17 @@ const CableAnalyzer = {
   // ═══════════════════════════════════════════════════════════════
   // HELPER: Build per-sheet dimension map
   // ═══════════════════════════════════════════════════════════════
-  _buildSheetDims(spatial) {
+  _buildSheetDims(spatial, userSheetSize) {
     const dims = {};
     (spatial.sheets || []).forEach(sh => {
       if (sh.sheet_id && sh.sheet_area_width_ft > 0 && sh.sheet_area_depth_ft > 0) {
         dims[sh.sheet_id] = { w: sh.sheet_area_width_ft, d: sh.sheet_area_depth_ft };
       }
     });
+
+    // User-selected sheet size — provides known drawable area (eliminates guessing)
+    const userDrawable = (typeof ScaleCalibration !== 'undefined' && userSheetSize)
+      ? ScaleCalibration.getSheetDrawableArea(userSheetSize) : null;
 
     // Merge scale data from ScaleCalibration module (manual, OCR, door, AI)
     if (typeof ScaleCalibration !== 'undefined') {
@@ -557,7 +561,6 @@ const CableAnalyzer = {
           const wFt = sc.pixelWidth / sc.pixelsPerFoot;
           const dFt = sc.pixelHeight / sc.pixelsPerFoot;
           // AUDIT FIX C5: Upper-bound check — reject absurd dimensions from bad pixelsPerFoot
-          // A single floor plan sheet rarely exceeds 1500ft in any direction
           if (wFt > 10 && dFt > 10 && wFt < 2000 && dFt < 2000) {
             dims[sheetId] = { w: Math.round(wFt), d: Math.round(dFt), source: sc.activeSource };
           } else if (wFt > 0 && dFt > 0) {
@@ -565,20 +568,28 @@ const CableAnalyzer = {
           }
         }
 
-        // Method 2: OCR ft_per_inch — use with detected or standard sheet sizes
-        // If we have ft_per_inch but no pixel calibration, estimate building dims from
-        // the detected sheet physical size (from PDF page dims or OCR text), falling back to ARCH D
+        // Method 2: ft_per_inch + known drawable area → building dimensions
+        // Priority: user-selected sheet size > OCR-detected sheet size > ARCH D fallback
         if (!dims[sheetId] && sc._ftPerInch > 0) {
-          // Use detected drawable area from ScaleCalibration (set by OCR sheet size detection)
-          // Falls back to ARCH D (33"×21") if no sheet size was detected
-          const drawableW = sc._drawableW || 33; // inches of drawable width
-          const drawableD = sc._drawableH || 21; // inches of drawable height
-          const sheetLabel = sc._sheetName || 'ARCH D (default)';
+          // User-selected sheet size overrides auto-detected — eliminates biggest error source
+          const drawableW = userDrawable ? userDrawable.w : (sc._drawableW || 33);
+          const drawableD = userDrawable ? userDrawable.h : (sc._drawableH || 21);
+          const sheetLabel = userDrawable ? userDrawable.label : (sc._sheetName || 'ARCH D (default)');
           const wFt = Math.round(drawableW * sc._ftPerInch);
           const dFt = Math.round(drawableD * sc._ftPerInch);
           if (wFt > 10 && dFt > 10) {
-            dims[sheetId] = { w: wFt, d: dFt, source: 'ocr_estimated' };
-            console.log(`[CableAnalyzer] Sheet ${sheetId}: estimated ${wFt}×${dFt} ft from OCR scale (${sc._ftPerInch} ft/inch × ${sheetLabel} drawable ${drawableW}"×${drawableD}")`);
+            dims[sheetId] = { w: wFt, d: dFt, source: userDrawable ? 'user_sheet_size' : 'ocr_estimated' };
+            console.log(`[CableAnalyzer] Sheet ${sheetId}: ${wFt}×${dFt} ft from ${userDrawable ? 'USER-SELECTED' : 'OCR'} scale (${sc._ftPerInch} ft/inch × ${sheetLabel} drawable ${drawableW}"×${drawableD}")`);
+          }
+        }
+
+        // Method 3: ft_per_inch exists but no pixel data and no OCR — use user sheet size
+        if (!dims[sheetId] && !sc._ftPerInch && sc.aiScale?.ftPerInch > 0 && userDrawable) {
+          const wFt = Math.round(userDrawable.w * sc.aiScale.ftPerInch);
+          const dFt = Math.round(userDrawable.h * sc.aiScale.ftPerInch);
+          if (wFt > 10 && dFt > 10) {
+            dims[sheetId] = { w: wFt, d: dFt, source: 'user_sheet_size_ai_scale' };
+            console.log(`[CableAnalyzer] Sheet ${sheetId}: ${wFt}×${dFt} ft from USER sheet size + AI scale (${sc.aiScale.ftPerInch} ft/inch × ${userDrawable.label})`);
           }
         }
 

@@ -701,6 +701,7 @@ const state = {
   floorPlateDepth: 0,       // ft
   ceilingHeight: 10,        // ft, typical finished ceiling height
   floorToFloorHeight: 14,   // ft, slab-to-slab height
+  planSheetSize: '',        // '' = auto-detect, or user-selected: 'ARCH_D', 'ARCH_E', 'ANSI_D', etc.
   _cablePathwayOpen: false,
   _symbolInventoryOpen: false,
   _symbolInventorySort: 'sheet',     // 'sheet', 'type', 'room', 'floor'
@@ -3132,6 +3133,30 @@ function renderStep0(container) {
     </div>
 
     <div class="form-group">
+      <label class="form-label" for="plan-sheet-size">Plan Sheet Size <span style="color:var(--text-muted);font-weight:400">(recommended)</span></label>
+      <p class="form-hint">Selecting your sheet size dramatically improves cable length accuracy. The AI reads the scale from the title block, but if it guesses the wrong sheet size, all building dimensions will be off. When set, the AI only needs to read the scale — not guess the paper size.</p>
+      <select class="form-select" id="plan-sheet-size">
+        <option value="">Auto-detect (let AI figure it out)</option>
+        <optgroup label="Architectural (most common)">
+          <option value="ARCH_D" ${state.planSheetSize === 'ARCH_D' ? 'selected' : ''}>ARCH D — 24" × 36" (most common)</option>
+          <option value="ARCH_E" ${state.planSheetSize === 'ARCH_E' ? 'selected' : ''}>ARCH E — 36" × 48"</option>
+          <option value="ARCH_E1" ${state.planSheetSize === 'ARCH_E1' ? 'selected' : ''}>ARCH E1 — 30" × 42"</option>
+          <option value="ARCH_C" ${state.planSheetSize === 'ARCH_C' ? 'selected' : ''}>ARCH C — 18" × 24"</option>
+          <option value="ARCH_B" ${state.planSheetSize === 'ARCH_B' ? 'selected' : ''}>ARCH B — 12" × 18"</option>
+        </optgroup>
+        <optgroup label="ANSI / Engineering">
+          <option value="ANSI_D" ${state.planSheetSize === 'ANSI_D' ? 'selected' : ''}>ANSI D — 22" × 34"</option>
+          <option value="ANSI_E" ${state.planSheetSize === 'ANSI_E' ? 'selected' : ''}>ANSI E — 34" × 44"</option>
+          <option value="ANSI_C" ${state.planSheetSize === 'ANSI_C' ? 'selected' : ''}>ANSI C — 17" × 22"</option>
+        </optgroup>
+        <optgroup label="Half-size / Reduced">
+          <option value="HALF_D" ${state.planSheetSize === 'HALF_D' ? 'selected' : ''}>Half-size (11" × 17") — reduced from ARCH D</option>
+          <option value="HALF_E" ${state.planSheetSize === 'HALF_E' ? 'selected' : ''}>Half-size (18" × 24") — reduced from ARCH E</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <div class="form-group">
       <label class="form-label" for="prevailing-wage">Prevailing Wage / Davis-Bacon</label>
       <p class="form-hint">For government, public, or federally funded projects. Determines labor rate classifications and certified payroll requirements. When active, labor rates auto-populate with loaded rates (base + fringes) and burden is disabled to prevent double-counting.</p>
       <select class="form-select" id="prevailing-wage">
@@ -3525,6 +3550,12 @@ function renderStep0(container) {
   document.getElementById("known-quantities").addEventListener("input", e => { state.knownQuantities = e.target.value; });
   document.getElementById("code-jurisdiction").addEventListener("input", e => { state.codeJurisdiction = e.target.value; });
   document.getElementById("project-location").addEventListener("input", e => { state.projectLocation = e.target.value; });
+
+  const sheetSizeSelect = document.getElementById("plan-sheet-size");
+  if (sheetSizeSelect) {
+    sheetSizeSelect.value = state.planSheetSize;
+    sheetSizeSelect.addEventListener("change", () => { state.planSheetSize = sheetSizeSelect.value; });
+  }
 
   const pwSelect = document.getElementById("prevailing-wage");
   pwSelect.value = state.prevailingWage;
@@ -4808,6 +4839,10 @@ function computePathwayDistances() {
       sheetDims[sh.sheet_id] = { w: sh.sheet_area_width_ft, d: sh.sheet_area_depth_ft };
     }
   });
+  // User-selected sheet size → known drawable area (eliminates guessing)
+  const _userDrawable = (typeof ScaleCalibration !== 'undefined' && state.planSheetSize)
+    ? ScaleCalibration.getSheetDrawableArea(state.planSheetSize) : null;
+
   // Merge ScaleCalibration data (same as cable-analyzer.js _buildSheetDims)
   if (typeof ScaleCalibration !== 'undefined') {
     const scSheets = ScaleCalibration._sheets || {};
@@ -4815,12 +4850,22 @@ function computePathwayDistances() {
       if (sheetDims[sheetId]) return; // AI data takes priority
       const sc = scSheets[sheetId];
       if (sc._ftPerInch > 0) {
-        const drawableW = sc._drawableW || 33;
-        const drawableD = sc._drawableH || 21;
+        // User-selected sheet size overrides auto-detected drawable area
+        const drawableW = _userDrawable ? _userDrawable.w : (sc._drawableW || 33);
+        const drawableD = _userDrawable ? _userDrawable.h : (sc._drawableH || 21);
         const wFt = Math.round(drawableW * sc._ftPerInch);
         const dFt = Math.round(drawableD * sc._ftPerInch);
         if (wFt > 10 && dFt > 10) {
-          sheetDims[sheetId] = { w: wFt, d: dFt, source: 'scale_calibration' };
+          sheetDims[sheetId] = { w: wFt, d: dFt, source: _userDrawable ? 'user_sheet_size' : 'scale_calibration' };
+          if (_userDrawable) console.log(`[Pathway] Sheet ${sheetId}: ${wFt}×${dFt} ft from USER-SELECTED ${_userDrawable.label} × ${sc._ftPerInch} ft/inch`);
+        }
+      }
+      // Fallback: AI scale + user sheet size
+      if (!sheetDims[sheetId] && sc.aiScale?.ftPerInch > 0 && _userDrawable) {
+        const wFt = Math.round(_userDrawable.w * sc.aiScale.ftPerInch);
+        const dFt = Math.round(_userDrawable.h * sc.aiScale.ftPerInch);
+        if (wFt > 10 && dFt > 10) {
+          sheetDims[sheetId] = { w: wFt, d: dFt, source: 'user_sheet_size_ai_scale' };
         }
       }
     });
@@ -10022,6 +10067,7 @@ function _restoreStateFromPayload(id, pkg, est) {
   // overwriting saved markups. See _restoreTransitAutoDetect() called below.
   state.floorPlateWidth = pkg?.project?.floorPlateWidth || 0;
   state.floorPlateDepth = pkg?.project?.floorPlateDepth || 0;
+  state.planSheetSize = pkg?.project?.planSheetSize || '';
   state.ceilingHeight = pkg?.project?.ceilingHeight || 10;
   state.floorToFloorHeight = pkg?.project?.floorToFloorHeight || 14;
 

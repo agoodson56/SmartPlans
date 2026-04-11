@@ -4893,7 +4893,15 @@ Return ONLY valid JSON:
       SPATIAL_LAYOUT: () => `You are a BUILDING SPATIAL ANALYST. Your job is to extract floor plan geometry, IDF/MDF room positions, and device zone positions so cable run lengths can be precisely calculated.
 
 PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
-
+${context.planSheetSize ? `
+═══ USER-SPECIFIED SHEET SIZE (AUTHORITATIVE — do NOT override) ═══
+The user has confirmed that ALL plan sheets in this set are: ${(() => {
+  const sizes = { ARCH_D: 'ARCH D (24"×36")', ARCH_E: 'ARCH E (36"×48")', ARCH_E1: 'ARCH E1 (30"×42")', ARCH_C: 'ARCH C (18"×24")', ARCH_B: 'ARCH B (12"×18")', ANSI_D: 'ANSI D (22"×34")', ANSI_E: 'ANSI E (34"×44")', ANSI_C: 'ANSI C (17"×22")', HALF_D: 'Half-size (11"×17")', HALF_E: 'Half-size (18"×24")' };
+  return sizes[context.planSheetSize] || context.planSheetSize;
+})()}
+Use this sheet size when calculating building dimensions from the scale. For example, if the scale is 1/8"=1'-0" (8 ft/inch) and the sheet is ARCH D, the drawable area is ~33"×21", so the building area shown is approximately 264'×168'.
+DO NOT guess or auto-detect the sheet size — the user has told you what it is.
+` : ''}
 ═══ PRE-EXTRACTED SCALE DATA (from PDF text layer — HIGH CONFIDENCE) ═══
 The following scale notations were extracted deterministically from the PDF text layer.
 These are AUTHORITATIVE — use them as ground truth. Only override if you can visually confirm a different scale.
@@ -6990,6 +6998,7 @@ ${legendContext}
       floorPlateDepth: state.floorPlateDepth || 0,
       ceilingHeight: state.ceilingHeight || 10,
       floorToFloorHeight: state.floorToFloorHeight || 14,
+      planSheetSize: state.planSheetSize || '',
       pricingContext: this._buildPricingContext(state),
       // Pre-computed distance to nearest 3D office (injected into AI prompts to prevent incorrect travel costs)
       nearestOfficeDistance: state._nearestOfficeDistance ?? undefined,

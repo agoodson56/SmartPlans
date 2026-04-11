@@ -8,6 +8,30 @@ const ScaleCalibration = {
 
   VERSION: '1.0.0',
 
+  // ── Standard architectural/engineering sheet sizes (drawable area in inches) ──
+  // Drawable area = total sheet size minus title block borders (~3" total)
+  SHEET_SIZES: {
+    'ARCH_D':  { w: 33, h: 21, label: 'ARCH D (24×36)',  totalW: 36, totalH: 24 },
+    'ARCH_E':  { w: 45, h: 33, label: 'ARCH E (36×48)',  totalW: 48, totalH: 36 },
+    'ARCH_E1': { w: 39, h: 27, label: 'ARCH E1 (30×42)', totalW: 42, totalH: 30 },
+    'ARCH_C':  { w: 21, h: 15, label: 'ARCH C (18×24)',  totalW: 24, totalH: 18 },
+    'ARCH_B':  { w: 15, h: 9,  label: 'ARCH B (12×18)',  totalW: 18, totalH: 12 },
+    'ANSI_D':  { w: 31, h: 19, label: 'ANSI D (22×34)',  totalW: 34, totalH: 22 },
+    'ANSI_E':  { w: 41, h: 31, label: 'ANSI E (34×44)',  totalW: 44, totalH: 34 },
+    'ANSI_C':  { w: 19, h: 14, label: 'ANSI C (17×22)',  totalW: 22, totalH: 17 },
+    'HALF_D':  { w: 14, h: 8,  label: 'Half (11×17)',    totalW: 17, totalH: 11 },
+    'HALF_E':  { w: 21, h: 15, label: 'Half (18×24)',    totalW: 24, totalH: 18 },
+  },
+
+  /**
+   * Get drawable area in inches for a user-selected sheet size.
+   * Returns { w, h, label } or null if not found / auto-detect.
+   */
+  getSheetDrawableArea(sheetSizeKey) {
+    if (!sheetSizeKey) return null;
+    return this.SHEET_SIZES[sheetSizeKey] || null;
+  },
+
   // ── Standard reference dimensions for calibration ──
   DOOR_WIDTHS: {
     commercial_single: 36,   // 3'-0" standard commercial

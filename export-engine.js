@@ -90,6 +90,7 @@ const SmartPlansExport = {
                 isTransitRailroad: state.isTransitRailroad || false,
                 floorPlateWidth: state.floorPlateWidth || 0,
                 floorPlateDepth: state.floorPlateDepth || 0,
+                planSheetSize: state.planSheetSize || '',
                 ceilingHeight: state.ceilingHeight || 10,
                 floorToFloorHeight: state.floorToFloorHeight || 14,
             },
