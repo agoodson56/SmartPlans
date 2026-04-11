@@ -5604,6 +5604,22 @@ function computePathwayDistances() {
   // TIA-568 violations across all zones
   const tiaViolations = results.flatMap(r => r.zones.filter(z => z.tiaFlag));
 
+  // ── Count consensus drops HERE (inside computePathwayDistances) so they're available in return ──
+  // Used downstream by injectCalculatedCableQuantities for jack/faceplate/patch cord correction
+  const _consensus = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
+    || state.brainResults?.wave1_75?.TARGETED_RESCANNER?.final_counts
+    || state.brainResults?.wave1?.SYMBOL_SCANNER?.totals || {};
+  let consensusCableDrops = 0;
+  let consensusWAPCount = 0;
+  for (const [_key, _val] of Object.entries(_consensus)) {
+    const _k = _key.toLowerCase();
+    if (/^(data[_\s]?(outlet|drop|port)|voice[_\s]?(outlet|drop)|wap|wireless[_\s]?access|network[_\s]?jack|cat6a?[_\s]?drop|ethernet[_\s]?(outlet|port|drop)|rj45)$/i.test(_k)) {
+      const _count = typeof _val === 'object' ? (_val.consensus || _val.count || _val.total || 0) : (_val || 0);
+      consensusCableDrops += _count;
+      if (/^(wap|wireless[_\s]?access)/i.test(_k)) consensusWAPCount += _count;
+    }
+  }
+
   return {
     results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD,
     backboneResults, backboneTotalFt: backboneResults.reduce((s, b) => s + b.totalFt, 0),
