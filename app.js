@@ -628,6 +628,104 @@ function getDefaultExclusions(disciplines) {
   return items;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// AUTO-POPULATE EXCLUSIONS & ASSUMPTIONS
+// Runs automatically after AI analysis completes.
+// Fills based on: (1) selected disciplines, (2) by_others items
+// from AI pathway analysis, (3) AI-detected annotations (FBO/NIC/OFCI)
+// ═══════════════════════════════════════════════════════════════
+function _autoPopulateExclusions(brainResults) {
+  if (!state.exclusions) state.exclusions = [];
+  if (state.exclusions.length > 0) return; // User already has items — don't override
+
+  const added = [];
+  const _addUnique = (item) => {
+    if (added.some(a => a.type === item.type && a.text === item.text)) return;
+    item.id = item.id || crypto.randomUUID().replace(/-/g, '');
+    added.push(item);
+  };
+
+  // 1. Load discipline-based defaults (what WE are bidding)
+  const defaults = getDefaultExclusions(state.disciplines || []);
+  defaults.forEach(d => _addUnique(d));
+
+  // 2. Pull by_others items from AI pathway analysis (what OTHERS are covering)
+  //    These are items the AI found marked "BY OTHERS", "FBO", "NIC" on the drawings
+  const cableBrain = brainResults?.wave1?.CABLE_PATHWAY || brainResults?.wave1_75?.CABLE_PATHWAY || {};
+  const pathways = cableBrain.pathways || [];
+  pathways.forEach(p => {
+    if (p.by_others === true) {
+      const note = p.by_others_note || `${p.type || 'Item'} furnished and installed by others`;
+      _addUnique({
+        type: 'exclusion',
+        text: `Excludes ${p.type || 'pathway item'} (${p.length_ft || 0} ft) — ${note}`,
+        category: 'By Others (from Plans)',
+        sort_order: 400
+      });
+    }
+  });
+
+  // 3. Pull exclusions from Annotation Reader (FBO/NIC/OFCI markings on drawings)
+  const annotationReader = brainResults?.wave1?.ANNOTATION_READER || brainResults?.wave1_75?.ANNOTATION_READER || {};
+  if (annotationReader.exclusions && Array.isArray(annotationReader.exclusions)) {
+    annotationReader.exclusions.forEach(ex => {
+      const txt = typeof ex === 'string' ? ex : `${ex.item || ''} — ${ex.note || 'BY OTHERS'}${ex.sheet_id ? ' (Sheet ' + ex.sheet_id + ')' : ''}`;
+      if (txt) {
+        _addUnique({
+          type: 'exclusion',
+          text: txt,
+          category: 'By Others (from Plans)',
+          sort_order: 410
+        });
+      }
+    });
+  }
+
+  // 4. Pull assumptions from Financial Engine (AI-identified project assumptions)
+  const financialEngine = brainResults?.wave2_25?.FINANCIAL_ENGINE || brainResults?.wave2?.FINANCIAL_ENGINE || {};
+  if (financialEngine.exclusions && Array.isArray(financialEngine.exclusions)) {
+    financialEngine.exclusions.forEach(ex => {
+      const txt = typeof ex === 'string' ? ex : (ex.description || ex.text || '');
+      if (txt) _addUnique({ type: 'exclusion', text: txt, category: 'AI-Identified', sort_order: 500 });
+    });
+  }
+  if (financialEngine.assumptions && Array.isArray(financialEngine.assumptions)) {
+    financialEngine.assumptions.forEach(a => {
+      const txt = typeof a === 'string' ? a : (a.description || a.text || '');
+      if (txt) _addUnique({ type: 'assumption', text: txt, category: 'AI-Identified', sort_order: 500 });
+    });
+  }
+
+  // 5. Project-specific smart exclusions based on project type
+  const projName = (state.projectName || '').toLowerCase();
+  const projType = (state.projectType || '').toLowerCase();
+  const combined = `${projName} ${projType}`;
+  if (/\bva\b|veteran|vamc/i.test(combined)) {
+    _addUnique({ type: 'assumption', text: 'Assumes VA IT infrastructure (network switches, servers, UPS) is furnished by VA OIT', category: 'VA-Specific', sort_order: 600 });
+    _addUnique({ type: 'assumption', text: 'Assumes VA will provide network configurations, VLANs, and IP addresses prior to commissioning', category: 'VA-Specific', sort_order: 601 });
+    _addUnique({ type: 'exclusion', text: 'Excludes integration with existing VA campus backbone or MPLS network', category: 'VA-Specific', sort_order: 602 });
+    _addUnique({ type: 'clarification', text: 'All work subject to VA construction safety standards and ICRA requirements', category: 'VA-Specific', sort_order: 603 });
+    _addUnique({ type: 'clarification', text: 'Davis-Bacon prevailing wage rates apply per federal contract requirements', category: 'VA-Specific', sort_order: 604 });
+  }
+  if (/hospital|medical|healthcare|clinic/i.test(combined)) {
+    _addUnique({ type: 'assumption', text: 'Assumes ICRA (Infection Control Risk Assessment) barriers provided by GC when working in patient areas', category: 'Healthcare', sort_order: 610 });
+    _addUnique({ type: 'exclusion', text: 'Excludes after-hours or weekend work for occupied patient areas (priced at standard hours unless noted)', category: 'Healthcare', sort_order: 611 });
+  }
+
+  // Assign to state
+  state.exclusions = added;
+  console.log(`[SmartPlans] Auto-populated ${added.length} exclusions/assumptions/clarifications (${state.disciplines.length} disciplines)`);
+
+  // Sync to API if estimate exists
+  if (state.estimateId && added.length > 0) {
+    fetch(`/api/estimates/${state.estimateId}/exclusions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
+      body: JSON.stringify(added)
+    }).catch(err => console.warn('[SmartPlans] Failed to sync auto-populated exclusions:', err));
+  }
+}
+
 const RFI_TEMPLATES = {
   "Structured Cabling": [
     { id: "SC-001", q: "Data outlet symbols are inconsistent across sheets. Please confirm symbol definitions and clarify whether each represents single-gang, dual-gang, or multi-port configurations.", reason: "Inconsistent symbols cause cable and faceplate miscounts." },
@@ -10041,6 +10139,12 @@ async function runGeminiAnalysis(updateProgress) {
       state.completedSteps.add("review");
       // Smart Defaults: pick up AI-detected values (ceiling height, sheet size, etc.)
       SmartDefaults.onAnalysisComplete(result.brainResults || {});
+      // ── AUTO-POPULATE EXCLUSIONS & ASSUMPTIONS ──
+      // Fill based on what we're bidding (disciplines) and what other trades cover.
+      // Only auto-fill if user hasn't manually entered any yet.
+      if (!state.exclusions || state.exclusions.length === 0) {
+        _autoPopulateExclusions(result.brainResults || {});
+      }
       // ── BOM & labor validation disabled — letting AI output run unmodified ──
       // validateAndRepairBOM() and labor hour clamping available but not called.
       // The temperature=0 and tier anchoring in ai-engine.js handle consistency at the source.
@@ -10133,6 +10237,10 @@ async function runGeminiAnalysis(updateProgress) {
         AnalysisTimer.stop();
         state.analysisComplete = true;
         state.completedSteps.add("review");
+        // Auto-populate exclusions for fallback mode too
+        if (!state.exclusions || state.exclusions.length === 0) {
+          _autoPopulateExclusions({});
+        }
         state.currentStep = 6;
         render();
         scrollContentTop();
@@ -10991,6 +11099,10 @@ function _restoreStateFromPayload(id, pkg, est) {
     state.analysisComplete = true;
     state.completedSteps = new Set(['setup', 'legend', 'plans', 'specs', 'addenda', 'review', 'travel']);
     state.currentStep = 7;
+    // Auto-populate exclusions on reload if none saved
+    if ((!state.exclusions || state.exclusions.length === 0) && (!pkg.exclusionsRaw || pkg.exclusionsRaw.length === 0)) {
+      _autoPopulateExclusions(state.brainResults || {});
+    }
 
     // FIX: Detect previously truncated saves and restore BOM from structured financials
     const wasTruncated = state.aiAnalysis.includes('[truncated for storage]');
