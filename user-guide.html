@@ -65,7 +65,7 @@
     <div>
       <h1>SmartPlans — User Guide</h1>
       <p>AI-Powered Construction Document Analysis &amp; Estimation · 3D Technology Services Inc.</p>
-      <p style="margin-top:8px;font-size:12px;opacity:0.7">SmartPlans v5.0 · Last Updated: March 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
+      <p style="margin-top:8px;font-size:12px;opacity:0.7">SmartPlans v5.103.0 · Last Updated: April 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
     </div>
     <button onclick="window.print()" style="margin-left:auto;padding:10px 20px;background:#BF9000;color:white;border:none;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;">Save as PDF</button>
   </div>
@@ -75,19 +75,26 @@
   <div class="container">
     <a href="#estimator-checklist" style="background:#BF9000;color:white;border-color:#BF9000;font-weight:700;">Estimator's Checklist</a>
     <a href="#getting-started">Getting Started</a>
+    <a href="#header-bar">Header &amp; Navigation</a>
+    <a href="#pdf-tool">PDF Page Extractor</a>
+    <a href="#wizard-nav">8-Step Wizard</a>
     <a href="#stage1">Stage 1 — Project Setup</a>
     <a href="#stage2">Stage 2 — Symbol Legend</a>
     <a href="#stage3">Stage 3 — Floor Plans</a>
     <a href="#stage4">Stage 4 — Specifications</a>
     <a href="#stage5">Stage 5 — Addenda</a>
     <a href="#stage6">Stage 6 — Review &amp; Analyze</a>
+    <a href="#ai-engine">27-Brain AI Engine</a>
     <a href="#stage7">Stage 7 — Travel &amp; Per Diem</a>
     <a href="#stage8">Stage 8 — Results &amp; RFIs</a>
     <a href="#symbol-inventory">Symbol Inventory</a>
     <a href="#symbol-map">Visual Symbol Map</a>
     <a href="#cable-pathway">Cable Pathway</a>
+    <a href="#scale-calibration">Scale Calibration</a>
+    <a href="#engine3d">3D Formula Engine</a>
     <a href="#change-orders">Change Orders</a>
     <a href="#exports">Exporting</a>
+    <a href="#proposal-generator">Proposal Generator</a>
     <a href="#supplier-workflow">Supplier Pricing</a>
     <a href="#rate-library">Rate Library</a>
     <a href="#actuals">Actuals &amp; Benchmarks</a>
@@ -245,6 +252,8 @@
       <tr><td><strong>8</strong></td><td>Not including commissioning and testing labor</td><td>Budget 8% to 12% of total labor hours for testing and commissioning.</td></tr>
       <tr><td><strong>9</strong></td><td>Forgetting warranty period costs</td><td>Budget for 1 to 2 years of warranty service calls and replacement parts.</td></tr>
       <tr><td><strong>10</strong></td><td>Ignoring AI-identified change orders</td><td>Review the Potential Change Orders card. Factor high-severity items into your contingency.</td></tr>
+      <tr><td><strong>11</strong></td><td>Using the wrong prevailing wage county</td><td>California rates vary by county. A wrong county can over- or under-bid labor by 20%.</td></tr>
+      <tr><td><strong>12</strong></td><td>Forgetting to check the Transit/Railroad toggle</td><td>Railroad work adds RWIC flagmen, RPL insurance, and restricted work windows. If the job is on transit property, turn on the toggle in Stage 1.</td></tr>
     </table>
 
     <!-- 4. Before You Submit -->
@@ -262,6 +271,8 @@
       <tr><td><input type="checkbox" disabled></td><td><strong>Duplicates checked</strong></td><td>Symbol Inventory duplicate detector shows zero unexpected duplicates</td></tr>
       <tr><td><input type="checkbox" disabled></td><td><strong>Second-person review</strong></td><td>Another person has reviewed the numbers independently</td></tr>
       <tr><td><input type="checkbox" disabled></td><td><strong>Addenda acknowledged</strong></td><td>All addenda are listed and acknowledged on the bid form</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>Scale calibration verified</strong></td><td>Checked the Scale Calibration card in Stage 8 to confirm drawing scale was detected correctly</td></tr>
+      <tr><td><input type="checkbox" disabled></td><td><strong>3D Formula Engine reviewed</strong></td><td>Opened the 3D Formula Engine card to see line-by-line cost breakdown and verify math</td></tr>
     </table>
 
     <div class="callout callout-warn"><strong>Golden Rule:</strong> Have a second person review your numbers before submission. Fresh eyes catch errors that you have gone blind to after hours of estimating.</div>
@@ -273,6 +284,8 @@
       <tr><td><strong>Symbol Inventory Audit</strong></td><td>Lists every device the AI found with sheet number, room, floor, and duplicate detection.</td><td>Always. This is your primary count verification tool.</td></tr>
       <tr><td><strong>Visual Symbol Map</strong></td><td>Shows colored markers on your actual floor plans so you can see what the AI counted and where.</td><td>Always. This is the fastest way to visually verify counts.</td></tr>
       <tr><td><strong>Cable Pathway Analysis</strong></td><td>Zone-by-zone cable distance breakdown showing how the AI calculated cable quantities.</td><td>When cable costs are a significant part of the bid.</td></tr>
+      <tr><td><strong>Scale Calibration</strong></td><td>Shows the detected drawing scale for each sheet. If the scale is wrong, cable distances will be wrong.</td><td>Always. A wrong scale means wrong cable math.</td></tr>
+      <tr><td><strong>3D Formula Engine</strong></td><td>Shows the exact formula and arithmetic behind every dollar in your bid.</td><td>When you want to understand exactly where a number came from.</td></tr>
       <tr><td><strong>Supplier Quotes</strong></td><td>Export the BOM to vendors. Import their real pricing back in.</td><td>Always for high-value items. Ideally for the entire BOM on competitive bids.</td></tr>
       <tr><td><strong>Bid Strategy</strong></td><td>Set confidence-based markups per category.</td><td>After you complete your review and know which categories you trust.</td></tr>
       <tr><td><strong>Rate Library</strong></td><td>Save rates from completed projects. Apply them to new estimates.</td><td>Every project. Gets more valuable over time.</td></tr>
@@ -280,6 +293,7 @@
       <tr><td><strong>Bid Phases</strong></td><td>Structure base bid plus add/deduct alternates and optional phases.</td><td>Whenever the bid documents call for alternates or phased pricing.</td></tr>
       <tr><td><strong>Editable BOM</strong></td><td>Click any quantity or price cell to edit it. Totals recalculate instantly.</td><td>Whenever you find an error during your review.</td></tr>
       <tr><td><strong>Potential Change Orders</strong></td><td>AI-identified scope gaps with severity ratings and estimated dollar impact.</td><td>During bid review. High-severity items should be reflected in contingency.</td></tr>
+      <tr><td><strong>PDF Page Extractor</strong></td><td>Trim a 100+ page plan set down to only the sheets you need before running the AI.</td><td>When you only need certain pages (e.g., electrical-only or fire alarm-only sheets).</td></tr>
     </table>
 
     <div class="callout callout-tip"><strong>Pro Tip:</strong> The estimators who win the most work are the ones who build their Rate Library and record Actuals religiously. After 10 to 15 projects, your historical data becomes your single greatest competitive advantage.</div>
@@ -306,45 +320,135 @@
     <div class="callout callout-tip"><strong>Tip:</strong> PDF files work the best. The AI can read both the pictures and the text inside a PDF. If your drawings are in DWG, DXF, IFC, or RVT format, those work too. Image files (PNG, JPG, TIFF) are supported but less accurate.</div>
 
     <h3>Open SmartPlans</h3>
-    <p>Go to <code>https://smartplans-4g5.pages.dev/</code> in your web browser. You will see <strong>8 stage buttons</strong> across the top of the page. Each stage is a step you complete in order. Just go from Stage 1 to Stage 8, one at a time.</p>
+    <p>Go to <code>https://smartplans-4g5.pages.dev/</code> in your web browser. You will see <strong>8 step circles</strong> across the top of the page. Each step is a stage you complete in order. Just go from Step 0 (Stage 1) to Step 7 (Stage 8), one at a time.</p>
 
     <div class="callout callout-info"><strong>Good to know:</strong> You do not need to install anything. SmartPlans runs right in your browser. The 8 stages are: Project Setup, Symbol Legend, Floor Plans, Specifications, Addenda, Review &amp; Analyze, Travel &amp; Per Diem, and Results &amp; RFIs.</div>
 
-    <h3>The Header Bar</h3>
-    <p>At the very top of the page, you will see a bar with some important buttons:</p>
+    <!-- ============================================================ -->
+    <!-- HEADER BAR & NAVIGATION -->
+    <!-- ============================================================ -->
+    <h2 id="header-bar">Header Bar &amp; Navigation</h2>
+
+    <h3>What Is the Header Bar?</h3>
+    <p>The header bar is the dark strip that stays at the very top of the screen no matter what stage you are on. It contains the SmartPlans logo, important buttons, and counters. Here is every single item you will see, from left to right:</p>
+
     <table>
-      <tr><th>Button / Item</th><th>What It Does</th></tr>
-      <tr><td><strong>SmartPlans logo</strong></td><td>Shows the name of the app. Just decoration — no click needed.</td></tr>
-      <tr><td><strong>BIDS counter</strong></td><td>Shows how many estimates you have run. This is just for fun tracking.</td></tr>
-      <tr><td><strong>SPENT counter</strong></td><td>Shows how much AI processing has been used. Do not worry about this — it is for administrators.</td></tr>
-      <tr><td><strong>User Guide button</strong></td><td>Opens this guide in a new tab.</td></tr>
-      <tr><td><strong>Saved button</strong></td><td>Opens a list of all your saved estimates. Click this to reload a past project.</td></tr>
+      <tr><th>Item</th><th>What It Looks Like</th><th>What It Does</th></tr>
+      <tr><td><strong>SmartPlans Logo</strong></td><td>The words "SmartPlans" in white text with a teal accent.</td><td>This is just branding. It tells you the name of the application. You do not need to click it. (Admin note: tapping the logo 5 times quickly reveals hidden admin tools.)</td></tr>
+      <tr><td><strong>BIDS Counter</strong></td><td>A small number with the label "BIDS."</td><td>Shows the total number of estimates you have run across all devices. This is a fun tracker and does not affect anything.</td></tr>
+      <tr><td><strong>SPENT Counter</strong></td><td>A dollar amount with the label "SPENT."</td><td>Shows cumulative AI processing cost. This is for administrators only and does not affect your work.</td></tr>
+      <tr><td><strong>PDF Tool Button</strong> <span class="badge-new">NEW</span></td><td>A scissors icon button.</td><td>Opens the PDF Page Extractor modal. See the full <a href="#pdf-tool">PDF Page Extractor</a> section below.</td></tr>
+      <tr><td><strong>New Bid Button</strong></td><td>A button labeled "New Bid."</td><td>Starts a completely fresh estimate. Clears everything: all files, all settings, all results. If you have unsaved work, it will warn you before clearing.</td></tr>
+      <tr><td><strong>Start Button</strong></td><td>A green button with a play (triangle) icon. Only visible after you upload files and reach Stage 6.</td><td>Begins the AI analysis. Same as clicking "Begin Analysis" on Stage 6. The button turns green when ready.</td></tr>
+      <tr><td><strong>Stop Button</strong></td><td>A red button with a square icon. Only visible while analysis is running.</td><td>Cancels the AI analysis immediately. The AI stops working, and whatever results it has so far may be partial or incomplete.</td></tr>
+      <tr><td><strong>Analysis Timer</strong></td><td>A small clock display showing MM:SS. Only visible to admin users during analysis.</td><td>Counts elapsed time from the moment analysis starts. Stays visible for 30 seconds after analysis finishes, then fades away. Helps admins track how long estimates take.</td></tr>
+      <tr><td><strong>User Guide Button</strong></td><td>A button with a book or question-mark icon.</td><td>Opens this user guide in a new browser tab.</td></tr>
+      <tr><td><strong>Saved Button</strong></td><td>A button labeled "Saved."</td><td>Opens the Saved Estimates panel on the right side of the screen. See the <a href="#saved">Saved Estimates</a> section for details.</td></tr>
     </table>
 
-    <h3>How the 27-Brain AI Engine Works</h3>
-    <p>SmartPlans does not use just one AI. It uses <strong>27 specialized AI brains</strong> that each focus on a different part of the analysis. Think of it like a team of 27 experts, each with their own specialty, all working on your drawings at the same time.</p>
-    <p>These brains are organized into "waves" — groups that run in sequence:</p>
+    <div class="callout callout-info"><strong>Good to know:</strong> The Start and Stop buttons only appear at the right time. You will not see a Start button until you have uploaded floor plans and reached the Review stage. You will not see a Stop button unless the AI is currently running.</div>
+
+    <!-- ============================================================ -->
+    <!-- PDF PAGE EXTRACTOR TOOL -->
+    <!-- ============================================================ -->
+    <h2 id="pdf-tool">PDF Page Extractor Tool <span class="badge-new">NEW</span></h2>
+
+    <h3>What Is This?</h3>
+    <p>The PDF Page Extractor is a built-in tool that lets you <strong>trim a large PDF file down to only the pages you need</strong>. Imagine you have a 109-page construction plan set, but you only need the 19 electrical pages for your low-voltage bid. Instead of sending all 109 pages through the AI (which takes longer and costs more), you can use this tool to pull out just the 19 pages you need.</p>
+
+    <h3>Why Is This Useful?</h3>
+    <ul>
+      <li><strong>Faster analysis</strong> — The AI only has to read 19 pages instead of 109. That is 5 to 10 times faster.</li>
+      <li><strong>More accurate results</strong> — When the AI sees only electrical pages, it does not get confused by architectural, mechanical, or plumbing pages.</li>
+      <li><strong>Lower cost</strong> — Fewer pages means less AI processing time and cost.</li>
+      <li><strong>Better focus</strong> — If you are bidding only fire alarm, you only need fire alarm sheets. If you are bidding only access control, you only need security sheets.</li>
+    </ul>
+
+    <div class="callout callout-info"><strong>Real-world example:</strong> A general contractor sends you a 200-page plan set. Pages 1-5 are the cover and index. Pages 6-40 are architectural. Pages 41-80 are structural. Pages 81-95 are mechanical. Pages 96-130 are electrical. Pages 131-145 are low-voltage. Pages 146-200 are plumbing and civil. You only need pages 131-145 for your bid. Use the PDF Page Extractor to pull out those 15 pages, then upload them to SmartPlans.</div>
+
+    <h3>How to Open It</h3>
+    <ol class="step-list">
+      <li>Look at the header bar at the top of the screen.</li>
+      <li>Find the button with the <strong>scissors icon</strong>. It may have a small tooltip that says "PDF Tool" when you hover over it.</li>
+      <li>Click the scissors button. A large popup window (called a "modal") will appear in the center of the screen.</li>
+    </ol>
+
+    <h3>How to Use It (Step by Step)</h3>
+    <ol class="step-list">
+      <li><strong>Upload a PDF.</strong> You can either drag a PDF file from your computer and drop it onto the dotted area, or click the dotted area to open a file picker and browse for the file. Only PDF files are accepted.</li>
+      <li><strong>See the page count.</strong> Once the file loads, SmartPlans shows you the file name and the total number of pages. For example: "MyProject_Plans.pdf — 109 pages."</li>
+      <li><strong>Type which pages to keep.</strong> In the "Pages to extract" text box, type the page numbers you want. You can use:
+        <ul>
+          <li>A single page: <code>5</code></li>
+          <li>A range of pages: <code>1-10</code></li>
+          <li>A mix of individual pages and ranges: <code>1, 5, 8-12, 15, 20-25</code></li>
+          <li>Separate items with commas or spaces.</li>
+        </ul>
+      </li>
+      <li><strong>See the live preview.</strong> As you type, a preview table appears below the text box. Each row shows a page number and whether it will be <strong>kept</strong> (green) or <strong>removed</strong> (red). This way you can double-check before extracting.</li>
+      <li><strong>Name the output file.</strong> In the "Output filename" box, type a name for your trimmed PDF. For example: <code>Electrical Pages.pdf</code> or <code>Fire Alarm Sheets.pdf</code>. If you leave it blank, SmartPlans will use a default name.</li>
+      <li><strong>Click "Extract &amp; Download."</strong> SmartPlans creates a new PDF with only the pages you chose and downloads it to your computer.</li>
+      <li><strong>Add it directly to your bid.</strong> After the download finishes, three new buttons appear:
+        <ul>
+          <li><strong>"+ Add to Floor Plans"</strong> — Loads the trimmed PDF as your floor plans in Stage 3 (Floor Plans).</li>
+          <li><strong>"+ Add to Specifications"</strong> — Loads the trimmed PDF as your specs in Stage 4 (Specifications).</li>
+          <li><strong>"+ Add to Legend"</strong> — Loads the trimmed PDF as your symbol legend in Stage 2 (Symbol Legend).</li>
+        </ul>
+        Click whichever button matches the content of your trimmed file.
+      </li>
+      <li><strong>Close the modal.</strong> Click the X button in the top-right corner, or click "Cancel," or click outside the modal to close it.</li>
+    </ol>
+
+    <div class="callout callout-warn"><strong>Page numbers must be valid.</strong> If the PDF has 50 pages, you cannot type "55" because that page does not exist. SmartPlans will show an error if you enter an invalid range.</div>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> Open the plan set's table of contents or index page first. Write down which page ranges belong to each discipline (electrical, fire alarm, low-voltage, etc.). Then use those page numbers in the extractor. This saves you from counting pages one by one.</div>
+
+    <!-- ============================================================ -->
+    <!-- 8-STEP WIZARD NAVIGATION -->
+    <!-- ============================================================ -->
+    <h2 id="wizard-nav">8-Step Wizard Navigation</h2>
+
+    <h3>What Are the Step Circles?</h3>
+    <p>Across the top of the screen (just below the header bar), you will see <strong>8 small circles</strong> in a row, connected by lines. Each circle represents one stage of the estimation process. They look like this:</p>
     <table>
-      <tr><th>Wave</th><th>What Happens</th><th>Brains Involved</th></tr>
-      <tr><td><strong>Wave 0</strong></td><td>Reads the building layout — finds floors, rooms, zones, and IDF closet locations.</td><td>SPATIAL_LAYOUT</td></tr>
-      <tr><td><strong>Wave 1</strong></td><td>Counts every device symbol on every sheet. Also calculates cable pathway distances between zones.</td><td>SYMBOL_SCANNER, CABLE_PATHWAY, and others</td></tr>
-      <tr><td><strong>Wave 1.5</strong></td><td>Breaks down the devices by floor. Figures out which sheets belong to which floor.</td><td>PER_FLOOR_ANALYZER</td></tr>
-      <tr><td><strong>Wave 2</strong></td><td>Reads the specification book. Identifies required products, brands, and installation methods.</td><td>Multiple spec-reading brains</td></tr>
-      <tr><td><strong>Wave 2.25</strong></td><td>Calculates total labor hours and recommends crew sizes.</td><td>LABOR_CALCULATOR</td></tr>
-      <tr><td><strong>Wave 3</strong></td><td>Identifies special conditions — permits, seismic requirements, unusual constraints, and potential change orders.</td><td>SPECIAL_CONDITIONS and others</td></tr>
-      <tr><td><strong>Wave 4</strong></td><td>Final assembly — combines everything into your BOM, pricing, RFIs, and proposal.</td><td>Multiple assembly brains</td></tr>
+      <tr><th>Step #</th><th>Stage Name</th><th>Icon</th></tr>
+      <tr><td>0</td><td>Project Setup</td><td>Clipboard</td></tr>
+      <tr><td>1</td><td>Symbol Legend</td><td>Key</td></tr>
+      <tr><td>2</td><td>Floor Plans</td><td>Ruler</td></tr>
+      <tr><td>3</td><td>Specifications</td><td>Document</td></tr>
+      <tr><td>4</td><td>Addenda</td><td>Pencil</td></tr>
+      <tr><td>5</td><td>Review &amp; Analyze</td><td>Magnifying glass</td></tr>
+      <tr><td>6</td><td>Travel &amp; Costs</td><td>Airplane</td></tr>
+      <tr><td>7</td><td>Results &amp; RFIs</td><td>Checkmark</td></tr>
     </table>
 
-    <div class="callout callout-info"><strong>You do not need to do anything with waves.</strong> This all happens automatically when you click "Begin Analysis." The waves are just how the AI organizes its work internally. We mention them here so you understand how the system works.</div>
+    <h3>How the Step Circles Work</h3>
+    <ol class="step-list">
+      <li><strong>Your current step</strong> is highlighted in teal (the main color) and slightly larger than the others.</li>
+      <li><strong>Completed steps</strong> show a checkmark inside the circle. They also turn a slightly different shade so you can see at a glance which stages are done.</li>
+      <li><strong>Future steps</strong> are grayed out. You cannot jump ahead to a step you have not reached yet.</li>
+      <li><strong>You CAN click back</strong> to any completed step to review or change something. For example, if you are on Step 5 (Review) and want to change a setting in Step 0 (Project Setup), just click the Step 0 circle to go back.</li>
+    </ol>
+
+    <h3>The Footer Navigation Bar</h3>
+    <p>At the bottom of every stage, there is a footer bar with navigation buttons:</p>
+    <table>
+      <tr><th>Button</th><th>What It Does</th></tr>
+      <tr><td><strong>Back</strong></td><td>Goes back one stage. Does not erase anything — it just moves the view to the previous step so you can change something.</td></tr>
+      <tr><td><strong>Next</strong></td><td>Moves forward one stage. Some stages require you to fill in certain fields before the Next button will work. If a required field is missing, you will see a warning message.</td></tr>
+      <tr><td><strong>Step Counter</strong></td><td>Shows text like "Step 3 of 8" so you know where you are in the process.</td></tr>
+    </table>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> You can use either the step circles at the top or the Back/Next buttons at the bottom. They both do the same thing — move you between stages. Use whichever feels more natural.</div>
 
     <!-- ============================================================ -->
-    <!-- STAGE 1 -->
+    <!-- STAGE 1 — PROJECT SETUP -->
     <!-- ============================================================ -->
-    <h2 id="stage1">Stage 1 — Project Setup</h2>
+    <h2 id="stage1">Stage 1 — Project Setup (Step 0)</h2>
 
     <h3>What Is This?</h3>
     <p>Stage 1 is where you tell SmartPlans about your project. Think of it like filling out a form before you go to the doctor. The more you fill in, the better the AI can help you. Every box you fill in here changes how the AI reads your drawings, what prices it picks, and how it counts your labor hours.</p>
-    <p>This page has several sections: <strong>Project Information</strong>, <strong>Prevailing Wage / Davis-Bacon</strong>, and <strong>Pricing &amp; Rate Configuration</strong>.</p>
+    <p>This page has several sections: <strong>Project Information</strong>, <strong>Prevailing Wage / Davis-Bacon</strong>, <strong>Transit / Railroad</strong>, and <strong>Pricing &amp; Rate Configuration</strong>.</p>
 
     <div class="callout callout-warn"><strong>Do not skip fields on this page.</strong> SmartPlans uses what you type here to figure out material prices, labor costs, and more. If you leave a box blank, the AI picks a default value, and that default might not be right for your project.</div>
 
@@ -363,117 +467,180 @@
     <p><strong>Example:</strong> <code>Turner Construction — Sacramento Division</code></p>
 
     <h4>Project Type <span class="badge badge-teal">Required</span></h4>
-    <p>Click the dropdown menu and pick the type of project you are working on. This tells the AI what kind of building it is looking at.</p>
+    <p>Click the dropdown menu and pick the type of project you are working on. This tells the AI what kind of building it is looking at, and changes how it counts devices and estimates labor.</p>
     <table>
       <tr><th>Option</th><th>What It Means (Simple)</th><th>How the AI Uses It</th></tr>
-      <tr><td>New Construction</td><td>A brand new building being built from scratch.</td><td>Every device on the plans is new. Nothing already exists.</td></tr>
-      <tr><td>Renovation</td><td>An old building being fixed up or remodeled.</td><td>Looks for notes that say "keep this" or "add this new." May use less cable if wires are already in place.</td></tr>
-      <tr><td>Tenant Improvement</td><td>Fixing up the inside of a building for a new tenant.</td><td>Knows ceilings, walls, and wire paths might already exist. Uses less labor time.</td></tr>
-      <tr><td>Addition</td><td>Adding a new part onto an existing building.</td><td>Treats the new section as brand new but connects it to what already exists.</td></tr>
-      <tr><td>Design-Build</td><td>Your company designs AND builds the system.</td><td>Adds extra hours for engineering and design work.</td></tr>
-      <tr><td>Service/Retrofit</td><td>Replacing or upgrading old equipment.</td><td>Includes time for removing old devices and might reuse existing wires.</td></tr>
+      <tr><td>New Construction</td><td>A brand new building being built from scratch.</td><td>Every device on the plans is new. Nothing already exists. Full cable runs, full labor.</td></tr>
+      <tr><td>Renovation / Remodel</td><td>An old building being fixed up or remodeled.</td><td>Looks for notes that say "keep this" or "add this new." May reuse existing cable and pathways, reducing material and labor.</td></tr>
+      <tr><td>Tenant Improvement</td><td>Fixing up the inside of a building for a new tenant (like a new company moving into office space).</td><td>Knows ceilings, walls, and wire paths might already exist. Uses less labor time for pathway installation.</td></tr>
+      <tr><td>Addition</td><td>Adding a new part onto an existing building.</td><td>Treats the new section as brand new but includes tie-in labor to connect it to what already exists.</td></tr>
+      <tr><td>Design-Build</td><td>Your company both designs AND builds the system (not just installing from someone else's drawings).</td><td>Adds extra hours for engineering, design coordination, and shop drawing creation.</td></tr>
+      <tr><td>Service / Retrofit</td><td>Replacing or upgrading old equipment in an existing building.</td><td>Includes time for removing and disposing of old devices. May reuse existing wires and conduit.</td></tr>
     </table>
 
-    <h4>Disciplines <span class="badge badge-teal">Required</span></h4>
-    <p>Check the boxes next to every system you are bidding on. Only the systems you check will show up in your final estimate.</p>
+    <h4>Disciplines <span class="badge badge-teal">Required — Must Select at Least One</span></h4>
+    <p>These are chip buttons (small clickable rectangles). Click each discipline that is part of your bid. Selected chips turn teal. You must select at least one.</p>
+
+    <h4>Division 27 — Communications</h4>
     <table>
-      <tr><th>Checkbox</th><th>What It Covers (Simple)</th></tr>
-      <tr><td>Structured Cabling</td><td>All the wires, cables, fiber optic lines, racks, and pathways that connect everything together.</td></tr>
-      <tr><td>CCTV</td><td>Security cameras, the computers that record video, and the software that lets you watch it.</td></tr>
-      <tr><td>Access Control</td><td>Card readers on doors, electronic locks, and the panels that control who can get in.</td></tr>
-      <tr><td>Audio Visual</td><td>Speakers, TVs, projectors, and anything that plays sound or shows pictures.</td></tr>
-      <tr><td>Intrusion Detection</td><td>Motion sensors, glass break detectors, alarm panels, and keypads.</td></tr>
-      <tr><td>Fire Alarm</td><td>Smoke detectors, pull stations, horns and strobes, and fire alarm panels.</td></tr>
+      <tr><th>Chip Button</th><th>What It Covers (Simple)</th></tr>
+      <tr><td><strong>Structured Cabling</strong></td><td>All the data/network wires, cables, fiber optic lines, patch panels, racks, J-hooks, cable tray, and pathways that connect everything together. Think of this as the "highway system" that all other systems ride on.</td></tr>
+      <tr><td><strong>Audio Visual</strong></td><td>Speakers, TVs, projectors, video walls, conference room systems, sound masking, and anything that plays sound or shows pictures in a building.</td></tr>
+      <tr><td><strong>Distributed Antenna Systems (DAS)</strong></td><td>The system that boosts cell phone signal inside buildings. Large buildings, hospitals, and stadiums often need DAS so people can make phone calls and use data indoors.</td></tr>
+      <tr><td><strong>Paging / Intercom</strong></td><td>Overhead speakers used for announcements (like in a school or hospital), intercom stations at doors, and two-way communication systems.</td></tr>
+      <tr><td><strong>Nurse Call Systems</strong></td><td>The call buttons patients press in hospitals and nursing homes to call for help. Includes pillow speakers, corridor lights, and staff notification devices.</td></tr>
     </table>
 
-    <div class="callout callout-info"><strong>Why is Structured Cabling always checked?</strong> Every system needs cables to work. Cameras need cables. Card readers need cables. Speakers need cables. So Structured Cabling is always included.</div>
+    <h4>Division 28 — Electronic Safety &amp; Security</h4>
+    <table>
+      <tr><th>Chip Button</th><th>What It Covers (Simple)</th></tr>
+      <tr><td><strong>CCTV</strong></td><td>Security cameras (dome, bullet, PTZ, multi-sensor), the NVR/server that records video, the VMS software that lets you watch it, and monitors for guard stations.</td></tr>
+      <tr><td><strong>Access Control</strong></td><td>Card readers on doors, electronic locks (maglocks, electric strikes), REX (request to exit) sensors, door contacts, access control panels, and the software to manage who can get in.</td></tr>
+      <tr><td><strong>Intrusion Detection</strong></td><td>Motion sensors, glass break detectors, door/window contacts, alarm keypads, alarm panels, and central station monitoring connections.</td></tr>
+      <tr><td><strong>Fire Alarm</strong></td><td>Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, the fire alarm control panel (FACP), and everything required by NFPA 72.</td></tr>
+    </table>
+
+    <h4>Division 8 — Openings</h4>
+    <table>
+      <tr><th>Chip Button</th><th>What It Covers (Simple)</th></tr>
+      <tr><td><strong>Door Hardware / Electrified Hardware</strong></td><td>Electric strikes, maglocks, power transfer hinges, auto-door operators, delayed egress devices, and any door hardware that needs low-voltage wiring. This is automatically included when you select Access Control, but you can also select it on its own.</td></tr>
+    </table>
+
+    <h4>Division 1 — General Requirements</h4>
+    <table>
+      <tr><th>Chip Button</th><th>What It Covers (Simple)</th></tr>
+      <tr><td><strong>General Requirements / Conditions</strong></td><td>Mobilization, project management hours, bonds, permits, submittals, as-built drawings, and general overhead. This adds a "General Conditions" section to your BOM so you can capture those costs.</td></tr>
+    </table>
+
+    <div class="callout callout-info"><strong>How disciplines affect the AI:</strong> When you select disciplines, SmartPlans tells the AI to focus on those systems. It also filters which pages of your plan set are relevant. For example, if you only select Fire Alarm, the AI will focus on fire alarm sheets and ignore the CCTV detail pages.</div>
 
     <h4>File Format <span class="badge badge-gold">Optional</span></h4>
+    <p>Tell SmartPlans what kind of files you are uploading. This helps the AI adjust its image-reading settings for best accuracy.</p>
     <table>
-      <tr><th>Option</th><th>Where It Came From</th><th>How Good Is It?</th></tr>
-      <tr><td>Vector PDF (from CAD)</td><td>Made on a computer with AutoCAD or Revit</td><td><strong>Best</strong> — very clear lines and text</td></tr>
-      <tr><td>Scanned PDF</td><td>Paper drawings put through a scanner</td><td><strong>OK</strong> — depends on how good the scan is</td></tr>
-      <tr><td>Photos / Screenshots</td><td>Taken with a phone camera or screen capture</td><td><strong>Not great</strong> — the AI might miss some things</td></tr>
+      <tr><th>Option</th><th>Where It Came From</th><th>Quality Badge</th><th>What It Means</th></tr>
+      <tr><td>Vector PDF (from CAD)</td><td>Made on a computer with AutoCAD or Revit, then exported to PDF</td><td style="color:#10b981;font-weight:700;">BEST</td><td>Crystal-clear lines and searchable text. The AI can read these perfectly.</td></tr>
+      <tr><td>DWG / DXF (AutoCAD)</td><td>Native AutoCAD drawing files</td><td style="color:#10b981;font-weight:700;">BEST</td><td>Very precise vector data. SmartPlans converts these internally.</td></tr>
+      <tr><td>IFC / Revit BIM</td><td>3D building model files from Revit or other BIM software</td><td style="color:#10b981;font-weight:700;">BEST</td><td>Contains rich 3D data. The AI can extract device locations with high accuracy.</td></tr>
+      <tr><td>High-res scan (300+ DPI)</td><td>Paper drawings put through a high-quality scanner</td><td style="color:#f59e0b;font-weight:700;">OK</td><td>Readable but the AI has to use image recognition instead of reading text directly. Accuracy is good but not perfect.</td></tr>
+      <tr><td>Low-res PDF / JPEG</td><td>Low-quality scans, phone photos, screenshots</td><td style="color:#f43f5e;font-weight:700;">POOR</td><td>The AI might miss small symbols or misread text. Use this only if you have no better option.</td></tr>
     </table>
 
     <h4>Specific Items to Count <span class="badge badge-gold">Optional</span></h4>
-    <p>A text box where you can tell the AI exactly what to look for on the plans. The more details you give, the better the AI counts.</p>
-    <p><strong>Example:</strong> <code>Count all 4MP dome cameras and 8MP bullet cameras separately</code></p>
+    <p>A text box where you can tell the AI exactly what to look for on the plans. The more details you give, the better the AI counts. Use this when you want the AI to pay special attention to certain items.</p>
+    <p><strong>Example:</strong> <code>Count all 4MP dome cameras and 8MP bullet cameras separately. Also count each WAP and verify against the riser diagram.</code></p>
 
     <h4>Known Quantities <span class="badge badge-gold">Optional</span></h4>
-    <p>If you already counted some items by hand, type them here. SmartPlans will compare the AI's count to your count so you can see if they match.</p>
-    <p><strong>Example:</strong> <code>48 cameras, 12 card readers, 6 pull stations</code></p>
+    <p>If you already counted some items by hand, type them here. SmartPlans will compare the AI's count to your count so you can see if they match. This is very helpful for verifying accuracy.</p>
+    <p><strong>Example:</strong> <code>48 cameras, 12 card readers, 6 pull stations, 85 data drops</code></p>
 
     <h4>Building Code Jurisdiction <span class="badge badge-gold">Optional</span></h4>
-    <p>Type the building code that applies. <strong>Examples:</strong> <code>IBC 2021</code>, <code>California CBC 2022</code>, <code>NFPA 72 2022</code></p>
+    <p>Type the building code that applies to this project. The AI uses this to check whether device spacing, notification appliance coverage, and other code requirements are met.</p>
+    <p><strong>Examples:</strong> <code>IBC 2021</code>, <code>California CBC 2022</code>, <code>NFPA 72 2022</code>, <code>Chicago Building Code</code></p>
 
     <h4>Project Location <span class="badge badge-teal">Required</span></h4>
-    <p>Type the city and state where the project is. SmartPlans uses this for pricing (things cost more in some cities) and travel calculations.</p>
+    <p>Type the city and state where the project is. SmartPlans uses this for three important things:</p>
+    <ol>
+      <li><strong>Regional pricing</strong> — Materials and labor cost more in some cities than others.</li>
+      <li><strong>Travel detection</strong> — If the project is more than 50 miles from your office, SmartPlans will suggest enabling travel costs in Stage 7.</li>
+      <li><strong>Prevailing wage lookup</strong> — The location helps SmartPlans find the correct wage rates for your area.</li>
+    </ol>
 
     <div class="callout callout-warn"><strong>Do not skip the location.</strong> If you leave it blank, SmartPlans uses a national average price, which could be 20-40% off from what things really cost in your area.</div>
 
-    <h4>Building Dimensions <span class="badge badge-gold">Optional</span></h4>
-    <p>Four number fields that help the AI calculate cable distances more accurately:</p>
+    <h4>Building Heights <span class="badge badge-gold">Optional</span></h4>
     <table>
-      <tr><th>Field</th><th>What to Type</th><th>Default</th></tr>
-      <tr><td><strong>Floor Plate Width (ft)</strong></td><td>How wide the building is, in feet. Measure from one side to the other.</td><td>—</td></tr>
-      <tr><td><strong>Floor Plate Depth (ft)</strong></td><td>How deep the building is, from front to back, in feet.</td><td>—</td></tr>
-      <tr><td><strong>Ceiling Height (ft)</strong></td><td>Height from the floor to the ceiling inside a room.</td><td>10 ft</td></tr>
-      <tr><td><strong>Floor-to-Floor Height (ft)</strong></td><td>Height from one floor's floor to the next floor's floor. This is always taller than the ceiling height because it includes the space above the ceiling for ductwork and cables.</td><td>14 ft</td></tr>
+      <tr><th>Field</th><th>What to Type</th><th>Default</th><th>Why It Matters</th></tr>
+      <tr><td><strong>Ceiling Height (ft)</strong></td><td>Height from the floor to the ceiling inside a room.</td><td>10 ft</td><td>The AI uses this to calculate vertical cable drops. Taller ceilings = more cable per device.</td></tr>
+      <tr><td><strong>Floor-to-Floor Height (ft)</strong></td><td>Height from one floor's slab to the next floor's slab. This is always taller than the ceiling height because it includes the space above the ceiling (the plenum) where cables and ductwork run.</td><td>14 ft</td><td>Used for riser cable calculations between floors. Also helps the AI detect drawing scale.</td></tr>
     </table>
+
+    <div class="callout callout-info"><strong>How scale detection works:</strong> The AI tries to figure out the scale of each drawing (like 1/8" = 1'-0"). If you provide building heights, the AI can cross-check its scale detection against known dimensions, making cable distance calculations more accurate.</div>
 
     <!-- ── PREVAILING WAGE / DAVIS-BACON ── -->
     <h3>Section: Prevailing Wage / Davis-Bacon</h3>
-    <p>Prevailing wage is a rule that says workers on certain government projects must be paid a minimum amount. If your project is for a school, government building, or hospital, you might need prevailing wage rates. If your project is regular private work, pick "None."</p>
+    <p>Prevailing wage is a rule that says workers on certain government projects must be paid a minimum amount. If your project is for a school, government building, hospital, transit agency, or anything built with public money, you might need prevailing wage rates. If your project is regular private work, pick "None."</p>
 
     <h4>Prevailing Wage Type <span class="badge badge-teal">Required</span></h4>
     <table>
       <tr><th>Option</th><th>When to Pick It</th><th>What Happens</th></tr>
-      <tr><td>None</td><td>Private work with no government money.</td><td>Uses your own labor rates from the Pricing section.</td></tr>
-      <tr><td>Davis-Bacon (Federal)</td><td>Projects paid for by the federal government.</td><td>Loads the federal government's required pay rates for your area.</td></tr>
-      <tr><td>State Prevailing Wage (CA DIR)</td><td>California public works projects.</td><td>Loads California's required pay rates for the county you pick.</td></tr>
-      <tr><td>Project Labor Agreement (PLA)</td><td>Projects with a deal between owner and labor unions.</td><td>Loads PLA pay rates, which are usually higher.</td></tr>
+      <tr><td><strong>None</strong></td><td>Private work with no government money.</td><td>Uses your own labor rates from the Pricing section. No wage minimums.</td></tr>
+      <tr><td><strong>Davis-Bacon (Federal)</strong></td><td>Projects paid for by the federal government. Federal courthouses, military bases, VA hospitals, federal offices.</td><td>Loads the federal government's required pay rates for your area. These rates include both a base wage and a fringe benefit amount.</td></tr>
+      <tr><td><strong>State Prevailing Wage</strong></td><td>State-funded public works. In California, this is governed by the DIR (Department of Industrial Relations). Other states have their own programs.</td><td>Loads state-specific required pay rates. In California, you pick a county. In other states, you pick a state and metro area.</td></tr>
+      <tr><td><strong>Project Labor Agreement (PLA)</strong></td><td>Projects with a formal agreement between the project owner and labor unions. Common on large public projects.</td><td>Loads PLA pay rates, which are usually the highest of all wage types.</td></tr>
     </table>
 
     <h4>California County Selector</h4>
-    <p>If the project is in California, pick the county from the dropdown list. SmartPlans will automatically fill in all the correct pay rates. You do not need to look them up yourself.</p>
+    <p>If you pick "State Prevailing Wage" and the project is in California, a dropdown list of all 58 California counties appears. Pick the county where the project is located. SmartPlans will automatically fill in all the correct pay rates for every labor classification. You do not need to look them up yourself.</p>
+    <p>The auto-populated rates include a <strong>Base Rate</strong> and a <strong>Loaded Rate</strong> (base + fringe benefits). SmartPlans also calculates a <strong>Blended Crew Rate</strong>, which is a weighted average of all worker types based on a typical crew mix (about 60% journeymen, 25% lead techs, 10% foremen, 5% apprentices).</p>
 
-    <h4>Other States Selector</h4>
-    <p>For projects outside California, SmartPlans has pay rates for 19 states. Pick the state, then pick the city area. The rates fill in automatically.</p>
+    <div class="callout callout-info"><strong>What is "loaded" rate?</strong> The loaded rate includes the base hourly wage PLUS all required fringe benefits (health insurance, pension, vacation, training fund). On prevailing wage jobs, the fringe portion can be 30-50% of the base rate. When burden is auto-loaded from prevailing wage data, the "Include Labor Burden" checkbox is automatically disabled because the fringe is already built into the loaded rate.</div>
+
+    <h4>National State &amp; Metro Selector</h4>
+    <p>For projects outside California, SmartPlans has prevailing wage data for 19 states. Pick the state from the first dropdown, then pick the metropolitan area or county from the second dropdown. The rates fill in automatically.</p>
 
     <h4>Labor Classifications</h4>
     <table>
-      <tr><th>Worker Type</th><th>What They Do (Simple)</th></tr>
-      <tr><td>Comm Installer (Journeyman)</td><td>The main worker. Pulls cables, mounts devices, installs conduit.</td></tr>
-      <tr><td>Comm Technician (Lead)</td><td>The skilled worker who handles fiber, programming, and testing. Watches over 2-4 installers.</td></tr>
-      <tr><td>Foreman</td><td>The boss on the job site. Plans daily work and talks to the GC.</td></tr>
-      <tr><td>Apprentice</td><td>A person learning the trade. Helps with basic tasks. Gets paid less.</td></tr>
-      <tr><td>Electrician</td><td>A licensed electrician who runs power wires.</td></tr>
+      <tr><th>Worker Type</th><th>What They Do (Simple)</th><th>Typical Role on Site</th></tr>
+      <tr><td><strong>Comm Installer (Journeyman)</strong></td><td>The main worker. Pulls cables, mounts devices, installs conduit, runs pathways.</td><td>Makes up about 60% of the crew</td></tr>
+      <tr><td><strong>Comm Technician (Lead)</strong></td><td>The skilled worker who handles fiber splicing, equipment programming, and testing. Watches over 2-4 installers.</td><td>Makes up about 25% of the crew</td></tr>
+      <tr><td><strong>Foreman</strong></td><td>The boss on the job site. Plans daily work, coordinates with the GC, handles material orders.</td><td>Makes up about 10% of the crew</td></tr>
+      <tr><td><strong>Apprentice</strong></td><td>A person learning the trade. Helps with basic tasks like carrying materials, pulling cable, and labeling. Gets paid less.</td><td>Makes up about 5% of the crew</td></tr>
+      <tr><td><strong>Project Manager (PM)</strong></td><td>Handles paperwork, scheduling, purchasing, and client communication from the office.</td><td>Not on site daily; manages from office</td></tr>
+      <tr><td><strong>Programmer</strong></td><td>Configures cameras, access control, fire alarm panels, and AV systems. Creates the software setup.</td><td>Usually comes at the end of the project</td></tr>
     </table>
-
-    <h4>Blended Crew Rate</h4>
-    <p>SmartPlans mixes all worker pay rates together into one average number. It assumes about 60% journeymen, 25% lead techs, 10% foremen, and 5% apprentices.</p>
 
     <h4>Work Shift <span class="badge badge-gold">Optional</span></h4>
+    <p>Some projects require work outside normal daytime hours. Pick the shift that matches your project requirements. Different shifts have different labor cost premiums.</p>
     <table>
-      <tr><th>Shift</th><th>When People Work</th><th>Extra Cost</th></tr>
-      <tr><td>1st Shift (Standard)</td><td>7 AM to 3:30 PM</td><td>None — normal rate</td></tr>
-      <tr><td>2nd Shift</td><td>Afternoon to midnight</td><td>+10% on labor</td></tr>
-      <tr><td>3rd Shift / Overnight</td><td>Midnight to morning</td><td>+15-20% on labor</td></tr>
-      <tr><td>Weekends Only</td><td>Saturday and Sunday</td><td>+50% overtime pay</td></tr>
-      <tr><td>4/10s</td><td>Four 10-hour days</td><td>Small extra — last 2 hours each day may be overtime</td></tr>
+      <tr><th>Shift</th><th>When People Work</th><th>Extra Cost</th><th>When to Use</th></tr>
+      <tr><td><strong>1st Shift (Standard)</strong></td><td>7 AM to 3:30 PM</td><td>None — normal rate</td><td>Most projects. This is the default.</td></tr>
+      <tr><td><strong>2nd Shift</strong></td><td>Afternoon to midnight</td><td>+10% on labor</td><td>Occupied buildings where daytime work is disruptive (hospitals, schools).</td></tr>
+      <tr><td><strong>3rd Shift / Overnight</strong></td><td>Midnight to morning</td><td>+15-20% on labor</td><td>24/7 facilities like data centers and airports.</td></tr>
+      <tr><td><strong>Weekends Only</strong></td><td>Saturday and Sunday</td><td>+50% overtime pay</td><td>Projects in active retail or office spaces that cannot tolerate weekday disruption.</td></tr>
+      <tr><td><strong>Split Shift</strong></td><td>Two short shifts with a gap in between</td><td>+15% on labor</td><td>Facilities with specific quiet hours (e.g., work 6-9 AM and 6-9 PM around classes).</td></tr>
+      <tr><td><strong>Mixed Shifts</strong></td><td>Combination of day and off-hours</td><td>+10-15% on labor</td><td>Large projects where some areas can be done during the day and others must be done at night.</td></tr>
+      <tr><td><strong>4/10s</strong></td><td>Four 10-hour days (Mon-Thu)</td><td>Small extra — last 2 hours each day may be overtime</td><td>Contractors who prefer longer days with Fridays off.</td></tr>
     </table>
 
+    <!-- ── TRANSIT / RAILROAD ── -->
+    <h3>Section: Transit / Railroad Toggle</h3>
+    <p>This is a checkbox labeled "Transit / Railroad Project" with a train emoji. It is for projects located on railroad property, in transit stations, along rail corridors, or on any property owned by a transit agency or railroad company.</p>
+
+    <h4>When to Turn This On</h4>
+    <ul>
+      <li>The project is at a train station, subway station, or light rail station.</li>
+      <li>The project is in a railroad right-of-way (ROW).</li>
+      <li>The project owner is a transit agency (like BART, Metro, Amtrak, Union Pacific, etc.).</li>
+      <li>The specification mentions RWIC, flagmen, or railroad safety requirements.</li>
+    </ul>
+
+    <h4>What Happens When You Turn It On</h4>
+    <p>Railroad and transit work is dramatically more expensive than normal construction. When you check this box, SmartPlans adds a detailed cost panel showing mandatory railroad costs:</p>
+    <table>
+      <tr><th>Cost Item</th><th>What It Is</th><th>Typical Cost</th></tr>
+      <tr><td><strong>RWIC Flagman</strong></td><td>Railroad Worker In Charge — a safety person who must be on site whenever you work near active tracks. Required by federal law.</td><td>$1,200/day x 25+ days = $30,000+</td></tr>
+      <tr><td><strong>RPL Insurance</strong></td><td>Railroad Protective Liability Insurance — special insurance required by railroads to protect against claims.</td><td>$15,000 - $50,000 per project</td></tr>
+      <tr><td><strong>Safety Training (TWIC / Railroad Orientation)</strong></td><td>TSA Transportation Worker Identification Credential plus railroad-specific safety training for every worker.</td><td>$200 - $500 per person</td></tr>
+      <tr><td><strong>Railroad Escort</strong></td><td>A railroad employee who must accompany your crew in certain areas.</td><td>$1,000/day</td></tr>
+      <tr><td><strong>Restricted Work Windows</strong></td><td>You can only work during specific hours when trains are not running (often 1 AM - 4 AM).</td><td>Huge labor premium (night/overtime rates)</td></tr>
+      <tr><td><strong>Specialty Railroad Tools</strong></td><td>Special insulated tools, hi-rail vehicles, and track safety equipment.</td><td>Varies</td></tr>
+    </table>
+
+    <div class="callout callout-warn"><strong>Railroad work typically adds 25-40% to your total project budget.</strong> The markup percentages for Material, Labor, Equipment, and Subcontractor are automatically overridden to higher values when this toggle is on. Do not forget to account for these costs — they are massive and non-negotiable.</div>
+
+    <h4>Prior Estimate <span class="badge badge-gold">Optional</span></h4>
+    <p>If you have an earlier estimate or budget number for this project (from a different tool or from someone else), paste it here. The AI will reference it during analysis and may flag significant differences between the old estimate and the new one.</p>
+
     <!-- ── PRICING & RATE CONFIGURATION ── -->
-    <h3>Section: Pricing &amp; Rate Configuration</h3>
-    <p>Click the <strong>Pricing &amp; Rate Configuration</strong> section to open it up. This controls the prices, rates, and markups for your entire bid.</p>
+    <h3>Section: Pricing &amp; Rate Configuration (Collapsible)</h3>
+    <p>This section is collapsed by default. Click the section header to expand it. This controls the prices, rates, and markups for your entire bid.</p>
 
     <h4>Material Pricing Tier <span class="badge badge-teal">Required</span></h4>
     <table>
       <tr><th>Tier</th><th>What It Means</th><th>Example: Camera Price</th><th>Example: Cable Box Price</th></tr>
-      <tr><td><strong>Budget</strong></td><td>Cheapest products that still meet requirements.</td><td>~$120</td><td>~$180</td></tr>
-      <tr><td><strong>Mid-Range</strong></td><td>Normal name-brand products. This is the default.</td><td>~$350</td><td>~$320</td></tr>
-      <tr><td><strong>Premium</strong></td><td>Top-of-the-line, most expensive products.</td><td>~$650</td><td>~$480</td></tr>
+      <tr><td><strong>Budget</strong></td><td>Cheapest products that still meet requirements. Off-brand or economy models.</td><td>~$120</td><td>~$180</td></tr>
+      <tr><td><strong>Mid-Range</strong></td><td>Normal name-brand products. This is the default and what most bids use.</td><td>~$350</td><td>~$320</td></tr>
+      <tr><td><strong>Premium</strong></td><td>Top-of-the-line, most expensive products from premium manufacturers.</td><td>~$650</td><td>~$480</td></tr>
     </table>
 
     <h4>Regional Cost Multiplier <span class="badge badge-teal">Required</span></h4>
@@ -487,41 +654,45 @@
     </table>
 
     <h4>Labor Rates</h4>
-    <p>Six boxes where you type how much each type of worker costs per hour. If you turned on prevailing wage, these fill in automatically.</p>
+    <p>Six boxes where you type how much each type of worker costs per hour. If you turned on prevailing wage, these fill in automatically and you do not need to change them.</p>
     <table>
-      <tr><th>Worker Type</th><th>Typical Pay Range</th><th>What They Do</th></tr>
-      <tr><td>Journeyman Tech</td><td>$45 – $85/hr</td><td>Standard installation work</td></tr>
-      <tr><td>Lead Tech</td><td>$55 – $95/hr</td><td>Supervises small crews, handles fiber and testing</td></tr>
-      <tr><td>Foreman</td><td>$60 – $110/hr</td><td>Manages the whole job site</td></tr>
-      <tr><td>Apprentice</td><td>$25 – $50/hr</td><td>Learning the trade, helps with basic tasks</td></tr>
-      <tr><td>Project Manager</td><td>$65 – $120/hr</td><td>Handles paperwork, scheduling, ordering</td></tr>
-      <tr><td>Programmer</td><td>$75 – $130/hr</td><td>Configures cameras, access control, fire alarm</td></tr>
+      <tr><th>Worker Type</th><th>Default Rate</th><th>Typical Range</th></tr>
+      <tr><td>Project Manager (PM)</td><td>$65/hr</td><td>$65 – $120/hr</td></tr>
+      <tr><td>Journeyman Tech</td><td>$38/hr</td><td>$35 – $85/hr</td></tr>
+      <tr><td>Lead Tech</td><td>$45/hr</td><td>$45 – $95/hr</td></tr>
+      <tr><td>Foreman</td><td>$52/hr</td><td>$50 – $110/hr</td></tr>
+      <tr><td>Apprentice</td><td>$22/hr</td><td>$18 – $50/hr</td></tr>
+      <tr><td>Programmer</td><td>$55/hr</td><td>$55 – $130/hr</td></tr>
     </table>
 
     <h4>Include Labor Burden <span class="badge badge-teal">Important</span></h4>
-    <p>Labor burden is the extra cost on top of what you pay a worker — taxes, insurance, health benefits. The default is <strong>35%</strong>.</p>
-    <p><strong>Example:</strong> If a worker makes $50/hr and your burden is 35%, the real cost is $50 + ($50 x 0.35) = <strong>$67.50/hr</strong>.</p>
+    <p>Labor burden is the extra cost on top of what you pay a worker — payroll taxes, workers comp insurance, health benefits, retirement, vacation, and training. The default is <strong>35%</strong>. There is a checkbox to include or exclude burden.</p>
+    <p><strong>Example:</strong> If a worker makes $50/hr and your burden is 35%, the real cost to your company is $50 + ($50 x 0.35) = <strong>$67.50/hr</strong>.</p>
 
-    <div class="callout callout-warn"><strong>Do not skip burden.</strong> If you bid without burden, you are losing about 35% on every labor dollar. On a $200,000 labor bid, that is $70,000 in costs you cannot recover.</div>
+    <div class="callout callout-warn"><strong>Do not skip burden.</strong> If you bid without burden, you are losing about 35% on every labor dollar. On a $200,000 labor bid, that is $70,000 in costs you cannot recover. The only time you should uncheck burden is if your rates already include burden (which is the case when prevailing wage loads "loaded" rates).</div>
 
     <h4>Markup Percentages</h4>
     <table>
       <tr><th>Markup Type</th><th>Default %</th><th>What It Applies To</th><th>Example</th></tr>
-      <tr><td>Material Markup</td><td>50%</td><td>Everything you buy (cameras, cables, racks)</td><td>$100 cost becomes $150 sell price</td></tr>
-      <tr><td>Labor Markup</td><td>50%</td><td>All labor costs (after burden)</td><td>$100 loaded labor becomes $150 sell price</td></tr>
-      <tr><td>Equipment Markup</td><td>15%</td><td>Rental tools: lifts, cable pullers, splicers</td><td>$1,000 rental becomes $1,150 sell price</td></tr>
-      <tr><td>Subcontractor Markup</td><td>10%</td><td>Work done by other companies you hire</td><td>$50,000 sub cost becomes $55,000 sell price</td></tr>
+      <tr><td>Material Markup</td><td>50%</td><td>Everything you buy (cameras, cables, racks, patch panels, connectors)</td><td>$100 cost becomes $150 sell price</td></tr>
+      <tr><td>Labor Markup</td><td>50%</td><td>All labor costs (after burden is applied)</td><td>$100 loaded labor becomes $150 sell price</td></tr>
+      <tr><td>Equipment Markup</td><td>15%</td><td>Rental tools: lifts, cable pullers, fiber splicers, boring machines</td><td>$1,000 rental becomes $1,150 sell price</td></tr>
+      <tr><td>Subcontractor Markup</td><td>10%</td><td>Work done by other companies you hire (trenching, core drilling, etc.)</td><td>$50,000 sub cost becomes $55,000 sell price</td></tr>
     </table>
 
     <!-- ── HOW THE BID PRICE IS CALCULATED ── -->
     <h3>How the Bid Price Is Calculated</h3>
+    <p>Here is the exact formula SmartPlans uses, step by step, to go from raw AI data to your final bid number:</p>
     <ol class="step-list">
       <li><strong>Raw Material Cost</strong><br>
-        <code>Raw Materials = AI Quantities x Tier Prices x Regional Multiplier</code></li>
+        <code>Raw Materials = AI Quantities x Tier Prices x Regional Multiplier</code><br>
+        The AI counts every item. Each item is priced at the tier you selected (Budget, Mid-Range, Premium). Then the regional multiplier adjusts for your area.</li>
       <li><strong>Material Sell Price</strong><br>
-        <code>Material Sell = Raw Materials x (1 + Material Markup %)</code></li>
+        <code>Material Sell = Raw Materials x (1 + Material Markup %)</code><br>
+        Your markup is added on top. At 50% markup, $100 cost becomes $150 sell.</li>
       <li><strong>Labor Cost (Loaded)</strong><br>
-        <code>Labor Cost = AI Labor Hours x Hourly Rate x (1 + Burden %)</code></li>
+        <code>Labor Cost = AI Labor Hours x Blended Crew Rate x (1 + Burden %)</code><br>
+        The AI estimates total labor hours. Those hours are multiplied by your blended crew rate, then burden is added.</li>
       <li><strong>Labor Sell Price</strong><br>
         <code>Labor Sell = Loaded Labor x (1 + Labor Markup %)</code></li>
       <li><strong>Equipment Sell Price</strong><br>
@@ -529,272 +700,383 @@
       <li><strong>Subcontractor Sell Price</strong><br>
         <code>Sub Sell = Subcontractor Costs x (1 + Sub Markup %)</code></li>
       <li><strong>Subtotal</strong><br>
-        <code>Subtotal = Material Sell + Labor Sell + Equipment Sell + Sub Sell + Travel</code></li>
+        <code>Subtotal = Material Sell + Labor Sell + Equipment Sell + Sub Sell + Travel &amp; Incidentals</code></li>
       <li><strong>Contingency</strong><br>
-        <code>Contingency = Subtotal x 10%</code></li>
+        <code>Contingency = Subtotal x Contingency %</code><br>
+        Default is 10%. You can adjust this in Bid Strategy per category.</li>
       <li><strong>Grand Total</strong><br>
         <code>GRAND TOTAL = Subtotal + Contingency</code></li>
     </ol>
 
     <!-- ============================================================ -->
-    <!-- STAGE 2 -->
+    <!-- STAGE 2 — SYMBOL LEGEND -->
     <!-- ============================================================ -->
-    <h2 id="stage2">Stage 2 — Symbol Legend</h2>
+    <h2 id="stage2">Stage 2 — Symbol Legend (Step 1)</h2>
 
     <h3>What Is a Symbol Legend?</h3>
-    <p>A symbol legend is a special page in your drawings that shows a list of little pictures (like circles, squares, and triangles) and tells you what each one means. For example, a small circle might mean "camera" and a triangle might mean "speaker." It is like a key on a map.</p>
+    <p>A symbol legend is a special page in your drawings that shows a list of little pictures (like circles, squares, and triangles) and tells you what each one means. For example, a small circle might mean "camera" and a triangle might mean "speaker." It is like a key on a map — without it, you do not know what the symbols on the map represent.</p>
+
+    <h3>Why Is It Critical?</h3>
+    <p>The AI uses this legend to understand what all the little symbols on your floor plans mean. Without it, the AI has to guess — and guessing is less accurate. With a clear legend, the AI can match each symbol it sees on a floor plan to a specific device type with high confidence.</p>
 
     <h3>How to Upload It</h3>
     <ol class="step-list">
-      <li>Find the legend page in your drawing set. It is usually one of the first pages.</li>
-      <li>Click the <strong>upload area</strong> on this stage. A file picker will open.</li>
-      <li>Pick the PDF page or pages that show the symbol legend. You can upload multiple files.</li>
-      <li>You will see a preview of what you uploaded. Make sure it looks right.</li>
+      <li>Find the legend page(s) in your drawing set. They are usually one of the first few pages and are titled something like "Symbol Legend," "Device Legend," "Abbreviation List," or "Drawing Symbols."</li>
+      <li>Click the <strong>upload area</strong> on this stage. It is a large dotted rectangle. A file picker will open on your computer.</li>
+      <li>Pick the PDF page or pages that show the symbol legend. You can upload multiple files by selecting more than one.</li>
+      <li>You can also <strong>drag and drop</strong> files from your computer directly onto the dotted rectangle.</li>
+      <li>You will see a thumbnail preview of what you uploaded. Make sure it shows the correct pages.</li>
     </ol>
 
-    <div class="callout callout-warn"><strong>Why does this matter?</strong> The AI uses this legend to understand what all the little symbols on your floor plans mean. Without it, the AI has to guess — and guessing is less accurate.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> Upload ALL legend pages across all disciplines. Some plan sets have separate legends for electrical, fire alarm, and security. Upload every single one for the best results.</div>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> This stage is optional. If your drawings do not have a separate legend page, that is okay. The AI will try to figure out the symbols on its own. But uploading a legend makes the AI much more accurate. Upload ALL legend pages across all disciplines for the best results.</div>
+    <div class="callout callout-info"><strong>What if I do not have a legend?</strong> That is okay — this stage is optional. If your drawings do not have a separate legend page, just click "Next" to skip it. The AI will try to figure out the symbols on its own by comparing them to its built-in library of common construction symbols. Results will still be good, just slightly less precise.</div>
+
+    <div class="callout callout-tip"><strong>Pro tip: Use the PDF Page Extractor.</strong> If your legend is on pages 3-4 of a 100-page plan set, use the <a href="#pdf-tool">PDF Page Extractor</a> (scissors icon in the header) to pull out just pages 3-4 as a separate file, then click "+ Add to Legend."</div>
 
     <!-- ============================================================ -->
-    <!-- STAGE 3 -->
+    <!-- STAGE 3 — FLOOR PLANS -->
     <!-- ============================================================ -->
-    <h2 id="stage3">Stage 3 — Floor Plans</h2>
+    <h2 id="stage3">Stage 3 — Floor Plans (Step 2)</h2>
 
     <h3>What Are Floor Plans?</h3>
-    <p>Floor plans are the drawings that show the building layout and where all the devices go. They have little symbols for cameras, data drops, speakers, and everything else that needs to be installed.</p>
+    <p>Floor plans are the drawings that show the building layout and where all the devices go. They have little symbols for cameras, data drops, speakers, card readers, pull stations, and everything else that needs to be installed. These are the most important documents in your bid — without them, the AI has nothing to count.</p>
 
     <h3>How to Upload Them</h3>
     <ol class="step-list">
-      <li>Click the <strong>upload area</strong> or drag your PDF file into it.</li>
-      <li>Upload the full drawing set as one PDF file, or upload multiple files.</li>
-      <li>SmartPlans will split each page apart automatically. You will see a small picture of each page.</li>
-      <li>If any pages are not floor plans (like a title page or table of contents), you can remove them.</li>
+      <li>Click the <strong>upload area</strong> (the large dotted rectangle) or drag your PDF file into it.</li>
+      <li>Upload the full drawing set as one PDF file, or upload multiple separate files.</li>
+      <li>SmartPlans will split each PDF page apart automatically. You will see a small thumbnail picture of each page.</li>
+      <li>A counter shows how many pages/files you have uploaded (for example: "12 files uploaded").</li>
+      <li>If any pages are not floor plans (like a title page or table of contents), you can remove them by clicking the X on that thumbnail.</li>
     </ol>
 
-    <div class="callout callout-info"><strong>Big files are okay!</strong> If your PDF is very large, SmartPlans will handle it automatically. You do not need to split files yourself.</div>
+    <div class="callout callout-warn"><strong>This stage is REQUIRED.</strong> You must upload floor plans for SmartPlans to work. Without drawings, the AI has nothing to count. You cannot proceed past this stage without at least one file.</div>
 
-    <div class="callout callout-warn"><strong>This stage is required.</strong> You must upload floor plans for SmartPlans to work. Without drawings, the AI has nothing to count.</div>
+    <div class="callout callout-info"><strong>Big files are okay!</strong> SmartPlans can handle large PDFs (50, 100, even 200+ pages). You do not need to split files yourself.</div>
 
-    <div class="callout callout-tip"><strong>Tips for best results:</strong>
+    <div class="callout callout-tip"><strong>Tips for best accuracy:</strong>
       <ul style="margin-bottom:0">
-        <li><strong>One floor per page</strong> — If multiple floors are crammed on one page, the AI may get confused.</li>
-        <li><strong>Include enlarged details</strong> — Detail views with close-ups help the AI catch small symbols.</li>
+        <li><strong>Use the PDF Page Extractor first</strong> — If your plan set has 100+ pages but only 20 are relevant to your disciplines, extract just those pages. The AI works faster and more accurately with fewer, more relevant pages.</li>
+        <li><strong>One floor per page</strong> — If multiple floors are crammed on one page, the AI may get confused about which floor devices belong to.</li>
+        <li><strong>Include enlarged details</strong> — Detail views and close-up drawings help the AI catch small symbols it might miss on full-floor views.</li>
         <li><strong>Consistent orientation</strong> — Keep all sheets the same way up (north at top).</li>
-        <li><strong>Clean backgrounds</strong> — Remove hand markups and redlines if possible.</li>
-        <li><strong>Include schedules</strong> — Door schedules, device schedules, and panel schedules help the AI verify counts.</li>
+        <li><strong>Clean backgrounds</strong> — Remove hand markups and redlines if possible. Cloud bubbles from addenda are fine.</li>
+        <li><strong>Include schedules</strong> — Door schedules, device schedules, and panel schedules help the AI verify counts and identify exact models.</li>
       </ul>
     </div>
 
     <!-- ============================================================ -->
-    <!-- STAGE 4 -->
+    <!-- STAGE 4 — SPECIFICATIONS -->
     <!-- ============================================================ -->
-    <h2 id="stage4">Stage 4 — Specifications</h2>
+    <h2 id="stage4">Stage 4 — Specifications (Step 3)</h2>
 
     <h3>What Are Specifications?</h3>
-    <p>Specifications (people call them "specs") are the written instructions that come with the drawings. The specs tell you exactly what products to use and how to install them. For example, the specs might say "Use Axis brand cameras" or "All cables must be plenum-rated."</p>
+    <p>Specifications (people call them "specs") are the written instructions that come with the drawings. The specs tell you exactly what products to use, how to install them, what testing is required, and what quality standards must be met. For example, the specs might say "Use Axis brand cameras, model P3245-V" or "All cables must be plenum-rated, Cat6A, meeting TIA-568 standards."</p>
+
+    <h3>What the AI Cross-Checks</h3>
+    <p>When you upload specs, the AI reads them and cross-references them against the floor plan analysis. Specifically, it checks:</p>
+    <ul>
+      <li><strong>Product/manufacturer match</strong> — Did the floor plans show a generic "camera" symbol? The spec tells the AI exactly which camera model to price.</li>
+      <li><strong>Cable specifications</strong> — Cat5e vs Cat6 vs Cat6A, plenum vs riser rated, fiber counts.</li>
+      <li><strong>Installation requirements</strong> — Mounting heights, conduit requirements, firestopping, testing procedures.</li>
+      <li><strong>Submittal requirements</strong> — What product data you need to submit for approval.</li>
+      <li><strong>Warranty requirements</strong> — Duration and coverage of post-install warranty.</li>
+    </ul>
 
     <h3>How to Upload Them</h3>
     <ol class="step-list">
       <li>Click the <strong>upload area</strong> on this stage.</li>
       <li>Pick the spec book PDF from your computer. You can upload multiple spec files.</li>
-      <li>SmartPlans will read through all the pages and find the important requirements.</li>
+      <li>SmartPlans will read through all the pages and extract important requirements.</li>
     </ol>
 
-    <div class="callout callout-warn"><strong>Critical:</strong> Specs must be searchable-text PDFs or Word docs. Scanned images of spec pages are unreliable — the AI cannot read blurry text. If your specs are scanned images, request digital copies from the architect or GC.</div>
+    <div class="callout callout-warn"><strong>Critical:</strong> Specs must be <strong>searchable-text PDFs</strong> (not scanned images). The AI extracts text from the spec pages to find manufacturer names, product numbers, and requirements. If your specs are scanned images of paper, the text is just a picture and the AI cannot read it reliably. Request digital copies from the architect or GC if your specs are scanned.</div>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> This stage is optional but very helpful. The specs tell the AI exactly which products and brands to use, so your prices will be more accurate.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> This stage is optional but extremely helpful. Without specs, the AI prices generic products at your selected tier. With specs, the AI prices the exact products called out in the specifications, giving you a much more accurate bid.</div>
 
     <!-- ============================================================ -->
-    <!-- STAGE 5 -->
+    <!-- STAGE 5 — ADDENDA -->
     <!-- ============================================================ -->
-    <h2 id="stage5">Stage 5 — Addenda</h2>
+    <h2 id="stage5">Stage 5 — Addenda (Step 4)</h2>
 
     <h3>What Are Addenda?</h3>
-    <p>Addenda are changes that were made to the original drawings or specs after they were first sent out. Think of them like corrections or updates. An addendum might say "Add 5 more cameras to the parking lot" or "Change the cable type to Cat6A."</p>
+    <p>Addenda (singular: addendum) are changes that were made to the original drawings or specs after they were first sent out to bidders. Think of them like corrections, updates, or additions to the original plan. An addendum might say "Add 5 more cameras to the parking lot" or "Change the cable type from Cat6 to Cat6A" or "Delete the fire alarm scope — it is now a separate bid package."</p>
 
     <h3>How to Upload Them</h3>
     <ol class="step-list">
-      <li>SmartPlans will ask you: "Are there any addenda for this project?" Pick <strong>Yes</strong>, <strong>No</strong>, or <strong>Not Sure</strong>.</li>
-      <li>If you pick <strong>Yes</strong>, the upload area appears. Click it and pick your addenda PDF files.</li>
-      <li>You can upload more than one addendum. Each one shows up as a separate file.</li>
-      <li>If you pick <strong>No</strong> or <strong>Not Sure</strong>, just move on to the next stage.</li>
+      <li>SmartPlans will ask you: <strong>"Are there any addenda for this project?"</strong> You will see two choices: <strong>Yes</strong> or <strong>No</strong>.</li>
+      <li>If you click <strong>Yes</strong>, the upload area appears. Click it and pick your addenda PDF files. You can upload more than one addendum — each one shows up as a separate file.</li>
+      <li>If you click <strong>No</strong>, just click "Next" to move on to Stage 6.</li>
     </ol>
 
-    <div class="callout callout-warn"><strong>Do not skip addenda!</strong> Addenda can completely change what you are bidding. If you miss an addendum that adds 20 cameras, your bid will be way too low.</div>
+    <div class="callout callout-warn"><strong>Do not skip addenda!</strong> Addenda can completely change what you are bidding. An addendum that adds 20 cameras or changes the cable type can swing your bid by tens of thousands of dollars. If you miss an addendum, your bid will be based on outdated information. Always check with the GC or architect to confirm you have ALL addenda before bidding.</div>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> Addenda are usually numbered (Addendum #1, Addendum #2, etc.). The GC typically distributes them via email or a plan room. Before you bid, always ask: "Is this the latest set? How many addenda have been issued?" and verify you have them all.</div>
 
     <!-- ============================================================ -->
-    <!-- STAGE 6 -->
+    <!-- STAGE 6 — REVIEW & ANALYZE -->
     <!-- ============================================================ -->
-    <h2 id="stage6">Stage 6 — Review &amp; Analyze</h2>
+    <h2 id="stage6">Stage 6 — Review &amp; Analyze (Step 5)</h2>
 
     <h3>What Is This?</h3>
     <p>This is the stage where you check everything you have entered so far, and then tell the AI to start working. Think of it like reviewing your homework before you turn it in.</p>
 
     <h3>What You Will See</h3>
     <ol class="step-list">
-      <li>A <strong>summary</strong> of everything you uploaded: your floor plans, specs, symbol legend, and addenda.</li>
-      <li>An <strong>accuracy indicator</strong> that shows green, yellow, or red:
+      <li><strong>Summary grid</strong> — A table showing your project name, selected disciplines, file format, building code jurisdiction, and other key settings from Stage 1.</li>
+      <li><strong>Files summary table</strong> — Shows what you uploaded: Floor Plans (X files), Symbol Legend (X files), Specifications (X files), Addenda (X files). Each row shows file count and total size.</li>
+      <li><strong>Accuracy indicator</strong> — A colored badge that shows the overall quality of your inputs:
         <ul>
-          <li><strong>Green</strong> = You uploaded everything. The AI has the best chance of being accurate.</li>
-          <li><strong>Yellow</strong> = You are missing something (like specs or a symbol legend). The AI will still work, but it might not be as accurate.</li>
-          <li><strong>Red</strong> = Something important is missing (like floor plans). You should go back and fix it.</li>
+          <li><strong style="color:#10b981;">Green (High)</strong> = You uploaded floor plans, a symbol legend, AND specs. The AI has the best chance of being accurate.</li>
+          <li><strong style="color:#f59e0b;">Yellow (Medium)</strong> = You are missing something (like specs or a symbol legend). The AI will still work, but it might not be as accurate.</li>
+          <li><strong style="color:#f43f5e;">Red (Low)</strong> = Something important is missing (like floor plans). You should go back and fix it.</li>
         </ul>
       </li>
-      <li>A text box for <strong>additional notes</strong>. Type anything else the AI should know about this project.</li>
-      <li>The big <strong>"Begin Analysis"</strong> button.</li>
+      <li><strong>Additional notes textarea</strong> — A text box where you can type anything else the AI should know. For example: "The 2nd floor is being demolished — do not count devices on those sheets" or "Use 2-hour fire-rated cable on all risers."</li>
+      <li><strong>Begin Analysis button</strong> — The large button that starts the AI.</li>
     </ol>
 
     <h3>How to Run the AI</h3>
     <ol class="step-list">
-      <li>Review the summary. Make sure everything looks right.</li>
-      <li>If the accuracy indicator is yellow or red, think about going back to upload the missing files.</li>
-      <li>Type any extra notes in the notes box (optional).</li>
-      <li>Click the <strong>"Begin Analysis"</strong> button.</li>
-      <li>Wait while the 27-brain AI engine reads your drawings. This can take a few minutes depending on how many pages you uploaded. You will see a progress display showing which brains are working.</li>
-      <li>When the AI is done, SmartPlans automatically moves you to Stage 7.</li>
+      <li>Review the summary grid. Make sure the project name, disciplines, and other settings are correct. If anything is wrong, click Back to fix it.</li>
+      <li>Check the accuracy indicator. If it is yellow or red, consider going back to upload the missing files.</li>
+      <li>Type any extra notes in the notes box (optional but helpful).</li>
+      <li>Click the <strong>"Begin Analysis"</strong> button (or click the green Start button in the header bar).</li>
+      <li>Wait while the 27-brain AI engine reads your drawings. A progress display shows which brains are working, including wave animations and status indicators.</li>
+      <li>You will see brain names appearing with their status: running, completed, or failed.</li>
+      <li>When all brains finish, SmartPlans automatically saves your estimate and moves you to Stage 7 (Travel).</li>
     </ol>
 
-    <div class="callout callout-warn"><strong>Be patient.</strong> Large drawing sets (50+ pages) can take several minutes. Do not close the browser window while it is working.</div>
+    <div class="callout callout-warn"><strong>Be patient and do not close the browser.</strong> Large drawing sets (50+ pages) can take 3-8 minutes. The analysis happens in your browser and needs an active internet connection. If you close the tab or lose internet, the analysis stops and you will have to start it again.</div>
+
+    <div class="callout callout-tip"><strong>Tip:</strong> While the AI is running, you can watch the progress display to see which brains have finished and which are still working. If a brain fails, it will show a red indicator. Failed brains are reported on the Results page so you know which parts of the analysis may be incomplete.</div>
 
     <!-- ============================================================ -->
-    <!-- STAGE 7 — TRAVEL & PER DIEM -->
+    <!-- HOW THE 27-BRAIN AI ENGINE WORKS -->
     <!-- ============================================================ -->
-    <h2 id="stage7">Stage 7 — Travel, Per Diem &amp; Incidentals</h2>
+    <h2 id="ai-engine">How the 27-Brain AI Engine Works</h2>
+
+    <p>SmartPlans does not use just one AI. It uses <strong>27 specialized AI brains</strong> that each focus on a different part of the analysis. Think of it like a team of 27 experts, each with their own specialty, all working on your drawings at the same time. These brains are organized into "waves" — groups that run in sequence because later waves need results from earlier ones.</p>
+
+    <table>
+      <tr><th>Wave</th><th>What Happens (Simple Explanation)</th><th>Brains Involved</th></tr>
+      <tr><td><strong>Wave 0</strong></td><td><strong>Learn the building.</strong> The AI reads the building layout — finds how many floors there are, where the rooms are, where the IDF closets (network rooms) are, and how the zones are organized. Think of it as the AI making a mental map of the building.</td><td>SPATIAL_LAYOUT</td></tr>
+      <tr><td><strong>Wave 1</strong></td><td><strong>Count everything.</strong> The AI counts every device symbol on every sheet. It also calculates cable pathway distances between zones and IDF closets. This is the biggest wave and does the most work.</td><td>SYMBOL_SCANNER, CABLE_PATHWAY, and others</td></tr>
+      <tr><td><strong>Wave 1.5</strong></td><td><strong>Organize by floor.</strong> The AI takes all the devices it found and figures out which ones belong to which floor. It also figures out which drawing sheets belong to which floors.</td><td>PER_FLOOR_ANALYZER</td></tr>
+      <tr><td><strong>Wave 2</strong></td><td><strong>Read the specs.</strong> The AI reads the specification book. It identifies required products, brands, cable types, and installation methods. It cross-references spec requirements against what it found on the plans.</td><td>Multiple spec-reading brains</td></tr>
+      <tr><td><strong>Wave 2.25</strong></td><td><strong>Calculate labor.</strong> The AI calculates total labor hours for every task: cable pulling, device mounting, termination, testing, and commissioning. It recommends crew sizes and project duration.</td><td>LABOR_CALCULATOR</td></tr>
+      <tr><td><strong>Wave 3</strong></td><td><strong>Find special conditions.</strong> The AI looks for special requirements: permits, seismic bracing, unusual constraints, ADA compliance, code violations, and potential change orders.</td><td>SPECIAL_CONDITIONS and others</td></tr>
+      <tr><td><strong>Wave 4</strong></td><td><strong>Build the estimate.</strong> Final assembly — the AI combines everything from Waves 0-3 into your BOM, pricing, RFIs, exclusions, and proposal. This is where the numbers all come together.</td><td>Multiple assembly brains</td></tr>
+    </table>
+
+    <div class="callout callout-info"><strong>You do not need to do anything with waves.</strong> This all happens automatically when you click "Begin Analysis." The waves are just how the AI organizes its work internally. We explain them here so you understand why the analysis takes a few minutes (27 brains take time!) and why some parts of the results depend on other parts.</div>
+
+    <!-- ============================================================ -->
+    <!-- STAGE 7 — TRAVEL, PER DIEM & INCIDENTALS -->
+    <!-- ============================================================ -->
+    <h2 id="stage7">Stage 7 — Travel, Per Diem &amp; Incidentals (Step 6)</h2>
 
     <h3>What Is This?</h3>
-    <p>This stage shows up <strong>after the AI finishes its analysis</strong>. It is where you set up travel costs if your crew needs to go to another city for the project. It also has a place for extra costs like permits, insurance, and bonding.</p>
-    <p>The reason this comes after the AI analysis is because the AI needs to figure out how many labor hours the project needs first. Once it knows the hours, it can help you figure out how many workers you need and how long the project will take.</p>
+    <p>This stage shows up <strong>after the AI finishes its analysis</strong>. It is where you set up travel costs if your crew needs to go to another city for the project. It also has a place for extra costs like permits, insurance, and bonding. The reason this comes after the AI analysis is because the AI needs to figure out how many labor hours the project needs first. Once it knows the hours, it can help you figure out how many workers you need and how long the project will take.</p>
 
     <h3>What You Will See at the Top</h3>
     <ol class="step-list">
-      <li><strong>Total Labor Hours</strong> — The AI shows you the total labor hours it calculated. For example: "1,847 Total Labor Hours."</li>
-      <li><strong>AI Crew Breakdown</strong> — The AI suggests how many of each type of worker you need and how many weeks the project will take.</li>
+      <li><strong>Total Labor Hours</strong> — The AI shows you the total labor hours it calculated. For example: "1,847 Total Labor Hours." This number comes from the LABOR_CALCULATOR brain in Wave 2.25.</li>
+      <li><strong>AI Crew Breakdown</strong> — The AI suggests how many of each type of worker you need (journeymen, leads, foreman) and how many weeks the project will take. It also explains its reasoning.</li>
     </ol>
 
     <h3>Enable Travel &amp; Per Diem Costs</h3>
     <ol class="step-list">
       <li>Look for the checkbox that says <strong>"Enable Travel &amp; Per Diem Costs."</strong></li>
-      <li>If your crew does NOT need to travel (the project is near your office), leave it unchecked and skip to "Other Incidentals."</li>
-      <li>If your crew DOES need to travel, check the box. New fields will appear.</li>
+      <li>If your crew does NOT need to travel (the project is near your office), leave it unchecked and skip down to "Other Incidentals."</li>
+      <li>If your crew DOES need to travel, check the box. New fields will appear below.</li>
     </ol>
 
-    <h3>Scheduling Mode</h3>
+    <h4>"No Per Diem — Local Job" Quick Button</h4>
+    <p>If the project is close to your office (within about 50 miles), you can click the <strong>"No Per Diem — Local Job"</strong> button. This sets all travel costs to zero instantly — no hotel, no per diem, no mileage. Your crew drives to the site each day from home.</p>
 
-    <h4>Option A: "By Techs"</h4>
-    <p>Use this if you already know how many workers you want to send.</p>
+    <h4>Auto-Detection</h4>
+    <p>SmartPlans automatically checks the distance between the project location (from Stage 1) and your office. If the project is within 50 miles, it suggests "Local Job" mode. If the project is farther than 50 miles, it suggests enabling travel. You can always override the suggestion.</p>
+
+    <h3>Scheduling Mode</h3>
+    <p>SmartPlans gives you two ways to calculate how long the project will take:</p>
+
+    <h4>Option A: "By Techs" (Default)</h4>
+    <p>Use this when you already know how many workers you want to send to the job site.</p>
     <ol class="step-list">
-      <li>Click the <strong>"By Techs"</strong> radio button.</li>
-      <li>Type the number of techs. SmartPlans calculates how many work days the project will take.</li>
+      <li>Click the <strong>"By Techs"</strong> radio button (it is selected by default).</li>
+      <li>Type the number of technicians (default is 4). This means 4 people working on site each day.</li>
+      <li>SmartPlans takes the total labor hours from the AI, divides by the number of techs and hours per day (default 8), and calculates how many work days the project will take.</li>
+      <li>The work days are then converted to calendar weeks, trips, and hotel nights.</li>
     </ol>
 
     <h4>Option B: "By Schedule"</h4>
-    <p>Use this if you already know how many days you have to finish.</p>
+    <p>Use this when you already know how many days you have to finish (for example, the GC says "You have 30 days to complete your work").</p>
     <ol class="step-list">
       <li>Click the <strong>"By Schedule"</strong> radio button.</li>
-      <li>Type the number of days. SmartPlans calculates how many techs you need.</li>
+      <li>Type the number of calendar days (deadline).</li>
+      <li>SmartPlans takes the total labor hours, divides by the number of days and hours per day, and calculates how many techs you need to meet the deadline.</li>
     </ol>
+
+    <h4>Hotel Nights Per Week</h4>
+    <p>The default is <strong>4 nights per week</strong>. This assumes your crew drives to the job site on Monday morning, stays Monday through Thursday nights at a hotel, and drives home on Friday evening. If your crew stays all 7 nights (no weekend trips home), change this to 7. If they only stay 3 nights, change it to 3.</p>
 
     <h3>Travel Costs</h3>
     <table>
-      <tr><th>Field</th><th>What to Type</th><th>Tips</th></tr>
-      <tr><td><strong>Hotel $/Night</strong></td><td>Cost of one hotel room per night.</td><td>For government projects, look up GSA rates at <code>gsa.gov/travel/plan-book/per-diem-rates</code>.</td></tr>
-      <tr><td><strong>Per Diem $/Day</strong></td><td>Daily food money per person.</td><td>"Per diem" means "per day." The GSA standard is about $79/day.</td></tr>
-      <tr><td><strong>Mileage (RT Miles)</strong></td><td>Round-trip driving distance in miles.</td><td>Multiplied by IRS rate ($0.70/mile).</td></tr>
-      <tr><td><strong>Airfare $/Person</strong></td><td>Round-trip plane ticket per person.</td><td>Use if flying (usually 500+ miles).</td></tr>
-      <tr><td><strong>Rental Car $/Day</strong></td><td>Cost per day for a rental truck or car.</td><td>Typical: $65-120/day for a truck.</td></tr>
-      <tr><td><strong>Parking $/Day</strong></td><td>Parking cost per day.</td><td>Downtown: $25-50/day. Some places are free.</td></tr>
-      <tr><td><strong>Tolls $/Trip</strong></td><td>Total tolls per trip.</td><td>Add up all toll roads on your route.</td></tr>
+      <tr><th>Field</th><th>Default</th><th>What to Type</th><th>Tips</th></tr>
+      <tr><td><strong>Hotel $/Night</strong></td><td>$175</td><td>Cost of one hotel room per night.</td><td>For government projects, look up GSA rates at <code>gsa.gov/travel/plan-book/per-diem-rates</code>. Urban areas are more expensive.</td></tr>
+      <tr><td><strong>Per Diem $/Day</strong></td><td>$79</td><td>Daily food money per person.</td><td>"Per diem" means "per day." The GSA standard M&IE rate is about $79/day. Major cities can be $80-$100+.</td></tr>
+      <tr><td><strong>Mileage (RT Miles)</strong></td><td>0</td><td>Round-trip driving distance in miles from your office to the job site.</td><td>Multiplied by the IRS standard mileage rate ($0.70/mile for 2026). Enter 0 if flying.</td></tr>
+      <tr><td><strong>Airfare $/Person</strong></td><td>$0</td><td>Round-trip plane ticket per person.</td><td>Use if flying instead of driving (usually when the project is 500+ miles away). Enter 0 if driving.</td></tr>
+      <tr><td><strong>Rental Car $/Day</strong></td><td>$85</td><td>Cost per day for a rental truck or car at the project location.</td><td>Typical: $65-120/day for a work truck. Your crew needs a vehicle to get from the hotel to the job site.</td></tr>
+      <tr><td><strong>Parking $/Day</strong></td><td>$25</td><td>Parking cost per day at or near the job site.</td><td>Downtown projects: $25-50/day. Suburban projects are often free.</td></tr>
+      <tr><td><strong>Tolls $/Trip</strong></td><td>$0</td><td>Total tolls per round trip.</td><td>Add up all toll roads and bridges on your route.</td></tr>
     </table>
 
-    <div class="callout callout-warn"><strong>Mileage OR Airfare — not both.</strong> If driving, enter mileage and leave airfare at $0. If flying, enter airfare and leave mileage at 0.</div>
+    <div class="callout callout-warn"><strong>Mileage OR Airfare — not both.</strong> If your crew is driving, enter mileage and leave airfare at $0. If they are flying, enter airfare and leave mileage at 0. You would not pay for both gas AND a plane ticket for the same trip.</div>
 
     <h3>Other Incidentals</h3>
+    <p>These are additional project costs that are not part of materials, labor, or travel. They appear below the travel section and are always visible, even if travel is disabled.</p>
     <table>
-      <tr><th>Field</th><th>What It Is</th><th>Tips</th></tr>
-      <tr><td><strong>Permits $</strong></td><td>Fee paid to the city or county.</td><td>Call the local building department.</td></tr>
-      <tr><td><strong>Insurance $</strong></td><td>Extra insurance for this project.</td><td>Some projects require adding the owner as "additional insured."</td></tr>
-      <tr><td><strong>Bonding $</strong></td><td>Performance or payment bond.</td><td>Typically 1-3% of the project price. Government jobs often require bonds.</td></tr>
-      <tr><td><strong>Equipment Rental $</strong></td><td>Renting lifts, cable pullers, etc.</td><td>Get a real quote from a rental company.</td></tr>
-      <tr><td><strong>Fuel/Transit $</strong></td><td>Gas money for your company trucks.</td><td>Separate from mileage reimbursement.</td></tr>
-      <tr><td><strong>Unexpected Buffer %</strong></td><td>A percentage for surprises.</td><td>5-10% is typical.</td></tr>
+      <tr><th>Field</th><th>Default</th><th>What It Is</th><th>Tips</th></tr>
+      <tr><td><strong>Permits $</strong></td><td>$0</td><td>Fee paid to the city or county for a construction permit and inspections.</td><td>Call the local building department to ask about permit fees. Typically $500-$5,000 depending on project size.</td></tr>
+      <tr><td><strong>Insurance $</strong></td><td>$0</td><td>Extra insurance required for this specific project (beyond your normal company policy).</td><td>Some projects require adding the owner as "additional insured" or require higher coverage limits. Ask your insurance agent.</td></tr>
+      <tr><td><strong>Bonding $</strong></td><td>$0</td><td>Performance bond or payment bond cost.</td><td>Typically 1-3% of the total project price. Government jobs almost always require bonds. Private jobs sometimes do too.</td></tr>
+      <tr><td><strong>Equipment Rental $</strong></td><td>$0</td><td>Renting lifts, scissor lifts, cable pullers, fiber splicers, boring machines, etc.</td><td>Get a real quote from a rental company. A scissor lift is about $200-400/week. A boom lift can be $600-1,200/week.</td></tr>
+      <tr><td><strong>Fuel/Transit $</strong></td><td>$0</td><td>Gas money for your company trucks, tool trailers, and daily transport to/from the site.</td><td>This is separate from the mileage reimbursement above. Fuel/transit covers your actual company vehicle expenses.</td></tr>
+      <tr><td><strong>Unexpected Buffer %</strong></td><td>5%</td><td>A percentage of your total direct costs set aside for surprises — things you did not plan for.</td><td>5% is conservative. 10% is safer for complex or unfamiliar projects. This is NOT the same as contingency in the bid formula; this is an additional buffer on incidentals.</td></tr>
     </table>
 
-    <h3>Live Cost Summary</h3>
-    <p>At the bottom of Stage 7, a <strong>live cost summary</strong> updates instantly as you change numbers. The last line shows the <strong>Stage 7 Total</strong> — this gets added to your overall bid in Stage 8.</p>
+    <h3>Live Cost Summary Card</h3>
+    <p>At the bottom of Stage 7, a <strong>live cost summary card</strong> updates instantly every time you change a number. It shows line-by-line travel costs (hotels total, per diem total, mileage total, etc.), incidentals, and the <strong>Stage 7 Total</strong>. This total gets added to your overall bid in Stage 8.</p>
 
     <h3>Moving to Stage 8</h3>
-    <p>Review the cost summary, then click the <strong>"View Results"</strong> button to go to Stage 8.</p>
+    <p>Review the cost summary, then click the <strong>"Next"</strong> button or <strong>"View Results"</strong> button to go to Stage 8.</p>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> Travel costs are often the make-or-break part of out-of-town bids. Double-check your number of trips and crew size. Forgetting a trip is one of the fastest ways to lose money.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> Travel costs are often the make-or-break part of out-of-town bids. Double-check your number of trips and crew size. Forgetting one trip or underestimating hotel nights by a week can cost you thousands.</div>
 
     <!-- ============================================================ -->
     <!-- STAGE 8 — RESULTS & RFIs -->
     <!-- ============================================================ -->
-    <h2 id="stage8">Stage 8 — Results &amp; RFIs</h2>
+    <h2 id="stage8">Stage 8 — Results &amp; RFIs (Step 7)</h2>
 
-    <p>This is the big results page. It has everything the AI found, plus all the tools you need to turn the estimate into a final bid. There are many sections here, so let us go through each one.</p>
+    <p>This is the big results page. It has everything the AI found, plus all the tools you need to turn the estimate into a final bid. There are many sections here — scroll down through the page to find each one. Let us go through each section in the order they appear.</p>
+
+    <!-- Failed Brains Banner -->
+    <h3>Failed Brains Banner</h3>
+    <p>If any of the 27 AI brains failed during analysis, a banner appears at the top of the results page. It shows which brains failed and what they were supposed to do. A failed brain means that part of the analysis is missing or incomplete.</p>
+    <div class="callout callout-warn"><strong>What to do:</strong> If important brains like SYMBOL_SCANNER or LABOR_CALCULATOR failed, your results may be significantly incomplete. Try running the analysis again. If a brain fails repeatedly, it may be a temporary API issue — wait a few minutes and retry.</div>
+
+    <!-- Sheet Filter Summary -->
+    <h3>Sheet Filter Summary</h3>
+    <p>Shows which drawing sheets were analyzed and which were filtered out based on your selected disciplines. For example, if you selected only Fire Alarm, architectural and plumbing sheets may have been automatically excluded.</p>
+
+    <!-- Math Validation Banner -->
+    <h3>Math Validation Banner</h3>
+    <p>SmartPlans runs an automated math check on the AI's results. The banner shows:</p>
+    <ul>
+      <li><strong style="color:#10b981;">Passed (Green)</strong> — All numbers add up correctly. The grand total matches the sum of all categories.</li>
+      <li><strong style="color:#f59e0b;">Warning (Yellow)</strong> — Some numbers do not add up perfectly. This could be a rounding issue or a real error. Investigate.</li>
+    </ul>
+
+    <!-- Section Completeness Banner -->
+    <h3>Section Completeness Banner</h3>
+    <p>Shows how complete the AI's analysis is. It checks whether all expected sections (BOM, labor, cable, RFIs, exclusions) were generated. If any section is missing, the banner tells you which one and suggests re-running the analysis.</p>
 
     <!-- AI Analysis Text -->
-    <h3>AI Analysis Text</h3>
-    <p>At the top, you will see the full AI analysis — a long report explaining everything the AI found in your drawings and specs, with a table of contents so you can jump to different sections. Look for anything that seems wrong or surprising.</p>
-
-    <!-- Math & Completeness Banners -->
-    <h3>Math Validation &amp; Completeness Banners</h3>
-    <p>The <strong>Math Validation Banner</strong> tells you if all the numbers add up correctly (green = good, warning = investigate). The <strong>Section Completeness Banner</strong> shows how complete the AI's analysis is and which areas need extra attention.</p>
+    <h3>AI Analysis Text Card</h3>
+    <p>A large card containing the full AI analysis report — a detailed narrative explaining everything the AI found in your drawings and specs. This card has several features:</p>
+    <table>
+      <tr><th>Feature</th><th>What It Does</th></tr>
+      <tr><td><strong>Table of Contents</strong></td><td>At the top of the report, clickable links that jump to different sections (BOM, Cable, Labor, RFIs, etc.).</td></tr>
+      <tr><td><strong>Copy Button</strong></td><td>Copies the entire analysis text to your clipboard so you can paste it into an email or document.</td></tr>
+      <tr><td><strong>Expand/Collapse Button</strong></td><td>Toggles between showing a preview of the report and showing the full thing.</td></tr>
+      <tr><td><strong>PDF Button</strong></td><td>Downloads the analysis as a formatted PDF document.</td></tr>
+    </table>
 
     <!-- BOM Table -->
     <h3>BOM Table (Bill of Materials)</h3>
-    <p>BOM stands for "Bill of Materials." This is a big table listing every single item in your estimate — the item name, quantity, cost per item, and total cost.</p>
+    <p>BOM stands for "Bill of Materials." This is the central table of your entire estimate — listing every single item, organized by category. Each category (like "Cameras," "Cabling," "Access Control Panels") has its own section with subtotals.</p>
 
-    <h4>How to Edit It</h4>
+    <h4>What Each Column Shows</h4>
+    <table>
+      <tr><th>Column</th><th>What It Means</th></tr>
+      <tr><td><strong>Item</strong></td><td>The name of the product or material (e.g., "Axis P3245-V 4MP Dome Camera").</td></tr>
+      <tr><td><strong>Qty</strong></td><td>How many of this item the AI counted.</td></tr>
+      <tr><td><strong>Unit</strong></td><td>The unit of measurement (ea = each, ft = feet, box = box of cable).</td></tr>
+      <tr><td><strong>Unit Cost</strong></td><td>The cost of one unit of this item.</td></tr>
+      <tr><td><strong>Extended Cost</strong></td><td>Qty x Unit Cost = total cost for this line item.</td></tr>
+      <tr><td><strong>Labor Hrs</strong></td><td>How many labor hours to install this item.</td></tr>
+    </table>
+
+    <h4>How to Edit the BOM</h4>
     <ol class="step-list">
       <li>Look through the table to see all the items.</li>
-      <li>If any number looks wrong, <strong>click on it</strong>. The number turns into a box you can type in.</li>
+      <li>If any number looks wrong, <strong>click directly on the number</strong>. The cell turns into an editable text box.</li>
       <li>Type the correct number.</li>
-      <li>Press Enter or click somewhere else. The totals update right away.</li>
+      <li>Press Enter or click somewhere else. The row total, category subtotal, and grand total all recalculate instantly.</li>
+      <li>You can edit quantities, unit costs, item names, and labor hours.</li>
     </ol>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> You can click on any quantity or any price to change it. The totals recalculate instantly.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> Editing the BOM is non-destructive. Your changes are saved with the estimate, but the original AI values are preserved in the background. If you want to undo all edits, you can restore from Version History.</div>
 
     <!-- Exclusions & Assumptions -->
     <h3>Exclusions &amp; Assumptions Builder</h3>
-    <p>Exclusions are things <strong>NOT</strong> included in your bid (e.g., "We are not doing any work above 30 feet"). Assumptions are things you are guessing to be true (e.g., "We assume the ceilings are easy to reach"). Clarifications are extra notes that explain what you mean. These protect you if there is a disagreement later.</p>
+    <p>Exclusions are things <strong>NOT</strong> included in your bid. Assumptions are things you are guessing to be true. Clarifications explain scope boundaries. These three categories protect you legally if there is a disagreement later about what was included in your price.</p>
+
+    <h4>Three Tabs</h4>
+    <table>
+      <tr><th>Tab</th><th>What It Contains</th><th>Example</th></tr>
+      <tr><td><strong>Exclusions</strong></td><td>Work that is NOT in your bid price.</td><td>"Excludes core drilling and firestopping"</td></tr>
+      <tr><td><strong>Assumptions</strong></td><td>Conditions you are assuming to be true.</td><td>"Assumes open ceiling access throughout"</td></tr>
+      <tr><td><strong>Clarifications</strong></td><td>Extra notes that explain your scope.</td><td>"Pricing is valid for 30 days from date of proposal"</td></tr>
+    </table>
 
     <h4>How to Use It</h4>
     <ol class="step-list">
-      <li>You will see three tabs: <strong>Exclusions</strong>, <strong>Assumptions</strong>, and <strong>Clarifications</strong>. Click the tab you want.</li>
-      <li>Click <strong>"Load Defaults"</strong> to start with a standard list that most projects need. These are based on the disciplines you selected.</li>
-      <li>Click <strong>"Auto-Generate"</strong> to let the AI create items based on what it found in your drawings.</li>
-      <li>Read through the list. Add anything missing by clicking the add button. Remove anything that does not apply.</li>
+      <li>Click the tab you want to work on (Exclusions, Assumptions, or Clarifications).</li>
+      <li>Click <strong>"Load Defaults"</strong> to populate the list with standard items for your selected disciplines. For example, if you selected Fire Alarm, you will get fire alarm-specific exclusions like "Excludes fire sprinkler system."</li>
+      <li>Click <strong>"Auto-Generate"</strong> to let the AI create additional items based on what it found in your specific drawings and specs.</li>
+      <li>Read through every item. Remove anything that does not apply to this project.</li>
+      <li>Add custom items using the "Add" button for anything project-specific.</li>
+      <li>Drag items to reorder them as needed.</li>
     </ol>
 
-    <div class="callout callout-warn"><strong>Do not skip this!</strong> Exclusions are your legal protection. If you forget to exclude something, you might have to do that work for free.</div>
+    <div class="callout callout-warn"><strong>Do not skip this!</strong> Exclusions are your legal protection. If you forget to exclude something (like "work above 30 feet" or "core drilling"), and that work turns out to be needed, you might have to do it for free.</div>
 
     <!-- Bid Strategy -->
     <h3>Bid Strategy Card</h3>
-    <p>Bid Strategy lets you set different markup percentages for different categories of work, and set confidence levels for each.</p>
+    <p>Bid Strategy lets you set different markup percentages for different categories of work, and assign confidence levels that adjust contingency automatically.</p>
     <ol class="step-list">
-      <li>Look at each category (like "Cameras" or "Cabling").</li>
-      <li>Set a <strong>markup percentage</strong> for materials and labor in each category.</li>
-      <li>Set a <strong>confidence level</strong>: High (you trust the numbers), Medium, or Low (add more contingency).</li>
-      <li>Click <strong>"Apply Strategy"</strong> to update your totals.</li>
-      <li>Click <strong>"Reset"</strong> to go back to defaults.</li>
+      <li>Expand the Bid Strategy card.</li>
+      <li>For each BOM category (like "Cameras" or "Cabling"), you can set:
+        <ul>
+          <li><strong>Material Markup %</strong> — How much to mark up materials in this category.</li>
+          <li><strong>Labor Markup %</strong> — How much to mark up labor in this category.</li>
+          <li><strong>Confidence Level</strong>: High (you trust these numbers — lower contingency), Medium (standard contingency), or Low (you are unsure — higher contingency).</li>
+        </ul>
+      </li>
+      <li>The contingency percentages by confidence are: High = 5%, Medium = 10%, Low = 20%.</li>
+      <li>Click <strong>"Apply Strategy"</strong> to recalculate your bid with these per-category settings.</li>
+      <li>Click <strong>"Reset"</strong> to go back to the global defaults from Stage 1.</li>
     </ol>
 
     <!-- Bid Phases & Alternates -->
     <h3>Bid Phases &amp; Alternates</h3>
-    <p>Sometimes a project is split into parts. The "Base Bid" is the main part. "Alternates" are extra things the client might want to add, remove, or make optional.</p>
+    <p>Sometimes a bid document asks for a "Base Bid" plus one or more "Alternates." This tool lets you split your estimate into separate phases.</p>
     <ol class="step-list">
-      <li>Your main estimate starts as the <strong>Base Bid</strong>.</li>
-      <li>Click to create an <strong>Add Alternate</strong> (extra work that costs more).</li>
-      <li>Click to create a <strong>Deduct Alternate</strong> (work that gets removed to save money).</li>
-      <li>Click to create an <strong>Optional Alternate</strong> (work the client might or might not want).</li>
-      <li>Assign BOM categories to each phase. For example, put "parking lot cameras" in an Add Alternate.</li>
-      <li>Toggle <strong>"Include in Proposal"</strong> for each phase. Your proposal will show a summary table of all phases.</li>
+      <li>Your entire estimate starts as the <strong>Base Bid</strong>.</li>
+      <li>Click <strong>"Add Phase"</strong> to create a new alternate. Pick the type:
+        <ul>
+          <li><strong>Add Alternate</strong> — Extra work that costs more if the owner wants it (e.g., "Add 4K camera upgrades").</li>
+          <li><strong>Deduct Alternate</strong> — Work that gets removed to save money (e.g., "Remove parking lot cameras").</li>
+          <li><strong>Optional Alternate</strong> — Work the client might or might not want (e.g., "Optional: video analytics software").</li>
+        </ul>
+      </li>
+      <li>Assign BOM categories to each phase by clicking the category dropdown.</li>
+      <li>Toggle <strong>"Include in Proposal"</strong> for each phase. Your exported proposal will show a summary table of all phases with separate pricing.</li>
     </ol>
-
-    <div class="callout callout-info"><strong>Example:</strong> Base Bid = all indoor cameras and cabling. Add Alternate 1 = upgrade to 4K cameras. Deduct Alternate 1 = remove parking lot cameras.</div>
 
     <!-- Competitor Bid Comparison -->
     <h3>Competitor Bid Comparison</h3>
@@ -802,34 +1084,34 @@
     <ol class="step-list">
       <li>Type the competitor's name in the name box.</li>
       <li>Click <strong>"Upload Bid"</strong> and pick their Excel or CSV file.</li>
-      <li>You will see a comparison with green rows (you are cheaper) and red rows (they are cheaper).</li>
+      <li>You will see a comparison table with green rows (you are cheaper) and red rows (they are cheaper).</li>
       <li>Click <strong>"Clear Comparison"</strong> when done.</li>
     </ol>
 
-    <div class="callout callout-warn"><strong>Important:</strong> The competitor's bid is NOT saved. If you refresh the page, it goes away. Take a screenshot if needed.</div>
+    <div class="callout callout-warn"><strong>Important:</strong> The competitor's bid is NOT saved permanently. If you refresh the page, it goes away. Take a screenshot or export the comparison if needed.</div>
 
     <!-- RFIs -->
     <h3>RFIs (Requests for Information)</h3>
-    <p>An RFI is a formal question you send to the architect or general contractor asking them to clarify something on the drawings or specs. SmartPlans generates RFI suggestions based on what the AI found.</p>
+    <p>An RFI is a formal question you send to the architect or general contractor asking them to clarify something ambiguous or missing from the drawings or specs. SmartPlans generates RFI suggestions based on gaps the AI found — organized by discipline.</p>
 
     <ol class="step-list">
       <li>Scroll down to the RFI section. You will see a list of AI-generated questions, filtered by your selected disciplines.</li>
-      <li>Each RFI has an ID code, the question text, and an explanation of why it matters.</li>
-      <li>Check the box next to each RFI you want to include.</li>
+      <li>Each RFI has: an <strong>ID code</strong> (like SC-001 for Structured Cabling question #1), the <strong>question text</strong>, and an <strong>explanation</strong> of why this question matters for your bid.</li>
+      <li>Check the box next to each RFI you want to include in your export.</li>
       <li>Use <strong>"Select All"</strong> or <strong>"Clear All"</strong> to quickly manage selections.</li>
-      <li>Click <strong>"Export Selected RFIs"</strong> to download them as a text file you can email to the GC.</li>
+      <li>Click <strong>"Export Selected RFIs"</strong> to download them as a formatted text file you can email to the GC or architect.</li>
     </ol>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> Sending RFIs before bid day shows the GC you are thorough. It also protects you — if the GC does not answer your RFI, any extra cost from that ambiguity becomes a legitimate change order.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> Sending RFIs before bid day shows the GC you are thorough and detail-oriented. It also protects you legally — if the GC does not answer your RFI, any extra cost resulting from that ambiguity becomes a legitimate change order after contract award.</div>
 
     <!-- ============================================================ -->
-    <!-- SYMBOL INVENTORY AUDIT (NEW) -->
+    <!-- SYMBOL INVENTORY AUDIT -->
     <!-- ============================================================ -->
-    <h2 id="symbol-inventory">Symbol Inventory Audit <span class="badge-new">NEW</span></h2>
+    <h2 id="symbol-inventory">Symbol Inventory Audit</h2>
 
     <h3>What Is This?</h3>
-    <p>The Symbol Inventory Audit is a card on the Results page (Stage 8) that lists <strong>every single device</strong> the AI found on your drawings. It shows you exactly what was counted, where it was counted, and on which sheet number. Think of it like a detailed receipt that says "I found 3 cameras in Room 101 on Sheet E2.1."</p>
-    <p>This is your primary tool for <strong>verifying the AI's device counts</strong>. Instead of guessing whether the AI counted correctly, you can see every single device in a table and check it against your drawings.</p>
+    <p>The Symbol Inventory Audit is a card on the Results page (Stage 8) that lists <strong>every single device</strong> the AI found on your drawings. It shows you exactly what was counted, where it was counted, and on which sheet number. Think of it like a detailed receipt: "I found 3 cameras in Room 101 on Sheet E2.1."</p>
+    <p>This is your primary tool for <strong>verifying the AI's device counts</strong>.</p>
 
     <h3>Where to Find It</h3>
     <ol class="step-list">
@@ -852,177 +1134,191 @@
     </table>
 
     <h3>Stats Bar</h3>
-    <p>At the top of the card, you will see a stats bar with quick numbers:</p>
+    <p>At the top of the card, a stats bar shows quick summary numbers:</p>
     <ul>
-      <li><strong>Total Devices</strong> — The grand total of all devices found across all sheets.</li>
+      <li><strong>Total Devices</strong> — Grand total of all devices found across all sheets.</li>
       <li><strong>Sheets Analyzed</strong> — How many sheets the AI scanned.</li>
-      <li><strong>Device Types</strong> — How many different kinds of devices were found (cameras, WAPs, readers, etc.).</li>
-      <li><strong>Duplicates Found</strong> — How many potential duplicate items were detected. (More on this below.)</li>
+      <li><strong>Device Types</strong> — How many different kinds of devices (cameras, WAPs, readers, etc.).</li>
+      <li><strong>Duplicates Found</strong> — How many potential duplicate items were detected.</li>
     </ul>
 
     <h3>Sorting the Table</h3>
-    <p>You can sort the table in different ways by clicking the sort buttons at the top:</p>
     <table>
-      <tr><th>Sort Button</th><th>What It Does</th></tr>
-      <tr><td><strong>By Sheet</strong></td><td>Groups all devices by their sheet number. This is the default view, and the one you use when going through drawings one page at a time.</td></tr>
-      <tr><td><strong>By Type</strong></td><td>Groups all devices by device type. All cameras together, all data outlets together, etc. Use this to get a quick count of each device type.</td></tr>
-      <tr><td><strong>By Room</strong></td><td>Groups devices by room name. Use this to see every device in a specific room.</td></tr>
-      <tr><td><strong>By Floor</strong></td><td>Groups devices by floor. Use this to see everything on the 1st floor, then the 2nd floor, etc.</td></tr>
+      <tr><th>Sort Button</th><th>What It Does</th><th>When to Use</th></tr>
+      <tr><td><strong>By Sheet</strong></td><td>Groups all devices by their sheet number. (Default view.)</td><td>When going through drawings one page at a time.</td></tr>
+      <tr><td><strong>By Type</strong></td><td>Groups all devices by device type. All cameras together, all data outlets together, etc.</td><td>When you want a quick total of each device type.</td></tr>
+      <tr><td><strong>By Room</strong></td><td>Groups devices by room name.</td><td>When verifying devices in a specific room.</td></tr>
+      <tr><td><strong>By Floor</strong></td><td>Groups devices by floor.</td><td>When checking floor-by-floor counts.</td></tr>
     </table>
 
     <h3>Filtering by Device Type</h3>
     <ol class="step-list">
-      <li>Look for the <strong>dropdown menu</strong> at the top of the card that says "All Types."</li>
+      <li>Find the <strong>dropdown menu</strong> at the top of the card that says "All Types."</li>
       <li>Click it and pick a specific device type — for example, "camera."</li>
       <li>The table now shows ONLY cameras. Everything else is hidden.</li>
       <li>To see everything again, switch the dropdown back to "All Types."</li>
     </ol>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> Filtering by device type is the fastest way to verify a specific device count. If you want to know "how many cameras did the AI count?", just filter by "camera" and look at the total at the top.</div>
-
     <h3>Duplicate Detection</h3>
-    <p>One of the most powerful features of the Symbol Inventory Audit is <strong>automatic duplicate detection</strong>. The AI looks for the same device appearing in the same room on more than one sheet. This catches a common counting error: the same camera might be shown on both the floor plan sheet and the enlarged detail sheet, which would cause a double-count.</p>
-
+    <p>The Symbol Inventory Audit automatically detects when the same device appears in the same room on more than one sheet — a common source of overcounting.</p>
     <ol class="step-list">
-      <li>Look at the <strong>"Duplicates Found"</strong> number in the stats bar. If it is 0, great — no duplicates were detected.</li>
+      <li>Check the <strong>"Duplicates Found"</strong> number in the stats bar. If it is 0, no duplicates were detected.</li>
       <li>If duplicates were found, look for the amber-colored <strong>"Duplicates"</strong> panel below the table.</li>
       <li>Each duplicate entry shows: the device type, the room name, and which sheets it appeared on.</li>
-      <li>For each duplicate, decide: is this really a duplicate (the same device shown twice), or are there genuinely two separate devices in that room? If it is a real duplicate, go to the BOM and reduce the count.</li>
+      <li>For each duplicate, decide: is this really a duplicate (same device shown twice), or are there genuinely two separate devices in that room? If it is a real duplicate, go to the BOM and reduce the count.</li>
     </ol>
 
-    <div class="callout callout-warn"><strong>Why duplicates matter:</strong> If a camera appears on Sheet E2.1 and also on Sheet E2.1A (an enlarged detail), the AI might count it twice. That means you are bidding for two cameras where there is only one. The duplicate detector catches this so you can fix it.</div>
+    <div class="callout callout-warn"><strong>Why duplicates matter:</strong> If a camera appears on Sheet E2.1 and also on Sheet E2.1A (an enlarged detail), the AI might count it twice. You end up bidding for two cameras where only one exists.</div>
 
     <h3>Action Buttons</h3>
     <table>
       <tr><th>Button</th><th>What It Does</th></tr>
       <tr><td><strong>Copy to Clipboard</strong></td><td>Copies the entire inventory table as tab-separated text. You can paste it into Excel or an email.</td></tr>
-      <tr><td><strong>Export CSV</strong></td><td>Downloads the inventory as a CSV file (a spreadsheet file). Includes confidence scores and duplicate flags.</td></tr>
-      <tr><td><strong>Copy Duplicates</strong></td><td>Copies just the duplicates summary to your clipboard for quick reference.</td></tr>
-      <tr><td><strong>View on Plans</strong></td><td>Opens the <strong>Visual Symbol Map</strong> — an interactive viewer that shows colored markers on your actual floor plan drawings. See the next section for details.</td></tr>
+      <tr><td><strong>Export CSV</strong></td><td>Downloads the inventory as a CSV file (spreadsheet format). Includes confidence scores and duplicate flags.</td></tr>
+      <tr><td><strong>Copy Duplicates</strong></td><td>Copies just the duplicates summary to your clipboard.</td></tr>
+      <tr><td><strong>View on Plans</strong></td><td>Opens the <strong>Visual Symbol Map</strong> — an interactive viewer that shows colored markers on your floor plans.</td></tr>
     </table>
 
     <!-- ============================================================ -->
-    <!-- VISUAL SYMBOL MAP (NEW) -->
+    <!-- VISUAL SYMBOL MAP -->
     <!-- ============================================================ -->
-    <h2 id="symbol-map">Visual Symbol Map <span class="badge-new">NEW</span></h2>
+    <h2 id="symbol-map">Visual Symbol Map</h2>
 
     <h3>What Is This?</h3>
-    <p>The Visual Symbol Map is an interactive viewer that opens your actual floor plan PDFs and shows <strong>colored markers</strong> on top of them — one marker for each zone where devices were found. This is the fastest way to visually verify that the AI counted the right devices in the right locations.</p>
-    <p>Think of it like putting colored stickers on your paper drawings: red stickers for cameras, blue stickers for WAPs, green stickers for data outlets, etc. Except it is digital and shows exact counts.</p>
-
-    <div class="callout callout-info"><strong>Why this matters:</strong> Before the Visual Symbol Map, the only way to verify AI counts was to compare numbers in a table against your paper drawings. Now you can <em>see</em> what the AI counted, right on top of the actual floor plans. This is the single fastest way to build confidence in the estimate.</div>
+    <p>The Visual Symbol Map is an interactive full-screen viewer that opens your actual floor plan PDFs and shows <strong>colored markers</strong> on top of them — one marker for each zone where devices were found. This is the fastest way to visually verify that the AI counted the right devices in the right locations.</p>
 
     <h3>How to Open It</h3>
     <ol class="step-list">
       <li>Go to <strong>Stage 8 — Results &amp; RFIs</strong>.</li>
-      <li>Open the <strong>Symbol Inventory Audit</strong> card (click to expand it).</li>
-      <li>Click the <strong>"View on Plans"</strong> button. It has a map icon next to it.</li>
-      <li>A full-screen viewer will open, showing your first floor plan page with colored markers on top.</li>
+      <li>Open the <strong>Symbol Inventory Audit</strong> card.</li>
+      <li>Click the <strong>"View on Plans"</strong> button (it has a map icon).</li>
+      <li>A full-screen viewer opens, showing your first floor plan page with colored markers overlaid on top.</li>
     </ol>
 
-    <h3>What You Will See</h3>
-    <p>The Visual Symbol Map has three main areas:</p>
+    <h3>The Three Areas</h3>
 
-    <h4>1. The Floor Plan Canvas (Center)</h4>
-    <p>The big center area shows your actual floor plan PDF page with colored circles and squares on top of it:</p>
+    <h4>1. Floor Plan Canvas (Center)</h4>
     <ul>
-      <li><strong>Colored circles</strong> = Device zones. Each circle is placed where a group of devices was found. The color tells you the device type (red = cameras, blue = WAPs, indigo = data outlets, etc.).</li>
-      <li><strong>Numbers inside circles</strong> = How many devices are in that zone.</li>
-      <li><strong>Green squares</strong> = IDF (Intermediate Distribution Frame) locations — these are the network closets where cables connect to switches.</li>
-      <li><strong>Zone labels</strong> = Text labels below circles showing the room or zone name.</li>
-      <li><strong>Floor label badge</strong> = A label in the corner showing which floor you are viewing.</li>
-      <li><strong>Device count badge</strong> = A count in the corner showing total devices on this page.</li>
+      <li><strong>Colored circles</strong> = Device zones. Color indicates device type. Number inside indicates quantity.</li>
+      <li><strong>Green squares</strong> = IDF (network closet) locations.</li>
+      <li><strong>Zone labels</strong> = Room or zone name below each circle.</li>
+      <li><strong>Floor label badge</strong> = Shows which floor in the corner.</li>
+      <li><strong>Device count badge</strong> = Total devices on this page.</li>
     </ul>
 
-    <h4>2. The Header Bar (Top)</h4>
+    <h4>2. Header Bar (Top)</h4>
     <table>
       <tr><th>Control</th><th>What It Does</th></tr>
-      <tr><td><strong>Page info</strong></td><td>Shows "Page 3 of 24" so you know which page you are on.</td></tr>
-      <tr><td><strong>Previous / Next buttons</strong></td><td>Click the arrows to go to the previous or next page of your drawings.</td></tr>
-      <tr><td><strong>Zoom + / Zoom -</strong></td><td>Click the plus or minus buttons to zoom in or out on the floor plan.</td></tr>
-      <tr><td><strong>Close button (X)</strong></td><td>Click X or press Escape to close the viewer and go back to Stage 8.</td></tr>
+      <tr><td><strong>Page info</strong></td><td>Shows "Page 3 of 24."</td></tr>
+      <tr><td><strong>Previous / Next arrows</strong></td><td>Navigate between floor plan pages.</td></tr>
+      <tr><td><strong>Zoom + / Zoom -</strong></td><td>Zoom in or out on the floor plan.</td></tr>
+      <tr><td><strong>Close (X)</strong></td><td>Close the viewer. You can also press Escape.</td></tr>
     </table>
 
-    <h4>3. The Sidebar (Right Side)</h4>
-    <p>The right sidebar (320 pixels wide) shows two things:</p>
+    <h4>3. Sidebar (Right Side)</h4>
     <ul>
-      <li><strong>Device List</strong> — A list of all devices found on the current page, grouped by zone. Click any device to highlight its marker on the map.</li>
-      <li><strong>Legend</strong> — A color key showing which color represents which device type. For example: red circle = camera, blue circle = WAP, amber circle = card reader.</li>
+      <li><strong>Device List</strong> — All devices found on the current page, grouped by zone.</li>
+      <li><strong>Color Legend</strong> — Which color represents which device type.</li>
     </ul>
 
     <h3>Color Legend</h3>
     <table>
-      <tr><th>Color</th><th>Device Type</th><th>Marker</th></tr>
-      <tr><td style="color:#dc2626;font-weight:bold;">Red</td><td>Camera</td><td>Circle with camera icon</td></tr>
-      <tr><td style="color:#4f46e5;font-weight:bold;">Indigo</td><td>Data Outlet</td><td>Circle with plug icon</td></tr>
-      <tr><td style="color:#d97706;font-weight:bold;">Amber</td><td>Card Reader / Access Control</td><td>Circle with lock icon</td></tr>
-      <tr><td style="color:#dc2626;font-weight:bold;">Red</td><td>Fire Alarm Device</td><td>Circle with fire icon</td></tr>
-      <tr><td style="color:#16a34a;font-weight:bold;">Green</td><td>Speaker / Audio</td><td>Circle with speaker icon</td></tr>
-      <tr><td style="color:#2563eb;font-weight:bold;">Blue</td><td>WAP (Wireless Access Point)</td><td>Circle with wifi icon</td></tr>
-      <tr><td style="color:#16a34a;font-weight:bold;">Green Square</td><td>IDF Closet</td><td>Square with network icon</td></tr>
+      <tr><th>Color</th><th>Device Type</th></tr>
+      <tr><td style="color:#dc2626;font-weight:bold;">Red</td><td>Camera</td></tr>
+      <tr><td style="color:#4f46e5;font-weight:bold;">Indigo</td><td>Data Outlet</td></tr>
+      <tr><td style="color:#d97706;font-weight:bold;">Amber</td><td>Card Reader / Access Control</td></tr>
+      <tr><td style="color:#16a34a;font-weight:bold;">Green</td><td>Speaker / Audio</td></tr>
+      <tr><td style="color:#2563eb;font-weight:bold;">Blue</td><td>WAP (Wireless Access Point)</td></tr>
+      <tr><td style="color:#dc2626;font-weight:bold;">Red (fire icon)</td><td>Fire Alarm Device</td></tr>
+      <tr><td style="color:#16a34a;font-weight:bold;">Green Square</td><td>IDF Closet</td></tr>
     </table>
 
     <h3>Clicking on Markers</h3>
-    <p>Click any colored marker on the map to open a <strong>popup window</strong> that shows:</p>
-    <ul>
-      <li>The zone or room name.</li>
-      <li>A breakdown of every device in that zone — device type, subtype, and quantity.</li>
-      <li>Which sheet(s) the devices were found on.</li>
-    </ul>
-    <p>Click anywhere else on the map to close the popup.</p>
+    <p>Click any colored marker on the map to open a <strong>popup window</strong> showing the zone name, device breakdown (type, subtype, quantity), and which sheet(s) the devices were found on. Click anywhere else to close the popup.</p>
 
     <h3>Keyboard Shortcuts in the Visual Symbol Map</h3>
     <table>
       <tr><th>Key</th><th>What It Does</th></tr>
-      <tr><td><code>Escape</code></td><td>Close the viewer and go back to Stage 8.</td></tr>
-      <tr><td><code>Left Arrow</code></td><td>Go to the previous page.</td></tr>
-      <tr><td><code>Right Arrow</code></td><td>Go to the next page.</td></tr>
-      <tr><td><code>+</code> (plus key)</td><td>Zoom in.</td></tr>
-      <tr><td><code>-</code> (minus key)</td><td>Zoom out.</td></tr>
+      <tr><td><code>Escape</code></td><td>Close the viewer.</td></tr>
+      <tr><td><code>Left Arrow</code></td><td>Previous page.</td></tr>
+      <tr><td><code>Right Arrow</code></td><td>Next page.</td></tr>
+      <tr><td><code>+</code> (plus)</td><td>Zoom in.</td></tr>
+      <tr><td><code>-</code> (minus)</td><td>Zoom out.</td></tr>
     </table>
 
-    <h3>Tips for Using the Visual Symbol Map</h3>
-    <div class="callout callout-tip"><strong>Workflow tip:</strong> The fastest way to verify counts is:
-      <ol style="margin-bottom:0">
-        <li>Open the Visual Symbol Map.</li>
-        <li>Page through your drawings using the arrow keys.</li>
-        <li>On each page, glance at the colored markers. Do they match what you see on the drawing?</li>
-        <li>Click any marker that looks wrong to see the details.</li>
-        <li>If something is off, note the sheet number and room, then fix it in the BOM after you close the viewer.</li>
-      </ol>
-    </div>
+    <div class="callout callout-tip"><strong>Fastest verification workflow:</strong> Open the Visual Symbol Map, use arrow keys to page through your drawings, glance at the colored markers on each page to see if they match the actual symbols, click any marker that looks wrong to check details, then close the viewer and fix the BOM if needed.</div>
 
-    <div class="callout callout-warn"><strong>Note about marker placement:</strong> The AI estimates device locations based on zone coordinates from the SPATIAL_LAYOUT brain. Markers may not be perfectly centered on the exact device symbol — they represent the general zone where devices were found. Use them as a guide, not as pixel-perfect positions.</div>
+    <div class="callout callout-warn"><strong>Note about marker accuracy:</strong> Markers represent the general zone where devices were found, not pixel-perfect positions on the drawing. Use them as a guide for verification, not as exact coordinates.</div>
 
     <!-- ============================================================ -->
-    <!-- CABLE PATHWAY ANALYSIS (NEW) -->
+    <!-- CABLE PATHWAY ANALYSIS -->
     <!-- ============================================================ -->
-    <h2 id="cable-pathway">Cable Pathway Analysis <span class="badge-new">NEW</span></h2>
+    <h2 id="cable-pathway">Cable Pathway Analysis</h2>
 
     <h3>What Is This?</h3>
-    <p>The Cable Pathway Analysis card shows you how the AI calculated cable distances. Instead of just giving you a total number of feet, it breaks it down by <strong>zone</strong> — showing how far the cable has to run from the IDF closet (network closet) to each zone on each floor.</p>
+    <p>The Cable Pathway Analysis card shows how the AI calculated cable distances — broken down by zone, showing the distance from each IDF closet to each device zone on each floor.</p>
 
     <h3>Where to Find It</h3>
-    <ol class="step-list">
-      <li>Go to <strong>Stage 8 — Results &amp; RFIs</strong>.</li>
-      <li>Look for the collapsible card called <strong>"Cable Pathway Analysis."</strong></li>
-      <li>Click to expand it.</li>
-    </ol>
+    <p>Stage 8 — look for the collapsible card called "Cable Pathway Analysis." Click to expand.</p>
 
     <h3>What the Table Shows</h3>
     <table>
       <tr><th>Column</th><th>What It Means</th></tr>
-      <tr><td><strong>Zone</strong></td><td>The name of the area or room group. For example: "North Wing" or "Lobby Area."</td></tr>
+      <tr><td><strong>Zone</strong></td><td>The area or room group name.</td></tr>
       <tr><td><strong>Floor</strong></td><td>Which floor this zone is on.</td></tr>
-      <tr><td><strong>Device Count</strong></td><td>How many devices are in this zone that need cables.</td></tr>
-      <tr><td><strong>Avg Run Length</strong></td><td>The average distance (in feet) from the IDF closet to devices in this zone.</td></tr>
-      <tr><td><strong>Total Cable</strong></td><td>Total feet of cable needed for this zone (device count x average run x slack factor).</td></tr>
+      <tr><td><strong>Device Count</strong></td><td>How many devices in this zone need cables.</td></tr>
+      <tr><td><strong>Avg Run Length</strong></td><td>Average distance (feet) from the IDF closet to devices in this zone.</td></tr>
+      <tr><td><strong>Total Cable</strong></td><td>Total cable feet = device count x avg run x slack factor.</td></tr>
     </table>
 
-    <h3>How the AI Calculates Cable Distance</h3>
-    <p>The AI uses the SPATIAL_LAYOUT brain to find zone locations and IDF closet locations on the floor plan. Then it calculates the distance between them. It adds a <strong>slack and termination factor</strong> (typically 15 feet per cable run) to account for cable going up walls, across ceilings, and the extra length needed for connecting to patch panels and devices.</p>
+    <h3>How Cable Distance Is Calculated</h3>
+    <p>The SPATIAL_LAYOUT brain (Wave 0) finds zone locations and IDF locations on the floor plan. The CABLE_PATHWAY brain (Wave 1) calculates the distance between them using Manhattan distance (horizontal + vertical, since cables cannot fly diagonally through air). A slack and termination factor (typically 15 feet per run) is added for cable going up walls, across ceilings, and the extra length needed at both ends for termination.</p>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> If the average run length looks too short or too long for a zone, it might mean the AI placed the IDF in the wrong location, or it misjudged the building dimensions. You can adjust cable quantities in the BOM if needed.</div>
+    <div class="callout callout-tip"><strong>Sanity check:</strong> If the average run length for a zone looks too short (under 50 ft) or too long (over 400 ft), the AI may have misjudged the IDF location or building dimensions. Check the Scale Calibration card to verify the drawing scale is correct.</div>
+
+    <!-- ============================================================ -->
+    <!-- SCALE CALIBRATION -->
+    <!-- ============================================================ -->
+    <h2 id="scale-calibration">Scale Calibration &amp; Cable Measurement</h2>
+
+    <h3>What Is This?</h3>
+    <p>The Scale Calibration card shows how the AI determined the drawing scale for each sheet. Drawing scale is critical because it is how the AI converts pixels on the PDF into real-world feet. If the scale is wrong, every cable distance calculation will be wrong.</p>
+
+    <h3>Where to Find It</h3>
+    <p>Stage 8 — look for the collapsible card with a ruler icon called "Scale Calibration &amp; Cable Measurement."</p>
+
+    <h3>What It Shows</h3>
+    <ul>
+      <li><strong>Detected scale per sheet</strong> — For example, Sheet E2.1 might be detected as 1/8" = 1'-0" while Sheet E2.1A (a detail) might be 1/4" = 1'-0".</li>
+      <li><strong>Confidence level</strong> — How sure the AI is about the detected scale.</li>
+      <li><strong>Building dimension cross-check</strong> — If you provided building heights in Stage 1, the AI checks whether the detected scale produces reasonable building dimensions.</li>
+    </ul>
+
+    <h3>Manual Scale Override</h3>
+    <p>If the AI detected the wrong scale for a sheet, you can manually override it. This is important because a wrong scale means wrong cable distances. For example, if the AI thinks a drawing is 1/16" = 1'-0" but it is really 1/8" = 1'-0", all cable distances for that sheet will be doubled.</p>
+
+    <!-- ============================================================ -->
+    <!-- 3D FORMULA ENGINE -->
+    <!-- ============================================================ -->
+    <h2 id="engine3d">3D Formula Engine Breakdown</h2>
+
+    <h3>What Is This?</h3>
+    <p>The 3D Formula Engine card shows you the <strong>exact mathematical formula and arithmetic</strong> behind every dollar in your bid. Instead of just seeing a grand total, you can see exactly how each number was calculated — which quantities were multiplied by which prices, which markups were applied, and how the final number was reached.</p>
+
+    <h3>Where to Find It</h3>
+    <p>Stage 8 — look for the collapsible card with a calculator icon called "3D Formula Engine Breakdown." It has an indigo (purple-blue) left border.</p>
+
+    <h3>What It Shows</h3>
+    <ul>
+      <li><strong>Line-by-line material cost breakdown</strong> — Each BOM category with raw cost, markup, and sell price.</li>
+      <li><strong>Labor cost breakdown</strong> — Hours x rate x burden x markup for each labor classification.</li>
+      <li><strong>Equipment and subcontractor breakdowns</strong> — With their respective markups.</li>
+      <li><strong>Travel and incidentals</strong> — Pulled from your Stage 7 inputs.</li>
+      <li><strong>Contingency calculation</strong> — By confidence level if you used Bid Strategy.</li>
+      <li><strong>Grand total formula</strong> — The final sum of everything above.</li>
+    </ul>
+
+    <div class="callout callout-tip"><strong>When to use this:</strong> Open the 3D Formula Engine when you need to explain to a client, boss, or colleague exactly where a number came from. It is also useful for finding errors — if the grand total seems too high or too low, the line-by-line breakdown will show you which category is driving it.</div>
 
     <!-- ============================================================ -->
     <!-- POTENTIAL CHANGE ORDERS -->
@@ -1030,66 +1326,65 @@
     <h2 id="change-orders">Potential Change Orders</h2>
 
     <h3>What Is This?</h3>
-    <p>A change order is extra work that was not in the original plan. For example, if the owner decides to add 10 more cameras after the project starts, that is a change order. The AI looks at your drawings and specs and finds things that might turn into change orders later.</p>
+    <p>A change order is extra work that was not in the original plan. The AI scans your drawings and specs for things that might turn into change orders after the project starts — scope gaps, ambiguities, conflicting information, and missing details.</p>
 
     <h3>Where to Find It</h3>
-    <ol class="step-list">
-      <li>Go to <strong>Stage 8 — Results &amp; RFIs</strong>.</li>
-      <li>Look for the collapsible card called <strong>"Potential Change Orders."</strong> Click to expand it.</li>
-    </ol>
+    <p>Stage 8 — collapsible card called "Potential Change Orders." Click to expand.</p>
 
     <h3>What the Table Shows</h3>
     <table>
       <tr><th>Column</th><th>What It Means</th></tr>
       <tr><td><strong>CO #</strong></td><td>A number for each potential change order (CO-1, CO-2, etc.).</td></tr>
       <tr><td><strong>Description</strong></td><td>What the change order is about.</td></tr>
-      <tr><td><strong>Severity</strong></td><td>A colored badge:
-        <ul>
-          <li><strong style="color:#dc2626;">Critical</strong> — Very serious. Could cost a lot. Deal with this right away.</li>
-          <li><strong style="color:#f59e0b;">High</strong> — Important. Could affect your bid significantly.</li>
-          <li><strong style="color:#3b82f6;">Medium</strong> — Worth knowing about.</li>
-          <li><strong style="color:#6b7280;">Low</strong> — Minor. Probably will not be a big deal.</li>
-        </ul>
-      </td></tr>
-      <tr><td><strong>Estimated Impact $</strong></td><td>The AI's guess at how much this would cost if it happens.</td></tr>
-      <tr><td><strong>Source Brain</strong></td><td>Which AI brain found this issue.</td></tr>
-      <tr><td><strong>Checkbox</strong></td><td>Check to include in your notes. Uncheck to ignore.</td></tr>
+      <tr><td><strong>Severity</strong></td><td><strong style="color:#dc2626;">Critical</strong> (deal with immediately), <strong style="color:#f59e0b;">High</strong> (significant impact), <strong style="color:#3b82f6;">Medium</strong> (worth knowing), <strong style="color:#6b7280;">Low</strong> (minor).</td></tr>
+      <tr><td><strong>Estimated Impact $</strong></td><td>The AI's estimate of how much this would cost if it happens.</td></tr>
+      <tr><td><strong>Source Brain</strong></td><td>Which AI brain identified this issue.</td></tr>
+      <tr><td><strong>Checkbox</strong></td><td>Check to include in your tracking. Uncheck to exclude.</td></tr>
     </table>
 
     <h3>How to Use It</h3>
     <ol class="step-list">
       <li>Open the card and read through each item.</li>
-      <li>Check the boxes next to the ones you want to track.</li>
-      <li>Look at the <strong>Total Estimated CO Value</strong> at the bottom.</li>
+      <li>For Critical and High items, either write an RFI to get answers, or add the estimated cost to your contingency.</li>
+      <li>The <strong>Total Estimated CO Value</strong> at the bottom shows the sum of all checked items.</li>
       <li>Click <strong>"Copy to Clipboard"</strong> to paste the list into an email.</li>
-      <li>Click <strong>"Export PDF"</strong> to download a formatted PDF with all change orders.</li>
+      <li>Click <strong>"Export PDF"</strong> to download a formatted PDF.</li>
     </ol>
-
-    <div class="callout callout-tip"><strong>Tip:</strong> For "Critical" and "High" items, add extra money to your contingency or write an RFI to get answers before you bid.</div>
 
     <!-- ============================================================ -->
     <!-- EXPORTING YOUR WORK -->
     <!-- ============================================================ -->
     <h2 id="exports">Exporting Your Work</h2>
 
-    <p>After your estimate is ready in Stage 8, you can download your work in many different formats.</p>
+    <p>After your estimate is ready in Stage 8, you can download your work in many different formats. The export buttons are grouped together in an export panel.</p>
 
     <table>
-      <tr><th>Button</th><th>What It Does</th></tr>
-      <tr><td><strong>Export All (ZIP)</strong></td><td>Downloads the BOM Excel file, a Markdown summary, and a JSON file — all bundled together in one ZIP file.</td></tr>
-      <tr><td><strong>JSON (PM App Import)</strong></td><td>A data file that other project management apps can read. Use this to import your estimate into SmartPM or other software.</td></tr>
-      <tr><td><strong>Excel Spreadsheet</strong></td><td>A multi-sheet spreadsheet with every item, quantity, price, labor, and summary. The "BID PRICE" at the bottom is your total.</td></tr>
-      <tr><td><strong>Markdown Proposal</strong></td><td>A text version of your proposal. Good for pasting into emails.</td></tr>
-      <tr><td><strong>Download BOM</strong></td><td>Downloads just the Bill of Materials as a spreadsheet.</td></tr>
-      <tr><td><strong>Supplier BOM</strong></td><td>A BLANK spreadsheet to send to vendors. No pricing — they fill in their own prices and send it back.</td></tr>
-      <tr><td><strong>Supplier CSV</strong></td><td>Same as Supplier BOM but in lightweight CSV format for emailing.</td></tr>
-      <tr><td><strong>Generate Proposal</strong></td><td>Creates a professional Word document (.docx) with cover page, scope of work, pricing, and exclusions.</td></tr>
-      <tr><td><strong>Executive Proposal</strong></td><td>A shorter version of the proposal for people who do not want a long document.</td></tr>
-      <tr><td><strong>Submittal Package</strong></td><td>Product data package with specs and certifications. Send to the GC to get products approved.</td></tr>
-      <tr><td><strong>Export to SmartPM</strong></td><td>A file you import into SmartPM to manage the project after you win it.</td></tr>
+      <tr><th>Button</th><th>What It Creates</th><th>When to Use</th></tr>
+      <tr><td><strong>Export All (ZIP)</strong></td><td>A ZIP file containing the BOM Excel, Markdown summary, and JSON data file.</td><td>When you want everything in one download.</td></tr>
+      <tr><td><strong>Master Report PDF</strong></td><td>A comprehensive PDF with the full analysis, BOM, pricing, exclusions, and RFIs.</td><td>For printing or emailing the complete estimate.</td></tr>
+      <tr><td><strong>JSON (PM App Import)</strong></td><td>A data file that other project management apps can read.</td><td>For importing into SmartPM or similar software.</td></tr>
+      <tr><td><strong>Excel Spreadsheet</strong></td><td>A multi-sheet Excel workbook with every item, quantity, price, labor, and summary.</td><td>When you need to edit in Excel or share with accounting.</td></tr>
+      <tr><td><strong>Markdown Proposal</strong></td><td>A text-format version of your proposal.</td><td>For pasting into emails or documents.</td></tr>
+      <tr><td><strong>Download BOM</strong></td><td>Just the Bill of Materials as a spreadsheet.</td><td>When you only need the item list.</td></tr>
+      <tr><td><strong>Supplier BOM</strong></td><td>A BLANK BOM spreadsheet (items and quantities, but NO prices).</td><td>For sending to vendors so they can fill in their own prices.</td></tr>
+      <tr><td><strong>Supplier CSV</strong></td><td>Same as Supplier BOM but in CSV format.</td><td>For email-friendly lightweight file.</td></tr>
     </table>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> The "Supplier BOM" is great for getting real prices from vendors. It shows item names and quantities but no prices, so vendors only see what you need.</div>
+    <!-- ============================================================ -->
+    <!-- PROPOSAL GENERATOR -->
+    <!-- ============================================================ -->
+    <h2 id="proposal-generator">Proposal Generator</h2>
+
+    <h3>What Is This?</h3>
+    <p>The Proposal Generator creates professional-looking documents you can send to the general contractor or client. These are formatted Word documents (.docx) with your company branding, scope of work, pricing, and exclusions.</p>
+
+    <table>
+      <tr><th>Option</th><th>What It Creates</th><th>When to Use</th></tr>
+      <tr><td><strong>Generate Proposal</strong></td><td>A full-length proposal with cover page, company info, scope of work, detailed pricing breakdown, exclusions, assumptions, and signature lines.</td><td>Formal bid submissions to GCs and owners.</td></tr>
+      <tr><td><strong>Executive Proposal</strong></td><td>A shorter, summary-level proposal for decision-makers who do not want all the details.</td><td>When the client wants a 1-2 page overview, not a 15-page document.</td></tr>
+      <tr><td><strong>Submittal Package</strong></td><td>Product data sheets and specification compliance documents for each major product in your BOM.</td><td>After contract award, when the GC asks you to submit product data for approval.</td></tr>
+      <tr><td><strong>Export to SmartPM</strong></td><td>A data file formatted for SmartPM project management software.</td><td>After you win the bid and need to set up the project for execution tracking.</td></tr>
+    </table>
 
     <!-- ============================================================ -->
     <!-- SUPPLIER PRICING WORKFLOW -->
@@ -1097,18 +1392,20 @@
     <h2 id="supplier-workflow">Supplier Pricing Workflow</h2>
 
     <h3>What Is This?</h3>
-    <p>This is how you get real prices from your vendors and put them into your estimate. The AI gives you estimated prices, but your suppliers know the actual prices.</p>
+    <p>This is the process of getting real prices from your vendors and importing them into your estimate. The AI gives you estimated prices, but your suppliers know the actual current market prices.</p>
 
     <h3>How to Do It (Step by Step)</h3>
     <ol class="step-list">
-      <li>In Stage 8, click <strong>"Supplier BOM"</strong> to download a blank spreadsheet with item names and quantities, but no prices.</li>
-      <li><strong>Email that spreadsheet</strong> to your suppliers. Ask them to fill in their prices and send it back.</li>
-      <li>When they send back their pricing (as a PDF, Excel, or CSV file), click <strong>"Import Supplier Pricing"</strong> on the Stage 8 results page.</li>
-      <li>SmartPlans reads their prices and <strong>updates your estimate</strong> with the real numbers. You will see which items were matched and which were not.</li>
-      <li>Click <strong>"Generate Proposal"</strong> again to create a new proposal with the real pricing.</li>
+      <li>In Stage 8, click <strong>"Supplier BOM"</strong> or <strong>"Supplier CSV"</strong> to download a blank spreadsheet. It has all the item names and quantities but NO prices — the price columns are empty.</li>
+      <li><strong>Email that spreadsheet to your suppliers.</strong> Say something like: "Please fill in your best pricing for the attached BOM and return it by [date]."</li>
+      <li>When the supplier sends back their pricing (as a PDF, Excel, or CSV file), look for the <strong>"Import Supplier Pricing"</strong> button on the Stage 8 results page.</li>
+      <li>Click the button and select the supplier's file. SmartPlans reads their prices and <strong>automatically matches</strong> them to items in your BOM.</li>
+      <li>You will see a summary showing which items were matched (green) and which were not matched (red). Unmatched items keep the AI's estimated price.</li>
+      <li>The BOM updates with the real supplier prices. Grand totals recalculate automatically.</li>
+      <li>Click <strong>"Generate Proposal"</strong> again to create a new proposal with the real supplier pricing.</li>
     </ol>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> Always get real vendor pricing for expensive items like servers, cameras, and control panels. The AI prices are estimates — your vendor knows the real cost.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> Always get real vendor pricing for expensive items like NVR servers ($5,000-$20,000+), fire alarm control panels ($3,000-$15,000+), and access control head-end equipment. The AI estimates are good, but a real vendor quote can save (or cost) you thousands.</div>
 
     <!-- ============================================================ -->
     <!-- RATE LIBRARY -->
@@ -1116,23 +1413,24 @@
     <h2 id="rate-library">Rate Library</h2>
 
     <h3>What Is This?</h3>
-    <p>The Rate Library is like a notebook where SmartPlans saves the prices from your past projects. Later, on a new project, you can use those saved prices instead of the AI's estimates. The more projects you do, the better your saved prices get.</p>
+    <p>The Rate Library saves prices from your past projects. On future projects, you can apply those saved prices instead of the AI's estimates. The more projects you do, the better your saved prices get — because they are based on what things really cost in the real world.</p>
 
     <h3>How to Save Rates</h3>
     <ol class="step-list">
-      <li>After you finish an estimate in Stage 8, look for the <strong>"Save Rates from This Estimate"</strong> button.</li>
+      <li>After you finish and verify an estimate in Stage 8, look for the <strong>"Save Rates from This Estimate"</strong> button.</li>
       <li>Click it. All the current prices from this project get saved to your library.</li>
     </ol>
 
-    <h3>How to Use Saved Rates on a New Project</h3>
+    <h3>How to Apply Saved Rates to a New Project</h3>
     <ol class="step-list">
       <li>Start a new project and go through Stages 1-8 as normal.</li>
-      <li>In Stage 8, look for the <strong>"Apply to Estimate"</strong> button in the Rate Library section.</li>
-      <li>Click it. SmartPlans replaces the AI prices with your saved prices wherever it finds a match.</li>
-      <li>You can also search your saved rates, delete old ones, or update them anytime.</li>
+      <li>In Stage 8, find the Rate Library section.</li>
+      <li>Click <strong>"Apply to Estimate."</strong> SmartPlans replaces the AI prices with your saved prices wherever it finds a matching item name.</li>
+      <li>Items that match are updated. Items with no match keep the AI's price.</li>
+      <li>You can also search, delete old rates, or update individual rates.</li>
     </ol>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> After 10 to 15 projects, your Rate Library becomes your best tool for winning bids because you are using real prices instead of estimates.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> After 10 to 15 projects, your Rate Library becomes your most powerful competitive advantage. Real-world pricing data beats AI estimates every time.</div>
 
     <!-- ============================================================ -->
     <!-- ACTUALS & BENCHMARKS -->
@@ -1140,59 +1438,67 @@
     <h2 id="actuals">Actuals &amp; Benchmarks</h2>
 
     <h3>What Is This?</h3>
-    <p>After a project is completely done and all the bills are paid, you can go back and tell SmartPlans what you actually spent. Then, on future projects, SmartPlans can tell you things like "Based on 3 past projects, this item usually costs about $X."</p>
+    <p>After a project is completely done and all the bills are paid, you can go back and tell SmartPlans what you actually spent. SmartPlans compares your original estimate to the actual costs and tracks the variance. Over time, this builds a benchmark database that makes future estimates more accurate.</p>
 
     <h3>How to Record Your Actual Costs</h3>
     <ol class="step-list">
-      <li>Go to your <strong>Saved Estimates</strong> (click "Saved" in the header bar).</li>
-      <li>Find the project that is finished.</li>
-      <li>Click <strong>"Record Actuals."</strong></li>
+      <li>Click <strong>"Saved"</strong> in the header bar to open your saved estimates.</li>
+      <li>Find the completed project.</li>
+      <li>Click <strong>"Actuals"</strong> (or "Record Actuals").</li>
       <li>For each category, type what you <strong>actually spent</strong> on materials and labor.</li>
-      <li>SmartPlans compares your original estimate to the real numbers and shows you the difference.</li>
+      <li>SmartPlans shows a comparison: estimated vs. actual, with the dollar and percentage variance for each category.</li>
     </ol>
 
-    <h3>How Benchmarks Help You</h3>
-    <p>The more projects you record, the better the benchmarks get. On future estimates, SmartPlans shows messages like "Based on 3 past projects, this item averages $X." Use these to spot-check the AI's numbers.</p>
+    <h3>How Benchmarks Help</h3>
+    <p>After recording actuals on several projects, SmartPlans builds benchmark averages. On future estimates, you will see messages like "Based on 5 past projects, this category averages $X per unit." Use these to validate the AI's numbers.</p>
 
-    <div class="callout callout-warn"><strong>Important:</strong> This only works if you go back and enter the real numbers after every project. Make it a habit!</div>
+    <div class="callout callout-warn"><strong>Make it a habit!</strong> Recording actuals only works if you do it consistently after every project. Even a rough estimate of actual costs is better than nothing.</div>
 
     <!-- ============================================================ -->
     <!-- PRICING CONFIGURATION -->
     <!-- ============================================================ -->
-    <h2 id="pricing-config">Pricing Configuration</h2>
+    <h2 id="pricing-config">Pricing Configuration Reference</h2>
 
-    <h3>What Is This?</h3>
-    <p>These are the settings that control how SmartPlans calculates your bid price. They live in the "Pricing &amp; Rate Configuration" section on Stage 1.</p>
+    <p>Quick reference for all pricing settings that live in Stage 1's "Pricing &amp; Rate Configuration" section:</p>
 
     <table>
-      <tr><th>Setting</th><th>What It Means</th><th>Default</th></tr>
-      <tr><td><strong>Material Markup %</strong></td><td>Extra you charge on top of material costs.</td><td>50%</td></tr>
-      <tr><td><strong>Labor Markup %</strong></td><td>Extra you charge on top of labor costs.</td><td>50%</td></tr>
-      <tr><td><strong>Equipment Markup %</strong></td><td>Extra you charge on rental equipment.</td><td>15%</td></tr>
-      <tr><td><strong>Subcontractor Markup %</strong></td><td>Extra you charge on subcontractor work.</td><td>10%</td></tr>
-      <tr><td><strong>Burden Rate %</strong></td><td>Extra cost of workers (taxes, insurance, benefits).</td><td>35%</td></tr>
+      <tr><th>Setting</th><th>What It Means</th><th>Default</th><th>Where It's Used</th></tr>
+      <tr><td><strong>Material Markup %</strong></td><td>Percentage added on top of raw material cost.</td><td>50%</td><td>Applied to every material line in the BOM.</td></tr>
+      <tr><td><strong>Labor Markup %</strong></td><td>Percentage added on top of loaded labor cost.</td><td>50%</td><td>Applied to total labor after burden.</td></tr>
+      <tr><td><strong>Equipment Markup %</strong></td><td>Percentage added on rental equipment.</td><td>15%</td><td>Applied to tool and equipment rentals.</td></tr>
+      <tr><td><strong>Subcontractor Markup %</strong></td><td>Percentage added on subcontractor work.</td><td>10%</td><td>Applied to all sub costs.</td></tr>
+      <tr><td><strong>Burden Rate %</strong></td><td>Employer-side labor costs (taxes, insurance, benefits).</td><td>35%</td><td>Multiplied into loaded labor rate.</td></tr>
+      <tr><td><strong>Regional Multiplier</strong></td><td>Area-based price adjustment.</td><td>1.00 (national avg)</td><td>Multiplied against all material prices.</td></tr>
+      <tr><td><strong>Pricing Tier</strong></td><td>Product quality level.</td><td>Mid-Range</td><td>Determines which price database the AI uses.</td></tr>
     </table>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> Most low-voltage contractors use 40-60% markup on materials and labor. If you want to win more bids, try 40-45%. If you are the only company bidding, 55-60% is reasonable.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> Most low-voltage contractors use 40-60% markup on materials and labor. If you want to win more bids, try 40-45%. If you are the only company bidding (sole source), 55-60% is reasonable. If the project is transit/railroad, markups should be higher (60-80%) due to the extra risk and mandatory costs.</div>
 
     <!-- ============================================================ -->
     <!-- SAVED ESTIMATES -->
     <!-- ============================================================ -->
-    <h2 id="saved">Saved Estimates</h2>
+    <h2 id="saved">Saved Estimates Panel</h2>
 
     <h3>What Is This?</h3>
-    <p>Every estimate you create is saved automatically. You can go back to any estimate at any time, even months later.</p>
+    <p>Every estimate you create is saved automatically to the cloud. You can access them from any computer by logging in. The Saved Estimates panel lets you manage all your past work.</p>
 
-    <h3>How to Find and Open Your Saved Estimates</h3>
+    <h3>How to Open It</h3>
     <ol class="step-list">
-      <li>Click <strong>"Saved"</strong> in the header bar at the top of the page.</li>
-      <li>You will see a list of all your past estimates with their names and dates.</li>
-      <li>Click <strong>"Load"</strong> to open an old estimate and see all its details.</li>
-      <li>Click <strong>"Delete"</strong> to remove one you do not need anymore.</li>
-      <li>Click <strong>"Record Actuals"</strong> on finished projects to enter what you really spent.</li>
+      <li>Click the <strong>"Saved"</strong> button in the header bar at the top of the page.</li>
+      <li>A panel slides out from the right side of the screen showing all your saved estimates.</li>
+      <li>Each estimate shows its project name, date, and total value.</li>
     </ol>
 
-    <div class="callout callout-info"><strong>Good to know:</strong> Your estimates are saved in the cloud. You can get to them from any computer.</div>
+    <h3>Available Actions</h3>
+    <table>
+      <tr><th>Button</th><th>What It Does</th></tr>
+      <tr><td><strong>Load</strong></td><td>Opens the saved estimate with all its settings, files, AI results, and BOM edits. You can continue working on it.</td></tr>
+      <tr><td><strong>History</strong></td><td>Opens Version History for this estimate. See every revision that was saved.</td></tr>
+      <tr><td><strong>Actuals</strong></td><td>Opens the Actuals recording screen for completed projects.</td></tr>
+      <tr><td><strong>Delete</strong></td><td>Permanently removes this estimate. You will be asked to confirm before deletion.</td></tr>
+    </table>
+
+    <div class="callout callout-info"><strong>Good to know:</strong> Your estimates are saved in the cloud, linked to your account. You can access them from any computer by logging into SmartPlans.</div>
 
     <!-- ============================================================ -->
     <!-- VERSION HISTORY -->
@@ -1200,40 +1506,43 @@
     <h2 id="version-history">Version History</h2>
 
     <h3>What Is This?</h3>
-    <p>Every time you save your estimate, SmartPlans creates a new version — like a snapshot of your work. If you make changes and decide you liked the old version better, you can go back to it.</p>
+    <p>Every time you save your estimate, SmartPlans creates a new version — like a snapshot in time. If you make changes and decide you liked an earlier version better, you can go back to it.</p>
 
     <h3>How to Use It</h3>
     <ol class="step-list">
-      <li>In Stage 8, look for the <strong>Version History</strong> section.</li>
-      <li>You will see a list of all the times you saved, with dates and times.</li>
-      <li>Click on any two versions to <strong>compare them side by side</strong>. SmartPlans shows you what changed.</li>
-      <li>If you want to go back to an old version, click <strong>"Restore"</strong> next to it.</li>
+      <li>In Stage 8, find the <strong>Version History</strong> section (or click "History" from the Saved panel).</li>
+      <li>You will see a list of all saved versions with dates, times, and brief descriptions of what changed.</li>
+      <li>Click on any two versions to <strong>compare them side by side</strong>. SmartPlans highlights what changed — quantities, prices, added items, removed items.</li>
+      <li>If you want to go back to an old version, click <strong>"Restore"</strong> next to it. The old version becomes the current working estimate.</li>
     </ol>
 
-    <div class="callout callout-tip"><strong>Tip:</strong> Before you make big changes (like editing lots of quantities), save first. That way you can always go back.</div>
+    <div class="callout callout-tip"><strong>Tip:</strong> Before making big changes (like editing lots of BOM quantities or importing supplier pricing), save first. That way you have a clean version to fall back to if something goes wrong.</div>
 
     <!-- ============================================================ -->
     <!-- KEYBOARD SHORTCUTS & TIPS -->
     <!-- ============================================================ -->
     <h2 id="shortcuts">Keyboard Shortcuts &amp; Tips</h2>
 
-    <h3>Useful Shortcuts</h3>
+    <h3>Keyboard Shortcuts</h3>
     <table>
       <tr><th>Shortcut</th><th>Where</th><th>What It Does</th></tr>
-      <tr><td><code>Ctrl + Shift + R</code></td><td>Anywhere</td><td>Hard refresh. Fixes most display problems by reloading the page completely.</td></tr>
-      <tr><td><code>Escape</code></td><td>Visual Symbol Map</td><td>Close the map viewer.</td></tr>
-      <tr><td><code>Left Arrow</code></td><td>Visual Symbol Map</td><td>Go to the previous page.</td></tr>
-      <tr><td><code>Right Arrow</code></td><td>Visual Symbol Map</td><td>Go to the next page.</td></tr>
+      <tr><td><code>Ctrl + Shift + R</code></td><td>Anywhere</td><td>Hard refresh. Reloads the page completely, clearing any cached data. Fixes most display problems.</td></tr>
+      <tr><td><code>Escape</code></td><td>Anywhere</td><td>Closes any open modal, popup, or viewer (PDF Tool modal, Visual Symbol Map, etc.).</td></tr>
+      <tr><td><code>Left Arrow</code></td><td>Visual Symbol Map</td><td>Go to the previous floor plan page.</td></tr>
+      <tr><td><code>Right Arrow</code></td><td>Visual Symbol Map</td><td>Go to the next floor plan page.</td></tr>
       <tr><td><code>+</code></td><td>Visual Symbol Map</td><td>Zoom in on the floor plan.</td></tr>
       <tr><td><code>-</code></td><td>Visual Symbol Map</td><td>Zoom out on the floor plan.</td></tr>
     </table>
 
     <h3>Helpful Tips</h3>
     <ul>
-      <li><strong>The app works offline (partially).</strong> SmartPlans saves a copy of itself in your browser. If your internet goes out briefly, you can still view estimates. You need internet to run AI analysis.</li>
-      <li><strong>All documents have "3D CONFIDENTIAL" in the footer.</strong> This appears on proposals, BOM exports, and other generated documents.</li>
-      <li><strong>8 stages, one at a time.</strong> Go through each stage in order. You cannot jump ahead to Stage 8 without going through Stages 1-7 first.</li>
-      <li><strong>Unsaved changes warning.</strong> If you try to close the browser with work in progress, SmartPlans will warn you so you do not lose your work.</li>
+      <li><strong>The app works offline (partially).</strong> SmartPlans saves a copy of itself in your browser using a service worker. If your internet goes out briefly, you can still view previously loaded estimates. You need internet to run AI analysis, save, or load estimates.</li>
+      <li><strong>All documents have "3D CONFIDENTIAL" in the footer.</strong> This appears on proposals, BOM exports, and other generated documents to protect proprietary pricing.</li>
+      <li><strong>8 stages, one at a time.</strong> Go through each stage in order. You cannot jump ahead to Stage 8 without going through Stages 1-7 first. But you CAN go back to any completed stage at any time.</li>
+      <li><strong>Unsaved changes warning.</strong> If you try to close the browser with work in progress, SmartPlans will show a confirmation dialog so you do not lose your work accidentally.</li>
+      <li><strong>Use the PDF Page Extractor early.</strong> Before uploading files, trim your PDFs down to only the relevant pages. This saves time, money, and improves accuracy.</li>
+      <li><strong>Upload all legends.</strong> If your plan set has separate legends for electrical, security, fire alarm, and telecom, upload ALL of them to Stage 2. More context = better AI accuracy.</li>
+      <li><strong>Check your disciplines.</strong> Make sure you selected all relevant disciplines in Stage 1. If you are bidding fire alarm AND access control, both must be checked. Missing a discipline means the AI will not count those devices.</li>
     </ul>
 
     <!-- ============================================================ -->
@@ -1245,21 +1554,27 @@
 
     <table>
       <tr><th>Problem</th><th>What to Do</th></tr>
-      <tr><td><strong>"Analysis failed"</strong></td><td>Check your internet connection and try again. If it keeps failing, try uploading fewer pages at a time.</td></tr>
-      <tr><td><strong>"Save failed"</strong></td><td>The database might be temporarily down. Wait a minute and try again.</td></tr>
-      <tr><td><strong>Numbers do not match</strong></td><td>Press <code>Ctrl + Shift + R</code> to hard refresh, then re-export your documents.</td></tr>
-      <tr><td><strong>PDF will not upload</strong></td><td>Make sure your file is under 100MB. If bigger, split it into smaller files first.</td></tr>
-      <tr><td><strong>Supplier import did not match items</strong></td><td>The item names in the supplier's file need to be similar to the names in your BOM. Check the "unmatched items" list.</td></tr>
-      <tr><td><strong>Stage 7 is not showing up</strong></td><td>Stage 7 only appears after the AI analysis finishes in Stage 6. Make sure the analysis completed successfully.</td></tr>
-      <tr><td><strong>Travel costs are not in my total</strong></td><td>Make sure you checked the "Enable Travel &amp; Per Diem Costs" box in Stage 7.</td></tr>
-      <tr><td><strong>Change orders card is empty</strong></td><td>Not every project has potential change orders. If the AI found no scope gaps, the card may be empty — that is a good sign.</td></tr>
-      <tr><td><strong>Accuracy indicator is red</strong></td><td>Go back to earlier stages and upload the missing files. Floor plans are required. Symbol legend and specs are strongly recommended.</td></tr>
-      <tr><td><strong>Visual Symbol Map shows no markers</strong></td><td>The map requires the SPATIAL_LAYOUT brain (Wave 0) and SYMBOL_SCANNER brain (Wave 1) results. If the analysis was incomplete, markers may not appear. Re-run the analysis.</td></tr>
-      <tr><td><strong>Symbol Inventory shows 0 items</strong></td><td>The Symbol Inventory requires the SYMBOL_SCANNER brain to produce a device_inventory. If no devices were found, check that your floor plans have clear device symbols.</td></tr>
-      <tr><td><strong>Markers are in the wrong location</strong></td><td>Marker positions are estimates based on zone coordinates. They represent the general area, not exact pixel positions. Use them as a guide.</td></tr>
+      <tr><td><strong>"Analysis failed" error</strong></td><td>Check your internet connection and try again. If it keeps failing, try uploading fewer pages at a time using the PDF Page Extractor. If you see an API quota warning banner, wait a few minutes for rate limits to reset.</td></tr>
+      <tr><td><strong>"Save failed" error</strong></td><td>The database might be temporarily down. Wait a minute and try again. If it continues, check your internet connection.</td></tr>
+      <tr><td><strong>Numbers do not match expectations</strong></td><td>Press <code>Ctrl + Shift + R</code> to hard refresh. Check the Scale Calibration card to make sure drawing scale was detected correctly. Open the 3D Formula Engine to see the exact math behind each number.</td></tr>
+      <tr><td><strong>PDF will not upload</strong></td><td>Make sure your file is under 100MB. If bigger, use the PDF Page Extractor to split it into smaller files. Also check that the file is a valid PDF (not renamed from another format).</td></tr>
+      <tr><td><strong>Supplier import did not match items</strong></td><td>The item names in the supplier's file need to be similar to the names in your BOM. Check the "unmatched items" list. You may need to manually edit item names to improve matching.</td></tr>
+      <tr><td><strong>Stage 7 is not showing up</strong></td><td>Stage 7 only appears after the AI analysis finishes in Stage 6. Make sure the analysis completed successfully (check for the green checkmark on Step 5).</td></tr>
+      <tr><td><strong>Travel costs are not in my total</strong></td><td>Make sure you checked the "Enable Travel &amp; Per Diem Costs" checkbox in Stage 7. If it is unchecked, travel costs are $0.</td></tr>
+      <tr><td><strong>Change orders card is empty</strong></td><td>Not every project has potential change orders. If the AI found no scope gaps, the card may be empty — that is actually a good sign.</td></tr>
+      <tr><td><strong>Accuracy indicator is red</strong></td><td>Go back to earlier stages and upload the missing files. Floor plans are required. Symbol legend and specs are strongly recommended. The more input you provide, the higher the accuracy.</td></tr>
+      <tr><td><strong>Visual Symbol Map shows no markers</strong></td><td>The map requires results from the SPATIAL_LAYOUT brain (Wave 0) and SYMBOL_SCANNER brain (Wave 1). If those brains failed, markers will not appear. Re-run the analysis.</td></tr>
+      <tr><td><strong>Symbol Inventory shows 0 items</strong></td><td>The SYMBOL_SCANNER brain may not have found any device symbols. Check that your floor plans have clear, recognizable device symbols. Try uploading a symbol legend if you did not already.</td></tr>
+      <tr><td><strong>Markers are in the wrong location</strong></td><td>Marker positions are zone-level estimates, not exact pixel positions. They show the general area. Use them as a guide for count verification, not for precise location mapping.</td></tr>
+      <tr><td><strong>PDF Page Extractor shows an error</strong></td><td>Make sure your page numbers are valid (between 1 and the total page count). Use the format "1-10, 15, 20-25" with commas between items and dashes for ranges. Do not use letters or special characters.</td></tr>
+      <tr><td><strong>Prevailing wage rates look wrong</strong></td><td>Make sure you selected the correct county (California) or state/metro area (other states). Rates vary significantly by location. If rates still look wrong, manually enter the correct rates from the DIR or DOL wage determination.</td></tr>
+      <tr><td><strong>Transit/Railroad costs are too high</strong></td><td>Railroad costs ARE expensive — that is normal. RWIC flagmen alone can cost $30,000+. If the project is not actually on railroad property, uncheck the Transit/Railroad toggle in Stage 1.</td></tr>
+      <tr><td><strong>API Quota Warning banner appears</strong></td><td>The AI processing keys have hit rate limits. The banner shows how many keys are available. Wait for the countdown timer to expire, then click "Re-check." If critical (all keys exhausted), wait 1-2 minutes for quotas to reset.</td></tr>
+      <tr><td><strong>Page loads blank or looks broken</strong></td><td>Press <code>Ctrl + Shift + R</code> to hard refresh. If that does not work, clear your browser cache (Settings > Privacy > Clear Browsing Data) and reload.</td></tr>
+      <tr><td><strong>Cannot log in</strong></td><td>SmartPlans accounts are restricted to @3dtsi.com email addresses. Contact your administrator if you need access.</td></tr>
     </table>
 
-    <div class="callout callout-info"><strong>Still stuck?</strong> Contact 3D Technology Services support for help.</div>
+    <div class="callout callout-info"><strong>Still stuck?</strong> Contact 3D Technology Services support for help. Include your project name and a screenshot of the error message.</div>
 
     <!-- ============================================================ -->
     <!-- 3D CONFIDENTIAL -->
@@ -1271,7 +1586,7 @@
 
 <div class="footer">
   <div class="container">
-    <p>&copy; 2026 3D Technology Services Inc. &middot; www.3Dtsi.com &middot; SmartPlans v5.0</p>
+    <p>&copy; 2026 3D Technology Services Inc. &middot; www.3Dtsi.com &middot; SmartPlans v5.103.0</p>
   </div>
 </div>
 
