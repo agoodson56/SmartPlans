@@ -942,28 +942,57 @@ const SmartDefaults = {
   // CASCADE HANDLERS — called when key fields change
   // ══════════════════════════════════════════════════
 
+  // Debounce timer for project name input (prevents cascading on every keystroke)
+  _projectTypeTimer: null,
+
   // Called when projectType or projectName changes
-  onProjectTypeChanged() {
+  onProjectTypeChanged(debounce = false) {
+    // Debounce: wait 600ms after last keystroke before cascading from project name
+    if (debounce) {
+      clearTimeout(this._projectTypeTimer);
+      this._projectTypeTimer = setTimeout(() => {
+        if (this._doProjectTypeCascade()) {
+          // Re-render Step 0 to reflect cascaded changes (e.g., disciplines, PW)
+          const container = document.getElementById('step-container') || document.getElementById('app');
+          if (container) renderStep0(container);
+        }
+      }, 600);
+      return false;
+    }
+    return this._doProjectTypeCascade();
+  },
+
+  _doProjectTypeCascade() {
     const projType = (state.projectType || '').toLowerCase();
     const projName = (state.projectName || '').toLowerCase();
     const combined = `${projType} ${projName}`;
 
-    // Find matching project type defaults
+    // Find matching project type defaults using WORD BOUNDARY regex (not substring includes)
+    // FIX: 'va' in "Savannah", "Nevada", "Avanti" was false-positive with includes()
     let matched = null;
-    for (const [key, defaults] of Object.entries(this._PROJECT_TYPE_DEFAULTS)) {
-      if (combined.includes(key)) {
-        matched = defaults;
+    const _KEYWORD_PATTERNS = [
+      { pattern: /\bva\b|veteran|vamc/i, key: 'va' },
+      { pattern: /\bhospital\b/i, key: 'hospital' },
+      { pattern: /\bclinic\b/i, key: 'clinic' },
+      { pattern: /\bmedical\b|healthcare/i, key: 'medical' },
+      { pattern: /\bgovernment\b|courthouse|city\s*hall|municipal/i, key: 'government' },
+      { pattern: /\bfederal\b|dod\b|army\b|navy\b|air\s*force/i, key: 'federal' },
+      { pattern: /\bcorrectional\b|prison\b|jail\b|detention\b/i, key: 'correctional' },
+      { pattern: /\bschool\b|k[\s-]?12\b/i, key: 'school' },
+      { pattern: /\buniversity\b|college\b|campus\b/i, key: 'university' },
+      { pattern: /\bdata\s*center\b/i, key: 'data center' },
+      { pattern: /\bwarehouse\b/i, key: 'warehouse' },
+      { pattern: /\bindustrial\b|manufacturing\b|factory\b/i, key: 'industrial' },
+      { pattern: /\btransit\b|metro\s*station|light\s*rail/i, key: 'transit' },
+      { pattern: /\brailroad\b|rail\s*station/i, key: 'railroad' },
+      { pattern: /\boffice\b/i, key: 'office' },
+      { pattern: /\bretail\b|store\b|shop\b/i, key: 'retail' },
+    ];
+    for (const { pattern, key } of _KEYWORD_PATTERNS) {
+      if (pattern.test(combined) && this._PROJECT_TYPE_DEFAULTS[key]) {
+        matched = this._PROJECT_TYPE_DEFAULTS[key];
         break;
       }
-    }
-    // Also check project name for specific keywords
-    if (!matched) {
-      if (/va\b|veteran|vamc/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['va'];
-      else if (/hospital/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['hospital'];
-      else if (/clinic/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['clinic'];
-      else if (/school|k[\s-]?12/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['school'];
-      else if (/courthouse|city\s*hall|municipal/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['government'];
-      else if (/prison|jail|detention/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['correctional'];
     }
 
     if (!matched) return;
@@ -3871,7 +3900,8 @@ function renderStep0(container) {
     state.projectName = nameInput.value;
     _autoDetectTransitFromProjectText();
     // Smart Defaults: project name often contains building type (e.g., "VA Clinic", "Hospital")
-    if (SmartDefaults.onProjectTypeChanged()) renderStep0(container);
+    // FIX: debounce=true prevents cascade on every keystroke (waits 600ms after last key)
+    SmartDefaults.onProjectTypeChanged(true);
     renderFooter();
   });
 
@@ -5484,7 +5514,11 @@ function computePathwayDistances() {
           cableTrayResults[0].lengthFt = calculatedTrayFt;
           cableTrayResults[0]._overridden = true;
           cableTrayResults[0].cost = Math.round(calculatedTrayFt * cableTrayResults[0].unitCost * 100) / 100;
-          trayTotalCost = cableTrayResults.reduce((s, t) => s + t.cost, 0);
+          const newTrayTotalCost = cableTrayResults.reduce((s, t) => s + t.cost, 0);
+          // FIX Issue 4: Update grandTotalCost to reflect the tray override
+          // (grandTotalCost already includes the OLD trayTotalCost — swap it)
+          grandTotalCost = grandTotalCost - trayTotalCost + newTrayTotalCost;
+          trayTotalCost = newTrayTotalCost;
         }
       }
     }
@@ -5680,6 +5714,16 @@ function injectCalculatedCableQuantities(bom) {
   const hasTrayData = (pathway.cableTrayResults || []).length > 0;
   if (!hasCalcData && !hasTrayData) return bom;
 
+  // ── BY_OTHERS TRAY DETECTION ──
+  // If the AI flagged cable tray as "by others" (furnished by electrical contractor),
+  // we must REMOVE existing tray BOM lines rather than updating them with calculated footage.
+  const byOthersTray = (pathway.byOthersPathways || []).some(p =>
+    /tray|basket|ladder|runway/i.test(p.type || '')
+  );
+  if (byOthersTray) {
+    console.log(`[CableInjection] Cable tray is BY OTHERS — will remove from BOM, not update`);
+  }
+
   // Walk BOM categories and update cable + tray line items
   // CRITICAL FIX: Two-tier matching prevents pathway items from being INJECTED into every discipline
   // - isPrimaryInfraCat: tight match → Structured Cabling + MDF/IDF only → gets INJECTION of missing items
@@ -5714,7 +5758,12 @@ function injectCalculatedCableQuantities(bom) {
 
       // Match cable tray / basket tray / ladder rack / cable runway line items
       // Use calculated tray footage (from building dimensions) when available; fall back to AI tray data
+      // FIX: If tray is "by others" (electrical contractor furnishes), REMOVE it from our BOM
       if ((/cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(name)) && /^(ft|lf|linear\s*f\w*|feet|foot)$/i.test(item.unit || '')) {
+        if (byOthersTray) {
+          console.log(`[CableInjection] REMOVING tray "${item.item || item.name}" — by others (electrical contractor)`);
+          return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true, _calculatedRun: true };
+        }
         const bestTrayFt = pathway.calculatedTrayFt || pathway.trayTotalFt || 0;
         if (bestTrayFt > 0) {
           const newCost = Math.round(bestTrayFt * (item.unitCost || 10.50) * 100) / 100;
@@ -5754,7 +5803,8 @@ function injectCalculatedCableQuantities(bom) {
       });
 
       // If cable tray was calculated but no matching BOM line existed, inject it
-      if (hasTrayData || pathway.calculatedTrayFt > 0) {
+      // FIX: Never inject tray when it's by_others (electrical contractor furnishes)
+      if (!byOthersTray && (hasTrayData || pathway.calculatedTrayFt > 0)) {
         const hasTrayInBOM = updatedItems.some(item =>
           /cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(item.name || item.item || '')
         );
@@ -5820,6 +5870,11 @@ function injectCalculatedCableQuantities(bom) {
       // Skip blank/ghost items (no description)
       if (!desc || desc.length < 2) {
         console.log(`[CableInjection] Removing ghost item: qty=${item.qty} unit=${item.unit} cost=${item.unitCost}`);
+        continue;
+      }
+      // Skip items marked as "by others" (zeroed out above — don't show $0 line in BOM)
+      if (item._byOthersRemoved) {
+        console.log(`[CableInjection] Removing by_others item from BOM: "${desc}"`);
         continue;
       }
       // Build dedup key: prefer part number, fall back to normalized description + unit cost
