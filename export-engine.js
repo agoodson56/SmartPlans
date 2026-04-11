@@ -1566,14 +1566,36 @@ const SmartPlansExport = {
                     if (loc.items && loc.items.length > 0) {
                         bom.categories.push({
                             name: loc.name || 'Infrastructure',
-                            items: loc.items.map(item => ({
-                                item: item.item_name,
-                                qty: item.budgeted_qty || 1,
-                                unit: item.unit || 'ea',
-                                unitCost: item.unit_cost || 0,
-                                extCost: item.budgeted_cost || 0,
-                                category: item.category || 'other',
-                            })),
+                            items: loc.items.map(item => {
+                                // Extract MFG and Part# from description (e.g., "Chatsworth 55053-703 7ft 45RU")
+                                const desc = item.item_name || '';
+                                let mfg = '', partNumber = '', cleanDesc = desc;
+                                // Known MFG prefixes in telecom/infrastructure
+                                const mfgPatterns = /^(Chatsworth|Panduit|APC|Corning|CommScope|Leviton|B-Line|Cablofil|Hubbell|Ortronics|Belden|Legrand|Allied|Eaton|Harger|STI|Hilti|Fluke|Brady)\b/i;
+                                const mfgMatch = desc.match(mfgPatterns);
+                                if (mfgMatch) {
+                                    mfg = mfgMatch[1];
+                                    const afterMfg = desc.substring(mfg.length).trim();
+                                    // Next token is likely the part number (alphanumeric with dashes)
+                                    const pnMatch = afterMfg.match(/^([\w][\w-]{2,}[\w])\s+(.+)/);
+                                    if (pnMatch) {
+                                        partNumber = pnMatch[1];
+                                        cleanDesc = pnMatch[2].trim();
+                                    } else {
+                                        cleanDesc = afterMfg;
+                                    }
+                                }
+                                return {
+                                    item: cleanDesc || desc,
+                                    name: cleanDesc || desc,
+                                    qty: item.budgeted_qty || 1,
+                                    unit: item.unit || 'ea',
+                                    unitCost: item.unit_cost || 0,
+                                    extCost: item.budgeted_cost || 0,
+                                    category: item.category || 'other',
+                                    mfg, partNumber,
+                                };
+                            }),
                             subtotal: loc.items.reduce((s, it) => s + (it.budgeted_cost || 0), 0),
                         });
                     }

@@ -5759,7 +5759,8 @@ function computePathwayDistances() {
   for (const [_key, _val] of Object.entries(_consensus)) {
     const _k = _key.toLowerCase();
     if (/^(data[_\s]?(outlet|drop|port)s?|voice[_\s]?(outlet|drop)s?|wap|wireless[_\s]?access[_\s]?point?s?|network[_\s]?(jack|drop)s?|cat6a?[_\s]?(drop|outlet)s?|ethernet[_\s]?(outlet|port|drop)s?|rj.?45[_\s]?(jack|drop|outlet)?s?|communication[_\s]?(outlet|drop)s?)$/i.test(_k)) {
-      const _count = typeof _val === 'object' ? (_val.consensus || _val.count || _val.total || 0) : (_val || 0);
+      let _count = typeof _val === 'object' ? (_val.consensus || _val.count || _val.total || 0) : (_val || 0);
+      if (typeof _count !== 'number' || isNaN(_count)) _count = 0;
       consensusCableDrops += _count;
       if (/^(wap|wireless[_\s]?access)/i.test(_k)) consensusWAPCount += _count;
     }
@@ -5768,8 +5769,16 @@ function computePathwayDistances() {
   // Extract outlet_breakdown from consensus (how many 1D, 2D, 4D, 6D outlet locations)
   // Used downstream for faceplate port sizing — 2D locations need 2-port faceplates, 4D need 4-port, etc.
   const _consensusObj = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR || {};
-  const outletBreakdown = _consensusObj.outlet_breakdown
+  // Normalize outlet_breakdown keys to uppercase (AI may return "1d" or "1D")
+  const _rawOB = _consensusObj.outlet_breakdown
     || state.brainResults?.wave1?.SYMBOL_SCANNER?.outlet_breakdown || null;
+  let outletBreakdown = null;
+  if (_rawOB && typeof _rawOB === 'object') {
+    outletBreakdown = {};
+    for (const [k, v] of Object.entries(_rawOB)) {
+      outletBreakdown[k.toUpperCase()] = typeof v === 'number' && !isNaN(v) ? v : (parseInt(v) || 0);
+    }
+  }
 
   return {
     results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD,
@@ -5835,6 +5844,7 @@ function _getCableRatePerFt(type, rating) {
 // Replaces AI-estimated cable line items with spatially-calculated quantities
 // ONLY when zone data is available and quantities have improved confidence.
 function injectCalculatedCableQuantities(bom) {
+  if (!state.brainResults) return bom; // Guard: analysis not complete yet
   const pathway = computePathwayDistances();
 
   // Normalize keys to match the simplified BOM lookup keys (cat6a, cat6, cat5e, etc.)
@@ -5865,7 +5875,8 @@ function injectCalculatedCableQuantities(bom) {
     // AUDIT FIX #5: Use precise regex to avoid false positives (power_outlet, transport, report, metadata)
     // Accept plurals (data_outlets) and more variations (communication_outlet, network_drop, rj45_jack, etc.)
     if (/^(data[_\s]?(outlet|drop|port)s?|voice[_\s]?(outlet|drop)s?|wap|wireless[_\s]?access[_\s]?point?s?|network[_\s]?(jack|drop)s?|cat6a?[_\s]?(drop|outlet)s?|ethernet[_\s]?(outlet|port|drop)s?|rj.?45[_\s]?(jack|drop|outlet)?s?|communication[_\s]?(outlet|drop)s?)$/i.test(k)) {
-      const count = typeof val === 'object' ? (val.consensus || val.count || val.total || 0) : (val || 0);
+      let count = typeof val === 'object' ? (val.consensus || val.count || val.total || 0) : (val || 0);
+      if (typeof count !== 'number' || isNaN(count)) count = 0;
       consensusCableDrops += count;
       // Track WAPs separately — they need jacks + cable but NOT faceplates or outlet patch cords
       if (/^(wap|wireless[_\s]?access)/i.test(k)) {
@@ -5970,9 +5981,29 @@ function injectCalculatedCableQuantities(bom) {
   // ── BY_OTHERS TRAY DETECTION ──
   // If the AI flagged cable tray as "by others" (furnished by electrical contractor),
   // we must REMOVE existing tray BOM lines rather than updating them with calculated footage.
-  const byOthersTray = (pathway.byOthersPathways || []).some(p =>
+  let byOthersTray = (pathway.byOthersPathways || []).some(p =>
     /tray|basket|ladder|runway/i.test(p.type || '')
   );
+  // FALLBACK: Also check exclusions list — if user/auto-exclusions say cable tray is by EC, honor it
+  if (!byOthersTray && Array.isArray(state.exclusions)) {
+    byOthersTray = state.exclusions.some(ex =>
+      /cable\s*tray|basket\s*tray|cable\s*runway/i.test(ex.text || '') &&
+      /by\s*others|electrical\s*contractor|EC\s*(furnish|install)|responsibility\s*matrix/i.test(ex.text || ex.category || '')
+    );
+    if (byOthersTray) console.log(`[CableInjection] Cable tray is BY OTHERS — detected from exclusions list`);
+  }
+  // FALLBACK 2: Check SCOPE_EXCLUSION_SCANNER and ANNOTATION_READER for by_others notes on tray/conduit
+  if (!byOthersTray) {
+    const scopeExclusions = state.brainResults?.wave1?.SCOPE_EXCLUSION_SCANNER?.exclusions || [];
+    const respMatrix = state.brainResults?.wave1?.SCOPE_EXCLUSION_SCANNER?.responsibility_matrix || [];
+    const allExclNotes = [...scopeExclusions, ...respMatrix];
+    byOthersTray = allExclNotes.some(ex => {
+      const txt = (ex.text || ex.item || ex.description || '').toLowerCase();
+      const resp = (ex.responsibility || ex.by || '').toLowerCase();
+      return /cable\s*tray|basket\s*tray/i.test(txt) && /ec|electrical|by\s*others/i.test(txt + ' ' + resp);
+    });
+    if (byOthersTray) console.log(`[CableInjection] Cable tray is BY OTHERS — detected from Scope Exclusion Scanner`);
+  }
   if (byOthersTray) {
     console.log(`[CableInjection] Cable tray is BY OTHERS — will remove from BOM, not update`);
   }
@@ -6011,9 +6042,11 @@ function injectCalculatedCableQuantities(bom) {
 
       // Match cable tray / basket tray / ladder rack / cable runway line items
       // Use calculated tray footage (from building dimensions) when available; fall back to AI tray data
-      // FIX: If tray is "by others" (electrical contractor furnishes), REMOVE it from our BOM
+      // FIX: If tray is "by others" (electrical contractor furnishes), REMOVE basket tray from our BOM
+      //      but KEEP ladder rack (inside telecom rooms — always our scope)
       if ((/cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(name)) && /^(ft|lf|linear\s*f\w*|feet|foot)$/i.test(item.unit || '')) {
-        if (byOthersTray) {
+        if (byOthersTray && !/ladder\s*rack/i.test(name)) {
+          // Remove basket tray / cable tray / cable runway (EC scope), but NOT ladder rack (our telecom room equipment)
           console.log(`[CableInjection] REMOVING tray "${item.item || item.name}" — by others (electrical contractor)`);
           return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true, _calculatedRun: true };
         }
@@ -6021,6 +6054,18 @@ function injectCalculatedCableQuantities(bom) {
         if (bestTrayFt > 0) {
           const newCost = Math.round(bestTrayFt * (item.unitCost || 10.50) * 100) / 100;
           return { ...item, qty: bestTrayFt, extCost: newCost, _calculatedRun: true };
+        }
+      }
+
+      // Remove conduit/EMT/ENT if exclusions say it's by EC (electrical contractor)
+      if (/conduit|emt|ent\b|raceway/i.test(name) && /^(ft|lf|linear\s*f\w*|feet|foot)$/i.test(item.unit || '')) {
+        const conduitByOthers = Array.isArray(state.exclusions) && state.exclusions.some(ex =>
+          /conduit|raceway/i.test(ex.text || '') &&
+          /by\s*others|electrical\s*contractor|EC\s*(furnish|install)|responsibility\s*matrix/i.test(ex.text || ex.category || '')
+        );
+        if (conduitByOthers) {
+          console.log(`[CableInjection] REMOVING conduit "${item.item || item.name}" — by others (electrical contractor per exclusions)`);
+          return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true, _calculatedRun: true };
         }
       }
 
@@ -6116,7 +6161,56 @@ function injectCalculatedCableQuantities(bom) {
       // The AI counts outlet SYMBOLS but often miscounts multiplied drops (e.g., "2D" = 2 jacks).
       // Cable footage is corrected from consensus, but jacks/faceplates/patch cords are left at AI's
       // (often wrong) count. Fix: Use consensusCableDrops from pathway to correct these accessories.
-      const totalDrops = pathway.consensusCableDrops || 0;
+      let totalDrops = pathway.consensusCableDrops || 0;
+
+      // ── OUTLET BREAKDOWN OVERRIDE: if AI counted SYMBOLS not DROPS, fix it ──
+      // The AI often reports ~132 drops when there are really ~292 because it counts "2D" symbols
+      // as 1 outlet instead of 2 cables. If outlet_breakdown is available, calculate the TRUE drop
+      // count by multiplying locations × their prefix (2D=2, 4D=4, etc.)
+      const ob = pathway.outletBreakdown;
+      if (ob && (ob['1D'] || ob['2D'] || ob['4D'] || ob['6D'])) {
+        const breakdownDrops = (ob['1D']||0)*1 + (ob['2D']||0)*2 + (ob['4D']||0)*4 + (ob['6D']||0)*6;
+        const breakdownLocations = (ob['1D']||0) + (ob['2D']||0) + (ob['4D']||0) + (ob['6D']||0);
+        const wapCount = pathway.consensusWAPCount || 0;
+        if (breakdownDrops > 0) {
+          // If consensus ≈ locations (AI counted symbols not cables), use the multiplied count
+          if (totalDrops > 0 && Math.abs(totalDrops - wapCount - breakdownLocations) < breakdownLocations * 0.20) {
+            console.warn(`[CableInjection] ⚠️ Consensus drops (${totalDrops - wapCount} excl WAPs) ≈ outlet locations (${breakdownLocations}) — AI counted SYMBOLS not CABLES. Correcting to ${breakdownDrops} + ${wapCount} WAPs = ${breakdownDrops + wapCount}`);
+            totalDrops = breakdownDrops + wapCount;
+          } else if (breakdownDrops + wapCount > totalDrops * 1.3) {
+            // Outlet breakdown implies significantly more drops than consensus — trust breakdown
+            console.warn(`[CableInjection] ⚠️ outlet_breakdown implies ${breakdownDrops + wapCount} drops but consensus only ${totalDrops}. Using breakdown.`);
+            totalDrops = breakdownDrops + wapCount;
+          }
+        }
+      }
+
+      // ── PATCH PANEL CROSS-CHECK: use rack elevation as drop count floor ──
+      // If the MDF/IDF rack elevations show N × 48-port patch panels, that implies at least
+      // N × 48 × 0.70 drops (engineers typically design for 70-80% fill). If consensus drops
+      // are still below this after outlet_breakdown correction, use the patch panel floor.
+      let ppTotalPorts = 0;
+      (bom.categories || []).forEach(cat => {
+        (cat.items || []).forEach(item => {
+          const desc = (item.item || item.name || '').toLowerCase();
+          // Match "patch panel", "48-port", "24-port" in Cat6/Cat6A context (catches MDF/IDF items too)
+          const isPatchPanel = /patch\s*panel/i.test(desc)
+            || (/(\d+)[\s-]*port/i.test(desc) && /cat\s*6|cat6/i.test(desc) && /^ea$/i.test(item.unit || ''));
+          if (isPatchPanel) {
+            const ppMatch = desc.match(/(\d+)[\s-]*port/);
+            const ports = ppMatch ? parseInt(ppMatch[1]) : 48;
+            ppTotalPorts += (item.qty || 0) * ports;
+          }
+        });
+      });
+      if (ppTotalPorts > 0) {
+        const ppImpliedMinDrops = Math.round(ppTotalPorts * 0.70); // 70% fill — conservative design estimate
+        if (totalDrops < ppImpliedMinDrops && ppImpliedMinDrops > totalDrops * 1.3) {
+          console.warn(`[CableInjection] ⚠️ Total drops (${totalDrops}) << patch panel implied minimum (${ppImpliedMinDrops} = ${ppTotalPorts} ports × 70%). Using patch panel floor.`);
+          totalDrops = ppImpliedMinDrops;
+        }
+      }
+
       if (totalDrops > 0) {
         // Helper: correct qty for an item type, or inject if missing
         const _correctAccessoryQty = (regex, correctQty, defaultLabel, defaultUnit, defaultUnitCost) => {
@@ -6178,6 +6272,7 @@ function injectCalculatedCableQuantities(bom) {
               console.log(`[CableInjection] Faceplate corrected (dominant): ${oldFpQty} → ${domQty} × ${dominant.ports}-Port (from outlet_breakdown)`);
 
               // Add additional faceplate lines for other sizes
+              let fpInsertOffset = 1; // Track actual insertions to avoid index corruption
               for (let si = 1; si < activeSizes.length; si++) {
                 const s = activeSizes[si];
                 const sQty = ob[s.key] || 0;
@@ -6185,14 +6280,20 @@ function injectCalculatedCableQuantities(bom) {
                 totalFpLocations += sQty;
                 const sUc = s.ports <= 2 ? ucBase : Math.round(ucBase * (s.ports / 2) * 100) / 100;
                 const sName = (fpItem.name || fpItem.item || '').replace(/\d+[\s-]*port/i, `${s.ports}-Port`);
-                updatedItems.splice(fpIdx + si, 0, {
+                updatedItems.splice(fpIdx + fpInsertOffset, 0, {
                   ...fpItem, qty: sQty, item: sName, name: sName,
                   unitCost: sUc, extCost: Math.round(sQty * sUc * 100) / 100,
                   _calculatedRun: true, _accessoryCorrected: true, _injected: true
                 });
+                fpInsertOffset++;
                 console.log(`[CableInjection] Faceplate added: ${sQty} × ${s.ports}-Port (from outlet_breakdown)`);
               }
               console.log(`[CableInjection] Total faceplate locations: ${totalFpLocations} (outlet_breakdown: 1D=${ob['1D']||0}, 2D=${ob['2D']||0}, 4D=${ob['4D']||0}, 6D=${ob['6D']||0})`);
+              // Validate: sum of breakdown drops should approximate outletDrops
+              const breakdownDropTotal = (ob['1D']||0)*1 + (ob['2D']||0)*2 + (ob['4D']||0)*4 + (ob['6D']||0)*6;
+              if (breakdownDropTotal > 0 && Math.abs(breakdownDropTotal - outletDrops) > outletDrops * 0.15) {
+                console.warn(`[CableInjection] ⚠️ outlet_breakdown drop total (${breakdownDropTotal}) differs from consensus outletDrops (${outletDrops}) by >${Math.round(Math.abs(breakdownDropTotal - outletDrops) / outletDrops * 100)}% — faceplate counts may need manual review`);
+              }
             }
           } else {
             // ── NO BREAKDOWN — fall back to 2-port default (most common in commercial) ──

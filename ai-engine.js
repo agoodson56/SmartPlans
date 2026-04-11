@@ -2683,7 +2683,7 @@ const SmartBrains = {
   _SCHEMAS: {
     LEGEND_DECODER: ['symbols', 'legend_quality'],
     SPATIAL_LAYOUT: ['building_dimensions', 'floors'],
-    SYMBOL_SCANNER: ['sheets', 'totals', 'outlet_breakdown'],
+    SYMBOL_SCANNER: ['sheets', 'totals'],
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
@@ -2691,7 +2691,7 @@ const SmartBrains = {
     SHADOW_SCANNER: ['totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
     QUADRANT_SCANNER: ['quadrants', 'totals'],
-    CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence', 'outlet_breakdown'],
+    CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence'],
     TARGETED_RESCANNER: ['resolved_items', 'final_counts'],
     MATERIAL_PRICER: ['categories', 'grand_total'],
     LABOR_CALCULATOR: ['phases', 'total_hours'],
@@ -3653,6 +3653,24 @@ ${disciplineChecklist}
 
 ═══ VERIFIED DEVICE COUNTS (from Triple-Read Consensus — USE THESE EXACT QUANTITIES) ═══
 ${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
+
+═══ OUTLET BREAKDOWN (for faceplate sizing — CRITICAL) ═══
+${(() => {
+  const ob = context.wave1_75?.CONSENSUS_ARBITRATOR?.outlet_breakdown
+    || context.wave1?.SYMBOL_SCANNER?.outlet_breakdown;
+  if (ob) {
+    return `The following shows how many OUTLET LOCATIONS use each port multiplier:
+${JSON.stringify(ob, null, 2)}
+FACEPLATE SIZING RULES:
+- Each "1D" location needs a 1-Port faceplate
+- Each "2D" location needs a 2-Port faceplate (this is the most common)
+- Each "4D" location needs a 4-Port faceplate
+- Each "6D" location needs a 6-Port faceplate
+- Generate SEPARATE faceplate line items for each port size (do NOT use a single faceplate type for all)
+- WAPs do NOT need faceplates — they mount directly to cable`;
+  }
+  return 'No outlet breakdown available — default to 2-Port faceplates for all data outlet locations (most common in commercial construction). WAPs do NOT need faceplates.';
+})()}
 
 ═══ EQUIPMENT SCHEDULE DATA (AUTHORITATIVE — overrides symbol counts if present) ═══
 ${(() => {
@@ -5237,12 +5255,13 @@ ${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.discrepancies || [], null, 2).su
 ${JSON.stringify(context.wave1?.RISER_DIAGRAM_ANALYZER?.headend_equipment || [], null, 2).substring(0, 1500)}
 
 CONSENSUS RULES:
-1. If ALL reads agree within 5% → HIGH CONFIDENCE. Use the average.
-2. If 2+ reads agree within 5% → MODERATE CONFIDENCE. Use the agreeing group's average.
+1. If ALL reads agree within 5% → HIGH CONFIDENCE. Use the average of all reads.
+2. If 2+ reads agree within 5% → MODERATE CONFIDENCE. Use the average of the agreeing group ONLY (discard outliers).
 3. If ALL reads disagree by >10% → DISPUTE. Flag for targeted re-scan.
 4. For disputed items, identify WHICH sheets/areas likely caused the disagreement.
-5. When reads disagree, prefer the count that is most CONSISTENT with the building size and floor plan density. Do NOT blindly use the highest count — overcounting inflates bids and loses competitiveness. Use the MEDIAN of agreeing reads when possible.
-6. COMMON UNDERCOUNTING ERRORS TO WATCH FOR:
+5. MULTIPLIER DETECTION: If one scanner reports SIGNIFICANTLY more data_outlets than others (e.g., 280 vs 130), check if the higher count correctly applied the 2D/4D multiplier notation while lower counts did NOT. In this case, PREFER THE HIGHER COUNT — the lower scanners miscounted by treating each "2D" symbol as 1 outlet instead of 2. A count that is ~2× another is a classic sign of missed multipliers.
+6. When reads disagree and it's NOT a multiplier issue, prefer the count most CONSISTENT with the building size and floor plan density. Do NOT blindly use the highest count — overcounting inflates bids.
+7. COMMON UNDERCOUNTING ERRORS TO WATCH FOR:
    - Data drops: Check EVERY floor including basement, mechanical rooms, and spaces behind the main corridors
    - WAPs: Look in reflected ceiling plans AND enlarged plans — WAPs are often on separate sheets
    - Speakers: Count on EACH floor — reflected ceiling plans sometimes show only one floor as "typical"
