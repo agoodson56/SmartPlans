@@ -2891,7 +2891,17 @@ FOR EACH ROOM, DETERMINE:
    — Look for symbols showing ladder rack runs connecting rooms to corridor ceiling pathways.
    — Common notation: "LR", "CR", "Cable Runway", "Ladder Rack", or drawn as parallel lines overhead.
    — Include length in feet (count from rack top to corridor pathway junction).
-   — If plans show ladder rack entering the room, include it as a SEPARATE equipment line item with qty in LF.
+   — If plans show ladder rack entering the room, include ALL ladder rack components as SEPARATE equipment line items:
+     • Ladder Rack / Cable Runway (qty in LF — the straight sections, typically 12" or 18" wide)
+     • Trapeze / Support Kit (1 every 5 ft of ladder rack run — includes crossbar bracket)
+     • Threaded Rod 3/8" (2 rods per support × length from ceiling anchor to rack height, typically 36-48" each)
+     • Beam Clamp or Ceiling Anchor (2 per support — attaches threaded rod to structure above)
+     • Splice Plate / Butt Splice (1 per joint where sections connect — typically every 10-12 ft)
+     • 90° Horizontal Elbow (count turns from plan routing)
+     • Tee Fitting (if ladder rack branches/splits)
+     • Wall Bracket / Wall Support (where rack enters/exits room through wall — 2 per penetration)
+     • Rack-to-Runway Mounting Kit (transitions from ladder rack down to top of equipment rack — 1 per rack)
+     • Ground Lug / Bonding Bushing (1 per section for grounding continuity per TIA-607)
 4. Grounding: TMGB, TGB, TBB
 5. Environmental: dedicated HVAC, fire suppression
 6. Power: dedicated circuits, UPS sizing, generator backup
@@ -2907,7 +2917,15 @@ Return ONLY valid JSON:
       "building": "Main",
       "equipment": [
         { "item": "42U Floor-Mount Rack", "qty": 2, "unit": "ea", "notes": "" },
-        { "item": "Ladder Rack / Cable Runway", "qty": 20, "unit": "lf", "notes": "12\" wide overhead from rack to corridor pathway" },
+        { "item": "Ladder Rack / Cable Runway 12\"", "qty": 20, "unit": "lf", "notes": "Overhead from rack to corridor pathway" },
+        { "item": "Ladder Rack Trapeze/Support Kit", "qty": 4, "unit": "ea", "notes": "1 every 5 ft of run (20 LF ÷ 5)" },
+        { "item": "Threaded Rod 3/8\" x 48\"", "qty": 8, "unit": "ea", "notes": "2 per support (4 supports × 2)" },
+        { "item": "Beam Clamp 3/8\"", "qty": 8, "unit": "ea", "notes": "2 per support (4 supports × 2)" },
+        { "item": "Ladder Rack Splice Plate", "qty": 2, "unit": "ea", "notes": "1 per joint (20 LF ÷ 10 ft sections)" },
+        { "item": "Ladder Rack 90° Elbow", "qty": 1, "unit": "ea", "notes": "Turn into corridor" },
+        { "item": "Ladder Rack Wall Bracket", "qty": 2, "unit": "ea", "notes": "Wall penetration support" },
+        { "item": "Rack-to-Runway Mounting Kit", "qty": 2, "unit": "ea", "notes": "1 per rack (transition from runway to rack top)" },
+        { "item": "Ladder Rack Ground Lug", "qty": 2, "unit": "ea", "notes": "Bonding per TIA-607" },
         { "item": "Horizontal Cable Manager 2U", "qty": 4, "unit": "ea", "notes": "Between patch panels" },
         { "item": "Vertical Cable Manager", "qty": 2, "unit": "ea", "notes": "Side-mount, 42U" }
       ],
@@ -4004,9 +4022,20 @@ A system with missing components DOES NOT WORK. For each discipline, you MUST in
   □ PDU (minimum 2 per rack for redundancy)
   □ UPS (sized for equipment load)
   □ Fiber Shelf / Fiber Enclosure (at BOTH ends — MDF AND every IDF)
-  □ Ladder Rack / Cable Runway (overhead from rack to corridor pathway — measure LF from plans)
   □ Grounding Busbar (TMGB at MDF, TGB at each IDF)
   □ Bonding Conductor (#6 AWG from busbar to building ground)
+  □ LADDER RACK / CABLE RUNWAY — ALL of these parts are required:
+    - Ladder Rack straight sections (qty in LF — measure from rack top to corridor junction)
+    - Trapeze / Support Kit (1 every 5 ft of ladder rack run)
+    - Threaded Rod 3/8" (2 per support × length needed, typically 36-48" each)
+    - Beam Clamp or Ceiling Anchor (2 per support — attaches rod to structure)
+    - Splice Plate / Butt Splice (1 per joint where 10-12 ft sections connect)
+    - 90° Horizontal Elbow (count every turn from the plan routing)
+    - Tee Fitting (if ladder rack splits/branches)
+    - Wall Bracket / Wall Support (2 per wall penetration)
+    - Rack-to-Runway Mounting Kit (1 per rack — transition from runway to rack top)
+    - Ground Lug / Bonding Bushing (1 per section for grounding continuity per TIA-607)
+  ⚠️ COMMON ERROR: Pricing ladder rack LF but no supports, rod, clamps, or splices = rack cannot be installed
   ⚠️ COMMON ERROR: Fiber shelf at MDF but not at IDF = fiber can't terminate at remote end
 
 🔌 STRUCTURED CABLING — J-hooks and pathway:
