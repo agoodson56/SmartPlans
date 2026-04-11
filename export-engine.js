@@ -1680,19 +1680,35 @@ const SmartPlansExport = {
             formulaCells.push({ row: matSubtotalRow, col: 7, formula: `SUM(${subtotalRefs})`, cached: runningTotal });
             bomData.push([]);
 
-            // Calculate fully-loaded bid price
+            // Calculate fully-loaded bid price with itemized breakdown
             const bidTotal = this._getFullyLoadedTotal(state, bom);
+            const breakdown = this._computeFullBreakdown(state, bom);
             const matMarkupPct = state.markup?.material ?? 50;
             const labMarkupPct = state.markup?.labor ?? 50;
+            const matMarkupAmt = this._round(breakdown.matSell - breakdown.materials);
+            const laborBaseAmt = breakdown.laborBase;
+            const labMarkupAmt = this._round(breakdown.labSell - breakdown.laborBase);
+            const burdenAmt = breakdown.burden;
+            const bondsAmt = breakdown.bonds;
+            const contingencyAmt = breakdown.contingency;
+            const travelAmt = breakdown.travel;
+            const eqMarkupAmt = this._round(breakdown.eqSell - breakdown.equipment);
+            const subMarkupAmt = this._round(breakdown.subSell - breakdown.subs);
+            // G&A = bonds + contingency + burden (everything that isn't material/labor markup)
+            const gaOverheadAmt = this._round(burdenAmt + bondsAmt + contingencyAmt);
             if (bidTotal > runningTotal) {
                 bomData.push(["", "", "", "PRICING SUMMARY", "", "", "", ""]);
                 const rawCostRow = bomData.length;
                 bomData.push(["", "", "", `  Material/Equipment (raw cost)`, "", "", "", runningTotal]);
                 // Reference the material subtotal cell
                 formulaCells.push({ row: rawCostRow, col: 7, formula: `H${matSubtotalRow + 1}`, cached: runningTotal });
-                bomData.push(["", "", "", `  Material Markup (${matMarkupPct}%)`, "", "", "", ""]);
-                bomData.push(["", "", "", `  Labor Markup (${labMarkupPct}%)`, "", "", "", ""]);
-                bomData.push(["", "", "", `  G&A Overhead, Profit, Contingency`, "", "", "", ""]);
+                bomData.push(["", "", "", `  Material Markup (${matMarkupPct}%)`, "", "", "", matMarkupAmt]);
+                bomData.push(["", "", "", `  Labor (base cost)`, "", "", "", laborBaseAmt]);
+                bomData.push(["", "", "", `  Labor Markup (${labMarkupPct}%)`, "", "", "", labMarkupAmt]);
+                if (travelAmt > 0) {
+                    bomData.push(["", "", "", `  Travel & Per Diem`, "", "", "", travelAmt]);
+                }
+                bomData.push(["", "", "", `  G&A Overhead, Bonds & Contingency`, "", "", "", gaOverheadAmt]);
                 bomData.push([]);
                 bomData.push(["", "", "", "BID PRICE (GRAND TOTAL)", "", "", "", bidTotal]);
             } else {
