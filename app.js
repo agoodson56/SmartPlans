@@ -1046,49 +1046,51 @@ const SmartDefaults = {
   // ── PROJECT TYPE → Building characteristics mapping ──
   _PROJECT_TYPE_DEFAULTS: {
     // Medical / Healthcare
+    // ── Healthcare / Medical ──
+    // Full low-voltage scope: data, security, life safety, patient systems, wireless
     'medical': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'healthcare',
       suggestPW: null, // depends on owner (VA=federal, private=none)
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems', 'Audio Visual', 'Intrusion Detection', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
     'hospital': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'healthcare',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems', 'Audio Visual', 'Intrusion Detection', 'Distributed Antenna Systems (DAS)', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
     'clinic': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'healthcare',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems'] },
-    // Government / Federal
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems', 'Audio Visual', 'Intrusion Detection', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
+    // ── Government / Federal ──
     'government': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'government_institutional',
       suggestPW: 'davis-bacon',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection', 'Paging / Intercom', 'Audio Visual', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
     'federal': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'government_institutional',
       suggestPW: 'davis-bacon',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection', 'Paging / Intercom', 'Audio Visual', 'Distributed Antenna Systems (DAS)', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
     'va': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'government_institutional',
       suggestPW: 'davis-bacon',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems', 'Distributed Antenna Systems (DAS)'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems', 'Distributed Antenna Systems (DAS)', 'Audio Visual', 'Intrusion Detection', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
     'correctional': { ceilingHeight: 12, floorToFloor: 16, routingFactor: 1.40, pricingMultiplier: 'government_institutional',
       suggestPW: 'davis-bacon',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection', 'Paging / Intercom'] },
-    // Education
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection', 'Paging / Intercom', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
+    // ── Education ──
     'school': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.30, pricingMultiplier: 'education_k12',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Audio Visual', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
     'university': { ceilingHeight: 12, floorToFloor: 16, routingFactor: 1.30, pricingMultiplier: 'education_k12',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Audio Visual'] },
-    // Data Center
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Audio Visual', 'Paging / Intercom', 'Distributed Antenna Systems (DAS)', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
+    // ── Data Center ──
     'data center': { ceilingHeight: 12, floorToFloor: 18, routingFactor: 1.30, pricingMultiplier: 'data_center',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm'] },
-    // Commercial / Office
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'General Requirements / Conditions'] },
+    // ── Commercial / Office ──
     'office': { ceilingHeight: 9, floorToFloor: 13, routingFactor: 1.25, pricingMultiplier: 'commercial_standard',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Audio Visual', 'Door Hardware / Electrified Hardware', 'General Requirements / Conditions'] },
     'retail': { ceilingHeight: 12, floorToFloor: 16, routingFactor: 1.25, pricingMultiplier: 'commercial_standard',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Fire Alarm'] },
-    // Industrial / Warehouse
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Fire Alarm', 'Access Control', 'Paging / Intercom', 'General Requirements / Conditions'] },
+    // ── Industrial / Warehouse ──
     'warehouse': { ceilingHeight: 24, floorToFloor: 30, routingFactor: 1.20, pricingMultiplier: 'commercial_standard',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Fire Alarm'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Fire Alarm', 'Access Control', 'Paging / Intercom', 'General Requirements / Conditions'] },
     'industrial': { ceilingHeight: 20, floorToFloor: 26, routingFactor: 1.25, pricingMultiplier: 'commercial_standard',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Fire Alarm', 'Access Control'] },
-    // Transit (handled by separate transit engine, but set defaults)
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Fire Alarm', 'Access Control', 'Paging / Intercom', 'General Requirements / Conditions'] },
+    // ── Transit ──
     'transit': { ceilingHeight: 14, floorToFloor: 18, routingFactor: 1.40, pricingMultiplier: 'transit_railroad',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Distributed Antenna Systems (DAS)'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Distributed Antenna Systems (DAS)', 'Audio Visual', 'General Requirements / Conditions'] },
     'railroad': { ceilingHeight: 14, floorToFloor: 18, routingFactor: 1.40, pricingMultiplier: 'transit_railroad',
-      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Paging / Intercom'] },
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Paging / Intercom', 'Access Control', 'General Requirements / Conditions'] },
   },
 
   // ── PW state auto-detection from location ──
