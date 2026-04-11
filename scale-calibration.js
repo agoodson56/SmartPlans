@@ -164,9 +164,24 @@ const ScaleCalibration = {
 
     let ingested = 0;
     for (const page of ocrPages) {
-      if (!page.ftPerInch || page.ftPerInch <= 0) continue;
       const sid = page.sheetId || `page_${page.pageNum}`;
       const s = this.getSheet(sid);
+
+      // Always store detected sheet physical dimensions (even if no scale found)
+      // This ensures cable analyzer uses correct sheet size for building estimation
+      if (page.sheetWidthIn > 0 && page.sheetHeightIn > 0) {
+        // Drawable area = sheet size minus ~3" for title block borders
+        // Standard: ~1.5" left margin, ~0.5" right margin, ~0.5" top, ~2.5" bottom (title block)
+        // Simplified: subtract 3" from width (long edge) and 3" from height (short edge)
+        s._sheetWidthIn = page.sheetWidthIn;
+        s._sheetHeightIn = page.sheetHeightIn;
+        s._drawableW = page.sheetWidthIn - 3;  // drawable width in inches (long edge)
+        s._drawableH = page.sheetHeightIn - 3;  // drawable height in inches (short edge)
+        s._sheetName = page._sheetName || `${page.sheetWidthIn}×${page.sheetHeightIn}`;
+        console.log(`[ScaleCalibration] Sheet ${sid}: physical size ${page.sheetWidthIn}"×${page.sheetHeightIn}" → drawable ${s._drawableW}"×${s._drawableH}"`);
+      }
+
+      if (!page.ftPerInch || page.ftPerInch <= 0) continue;
 
       s.ocrScale = {
         ftPerInch: page.ftPerInch,

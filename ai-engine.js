@@ -930,6 +930,33 @@ const SmartBrains = {
         /\b([A-Z]{1,3}\d{3,4})\b/,                      // E101, T201
       ];
 
+      // ── Sheet physical size detection ──
+      // Patterns to detect printed sheet size from text like "IF THIS SHEET IS NOT 30" X 42""
+      const sheetSizePatterns = [
+        // "IF THIS SHEET IS NOT 30" X 42"" or "...30" × 42"..."
+        /(?:SHEET\s+IS\s+NOT|SHEET\s+SIZE|PRINTED?\s+(?:ON|SIZE))\s*[:=]?\s*(\d+)\s*["″]?\s*[X×x]\s*(\d+)\s*["″]?/i,
+        // "30" X 42" SHEET" or "30×42 SHEET"
+        /(\d+)\s*["″]?\s*[X×x]\s*(\d+)\s*["″]?\s*(?:SHEET|PAPER|PRINT)/i,
+        // "FULL SIZE: 30" X 42""
+        /FULL\s+SIZE\s*[:=]?\s*(\d+)\s*["″]?\s*[X×x]\s*(\d+)\s*["″]?/i,
+        // Standalone "30 X 42" or "24 X 36" near bottom of page (title block area)
+        /\b(\d{2})\s*["″]?\s*[X×x]\s*(\d{2})\s*["″]?\b/i,
+      ];
+
+      // Standard architectural sheet sizes (width × height in inches, landscape orientation)
+      // PDF units = 72 per inch, so we match with ±36 units (±0.5 inch) tolerance
+      const STANDARD_SHEETS = [
+        { name: 'ARCH D',  w: 36, h: 24, pdfW: 2592, pdfH: 1728 },
+        { name: 'ANSI D',  w: 34, h: 22, pdfW: 2448, pdfH: 1584 },
+        { name: '30×42',   w: 42, h: 30, pdfW: 3024, pdfH: 2160 },
+        { name: 'ARCH E',  w: 48, h: 36, pdfW: 3456, pdfH: 2592 },
+        { name: 'ANSI E',  w: 44, h: 34, pdfW: 3168, pdfH: 2448 },
+        { name: 'ARCH E1', w: 42, h: 30, pdfW: 3024, pdfH: 2160 },
+        { name: '36×48',   w: 48, h: 36, pdfW: 3456, pdfH: 2592 },
+        { name: 'ARCH C',  w: 24, h: 18, pdfW: 1728, pdfH: 1296 },
+        { name: 'ANSI C',  w: 22, h: 17, pdfW: 1584, pdfH: 1224 },
+      ];
+
       for (let p = 1; p <= totalPages; p++) {
         try {
           const page = await pdf.getPage(p);
@@ -964,7 +991,63 @@ const SmartBrains = {
           const candidateTexts = [titleBlockText, bottomStripText, fullText];
 
           let found = false;
-          let pageResult = { pageNum: p, scaleText: null, ftPerInch: null, method: 'unable', confidence: 0, sheetId: null };
+          let pageResult = { pageNum: p, scaleText: null, ftPerInch: null, method: 'unable', confidence: 0, sheetId: null, sheetWidthIn: null, sheetHeightIn: null };
+
+          // ── Detect physical sheet size ──
+          // Method 1: From PDF page dimensions (most reliable)
+          const pdfWide = Math.max(pageW, pageH);
+          const pdfNarrow = Math.min(pageW, pageH);
+          let sheetDetected = false;
+          for (const ss of STANDARD_SHEETS) {
+            const refWide = Math.max(ss.pdfW, ss.pdfH);
+            const refNarrow = Math.min(ss.pdfW, ss.pdfH);
+            if (Math.abs(pdfWide - refWide) < 72 && Math.abs(pdfNarrow - refNarrow) < 72) {
+              pageResult.sheetWidthIn = ss.w; // landscape width (long edge)
+              pageResult.sheetHeightIn = ss.h; // landscape height (short edge)
+              pageResult._sheetName = ss.name;
+              sheetDetected = true;
+              break;
+            }
+          }
+
+          // Method 2: From text layer (e.g. "IF THIS SHEET IS NOT 30" X 42"")
+          if (!sheetDetected) {
+            for (const text of [bottomStripText, titleBlockText, fullText]) {
+              for (const ssPat of sheetSizePatterns) {
+                const ssMatch = text.match(ssPat);
+                if (ssMatch) {
+                  let w = parseInt(ssMatch[1]);
+                  let h = parseInt(ssMatch[2]);
+                  // Sanity: valid sheet sizes are between 17" and 60"
+                  if (w >= 17 && w <= 60 && h >= 17 && h <= 60) {
+                    // Ensure width is the long edge (landscape)
+                    pageResult.sheetWidthIn = Math.max(w, h);
+                    pageResult.sheetHeightIn = Math.min(w, h);
+                    pageResult._sheetName = `${pageResult.sheetWidthIn}×${pageResult.sheetHeightIn} (from text)`;
+                    sheetDetected = true;
+                    break;
+                  }
+                }
+              }
+              if (sheetDetected) break;
+            }
+          }
+
+          // Method 3: Derive from raw PDF units (no standard match — compute directly)
+          if (!sheetDetected && pdfWide > 500) {
+            const wIn = Math.round(pdfWide / 72);
+            const hIn = Math.round(pdfNarrow / 72);
+            if (wIn >= 17 && hIn >= 11) {
+              pageResult.sheetWidthIn = wIn;
+              pageResult.sheetHeightIn = hIn;
+              pageResult._sheetName = `${wIn}×${hIn} (computed)`;
+              sheetDetected = true;
+            }
+          }
+
+          if (sheetDetected) {
+            console.log(`[OCR Scale] Page ${p}: Sheet size detected as ${pageResult._sheetName} (${pageResult.sheetWidthIn}"×${pageResult.sheetHeightIn}")`);
+          }
 
           // Try to extract sheet ID
           for (const text of candidateTexts) {

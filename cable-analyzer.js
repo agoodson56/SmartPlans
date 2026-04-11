@@ -506,29 +506,30 @@ const CableAnalyzer = {
           }
         }
 
-        // Method 2: OCR ft_per_inch — use with standard architectural sheet sizes
+        // Method 2: OCR ft_per_inch — use with detected or standard sheet sizes
         // If we have ft_per_inch but no pixel calibration, estimate building dims from
-        // standard drawing sheet sizes (ARCH D = 24"×36", ARCH E = 36"×48")
+        // the detected sheet physical size (from PDF page dims or OCR text), falling back to ARCH D
         if (!dims[sheetId] && sc._ftPerInch > 0) {
-          // Common ELV drawing sheets are ARCH D (24×36) or ARCH E (36×48)
-          // At ft_per_inch scale, the drawable area is approximately:
-          // ARCH D: ~21"×33" drawable → width = 33 × ft_per_inch, depth = 21 × ft_per_inch
-          // Use ARCH D as default (most common for commercial ELV plans)
-          const drawableW = 33; // inches of drawable width on ARCH D
-          const drawableD = 21; // inches of drawable depth on ARCH D
+          // Use detected drawable area from ScaleCalibration (set by OCR sheet size detection)
+          // Falls back to ARCH D (33"×21") if no sheet size was detected
+          const drawableW = sc._drawableW || 33; // inches of drawable width
+          const drawableD = sc._drawableH || 21; // inches of drawable height
+          const sheetLabel = sc._sheetName || 'ARCH D (default)';
           const wFt = Math.round(drawableW * sc._ftPerInch);
           const dFt = Math.round(drawableD * sc._ftPerInch);
           if (wFt > 10 && dFt > 10) {
             dims[sheetId] = { w: wFt, d: dFt, source: 'ocr_estimated' };
-            console.log(`[CableAnalyzer] Sheet ${sheetId}: estimated ${wFt}×${dFt} ft from OCR scale (${sc._ftPerInch} ft/inch × ARCH D)`);
+            console.log(`[CableAnalyzer] Sheet ${sheetId}: estimated ${wFt}×${dFt} ft from OCR scale (${sc._ftPerInch} ft/inch × ${sheetLabel} drawable ${drawableW}"×${drawableD}")`);
           }
         }
 
         // Method 3: ft_per_inch from AI spatial layout (no pixel ref)
         if (!dims[sheetId] && sc.ocrScale?.ftPerInch > 0) {
           const fpi = sc.ocrScale.ftPerInch;
-          const wFt = Math.round(33 * fpi);
-          const dFt = Math.round(21 * fpi);
+          const drawableW = sc._drawableW || 33;
+          const drawableD = sc._drawableH || 21;
+          const wFt = Math.round(drawableW * fpi);
+          const dFt = Math.round(drawableD * fpi);
           if (wFt > 10 && dFt > 10) {
             dims[sheetId] = { w: wFt, d: dFt, source: 'ocr_scale' };
           }
