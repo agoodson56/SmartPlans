@@ -1,4 +1,4 @@
-const CACHE_NAME = 'smartplans-v5.105.1';
+const CACHE_NAME = 'smartplans-v5.106.0';
 const APP_SHELL = [
     '/',
     '/index.html',

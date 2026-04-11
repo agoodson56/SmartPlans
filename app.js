@@ -502,6 +502,72 @@ const EXCLUSION_TEMPLATES = {
     ],
     clarification: [],
   },
+  "Paging / Intercom": {
+    exclusion: [
+      { text: "Excludes amplifier rack power circuits (by Electrical Contractor)", category: "Paging / Intercom" },
+      { text: "Excludes speaker back-boxes in concrete/masonry walls (by GC)", category: "Paging / Intercom" },
+      { text: "Excludes outdoor speaker weatherproof enclosures unless listed", category: "Paging / Intercom" },
+    ],
+    assumption: [
+      { text: "Assumes ceiling tile grid is accessible for speaker installation", category: "Paging / Intercom" },
+      { text: "Assumes 70V distributed audio system (not low-impedance)", category: "Paging / Intercom" },
+      { text: "Assumes telephone system integration is coordinated by others", category: "Paging / Intercom" },
+    ],
+    clarification: [
+      { text: "Speaker placement per plans — final locations may require adjustment for ceiling obstructions", category: "Paging / Intercom" },
+    ],
+  },
+  "Nurse Call Systems": {
+    exclusion: [
+      { text: "Excludes nurse call system programming and training beyond initial startup", category: "Nurse Call Systems" },
+      { text: "Excludes integration with hospital EMR/EHR system (by system vendor)", category: "Nurse Call Systems" },
+      { text: "Excludes pillow speakers and patient entertainment integration", category: "Nurse Call Systems" },
+      { text: "Excludes wireless nurse call badges/pendants unless listed", category: "Nurse Call Systems" },
+    ],
+    assumption: [
+      { text: "Assumes patient room headwall pre-wired by Electrical Contractor", category: "Nurse Call Systems" },
+      { text: "Assumes standard patient room layout per architectural plans", category: "Nurse Call Systems" },
+      { text: "Assumes Category cable home-run to nurse call headend (no daisy-chain)", category: "Nurse Call Systems" },
+    ],
+    clarification: [
+      { text: "Nurse call station locations per plans — coordinate exact placement with medical equipment vendor", category: "Nurse Call Systems" },
+    ],
+  },
+  "Distributed Antenna Systems (DAS)": {
+    exclusion: [
+      { text: "Excludes carrier-specific equipment and licensing (by carrier)", category: "DAS" },
+      { text: "Excludes RF design and propagation modeling (by DAS vendor/consultant)", category: "DAS" },
+      { text: "Excludes rooftop donor antenna and mounting hardware", category: "DAS" },
+      { text: "Excludes dedicated electrical circuits to BDA/headend (by Electrical Contractor)", category: "DAS" },
+    ],
+    assumption: [
+      { text: "Assumes single-carrier or neutral-host DAS configuration", category: "DAS" },
+      { text: "Assumes adequate signal at donor antenna location", category: "DAS" },
+      { text: "Assumes plenum-rated coax pathways available throughout", category: "DAS" },
+    ],
+    clarification: [
+      { text: "Final antenna count and placement subject to RF design validation", category: "DAS" },
+    ],
+  },
+  // ── BY_OTHERS / RESPONSIBILITY MATRIX exclusions (auto-added when detected) ──
+  _by_others: {
+    exclusion: [
+      { text: "Excludes conduit and raceway installation — furnished and installed by Electrical Contractor per Division 26", category: "Responsibility Matrix" },
+      { text: "Excludes cable tray / basket tray / cable runway — furnished and installed by Electrical Contractor per Technology Systems Responsibility Matrix", category: "Responsibility Matrix" },
+      { text: "Excludes firestopping of all penetrations — by Firestopping Contractor per Division 07", category: "Responsibility Matrix" },
+      { text: "Excludes 120V power and dedicated circuits to all low-voltage equipment — by Electrical Contractor per Division 26", category: "Responsibility Matrix" },
+      { text: "Excludes UPS battery backup power beyond rack-mount UPS units listed in BOM", category: "Responsibility Matrix" },
+    ],
+    assumption: [
+      { text: "Assumes Electrical Contractor installs all conduit, raceway, and cable tray prior to cable pull", category: "Responsibility Matrix" },
+      { text: "Assumes all sleeves, core drills, and penetrations are completed by others before cable installation", category: "Responsibility Matrix" },
+      { text: "Assumes Electrical Contractor provides empty conduit with pull string from telecom room to each outlet location", category: "Responsibility Matrix" },
+    ],
+    clarification: [
+      { text: "Technology Systems Responsibility Matrix on plans defines scope division between Electrical (Div 26) and Low-Voltage (Div 27/28) contractors", category: "Responsibility Matrix" },
+      { text: "Any items marked 'FBO', 'NIC', or 'BY OTHERS' on the drawings are excluded from this estimate", category: "Responsibility Matrix" },
+    ],
+  },
   // Division 08 — Openings (auto-included when Access Control is selected)
   _div08_openings: {
     exclusion: [
@@ -546,6 +612,17 @@ function getDefaultExclusions(disciplines) {
           items.push({ ...t, type, sort_order: 200 + i });
         });
       }
+    }
+  }
+  // ── AUTO-INCLUDE BY_OTHERS / RESPONSIBILITY MATRIX ──
+  // Always include these for projects where electrical contractor handles conduit/tray
+  // (applies to virtually all commercial/government projects)
+  const byOthers = EXCLUSION_TEMPLATES._by_others;
+  if (byOthers) {
+    for (const type of ['exclusion', 'assumption', 'clarification']) {
+      (byOthers[type] || []).forEach((t, i) => {
+        items.push({ ...t, type, sort_order: 300 + i });
+      });
     }
   }
   return items;
@@ -5532,6 +5609,7 @@ function computePathwayDistances() {
     backboneResults, backboneTotalFt: backboneResults.reduce((s, b) => s + b.totalFt, 0),
     backboneTotalCost: backboneResults.reduce((s, b) => s + b.cost, 0),
     cableTrayResults, trayTotalFt, trayTotalCost, calculatedTrayFt, byOthersPathways,
+    consensusCableDrops, // Total data/voice/WAP drops from AI consensus (used for jack/faceplate correction)
   };
 }
 
@@ -5858,6 +5936,70 @@ function injectCalculatedCableQuantities(bom) {
           }
         }
       }
+
+      // ── JACK / FACEPLATE / PATCH CORD CORRECTION ──
+      // The AI counts outlet SYMBOLS but often miscounts multiplied drops (e.g., "2D" = 2 jacks).
+      // Cable footage is corrected from consensus, but jacks/faceplates/patch cords are left at AI's
+      // (often wrong) count. Fix: Use consensusCableDrops from pathway to correct these accessories.
+      const totalDrops = pathway.consensusCableDrops || 0;
+      if (totalDrops > 0) {
+        // Helper: correct qty for an item type, or inject if missing
+        const _correctAccessoryQty = (regex, correctQty, defaultLabel, defaultUnit, defaultUnitCost) => {
+          const idx = updatedItems.findIndex(item => regex.test(item.name || item.item || ''));
+          if (idx >= 0) {
+            const item = updatedItems[idx];
+            const oldQty = item.qty || 0;
+            if (oldQty !== correctQty) {
+              const uc = item.unitCost || defaultUnitCost;
+              updatedItems[idx] = {
+                ...item, qty: correctQty, extCost: Math.round(correctQty * uc * 100) / 100,
+                _calculatedRun: true, _accessoryCorrected: true
+              };
+              console.log(`[CableInjection] ${defaultLabel} corrected: ${oldQty} → ${correctQty} (${totalDrops} consensus drops)`);
+            }
+          }
+          // Don't inject accessories — they have specific part numbers from AI material pricer
+        };
+
+        // Jacks / keystones: 1 per drop
+        _correctAccessoryQty(/keystone\s*jack|cat\s*6a?\s*jack|data\s*jack|rj.?45\s*jack/i, totalDrops, 'Keystone Jack', 'ea', 19.86);
+
+        // Faceplates: ceil(totalDrops / ports_per_plate)
+        // Detect port count from existing faceplate description
+        const fpIdx = updatedItems.findIndex(item => /faceplate|face\s*plate|wall\s*plate/i.test(item.name || item.item || ''));
+        if (fpIdx >= 0) {
+          const fpItem = updatedItems[fpIdx];
+          const fpName = (fpItem.name || fpItem.item || '').toLowerCase();
+          const portsMatch = fpName.match(/(\d+)[\s-]*port/);
+          const portsPerPlate = portsMatch ? parseInt(portsMatch[1]) : 2; // Default 2-port
+          const correctFpQty = Math.ceil(totalDrops / portsPerPlate);
+          const oldFpQty = fpItem.qty || 0;
+          if (oldFpQty !== correctFpQty) {
+            const uc = fpItem.unitCost || 5.42;
+            updatedItems[fpIdx] = {
+              ...fpItem, qty: correctFpQty, extCost: Math.round(correctFpQty * uc * 100) / 100,
+              _calculatedRun: true, _accessoryCorrected: true
+            };
+            console.log(`[CableInjection] Faceplate corrected: ${oldFpQty} → ${correctFpQty} (${totalDrops} drops ÷ ${portsPerPlate} ports)`);
+          }
+        }
+
+        // Patch cords: 1 per drop for each length (3ft at outlet, 10ft at patch panel)
+        updatedItems.forEach((item, i) => {
+          if (/patch\s*cord|patch\s*cable/i.test(item.name || item.item || '') && /^ea$/i.test(item.unit || '')) {
+            const oldQty = item.qty || 0;
+            if (oldQty !== totalDrops) {
+              const uc = item.unitCost || 10.00;
+              updatedItems[i] = {
+                ...item, qty: totalDrops, extCost: Math.round(totalDrops * uc * 100) / 100,
+                _calculatedRun: true, _accessoryCorrected: true
+              };
+              console.log(`[CableInjection] Patch cord corrected: ${oldQty} → ${totalDrops} ("${item.item || item.name}")`);
+            }
+          }
+        });
+      }
+
     } // end isPrimaryInfraCat injection block
 
     // ── DEDUPLICATION: Merge items with same part number OR same description ──

@@ -1817,6 +1817,53 @@ const SmartPlansExport = {
             ws3["!cols"] = [{ wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 12 }];
             XLSX.utils.book_append_sheet(wb, ws3, "Category Summary");
 
+            // ── Sheet 4: Exclusions & Assumptions ──
+            // CRITICAL for proposals — documents what is NOT included, assumptions made,
+            // and clarifications. Required for legal protection on every bid.
+            const exclItems = state.exclusions || [];
+            // If no user-entered items, auto-generate defaults for this project
+            let exclForExport = exclItems;
+            if (exclForExport.length === 0 && typeof getDefaultExclusions === 'function') {
+                exclForExport = getDefaultExclusions(state.disciplines || []);
+            }
+
+            if (exclForExport.length > 0) {
+                const exclData = [
+                    ["EXCLUSIONS, ASSUMPTIONS & CLARIFICATIONS"],
+                    [`${state.projectName || 'Project'} — ${now.toLocaleDateString()}`],
+                    [],
+                ];
+
+                // Group by type
+                const types = [
+                    { key: 'exclusion', label: 'EXCLUSIONS', desc: 'The following items are specifically EXCLUDED from this estimate:' },
+                    { key: 'assumption', label: 'ASSUMPTIONS', desc: 'This estimate is based on the following assumptions:' },
+                    { key: 'clarification', label: 'CLARIFICATIONS', desc: 'The following clarifications apply to this estimate:' },
+                ];
+
+                for (const { key, label, desc } of types) {
+                    const items = exclForExport.filter(e => e.type === key).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+                    if (items.length === 0) continue;
+                    exclData.push([label]);
+                    exclData.push([desc]);
+                    exclData.push(["#", "Item", "Category"]);
+                    items.forEach((item, i) => {
+                        exclData.push([i + 1, item.text || '', item.category || 'General']);
+                    });
+                    exclData.push([]); // spacer between sections
+                }
+
+                // Add print instructions
+                exclData.push([]);
+                exclData.push(["NOTE: This sheet should be included with every proposal and bid submission."]);
+                exclData.push(["Items listed as exclusions are NOT included in the bid price."]);
+                exclData.push(["Verify all items against project specifications before submission."]);
+
+                const ws4 = XLSX.utils.aoa_to_sheet(exclData);
+                ws4["!cols"] = [{ wch: 6 }, { wch: 80 }, { wch: 24 }];
+                XLSX.utils.book_append_sheet(wb, ws4, "Exclusions & Assumptions");
+            }
+
             // Add confidential footer row to each sheet
             for (const sheetName of wb.SheetNames) {
                 const ws = wb.Sheets[sheetName];
