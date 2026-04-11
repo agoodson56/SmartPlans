@@ -4061,6 +4061,9 @@ function buildScaleCalibrationCard(st) {
 function build3DEngineCard(st) {
   if (!st.aiAnalysis) return '';
   if (typeof FormulaEngine3D === 'undefined') return '';
+  // Hide for non-transit projects — the 3D engine double-marks AI BOM prices
+  // making totals 5-10× too high. Only show for transit/railroad where it's calibrated.
+  if (!st.isTransitRailroad) return '';
 
   // FIX: Use getFilteredBOM instead of raw _extractBOMFromAnalysis so the 3D engine
   // reference number uses the same BOM as everything else (discipline-filtered, user-edited)
@@ -5064,14 +5067,86 @@ function injectCalculatedCableQuantities(bom) {
     return s;
   };
 
+  // ── Get consensus device count to cross-check zone data completeness ──
+  // The CABLE_PATHWAY brain often only finds a fraction of devices in zones.
+  // When zone device count is way less than consensus, we need to scale up
+  // or use consensus count × avg run length.
+  const consensus = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
+    || state.brainResults?.wave1_75?.TARGETED_RESCANNER?.final_counts
+    || state.brainResults?.wave1?.SYMBOL_SCANNER?.totals || {};
+  // Count total data/voice drops from consensus (these map to cat6/cat6a cables)
+  let consensusCableDrops = 0;
+  for (const [key, val] of Object.entries(consensus)) {
+    const k = key.toLowerCase();
+    if (k.includes('data') || k.includes('outlet') || k.includes('voice') || k.includes('wap') || k.includes('wireless')
+        || k.includes('jack') || k.includes('drop') || k.includes('cat6') || k.includes('port')) {
+      const count = typeof val === 'object' ? (val.consensus || val.count || val.total || 0) : (val || 0);
+      consensusCableDrops += count;
+    }
+  }
+
   // Build lookup of calculated totals by cable type (horizontal)
   const calcByType = {};
+  let zoneDeviceTotal = 0;
   if (pathway.hasSpatialZones && pathway.grandTotalFt > 0) {
     pathway.results.forEach(r => {
       const key = _normalizeCableKey(r.cableType);
-      if (!calcByType[key]) calcByType[key] = { totalFt: 0, ratePerFt: r.ratePerFt, mode: r.mode };
-      r.zones.forEach(z => { calcByType[key].totalFt += z.totalFt; });
+      if (!calcByType[key]) calcByType[key] = { totalFt: 0, ratePerFt: r.ratePerFt, mode: r.mode, deviceCount: 0, avgRunFt: 0 };
+      r.zones.forEach(z => {
+        calcByType[key].totalFt += z.totalFt;
+        calcByType[key].deviceCount += z.deviceCount;
+        zoneDeviceTotal += z.deviceCount;
+      });
     });
+    // Compute avg run per cable type
+    for (const [key, calc] of Object.entries(calcByType)) {
+      if (calc.deviceCount > 0) calc.avgRunFt = Math.round(calc.totalFt / calc.deviceCount);
+    }
+  }
+
+  // ── CRITICAL FIX: Scale up cable quantities when zones found far fewer devices than consensus ──
+  // Example: CABLE_PATHWAY found 13 devices in zones, but consensus says 408 jacks.
+  // When coverage < 50%, the zone sample is too small to be representative — use building avg instead.
+  // When coverage 50-80%, zone avg is decent but needs consensus count scaling.
+  const bW = pathway.bldgW || 200;
+  const bD = pathway.bldgD || 200;
+  const buildingAvgHorizontal = Math.round(((bW / 4) + (bD / 4)) * 1.30);
+  const buildingAvgRun = buildingAvgHorizontal + 30 + 16; // + stub-up/IDF-drop + slack
+  const WASTE = 1.12;
+
+  if (consensusCableDrops > 0 && zoneDeviceTotal > 0 && zoneDeviceTotal < consensusCableDrops * 0.8) {
+    const coverage = zoneDeviceTotal / consensusCableDrops;
+    console.warn(`[CableInjection] Zone devices (${zoneDeviceTotal}) << consensus drops (${consensusCableDrops}) — ${(coverage * 100).toFixed(1)}% coverage`);
+
+    for (const [key, calc] of Object.entries(calcByType)) {
+      if ((key === 'cat6a' || key === 'cat6' || key === 'cat5e') && calc.avgRunFt > 0) {
+        const oldFt = calc.totalFt;
+        // When coverage is very low (<25%), zone avg is unreliable — use building avg
+        // When coverage is moderate (25-80%), use the HIGHER of zone avg or building avg
+        let useAvgRun;
+        if (coverage < 0.25) {
+          useAvgRun = buildingAvgRun;
+          console.log(`[CableInjection] ${key}: coverage ${(coverage * 100).toFixed(1)}% too low — using building avg ${buildingAvgRun} ft instead of zone avg ${calc.avgRunFt} ft`);
+        } else {
+          useAvgRun = Math.max(calc.avgRunFt, buildingAvgRun);
+          console.log(`[CableInjection] ${key}: using max(zone ${calc.avgRunFt} ft, building ${buildingAvgRun} ft) = ${useAvgRun} ft`);
+        }
+        calc.totalFt = Math.round(consensusCableDrops * useAvgRun * WASTE);
+        calc.avgRunFt = useAvgRun;
+        calc.deviceCount = consensusCableDrops;
+        calc.mode = 'consensus-scaled';
+        console.log(`[CableInjection] ${key}: scaled ${oldFt.toLocaleString()} ft → ${calc.totalFt.toLocaleString()} ft (${consensusCableDrops} drops × ${useAvgRun} ft avg × ${WASTE} waste)`);
+      }
+    }
+  }
+
+  // ── FALLBACK: When NO zone data at all but we have building dims + consensus count ──
+  // Use building-dimension average run (same as cable-analyzer.js 50/50 fallback)
+  if (Object.keys(calcByType).length === 0 && consensusCableDrops > 0 && pathway.hasDimensions) {
+    const totalFt = Math.round(consensusCableDrops * buildingAvgRun * WASTE);
+    const ratePerFt = _getCableRatePerFt('cat6a', 'plenum');
+    calcByType['cat6a'] = { totalFt, ratePerFt, mode: 'building-avg-fallback', deviceCount: consensusCableDrops, avgRunFt: buildingAvgRun };
+    console.log(`[CableInjection] No zone data — using building avg: ${consensusCableDrops} drops × ${buildingAvgRun} ft avg = ${totalFt.toLocaleString()} ft (${bW}×${bD} ft building)`);
   }
 
   // Add backbone fiber totals to the cable type lookup
