@@ -16,6 +16,8 @@ const CableAnalyzer = {
     stubUpFt:         10,    // Vertical stub-up from device to plenum
     tiaMaxFt:         295,   // TIA-568 horizontal cable distance limit (100m)
     defaultRunFt:     150,   // Fallback when no spatial data available
+    minRunFt:         75,    // Minimum cable run (no real cable run is shorter than this in commercial)
+    routingFactor:    1.25,  // Routing multiplier — cables follow corridors/pathways, not straight lines
     jHookSpacingFt:   4.5,   // J-hook every 4.5 ft of horizontal run
   },
 
@@ -28,6 +30,8 @@ const CableAnalyzer = {
     stubUpFt:        { label: 'Stub-Up Height (ft)',       min: 0,   max: 20,  step: 1   },
     tiaMaxFt:        { label: 'TIA-568 Max (ft)',          min: 200, max: 328, step: 1   },
     defaultRunFt:    { label: 'Default Avg Run (ft)',      min: 50,  max: 300, step: 10  },
+    minRunFt:        { label: 'Minimum Run (ft)',          min: 25,  max: 150, step: 5   },
+    routingFactor:   { label: 'Routing Factor (x)',        min: 1.0, max: 1.5, step: 0.05},
     jHookSpacingFt:  { label: 'J-Hook Spacing (ft)',       min: 3,   max: 6,   step: 0.5 },
   },
 
@@ -304,9 +308,13 @@ const CableAnalyzer = {
             const dims = (z.sheet_id && sheetDims[z.sheet_id]) || { w: bldgW, d: bldgD };
             const dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * (dims.w || 200);
             const dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * (dims.d || 200);
+            const routingMult = cfg.routingFactor || 1.25;
             const floorsApart = Math.abs((z.floor || 1) - (idf.floor || 1));
             const vert = floorsApart > 0 ? floorsApart * cfg.floorToFloorFt : cfg.ceilingHeightFt;
-            runFt = Math.round(dx + dy + vert + cfg.slackFt);
+            runFt = Math.round((dx + dy) * routingMult + vert + cfg.slackFt);
+            // Enforce minimum
+            const minRun = cfg.minRunFt || 75;
+            if (runFt < minRun) runFt = minRun;
             basis = 'zone spatial calc';
           } else if (z.est_run_ft) {
             runFt = z.est_run_ft;
@@ -572,7 +580,12 @@ const CableAnalyzer = {
   _calcRunLength(device, idf, dims, cfg) {
     const dx = Math.abs((device.x_pct || 50) - (idf?.x || 50)) / 100 * (dims?.w || 200);
     const dy = Math.abs((device.y_pct || 50) - (idf?.y || 50)) / 100 * (dims?.d || 200);
-    const horizontal = Math.round(dx + dy);
+
+    // Apply routing factor — cables follow corridors, pathways, and J-hook runs,
+    // they do NOT travel in straight Manhattan lines. Industry standard is 1.15-1.40x.
+    // Use ScaleCalibration routing constants if available, else cfg.routingFactor.
+    const routingMult = cfg.routingFactor || 1.25;
+    const horizontal = Math.round((dx + dy) * routingMult);
 
     const devFloor = parseInt(device.floor, 10) || 1;
     const idfFloor = idf?.floor || 1;
@@ -604,7 +617,15 @@ const CableAnalyzer = {
       }
     }
 
-    const totalFt = Math.round(horizontal + vertical + cfg.slackFt + interBuildingFt);
+    let totalFt = Math.round(horizontal + vertical + cfg.slackFt + interBuildingFt);
+
+    // Enforce minimum cable run — no real commercial cable run is shorter than ~75 ft.
+    // Even a device 10 ft from the IDF has patch panel routing, slack loops, stub-up,
+    // and pathway routing that makes the actual cable much longer than the map distance.
+    const minRun = cfg.minRunFt || 75;
+    if (totalFt < minRun && dims?.w > 0) {
+      totalFt = minRun;
+    }
 
     return {
       horizontal,

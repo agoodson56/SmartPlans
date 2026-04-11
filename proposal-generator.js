@@ -699,18 +699,35 @@ ${this._confBar()}
     // Cache for PDF re-download without re-generating
     this._lastFullProposalHTML = wordHtml;
 
-    const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const safeName = projName.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
-    a.download = `3DTSI_Proposal_${safeName}_${today.toISOString().split('T')[0]}.doc`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    progressCallback(100, 'Proposal downloaded!');
-    if (typeof spToast === 'function') spToast('✓ Professional proposal downloaded — open in Microsoft Word');
+    try {
+      const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = projName.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
+      a.download = `3DTSI_Proposal_${safeName}_${today.toISOString().split('T')[0]}.doc`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Delay URL revocation to ensure download starts
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      progressCallback(100, 'Proposal downloaded!');
+      if (typeof spToast === 'function') spToast('✓ Professional proposal downloaded — open in Microsoft Word');
+    } catch (downloadErr) {
+      console.error('[ProposalGen] Download error:', downloadErr);
+      // Fallback: open in new tab if blob download fails
+      try {
+        const fallbackBlob = new Blob(['\ufeff' + wordHtml], { type: 'text/html' });
+        const fallbackUrl = URL.createObjectURL(fallbackBlob);
+        window.open(fallbackUrl, '_blank');
+        setTimeout(() => URL.revokeObjectURL(fallbackUrl), 10000);
+        progressCallback(100, 'Proposal opened in new tab (download failed)');
+        if (typeof spToast === 'function') spToast('Proposal opened in new tab — use File > Save As in your browser', 'warning');
+      } catch (fallbackErr) {
+        console.error('[ProposalGen] Fallback also failed:', fallbackErr);
+        throw new Error('Could not download proposal. Try a different browser or reduce document size.');
+      }
+    }
   },
 
   _markdownToHtml(md) {
@@ -799,12 +816,47 @@ ${this._confBar()}
     html = html.replace(/\*\*(.+?)\*\*/g, '<b style="color:#1B2A4A;">$1</b>');
     html = html.replace(/\*(.+?)\*/g, '<i>$1</i>');
 
-    // Lists
-    html = html.replace(/^(\s*)[-*] (.+)$/gm, '<li style="margin-bottom:3pt;">$2</li>');
-    html = html.replace(/((?:<li[^>]*>.*?<\/li>\s*)+)/g, '<ul style="margin-left:18pt;margin-bottom:8pt;">$1</ul>');
-    html = html.replace(/^\d+\. (.+)$/gm, '<li style="margin-bottom:3pt;">$1</li>');
+    // Lists — process line by line to avoid catastrophic backtracking on long documents
+    const lines = html.split('\n');
+    const result = [];
+    let inList = false;
+    let listType = null; // 'ul' or 'ol'
 
-    // Paragraphs
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const ulMatch = line.match(/^(\s*)[-*] (.+)$/);
+      const olMatch = line.match(/^\d+\. (.+)$/);
+
+      if (ulMatch) {
+        if (!inList || listType !== 'ul') {
+          if (inList) result.push(listType === 'ol' ? '</ol>' : '</ul>');
+          result.push('<ul style="margin-left:18pt;margin-bottom:8pt;">');
+          inList = true;
+          listType = 'ul';
+        }
+        result.push(`<li style="margin-bottom:3pt;">${ulMatch[2]}</li>`);
+      } else if (olMatch) {
+        if (!inList || listType !== 'ol') {
+          if (inList) result.push(listType === 'ol' ? '</ol>' : '</ul>');
+          result.push('<ol style="margin-left:18pt;margin-bottom:8pt;">');
+          inList = true;
+          listType = 'ol';
+        }
+        result.push(`<li style="margin-bottom:3pt;">${olMatch[1]}</li>`);
+      } else {
+        if (inList) {
+          result.push(listType === 'ol' ? '</ol>' : '</ul>');
+          inList = false;
+          listType = null;
+        }
+        result.push(line);
+      }
+    }
+    if (inList) result.push(listType === 'ol' ? '</ol>' : '</ul>');
+
+    html = result.join('\n');
+
+    // Paragraphs — wrap non-tag lines in <p> tags
     html = html.replace(/\n{2,}/g, '</p>\n<p style="margin-bottom:8pt;">');
     if (!html.startsWith('<')) html = '<p style="margin-bottom:8pt;">' + html;
     if (!html.endsWith('>')) html += '</p>';
