@@ -437,14 +437,17 @@ const SmartPlansExport = {
     _computeFullBreakdown(state, bom) {
         const { materials, equipment, subs, labor: bomLabor, bomTravel } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
-        const matPct = (cfg.material ?? 50) / 100;
-        const labPct = (cfg.labor ?? 50) / 100;
-        const eqPct = (cfg.equipment ?? 15) / 100;
-        const subPct = (cfg.subcontractor ?? 10) / 100;
-        const rawBurden = state.pricingConfig?.burdenRate ?? 35;
+        // AUDIT FIX #3: Use Number() to guard against empty string "" from form inputs
+        // "" ?? 50 returns "" (nullish only catches null/undefined), but Number("") || 50 returns 50
+        const matPct = (Number(cfg.material) || 50) / 100;
+        const labPct = (Number(cfg.labor) || 50) / 100;
+        const eqPct = (Number(cfg.equipment) || 15) / 100;
+        const subPct = (Number(cfg.subcontractor) || 10) / 100;
+        const rawBurden = Number(state.pricingConfig?.burdenRate) || 35;
         const burdenRate = rawBurden >= 1 ? rawBurden / 100 : rawBurden;
         const includeBurden = state.pricingConfig?.includeBurden !== false;
-        const contingencyPct = 0.10;
+        // AUDIT FIX #13: Contingency configurable (default 10%)
+        const contingencyPct = (Number(cfg.contingency) || 10) / 100;
 
         // ── Labor: use REAL data from Labor Calculator brain when available ──
         const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
@@ -475,8 +478,10 @@ const SmartPlansExport = {
             travel = this._round(computeTravelIncidentals().grandTotal || 0);
         }
 
-        // Bonds: 2% of sell price (matches FormulaEngine3D.bondsPct)
-        const bondsPct = 0.02;
+        // AUDIT FIX #7: Bond rate from pricing tier (budget=1.5%, mid=2%, premium=2.5%)
+        const pricingTier = state.pricingTier || state.pricingConfig?.tier || 'mid';
+        const tierBondRates = { budget: 0.015, mid: 0.02, premium: 0.025 };
+        const bondsPct = tierBondRates[pricingTier] || 0.02;
         const preBondSubtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
         const bonds = this._round(preBondSubtotal * bondsPct);
         let subtotal = this._round(preBondSubtotal + bonds);
@@ -493,12 +498,16 @@ const SmartPlansExport = {
             console.log(`[Export] 📊 3D Engine comparison: $${engine3DTotal.toLocaleString()} vs computed $${grandTotal.toLocaleString()} (delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()}, ${deltaPct}%)`);
         }
 
+        // AUDIT FIX #6: G&A/Overhead is embedded in markup percentages (material markup, labor markup)
+        // and explicitly broken out as burden (payroll taxes, insurance, etc.). No separate G&A line needed.
+        // The breakdown covers: direct costs + markup (OH+profit) + burden + travel + bonds + contingency.
         return {
             materials, equipment, subs, laborBase,
             matPct, labPct, eqPct, subPct,
             matSell, labSell, eqSell, subSell,
             burden, burdenRate: includeBurden ? burdenRate : 0,
-            travel, bonds, bondsPct, subtotal, contingency, contingencyPct, grandTotal
+            travel, bonds, bondsPct, subtotal, contingency, contingencyPct, grandTotal,
+            gaNote: 'G&A/overhead is included in material and labor markup percentages'
         };
     },
 
@@ -1168,8 +1177,12 @@ const SmartPlansExport = {
 
                 // Detect category headings (## or ### or **BOLD**)
                 const h2Match = line.match(/^#{1,3}\s+(.+)/);
+                // AUDIT FIX #8: Also match numbered headings like "1. Structured Cabling" and location-prefixed like "Building A — Cabling"
                 const boldMatch = !h2Match && line.match(/^\*\*([^*]{3,80})\*\*\s*$/);
-                const heading = h2Match ? h2Match[1].replace(/\*+/g, '').trim() : (boldMatch ? boldMatch[1].trim() : null);
+                const numberedMatch = !h2Match && !boldMatch && line.match(/^\d+[\.\)]\s+(.{3,80})$/);
+                const heading = h2Match ? h2Match[1].replace(/\*+/g, '').trim()
+                    : (boldMatch ? boldMatch[1].trim()
+                    : (numberedMatch ? numberedMatch[1].trim() : null));
 
                 if (heading) {
                     // Check if this heading looks like a material/cost category
@@ -1315,8 +1328,9 @@ const SmartPlansExport = {
                         });
                     }
                 } else {
-                    // Non-table line — reset table state if we were in one
-                    if (inTable && headersParsed) {
+                    // AUDIT FIX #21: Don't break table parsing on blank lines — AI often inserts
+                    // blank lines between table rows. Only reset if this is a non-empty, non-table line.
+                    if (inTable && headersParsed && line.length > 0) {
                         inTable = false;
                         headersParsed = false;
                     }
@@ -3379,7 +3393,27 @@ Return ONLY the JSON array. No other text.`;
             });
         }
 
-        const grandTotalWithStrategy = this._round(totalMaterial + totalLabor + totalMarkup + totalContingency);
+        // AUDIT FIX #2: Add burden, travel, and bonds — previously missing ~10% on large projects
+        const cfg = state.pricingConfig || {};
+        const rawBurden = Number(cfg.burdenRate) || 35;
+        const burdenRate = rawBurden >= 1 ? rawBurden / 100 : rawBurden;
+        const includeBurden = cfg.includeBurden !== false;
+        const burden = includeBurden ? this._round(totalLabor * burdenRate) : 0;
+
+        // Travel from state
+        let travel = 0;
+        if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
+            travel = this._round(computeTravelIncidentals().grandTotal || 0);
+        }
+
+        // Bonds based on pricing tier
+        const pricingTier = state.pricingTier || cfg.tier || 'mid';
+        const tierBondRates = { budget: 0.015, mid: 0.02, premium: 0.025 };
+        const bondsPct = tierBondRates[pricingTier] || 0.02;
+        const preBondSubtotal = this._round(totalMaterial + totalLabor + totalMarkup + totalContingency + burden + travel);
+        const bonds = this._round(preBondSubtotal * bondsPct);
+
+        const grandTotalWithStrategy = this._round(preBondSubtotal + bonds);
 
         return {
             grandTotalWithStrategy,
@@ -3388,6 +3422,7 @@ Return ONLY the JSON array. No other text.`;
             totalLabor: this._round(totalLabor),
             totalMarkup: this._round(totalMarkup),
             totalContingency: this._round(totalContingency),
+            burden, travel, bonds, bondsPct,
         };
     },
 };

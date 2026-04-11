@@ -157,6 +157,12 @@ const CableAnalyzer = {
   // ═══════════════════════════════════════════════════════════════
   buildCableSchedule(state, overrides) {
     const cfg = { ...this.defaults, ...(overrides || {}) };
+    // AUDIT FIX #11: Medical/government projects use 1.40 routing factor per BICSI TDMM
+    const projType = (state.projectType || state.buildingType || '').toLowerCase();
+    if (/medical|hospital|healthcare|clinic|government|federal|dod|va\b|correctional|detention/i.test(projType) && !overrides?.routingFactor) {
+      cfg.routingFactor = 1.40;
+      console.log(`[CableAnalyzer] Medical/government project detected — using 1.40 routing factor`);
+    }
     const wasteMult = 1 + (cfg.wastePct / 100);
 
     const deviceLocator = state.brainResults?.wave1?.DEVICE_LOCATOR;
@@ -332,6 +338,9 @@ const CableAnalyzer = {
 
           let runFt = cfg.defaultRunFt;
           let basis = 'default average';
+          // AUDIT FIX #4: Declare slackFt BEFORE the if/else chain so it's in scope for assignments.push
+          // Previously declared with const inside the if block — caused ReferenceError when else-if path ran
+          let slackFt = (cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5);
           const idf = idfMap[z.idf_serving];
 
           if (idf && (Object.keys(sheetDims).length > 0 || (bldgW > 0 && bldgD > 0))) {
@@ -354,7 +363,7 @@ const CableAnalyzer = {
             const idfDrop = cfg.idfDropFt || 20;
             const riser = floorsApart > 0 ? floorsApart * cfg.floorToFloorFt : 0;
             const vert = stubUp + idfDrop + riser;
-            const slackFt = (cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5);
+            slackFt = (cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5);
             runFt = Math.round((dx + dy) * routingMult + vert + slackFt);
             // Enforce minimum
             const minRun = cfg.minRunFt || 75;

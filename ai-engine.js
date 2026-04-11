@@ -2752,6 +2752,20 @@ const SmartBrains = {
   // ═══════════════════════════════════════════════════════════
 
   _getPrompt(brainKey, context) {
+    // AUDIT FIX #17: Prompt injection defense — sanitize all user-supplied context fields
+    // Strip any instruction-like patterns from user text that could hijack the AI brain
+    const _sanitize = (s) => {
+      if (typeof s !== 'string') return s;
+      // Remove attempts to override system prompts or inject new instructions
+      return s.replace(/(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|above|prior)\s+(?:instructions?|prompts?|rules?)/gi, '[FILTERED]')
+              .replace(/(?:you\s+are\s+now|new\s+instructions?|system\s*:\s*|assistant\s*:\s*|human\s*:\s*)/gi, '[FILTERED]')
+              .replace(/(?:output|return|respond\s+with)\s+(?:only|just)\s+(?:the\s+word|")/gi, '[FILTERED]');
+    };
+    // Sanitize user-facing context fields (mutate in place so all prompt closures see safe values)
+    if (context.projectName) context.projectName = _sanitize(context.projectName);
+    if (context.projectType) context.projectType = _sanitize(context.projectType);
+    if (context.codeJurisdiction) context.codeJurisdiction = _sanitize(context.codeJurisdiction);
+
     const prompts = {
 
       // ── BRAIN 1: Symbol Scanner ──────────────────────────────
@@ -2847,6 +2861,17 @@ YOUR MISSION: Review these construction documents for code violations, warnings,
 CODES TO CHECK:
 - NEC (NFPA 70): Articles 725 (Class 2/3), 760 (Fire Alarm), 770 (Fiber), 800 (Comm Circuits), 300 (Wiring Methods)
 - NFPA 72: Fire alarm device spacing, NAC calculations, pathway survivability
+  AUDIT FIX #16 — NFPA 72 NAC/SLC CALCULATIONS (verify these for fire alarm projects):
+  * NAC (Notification Appliance Circuit): Total device current draw must not exceed panel NAC output
+    - Typical NAC output: 2.5A per circuit. Each horn/strobe draws 0.09-0.30A depending on candela rating
+    - Max devices per NAC ≈ 8-25 depending on device type and candela setting
+    - Wire voltage drop: V_drop = 2 × L × I × R_per_ft (must stay above 16V at last device for 24VDC)
+    - #14 AWG: 2.58Ω/1000ft | #12 AWG: 1.62Ω/1000ft — use to verify wire gauge adequacy
+  * SLC (Signaling Line Circuit): Addressable loop device limits
+    - Typical SLC capacity: 127-250 devices per loop depending on panel manufacturer
+    - Wire distance limit: typically 12,000ft total loop length (Class B) or 6,000ft per side (Class A)
+  * Smoke detector spacing: 30ft max between detectors, 15ft from walls (NFPA 72 Table 17.6.3.5.1)
+  * Horn/strobe candela: 15cd minimum for rooms, 110cd for corridors, per NFPA 72 Table 18.5.5.4.1(a)
 - TIA-568: Structured cabling distances, bend radius, separation from EMI
 - TIA-569: Pathway and spaces standards
 - TIA-607: Grounding and bonding
@@ -3037,7 +3062,13 @@ ANALYZE THOROUGHLY:
    - PVC Schedule 40/80: underground, direct burial, exterior
    - Liquid-tight flexible: equipment whips, transitions
    - Include all fittings: couplings, connectors, elbows, LBs, pull boxes
-5. Conduit sizing and fill calculations (NEC Chapter 9)
+5. Conduit sizing and fill calculations — AUDIT FIX #15: VERIFY NEC CHAPTER 9 CONDUIT FILL:
+   - 1 cable: max 53% fill  |  2 cables: max 31% fill  |  3+ cables: max 40% fill
+   - Use NEC Table 5 (conductor area) and Table 4 (conduit internal area)
+   - Common fills: 3/4" EMT = 0.213 sq-in usable (40%), 1" = 0.346, 1-1/4" = 0.598, 2" = 1.342
+   - Cat6A cable ~0.049 sq-in each → 3/4" EMT max 4 cables, 1" max 7, 1-1/4" max 12, 2" max 27
+   - If conduit fill exceeds NEC maximum, flag as a code violation and recommend upsizing
+   - Include fill calculation in conduit_runs output: { "fill_pct": 38, "nec_compliant": true }
 6. Vertical risers and sleeve sizes
 7. UNDERGROUND/EXTERIOR PATHWAYS — This is critical:
    - Direct-buried conduit runs (measure distances from site plans)
@@ -4077,6 +4108,25 @@ A system with missing components DOES NOT WORK. For each discipline, you MUST in
     - Ground Lug / Bonding Bushing (1 per section for grounding continuity per TIA-607)
   ⚠️ COMMON ERROR: Pricing ladder rack LF but no supports, rod, clamps, or splices = rack cannot be installed
   ⚠️ COMMON ERROR: Fiber shelf at MDF but not at IDF = fiber can't terminate at remote end
+
+📡 DISTRIBUTED ANTENNA SYSTEM (DAS) — AUDIT FIX #18 Completeness Checklist:
+  □ BDA / Bi-Directional Amplifier (1 per building/coverage zone — signal source)
+  □ Donor Antenna (outdoor Yagi or omni — feeds signal to BDA)
+  □ DAS Head-End Unit (active DAS for large buildings) OR Signal Booster (passive for small)
+  □ Remote Units / Nodes (1 per 15,000-25,000 sq ft coverage area)
+  □ Indoor Antennas (ceiling-mount omni — 1 per 5,000-8,000 sq ft for adequate coverage)
+  □ RF Splitters (2-way, 4-way — distribute signal from head-end to remote units)
+  □ Directional Couplers / Tappers (balance signal levels across long runs)
+  □ 1/2" Plenum-Rated Coax (DAS backbone — measure total routing between components)
+  □ 7/8" Coax (riser/long backbone runs — lower loss over distance)
+  □ Fiber for DAS (if fiber-fed DAS — OS2 SM between head-end and remote units)
+  □ RF Connectors (N-type, 7-16 DIN — 2 per cable run, minimum)
+  □ Grounding Kit (per code, lightning protection for donor antenna)
+  □ RF Site Survey (pre-construction signal mapping — REQUIRED for system design)
+  □ iBwave Design (DAS coverage modeling — most specs require engineered design)
+  □ FCC/carrier coordination (if connecting to carrier macro network)
+  ⚠️ COMMON ERROR: Pricing antennas + BDA but no coax/splitters = signal can't reach coverage areas
+  ⚠️ COMMON ERROR: Missing RF survey = system may not meet coverage requirements
 
 🔌 STRUCTURED CABLING — J-hooks and pathway:
   □ J-Hooks — 1 every 4-5 ft of horizontal cable run (total horizontal ft ÷ 4.5)

@@ -52,6 +52,10 @@ const PRICING_DB = {
             patch_cord_5ft: { unit: "each", budget: 2.00, mid: 3.50, premium: 6.50, description: "Cat 6 patch cord 5ft", mfg: { budget: "ICC", mid: "Panduit", premium: "Leviton" }, partNumber: { budget: "ICPCSK05BL", mid: "UTPSP5BUY", premium: "62460-5L" } },
             patch_cord_7ft: { unit: "each", budget: 2.50, mid: 4.50, premium: 7.50, description: "Cat 6 patch cord 7ft", mfg: { budget: "ICC", mid: "Panduit", premium: "Leviton" }, partNumber: { budget: "ICPCSK07BL", mid: "UTPSP7BUY", premium: "62460-7L" } },
             patch_cord_10ft: { unit: "each", budget: 3.50, mid: 5.50, premium: 9.00, description: "Cat 6 patch cord 10ft", mfg: { budget: "ICC", mid: "Panduit", premium: "Leviton" }, partNumber: { budget: "ICPCSK10BL", mid: "UTPSP10BUY", premium: "62460-10L" } },
+            patch_cord_6a_3ft: { unit: "each", budget: 3.50, mid: 6.50, premium: 11.00, description: "Cat 6A patch cord 3ft", mfg: { budget: "ICC", mid: "Panduit", premium: "Leviton" }, partNumber: { budget: "ICPCSK03BL6A", mid: "UTP6ASD3BUY", premium: "6210G-3L" } },
+            patch_cord_6a_5ft: { unit: "each", budget: 4.50, mid: 7.50, premium: 12.50, description: "Cat 6A patch cord 5ft", mfg: { budget: "ICC", mid: "Panduit", premium: "Leviton" }, partNumber: { budget: "ICPCSK05BL6A", mid: "UTP6ASD5BUY", premium: "6210G-5L" } },
+            patch_cord_6a_7ft: { unit: "each", budget: 5.50, mid: 9.00, premium: 14.50, description: "Cat 6A patch cord 7ft", mfg: { budget: "ICC", mid: "Panduit", premium: "Leviton" }, partNumber: { budget: "ICPCSK07BL6A", mid: "UTP6ASD7BUY", premium: "6210G-7L" } },
+            patch_cord_6a_10ft: { unit: "each", budget: 7.00, mid: 11.00, premium: 17.00, description: "Cat 6A patch cord 10ft", mfg: { budget: "ICC", mid: "Panduit", premium: "Leviton" }, partNumber: { budget: "ICPCSK10BL6A", mid: "UTP6ASD10BUY", premium: "6210G-10L" } },
             fiber_patch_sm: { unit: "each", budget: 8.00, mid: 15.00, premium: 28.00, description: "SM LC-LC duplex fiber patch 3m", mfg: { budget: "Cleerline", mid: "Corning", premium: "Corning" }, partNumber: { budget: "SSFD9-LC-LC-3M", mid: "37-024-0F200003M", premium: "002U58-31121-03" } },
             fiber_patch_mm: { unit: "each", budget: 7.00, mid: 12.00, premium: 22.00, description: "MM LC-LC duplex fiber patch 3m", mfg: { budget: "Cleerline", mid: "Corning", premium: "Corning" }, partNumber: { budget: "SSFD5-LC-LC-3M", mid: "37-024-DF200003M", premium: "002A58-31121-03" } },
             fiber_enclosure_wall: { unit: "each", budget: 35.00, mid: 65.00, premium: 120.00, description: "Wall-mount fiber enclosure", mfg: { budget: "ICC", mid: "Corning", premium: "Corning" }, partNumber: { budget: "ICFOD104WM", mid: "WCH-02P", premium: "WCH-04P" } },
@@ -388,6 +392,84 @@ const PRICING_DB = {
             barrier_arm: { unit: "each", budget: 1200.00, mid: 2800.00, premium: 5500.00, description: "Barrier arm / vehicle gate", mfg: { budget: "LiftMaster", mid: "DoorKing", premium: "FAAC" }, partNumber: { budget: "BG770", mid: "1601-080", premium: "B680H" } },
             vehicle_loop: { unit: "each", budget: 85.00, mid: 150.00, premium: 280.00, description: "Vehicle detection loop (saw-cut)", mfg: { budget: "EMX", mid: "EMX", premium: "BEA" }, partNumber: { budget: "ULP-4x8", mid: "ULP-6x10", premium: "LOOP 10" } },
             loop_detector: { unit: "each", budget: 65.00, mid: 120.00, premium: 220.00, description: "Loop detector module (single channel)", mfg: { budget: "EMX", mid: "EMX", premium: "BEA" }, partNumber: { budget: "D-TEK", mid: "IRB-RET", premium: "MATRIX-D" } },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // AUDIT FIX #9: NURSE CALL SYSTEM
+    // ═══════════════════════════════════════════════════════════
+    nurseCall: {
+        stations: {
+            master_station: { unit: "each", budget: 1200.00, mid: 2400.00, premium: 4500.00, description: "Nurse call master station (central console)", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+            patient_station: { unit: "each", budget: 85.00, mid: 180.00, premium: 350.00, description: "Patient bedside station (pillow speaker/call cord)", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+            staff_station: { unit: "each", budget: 65.00, mid: 140.00, premium: 280.00, description: "Staff duty station / staff console", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+            corridor_dome: { unit: "each", budget: 35.00, mid: 75.00, premium: 150.00, description: "Corridor dome light (LED, single/multi-color)", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+            pull_cord_station: { unit: "each", budget: 55.00, mid: 120.00, premium: 240.00, description: "Pull cord station (bathroom/shower)", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+            code_blue_station: { unit: "each", budget: 95.00, mid: 200.00, premium: 400.00, description: "Code Blue emergency station", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+            staff_wearable: { unit: "each", budget: 120.00, mid: 250.00, premium: 500.00, description: "Staff wearable badge / wireless locator", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+        },
+        infrastructure: {
+            controller: { unit: "each", budget: 2500.00, mid: 5000.00, premium: 9500.00, description: "Nurse call system controller / processor", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+            power_supply: { unit: "each", budget: 150.00, mid: 300.00, premium: 550.00, description: "Nurse call power supply", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+            zone_module: { unit: "each", budget: 80.00, mid: 160.00, premium: 320.00, description: "Zone/floor expansion module", mfg: { budget: "TekTone", mid: "Rauland", premium: "Hill-Rom" } },
+        },
+        wire: {
+            nc_cable: { unit: "per ft", budget: 0.12, mid: 0.20, premium: 0.30, description: "Nurse call cable (shielded multipair)" },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // AUDIT FIX #10: PAGING / MASS NOTIFICATION SYSTEM (MNS)
+    // ═══════════════════════════════════════════════════════════
+    pagingMNS: {
+        speakers: {
+            ceiling_speaker: { unit: "each", budget: 18.00, mid: 35.00, premium: 65.00, description: "Ceiling speaker 8\" 70V", mfg: { budget: "Atlas Sound", mid: "Atlas Sound", premium: "Bose" } },
+            wall_baffle: { unit: "each", budget: 22.00, mid: 45.00, premium: 85.00, description: "Wall baffle speaker 70V", mfg: { budget: "Atlas Sound", mid: "Atlas Sound", premium: "Bose" } },
+            horn_speaker: { unit: "each", budget: 28.00, mid: 55.00, premium: 110.00, description: "Horn/re-entrant speaker (outdoor/high-noise)", mfg: { budget: "Atlas Sound", mid: "Atlas Sound", premium: "Bose" } },
+            speaker_strobe: { unit: "each", budget: 85.00, mid: 180.00, premium: 350.00, description: "Speaker/strobe combo (MNS)", mfg: { budget: "Wheelock", mid: "System Sensor", premium: "Eaton" } },
+        },
+        amplifiers: {
+            amp_60w: { unit: "each", budget: 250.00, mid: 480.00, premium: 850.00, description: "Paging amplifier 60W 70V" },
+            amp_120w: { unit: "each", budget: 380.00, mid: 720.00, premium: 1200.00, description: "Paging amplifier 120W 70V" },
+            amp_240w: { unit: "each", budget: 550.00, mid: 1050.00, premium: 1800.00, description: "Paging amplifier 240W 70V" },
+        },
+        infrastructure: {
+            paging_controller: { unit: "each", budget: 800.00, mid: 1800.00, premium: 3500.00, description: "IP paging controller/server" },
+            zone_controller: { unit: "each", budget: 350.00, mid: 650.00, premium: 1200.00, description: "Zone paging controller" },
+            microphone_desk: { unit: "each", budget: 65.00, mid: 140.00, premium: 280.00, description: "Desktop paging microphone" },
+            volume_control: { unit: "each", budget: 12.00, mid: 25.00, premium: 48.00, description: "Volume attenuator (wall-mount)" },
+        },
+        wire: {
+            speaker_wire_162: { unit: "per ft", budget: 0.08, mid: 0.14, premium: 0.22, description: "Speaker wire 16/2 plenum" },
+            speaker_wire_142: { unit: "per ft", budget: 0.10, mid: 0.18, premium: 0.28, description: "Speaker wire 14/2 plenum" },
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // AUDIT FIX #18: DISTRIBUTED ANTENNA SYSTEM (DAS)
+    // ═══════════════════════════════════════════════════════════
+    das: {
+        headEnd: {
+            bda_repeater: { unit: "each", budget: 8000.00, mid: 15000.00, premium: 28000.00, description: "Bi-directional amplifier (BDA/repeater)", mfg: { budget: "SureCall", mid: "SOLiD", premium: "CommScope" } },
+            signal_source: { unit: "each", budget: 2500.00, mid: 5000.00, premium: 12000.00, description: "Signal source / donor antenna system" },
+            das_headend: { unit: "each", budget: 15000.00, mid: 35000.00, premium: 75000.00, description: "Active DAS head-end unit", mfg: { budget: "SureCall", mid: "SOLiD", premium: "CommScope" } },
+        },
+        distribution: {
+            remote_unit: { unit: "each", budget: 800.00, mid: 1800.00, premium: 3500.00, description: "DAS remote unit / node" },
+            indoor_antenna: { unit: "each", budget: 45.00, mid: 95.00, premium: 180.00, description: "Indoor omnidirectional antenna (ceiling)" },
+            outdoor_antenna_donor: { unit: "each", budget: 120.00, mid: 280.00, premium: 550.00, description: "Outdoor donor/Yagi antenna" },
+            splitter_2way: { unit: "each", budget: 25.00, mid: 48.00, premium: 85.00, description: "RF splitter 2-way" },
+            splitter_4way: { unit: "each", budget: 35.00, mid: 65.00, premium: 120.00, description: "RF splitter 4-way" },
+            tappers: { unit: "each", budget: 30.00, mid: 55.00, premium: 95.00, description: "Directional coupler/tapper" },
+        },
+        cable: {
+            coax_half_inch: { unit: "per ft", budget: 1.20, mid: 2.00, premium: 3.20, description: "1/2\" plenum-rated coax (DAS backbone)" },
+            coax_78_inch: { unit: "per ft", budget: 2.50, mid: 4.00, premium: 6.50, description: "7/8\" coax (DAS riser/backbone)" },
+            fiber_das: { unit: "per ft", budget: 0.45, mid: 0.75, premium: 1.20, description: "Fiber for DAS (SM OS2 6-strand)" },
+        },
+        testing: {
+            rf_survey: { unit: "each", budget: 2500.00, mid: 5000.00, premium: 10000.00, description: "RF site survey and signal analysis" },
+            ibwave_design: { unit: "each", budget: 3000.00, mid: 6000.00, premium: 12000.00, description: "iBwave DAS design and modeling" },
         },
     },
 

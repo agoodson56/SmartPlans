@@ -929,6 +929,7 @@ ${this._confBar()}
   // This is the SINGLE SOURCE OF TRUTH for all proposal pricing
   // ═══════════════════════════════════════════════════════════════
   _buildFinancialTableHtml(state) {
+   try {
     const b = this.BRAND;
     const analysis = state.aiAnalysis || '';
     const fmt = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -958,9 +959,14 @@ ${this._confBar()}
     }
 
     // Use the SAME breakdown as export-engine.js — single source of truth
-    const bd = (typeof SmartPlansExport._computeFullBreakdown === 'function')
-        ? SmartPlansExport._computeFullBreakdown(state, bom)
-        : null;
+    let bd = null;
+    try {
+      bd = (typeof SmartPlansExport._computeFullBreakdown === 'function')
+          ? SmartPlansExport._computeFullBreakdown(state, bom)
+          : null;
+    } catch (bdErr) {
+      console.error('[ProposalGen] _computeFullBreakdown threw:', bdErr);
+    }
 
     if (!bd) {
       console.warn('[ProposalGen] _computeFullBreakdown not available — skipping financial table');
@@ -1017,7 +1023,7 @@ ${this._confBar(true)}
     <td bgcolor="#3B97A1" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #2B828B;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(subtotal)}</b></font></td>
   </tr>
   <tr>
-    <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency ${Math.round((contingencyPct || 0.10) * 100)}%</font></td>
+    <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency ${Math.round((bd.contingencyPct || 0.10) * 100)}%</font></td>
     <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(contingency)}</font></td>
   </tr>
   <tr>
@@ -1026,6 +1032,15 @@ ${this._confBar(true)}
   </tr>
 </table>
 `;
+   } catch (finErr) {
+    console.error('[ProposalGen] _buildFinancialTableHtml error:', finErr);
+    // Return a graceful fallback instead of crashing the entire proposal
+    const fallbackTotal = state._bomGrandTotal;
+    if (fallbackTotal) {
+      return `<p style="font-size:13pt;font-weight:bold;color:#222;font-family:Calibri,Arial,sans-serif;">Total Investment: $${Number(fallbackTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>`;
+    }
+    return '';
+   }
   },
 
   // ═══════════════════════════════════════════════════════════════

@@ -4056,7 +4056,7 @@ function buildScaleCalibrationCard(st) {
             <strong>Pass 1:</strong> AI reads title block scale notation, graphic scale bars, and dimension lines.<br>
             <strong>Pass 2:</strong> Door-swing calibration — measures door leaf pixels vs. standard 36" width as fallback.<br>
             <strong>Manual:</strong> Click two points on any sheet and enter the known distance to override.<br>
-            <strong>Cable Runs:</strong> Pixel-measured distances × routing factor (1.15×) + vertical drop + slack, rounded up to 5 ft.
+            <strong>Cable Runs:</strong> Pixel-measured distances × routing factor (1.30× BICSI TDMM) + vertical drop (30 ft) + slack (16 ft), with 12% waste factor.
           </div>
         </div>
       </div>
@@ -4785,7 +4785,11 @@ function computePathwayDistances() {
   const STUB_UP  = 10;   // Device end: up the wall to plenum
   const IDF_DROP = 20;   // IDF end: from plenum down rack to patch panel
   const SLACK_FT = 16;   // 10 TR loop + 1 outlet loop + 5 dressing
-  const ROUTING_FACTOR = 1.30; // BICSI TDMM pathway multiplier
+  // AUDIT FIX #11: Medical/government projects use 1.40 routing factor per BICSI TDMM
+  // (longer pathways due to code requirements, fire-rated barriers, plenum restrictions)
+  const projType = (state.projectType || state.buildingType || '').toLowerCase();
+  const isMedicalGov = /medical|hospital|healthcare|clinic|government|federal|dod|va\b|correctional|detention/i.test(projType);
+  const ROUTING_FACTOR = isMedicalGov ? 1.40 : 1.30; // BICSI TDMM pathway multiplier
   const WASTE    = 1.12; // 12% cable waste factor
 
   // Build IDF position lookup: { "IDF-1A": { x_pct, y_pct, floor } }
@@ -4823,8 +4827,11 @@ function computePathwayDistances() {
   const hasPerSheetDims = Object.keys(sheetDims).length > 0;
 
   // Overall building envelope — fallback when no per-sheet data
-  const bldgW = spatial.building_dimensions?.overall_width_ft || state.floorPlateWidth || 0;
-  const bldgD = spatial.building_dimensions?.overall_depth_ft || state.floorPlateDepth || 0;
+  // AUDIT FIX #14: Sanity-check dimensions — reject clearly wrong values (<20ft or >2000ft)
+  let bldgW = spatial.building_dimensions?.overall_width_ft || state.floorPlateWidth || 0;
+  let bldgD = spatial.building_dimensions?.overall_depth_ft || state.floorPlateDepth || 0;
+  if (bldgW > 0 && (bldgW < 20 || bldgW > 2000)) { console.warn(`[Pathway] Suspect bldgW=${bldgW}ft — clamping`); bldgW = Math.max(50, Math.min(bldgW, 1500)); }
+  if (bldgD > 0 && (bldgD < 20 || bldgD > 2000)) { console.warn(`[Pathway] Suspect bldgD=${bldgD}ft — clamping`); bldgD = Math.max(50, Math.min(bldgD, 1500)); }
   const hasDimensions = hasPerSheetDims || (bldgW > 0 && bldgD > 0);
 
   const results = [];
@@ -5085,8 +5092,8 @@ function injectCalculatedCableQuantities(bom) {
   let consensusCableDrops = 0;
   for (const [key, val] of Object.entries(consensus)) {
     const k = key.toLowerCase();
-    if (k.includes('data') || k.includes('outlet') || k.includes('voice') || k.includes('wap') || k.includes('wireless')
-        || k.includes('jack') || k.includes('drop') || k.includes('cat6') || k.includes('port')) {
+    // AUDIT FIX #5: Use precise regex to avoid false positives (power_outlet, transport, report, metadata)
+    if (/^(data[_\s]?(outlet|drop|port)|voice[_\s]?(outlet|drop)|wap|wireless[_\s]?access|network[_\s]?jack|cat6a?[_\s]?drop|ethernet[_\s]?(outlet|port|drop)|rj45)$/i.test(k)) {
       const count = typeof val === 'object' ? (val.consensus || val.count || val.total || 0) : (val || 0);
       consensusCableDrops += count;
     }
@@ -5107,7 +5114,8 @@ function injectCalculatedCableQuantities(bom) {
     });
     // Compute avg run per cable type
     for (const [key, calc] of Object.entries(calcByType)) {
-      if (calc.deviceCount > 0) calc.avgRunFt = Math.round(calc.totalFt / calc.deviceCount);
+      // AUDIT FIX #1: Divide by waste to get true avg run BEFORE waste — prevents double waste application
+      if (calc.deviceCount > 0) calc.avgRunFt = Math.round(calc.totalFt / calc.deviceCount / 1.12);
     }
   }
 
