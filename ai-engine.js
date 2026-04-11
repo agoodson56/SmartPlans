@@ -2683,7 +2683,7 @@ const SmartBrains = {
   _SCHEMAS: {
     LEGEND_DECODER: ['symbols', 'legend_quality'],
     SPATIAL_LAYOUT: ['building_dimensions', 'floors'],
-    SYMBOL_SCANNER: ['sheets', 'totals'],
+    SYMBOL_SCANNER: ['sheets', 'totals', 'outlet_breakdown'],
     CODE_COMPLIANCE: ['issues', 'summary'],
     MDF_IDF_ANALYZER: ['rooms'],
     CABLE_PATHWAY: ['horizontal_cables', 'pathways', 'conduit_runs'],
@@ -2691,7 +2691,7 @@ const SmartBrains = {
     SHADOW_SCANNER: ['totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
     QUADRANT_SCANNER: ['quadrants', 'totals'],
-    CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence'],
+    CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence', 'outlet_breakdown'],
     TARGETED_RESCANNER: ['resolved_items', 'final_counts'],
     MATERIAL_PRICER: ['categories', 'grand_total'],
     LABOR_CALCULATOR: ['phases', 'total_hours'],
@@ -2787,7 +2787,8 @@ ${(context.disciplines || []).includes('Structured Cabling') ? `═══ CRITIC
   A triangle symbol labeled "2D" means TWO data cables at that location — NOT one symbol = one outlet.
   Count each "2D" as 2 data_outlets, each "4D" as 4 data_outlets, etc.
   Similarly "2V" = 2 voice drops, "1V" = 1 voice drop. The total data_outlet count = SUM of all multiplied values.
-  DO NOT count the number of symbols — count the number of CABLES indicated by each symbol label.` : ''}
+  DO NOT count the number of symbols — count the number of CABLES indicated by each symbol label.
+  OUTLET BREAKDOWN (MANDATORY for faceplate sizing): In your response, include "outlet_breakdown" in the top-level JSON showing how many LOCATIONS use each multiplier: {"1D": count_of_1D_symbols, "2D": count_of_2D_symbols, "4D": count_of_4D_symbols, "6D": count_of_6D_symbols}. This determines faceplate port count (2D location → 2-port faceplate, 4D → 4-port faceplate). Count LOCATIONS (symbols), not drops.` : ''}
 ${(context.disciplines || []).includes('CCTV') ? '- CCTV: Fixed cameras, PTZ cameras, dome cameras, bullet cameras, multi-sensor cameras, NVRs, encoders' : ''}
 ${(context.disciplines || []).includes('Access Control') ? '- ACCESS (Div 28 + Div 08): Card readers, keypads, door contacts, REX devices, electric strikes, maglocks, intercoms, controllers, power transfer hinges, auto-operators, delayed egress devices, gate operators, barrier arms' : ''}
 ${(context.disciplines || []).includes('Fire Alarm') ? '- FIRE: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, modules, annunciators, NACs, SLCs' : ''}
@@ -2843,6 +2844,7 @@ Return ONLY valid JSON:
     }
   ],
   "totals": { "camera": 48, "data_outlet": 200 },
+  "outlet_breakdown": { "1D": 10, "2D": 80, "4D": 15, "6D": 0 },
   "device_inventory": [
     { "type": "camera", "subtype": "fixed_dome", "room": "Lobby", "floor": "1st Floor", "sheet": "E1.01", "qty": 3 },
     { "type": "camera", "subtype": "fixed_dome", "room": "Corridor A", "floor": "1st Floor", "sheet": "E1.01", "qty": 5 }
@@ -5109,6 +5111,7 @@ Return ONLY valid JSON (same schema as Symbol Scanner):
     }
   ],
   "totals": { "camera": 48, "data_outlet": 200 },
+  "outlet_breakdown": { "1D": 10, "2D": 80, "4D": 15, "6D": 0 },
   "methodology": "room-by-room",
   "unidentified_symbols": [],
   "notes": ""
@@ -5185,6 +5188,7 @@ Return ONLY valid JSON:
     }
   ],
   "totals": { "camera": 48, "data_outlet": 200 },
+  "outlet_breakdown": { "1D": 10, "2D": 80, "4D": 15, "6D": 0 },
   "boundary_devices": [
     { "sheet": "E1.01", "type": "data_outlet", "count": 3, "note": "On boundary between quadrants — counted once" }
   ]
@@ -5252,6 +5256,7 @@ Examples: "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops, "1D" = 1 dat
 A triangle symbol labeled "2D" means TWO data cables — NOT one symbol = one outlet.
 When comparing reads, verify ALL scanners interpreted the multiplier correctly. If one read counts 30 symbols and another counts 80 data_outlets, the higher number likely correctly multiplied the prefix values.
 Total data_outlet count = SUM of all (prefix × symbol) values across the plan. Similarly "2V"/"4V" = voice drops.
+OUTLET BREAKDOWN: You MUST include "outlet_breakdown" in your response showing how many LOCATIONS (not drops) use each multiplier prefix. Example: if plans have 10 symbols labeled "1D", 80 labeled "2D", and 15 labeled "4D": outlet_breakdown = {"1D": 10, "2D": 80, "4D": 15, "6D": 0}. This is CRITICAL for faceplate sizing — a 2D location needs a 2-port faceplate, a 4D location needs a 4-port faceplate. If scanners report outlet_breakdown, use their data. If not, derive it from the consensus data_outlet count and the dominant outlet type.
 
 ═══ CRITICAL: TYPICAL NOTE MULTIPLICATION ═══
 When an annotation says "TYP" or "TYPICAL" (e.g., "Card reader TYP at each secure door"):
@@ -5278,6 +5283,7 @@ Return ONLY valid JSON:
   "schedule_overrides": [
     { "device": "camera", "schedule_name": "Camera Schedule on ES650", "schedule_qty": 82, "symbol_count_qty": 70, "used": 82, "reason": "Schedule is authoritative" }
   ],
+  "outlet_breakdown": { "1D": 10, "2D": 80, "4D": 15, "6D": 0 },
   "disputes": [
     { "device_type": "data_outlet", "read1": 200, "read2": 180, "read3": 210, "variance_pct": 15, "likely_problem_area": "Sheet E1.02 open office zone", "needs_rescan": true }
   ],

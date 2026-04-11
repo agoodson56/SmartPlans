@@ -5758,12 +5758,18 @@ function computePathwayDistances() {
   let consensusWAPCount = 0;
   for (const [_key, _val] of Object.entries(_consensus)) {
     const _k = _key.toLowerCase();
-    if (/^(data[_\s]?(outlet|drop|port)|voice[_\s]?(outlet|drop)|wap|wireless[_\s]?access|network[_\s]?jack|cat6a?[_\s]?drop|ethernet[_\s]?(outlet|port|drop)|rj45)$/i.test(_k)) {
+    if (/^(data[_\s]?(outlet|drop|port)s?|voice[_\s]?(outlet|drop)s?|wap|wireless[_\s]?access[_\s]?point?s?|network[_\s]?(jack|drop)s?|cat6a?[_\s]?(drop|outlet)s?|ethernet[_\s]?(outlet|port|drop)s?|rj.?45[_\s]?(jack|drop|outlet)?s?|communication[_\s]?(outlet|drop)s?)$/i.test(_k)) {
       const _count = typeof _val === 'object' ? (_val.consensus || _val.count || _val.total || 0) : (_val || 0);
       consensusCableDrops += _count;
       if (/^(wap|wireless[_\s]?access)/i.test(_k)) consensusWAPCount += _count;
     }
   }
+
+  // Extract outlet_breakdown from consensus (how many 1D, 2D, 4D, 6D outlet locations)
+  // Used downstream for faceplate port sizing — 2D locations need 2-port faceplates, 4D need 4-port, etc.
+  const _consensusObj = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR || {};
+  const outletBreakdown = _consensusObj.outlet_breakdown
+    || state.brainResults?.wave1?.SYMBOL_SCANNER?.outlet_breakdown || null;
 
   return {
     results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD,
@@ -5772,6 +5778,7 @@ function computePathwayDistances() {
     cableTrayResults, trayTotalFt, trayTotalCost, calculatedTrayFt, byOthersPathways,
     consensusCableDrops, // Total data/voice/WAP drops from AI consensus (used for jack/faceplate correction)
     consensusWAPCount,   // WAP-only count — WAPs need jacks but NOT faceplates
+    outletBreakdown,     // { "1D": N, "2D": N, "4D": N, "6D": N } — faceplate port sizing
   };
 }
 
@@ -5856,7 +5863,8 @@ function injectCalculatedCableQuantities(bom) {
   for (const [key, val] of Object.entries(consensus)) {
     const k = key.toLowerCase();
     // AUDIT FIX #5: Use precise regex to avoid false positives (power_outlet, transport, report, metadata)
-    if (/^(data[_\s]?(outlet|drop|port)|voice[_\s]?(outlet|drop)|wap|wireless[_\s]?access|network[_\s]?jack|cat6a?[_\s]?drop|ethernet[_\s]?(outlet|port|drop)|rj45)$/i.test(k)) {
+    // Accept plurals (data_outlets) and more variations (communication_outlet, network_drop, rj45_jack, etc.)
+    if (/^(data[_\s]?(outlet|drop|port)s?|voice[_\s]?(outlet|drop)s?|wap|wireless[_\s]?access[_\s]?point?s?|network[_\s]?(jack|drop)s?|cat6a?[_\s]?(drop|outlet)s?|ethernet[_\s]?(outlet|port|drop)s?|rj.?45[_\s]?(jack|drop|outlet)?s?|communication[_\s]?(outlet|drop)s?)$/i.test(k)) {
       const count = typeof val === 'object' ? (val.consensus || val.count || val.total || 0) : (val || 0);
       consensusCableDrops += count;
       // Track WAPs separately — they need jacks + cable but NOT faceplates or outlet patch cords
@@ -6131,26 +6139,80 @@ function injectCalculatedCableQuantities(bom) {
         // Jacks / keystones: 1 per drop
         _correctAccessoryQty(/keystone\s*jack|cat\s*6a?\s*jack|data\s*jack|rj.?45\s*jack/i, totalDrops, 'Keystone Jack', 'ea', 19.86);
 
-        // Faceplates: ceil(outletDrops / ports_per_plate)
+        // Faceplates: use outlet_breakdown to generate correct port-size faceplates
         // WAPs mount directly to cable (no faceplate) — only count outlet drops
         const wapCount = pathway.consensusWAPCount || 0;
         const outletDrops = totalDrops - wapCount; // Data/voice outlets that need faceplates
-        // Detect port count from existing faceplate description
         const fpIdx = updatedItems.findIndex(item => /faceplate|face\s*plate|wall\s*plate/i.test(item.name || item.item || ''));
+        const ob = pathway.outletBreakdown; // { "1D": N, "2D": N, "4D": N, "6D": N }
         if (fpIdx >= 0 && outletDrops > 0) {
           const fpItem = updatedItems[fpIdx];
-          const fpName = (fpItem.name || fpItem.item || '').toLowerCase();
-          const portsMatch = fpName.match(/(\d+)[\s-]*port/);
-          const portsPerPlate = portsMatch ? parseInt(portsMatch[1]) : 2; // Default 2-port
-          const correctFpQty = Math.ceil(outletDrops / portsPerPlate);
           const oldFpQty = fpItem.qty || 0;
-          if (oldFpQty !== correctFpQty) {
-            const uc = fpItem.unitCost || 5.42;
-            updatedItems[fpIdx] = {
-              ...fpItem, qty: correctFpQty, extCost: Math.round(correctFpQty * uc * 100) / 100,
-              _calculatedRun: true, _accessoryCorrected: true
-            };
-            console.log(`[CableInjection] Faceplate corrected: ${oldFpQty} → ${correctFpQty} (${outletDrops} outlet drops ÷ ${portsPerPlate} ports, excl ${wapCount} WAPs)`);
+
+          if (ob && (ob['1D'] || ob['2D'] || ob['4D'] || ob['6D'])) {
+            // ── OUTLET BREAKDOWN AVAILABLE — generate per-size faceplate lines ──
+            // Replace the existing faceplate with the dominant type; add additional lines for others
+            const sizes = [
+              { key: '1D', ports: 1, label: '1-Port Faceplate' },
+              { key: '2D', ports: 2, label: '2-Port Faceplate' },
+              { key: '4D', ports: 4, label: '4-Port Faceplate' },
+              { key: '6D', ports: 6, label: '6-Port Faceplate' },
+            ];
+            // Find the dominant size (most locations) — this replaces the existing faceplate item
+            const activeSizes = sizes.filter(s => (ob[s.key] || 0) > 0).sort((a, b) => (ob[b.key] || 0) - (ob[a.key] || 0));
+            let totalFpLocations = 0;
+            if (activeSizes.length > 0) {
+              // Replace existing faceplate with the dominant size
+              const dominant = activeSizes[0];
+              const domQty = ob[dominant.key] || 0;
+              totalFpLocations += domQty;
+              const ucBase = fpItem.unitCost || 5.42;
+              // Scale unit cost by port count relative to base (2-port is typical baseline)
+              const uc = dominant.ports <= 2 ? ucBase : Math.round(ucBase * (dominant.ports / 2) * 100) / 100;
+              const newName = (fpItem.name || fpItem.item || '').replace(/\d+[\s-]*port/i, `${dominant.ports}-Port`);
+              updatedItems[fpIdx] = {
+                ...fpItem, qty: domQty, item: newName, name: newName,
+                unitCost: uc, extCost: Math.round(domQty * uc * 100) / 100,
+                _calculatedRun: true, _accessoryCorrected: true
+              };
+              console.log(`[CableInjection] Faceplate corrected (dominant): ${oldFpQty} → ${domQty} × ${dominant.ports}-Port (from outlet_breakdown)`);
+
+              // Add additional faceplate lines for other sizes
+              for (let si = 1; si < activeSizes.length; si++) {
+                const s = activeSizes[si];
+                const sQty = ob[s.key] || 0;
+                if (sQty <= 0) continue;
+                totalFpLocations += sQty;
+                const sUc = s.ports <= 2 ? ucBase : Math.round(ucBase * (s.ports / 2) * 100) / 100;
+                const sName = (fpItem.name || fpItem.item || '').replace(/\d+[\s-]*port/i, `${s.ports}-Port`);
+                updatedItems.splice(fpIdx + si, 0, {
+                  ...fpItem, qty: sQty, item: sName, name: sName,
+                  unitCost: sUc, extCost: Math.round(sQty * sUc * 100) / 100,
+                  _calculatedRun: true, _accessoryCorrected: true, _injected: true
+                });
+                console.log(`[CableInjection] Faceplate added: ${sQty} × ${s.ports}-Port (from outlet_breakdown)`);
+              }
+              console.log(`[CableInjection] Total faceplate locations: ${totalFpLocations} (outlet_breakdown: 1D=${ob['1D']||0}, 2D=${ob['2D']||0}, 4D=${ob['4D']||0}, 6D=${ob['6D']||0})`);
+            }
+          } else {
+            // ── NO BREAKDOWN — fall back to 2-port default (most common in commercial) ──
+            // Do NOT trust the AI-generated faceplate name for port count — it's often wrong (e.g., says 1-port when plans show 2D)
+            const portsPerPlate = 2; // Default 2-port — most commercial plans use 2D outlets
+            const correctFpQty = Math.ceil(outletDrops / portsPerPlate);
+            if (oldFpQty !== correctFpQty) {
+              const uc = fpItem.unitCost || 5.42;
+              // Fix the faceplate name to say 2-Port if it wrongly says 1-Port
+              let fixedName = (fpItem.name || fpItem.item || '');
+              if (/1[\s-]*port/i.test(fixedName)) {
+                fixedName = fixedName.replace(/1[\s-]*port/i, '2-Port');
+              }
+              updatedItems[fpIdx] = {
+                ...fpItem, qty: correctFpQty, item: fixedName, name: fixedName,
+                extCost: Math.round(correctFpQty * uc * 100) / 100,
+                _calculatedRun: true, _accessoryCorrected: true
+              };
+              console.log(`[CableInjection] Faceplate corrected (no breakdown, default 2-port): ${oldFpQty} → ${correctFpQty} (${outletDrops} outlet drops ÷ ${portsPerPlate} ports, excl ${wapCount} WAPs)`);
+            }
           }
         }
 
@@ -6169,6 +6231,28 @@ function injectCalculatedCableQuantities(bom) {
             }
           }
         });
+
+        // Patch panels: ceil(totalDrops / portsPerPanel) — ALL drops need termination at the MDF/IDF
+        // The AI Material Pricer often gets this wrong (too many or too few)
+        const ppIdx = updatedItems.findIndex(item => /patch\s*panel|patch[-\s]*panel/i.test(item.name || item.item || '') && /^ea$/i.test(item.unit || ''));
+        if (ppIdx >= 0) {
+          const ppItem = updatedItems[ppIdx];
+          const ppName = (ppItem.name || ppItem.item || '').toLowerCase();
+          const ppPortsMatch = ppName.match(/(\d+)[\s-]*port/);
+          const portsPerPanel = ppPortsMatch ? parseInt(ppPortsMatch[1]) : 48; // Default 48-port
+          // Add ~20% growth/spare capacity — standard BICSI practice for patch panel sizing
+          // This also matches typical rack elevation designs (e.g., 310 drops → 8 × 48-port = 384 ports)
+          const correctPpQty = Math.ceil((totalDrops * 1.2) / portsPerPanel);
+          const oldPpQty = ppItem.qty || 0;
+          if (oldPpQty !== correctPpQty) {
+            const uc = ppItem.unitCost || 70.00;
+            updatedItems[ppIdx] = {
+              ...ppItem, qty: correctPpQty, extCost: Math.round(correctPpQty * uc * 100) / 100,
+              _calculatedRun: true, _accessoryCorrected: true
+            };
+            console.log(`[CableInjection] Patch panel corrected: ${oldPpQty} → ${correctPpQty} (${totalDrops} drops × 1.2 growth ÷ ${portsPerPanel} ports/panel)`);
+          }
+        }
       }
 
     } // end isPrimaryInfraCat injection block
