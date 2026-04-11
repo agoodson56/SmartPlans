@@ -1043,6 +1043,33 @@ const SmartDefaults = {
     { pattern: /\but\b|utah|nm\b|new\s*mexico|id\b|idaho|mt\b|montana|wy\b|wyoming|nd\b|north\s*dakota|sd\b|south\s*dakota|ne\b|nebraska|ks\b|kansas|ok\b|oklahoma/i, region: 'mountain', label: 'Mountain (0.95×)' },
   ],
 
+  // ── Discipline → Specific counting instructions ──
+  // Auto-fills the "Specific items to count" field so AI knows exactly what to look for
+  _DISCIPLINE_COUNT_INSTRUCTIONS: {
+    'Structured Cabling': 'Count all data outlets, voice outlets, WAPs/wireless access points, fiber runs, MDF/IDF/TR rooms, cable tray runs, J-hooks, backbone cables, patch panels, and racks.',
+    'CCTV': 'Count all camera locations (fixed dome, PTZ, bullet, turret), NVR/VMS servers, monitors, exterior vs interior cameras, pole mounts, and license plate readers.',
+    'Access Control': 'Count all controlled doors (card readers, biometric), REX devices, electrified hardware (mag locks, electric strikes, door holders), access control panels, and credentials.',
+    'Fire Alarm': 'Count all smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, FACP panels, NAC circuits, annunciators, and sprinkler flow/tamper switches.',
+    'Paging / Intercom': 'Count all paging speakers (ceiling, wall, horn), amplifiers, intercom stations, call stations, master stations, and paging zones.',
+    'Nurse Call Systems': 'Count all patient stations, staff stations, pillow speakers, dome lights, code blue stations, duty stations, and master stations.',
+    'Distributed Antenna Systems (DAS)': 'Count all DAS antennas/remote units, head-end equipment locations, donor antennas, fiber/coax backbone runs, and coverage zones.',
+    'Audio Visual': 'Count all displays/monitors, projectors, speakers, microphones, control panels/touch screens, AV racks, video conferencing systems, digital signage, and sound masking zones.',
+    'Intrusion Detection': 'Count all motion detectors, door contacts, glass break sensors, keypads, intrusion panels, sirens, and duress buttons.',
+    'Door Hardware / Electrified Hardware': 'Count all electrified doors, electric strikes, mag locks, auto-operators, door position switches, power supplies, and low-voltage door hardware.',
+    'General Requirements / Conditions': 'Include project mobilization, general conditions, supervision, as-built documentation, commissioning, testing & labeling, waste removal, and warranty requirements.',
+  },
+
+  // Build auto-fill text from selected disciplines
+  _buildSpecificItemsText(disciplines) {
+    if (!disciplines || disciplines.length === 0) return '';
+    const lines = [];
+    for (const disc of disciplines) {
+      const instruction = this._DISCIPLINE_COUNT_INSTRUCTIONS[disc];
+      if (instruction) lines.push(`• ${disc}: ${instruction}`);
+    }
+    return lines.join('\n');
+  },
+
   // ── PROJECT TYPE → Building characteristics mapping ──
   _PROJECT_TYPE_DEFAULTS: {
     // Medical / Healthcare
@@ -1191,6 +1218,12 @@ const SmartDefaults = {
       state.disciplines = [...matched.suggestDisciplines];
       console.log(`[SmartDefaults] Auto-suggested disciplines: ${state.disciplines.join(', ')}`);
       changed = true;
+    }
+
+    // Auto-fill "Specific items to count" from disciplines (only if empty and not manually edited)
+    if (state.disciplines.length > 0 && !state.specificItems.trim() && this._canAutoSet('specificItems')) {
+      state.specificItems = this._buildSpecificItemsText(state.disciplines);
+      console.log(`[SmartDefaults] Auto-filled specific items to count for ${state.disciplines.length} disciplines`);
     }
 
     return changed;
@@ -4105,6 +4138,14 @@ function renderStep0(container) {
     if (idx >= 0) state.disciplines.splice(idx, 1);
     else state.disciplines.push(d);
     SmartDefaults.markManual('disciplines'); // User manually chose — don't auto-suggest
+    // Auto-update "Specific items to count" to match current disciplines
+    // Only auto-fill if user hasn't manually typed custom text (check if current text matches auto-generated)
+    const autoText = SmartDefaults._buildSpecificItemsText(state.disciplines);
+    const currentText = state.specificItems.trim();
+    // Update if: empty, or currently matches a previous auto-generated version (starts with "• ")
+    if (!currentText || currentText.startsWith('• ')) {
+      state.specificItems = autoText;
+    }
     renderStep0(container);
     renderFooter();
   });
@@ -4113,7 +4154,7 @@ function renderStep0(container) {
   fmtSelect.value = state.fileFormat;
   fmtSelect.addEventListener("change", () => { state.fileFormat = fmtSelect.value; renderStep0(container); renderFooter(); });
 
-  document.getElementById("specific-items").addEventListener("input", e => { state.specificItems = e.target.value; });
+  document.getElementById("specific-items").addEventListener("input", e => { state.specificItems = e.target.value; SmartDefaults.markManual('specificItems'); });
   document.getElementById("known-quantities").addEventListener("input", e => { state.knownQuantities = e.target.value; });
   document.getElementById("code-jurisdiction").addEventListener("input", e => { state.codeJurisdiction = e.target.value; });
   document.getElementById("project-location").addEventListener("input", e => {
