@@ -2886,7 +2886,12 @@ YOUR MISSION: Identify and detail EVERY telecom room (MDF, IDF, TR, Server Room,
 FOR EACH ROOM, DETERMINE:
 1. Room name, type (MDF/IDF/TR), floor, room number
 2. Equipment requirements: racks, patch panels, switches, UPS, PDU, fiber panels
-3. Cable management: horizontal/vertical managers, ladder rack
+3. Cable management: horizontal/vertical managers, ladder rack/cable runway
+   — LADDER RACK IS CRITICAL: Check plans for overhead ladder rack (cable runway) shown entering/exiting each TR.
+   — Look for symbols showing ladder rack runs connecting rooms to corridor ceiling pathways.
+   — Common notation: "LR", "CR", "Cable Runway", "Ladder Rack", or drawn as parallel lines overhead.
+   — Include length in feet (count from rack top to corridor pathway junction).
+   — If plans show ladder rack entering the room, include it as a SEPARATE equipment line item with qty in LF.
 4. Grounding: TMGB, TGB, TBB
 5. Environmental: dedicated HVAC, fire suppression
 6. Power: dedicated circuits, UPS sizing, generator backup
@@ -2901,7 +2906,10 @@ Return ONLY valid JSON:
       "room_number": "101",
       "building": "Main",
       "equipment": [
-        { "item": "42U Floor-Mount Rack", "qty": 2, "unit": "ea", "notes": "" }
+        { "item": "42U Floor-Mount Rack", "qty": 2, "unit": "ea", "notes": "" },
+        { "item": "Ladder Rack / Cable Runway", "qty": 20, "unit": "lf", "notes": "12\" wide overhead from rack to corridor pathway" },
+        { "item": "Horizontal Cable Manager 2U", "qty": 4, "unit": "ea", "notes": "Between patch panels" },
+        { "item": "Vertical Cable Manager", "qty": 2, "unit": "ea", "notes": "Side-mount, 42U" }
       ],
       "grounding": { "tmgb": true, "tgb": true, "tbb_length_ft": 50 },
       "power": { "dedicated_circuits": 2, "ups_kva": 3, "generator": false },
@@ -2961,19 +2969,19 @@ For each cable type, break the run estimate down by ZONE (floor area served by o
 - BICSI TDMM cable run formula per zone:
   1. Horizontal pathway distance = Manhattan distance × routing factor (1.30x for standard commercial, 1.40x for medical/govt)
      Manhattan distance: |zone_x - IDF_x| + |zone_y - IDF_y| (in feet, using that sheet's dimensions)
-  2. Stub-up at device end: 15 ft (device through wall/ceiling to plenum pathway)
-  3. IDF drop: 10 ft (plenum down to patch panel in telecom room)
+  2. Stub-up at device end: 10 ft (device up the wall into ceiling plenum — ~10 ft wall height)
+  3. IDF drop: 20 ft (from ceiling plenum, through TR wall, down the rack to patch panel — ~20 ft)
   4. Service loop at TR: 10 ft (BICSI minimum for re-termination)
   5. Service loop at outlet: 1 ft (coiled in outlet box)
   6. Dressing/rack routing: 5 ft (cable management within rack)
   7. Riser (if cross-floor): floor-to-floor height × number of floors
-  TOTAL = horizontal + stub-up(15) + IDF drop(10) + service loops(11) + dressing(5) + riser
+  TOTAL = horizontal + stub-up(10) + IDF drop(20) + service loops(11) + dressing(5) + riser
 - DO NOT use a flat average — calculate each zone separately
 
 ZONE RUN LENGTH EXAMPLES (BICSI compliant):
-- Zone directly next to IDF: 40ft horiz×1.3=52 + 15 stub + 10 drop + 11 loops + 5 dress = 93ft per drop
-- Zone across the building: 140ft horiz×1.3=182 + 15 stub + 10 drop + 11 loops + 5 dress = 223ft per drop
-- Zone one floor above IDF: 80ft horiz×1.3=104 + 14 riser + 15 stub + 10 drop + 11 loops + 5 dress = 159ft per drop
+- Zone directly next to IDF: 40ft horiz×1.3=52 + 10 stub + 20 drop + 11 loops + 5 dress = 98ft per drop
+- Zone across the building: 140ft horiz×1.3=182 + 10 stub + 20 drop + 11 loops + 5 dress = 228ft per drop
+- Zone one floor above IDF: 80ft horiz×1.3=104 + 14 riser + 10 stub + 20 drop + 11 loops + 5 dress = 164ft per drop
 - TIA-568 horizontal limit: 295ft (90m permanent link — flag any zone exceeding this!)
 
 ANALYZE THOROUGHLY:

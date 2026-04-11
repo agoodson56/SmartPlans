@@ -36,8 +36,8 @@ const CableAnalyzer = {
   get _bicsiOverheadFt() {
     const d = this.defaults;
     return (d.serviceLoopTR_Ft || 10) + (d.serviceLoopWA_Ft || 1) + (d.dressingFt || 5)
-         + (d.stubUpFt || 15) + (d.idfDropFt || 10);
-    // = 41 ft of non-horizontal overhead per cable run
+         + (d.stubUpFt || 10) + (d.idfDropFt || 20);
+    // = 46 ft of non-horizontal overhead per cable run
   },
 
   // Legacy slackFt getter for backward compatibility with existing config overrides
@@ -336,13 +336,22 @@ const CableAnalyzer = {
 
           if (idf && (Object.keys(sheetDims).length > 0 || (bldgW > 0 && bldgD > 0))) {
             const dims = (z.sheet_id && sheetDims[z.sheet_id]) || { w: bldgW, d: bldgD };
-            const dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * (dims.w || 200);
-            const dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * (dims.d || 200);
+            let dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * (dims.w || 200);
+            let dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * (dims.d || 200);
+            // Detect useless position data — if both zone and IDF are at center defaults,
+            // use building-dimension average: Manhattan distance ≈ W/4 + D/4
+            const zoneX = z.approx_x_pct ?? 50;
+            const zoneY = z.approx_y_pct ?? 50;
+            const positionsUseless = (dx + dy < 1) || (zoneX === 50 && zoneY === 50 && idf.x === 50 && idf.y === 50);
+            if (positionsUseless && dims.w > 0) {
+              dx = (dims.w || 200) / 4;
+              dy = (dims.d || 200) / 4;
+            }
             // BICSI TDMM routing: pathway multiplier + vertical + service loops
             const routingMult = cfg.routingFactor || 1.30;
             const floorsApart = Math.abs((z.floor || 1) - (idf.floor || 1));
-            const stubUp = cfg.stubUpFt || 15;
-            const idfDrop = cfg.idfDropFt || 10;
+            const stubUp = cfg.stubUpFt || 10;
+            const idfDrop = cfg.idfDropFt || 20;
             const riser = floorsApart > 0 ? floorsApart * cfg.floorToFloorFt : 0;
             const vert = stubUp + idfDrop + riser;
             const slackFt = (cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5);
@@ -371,8 +380,8 @@ const CableAnalyzer = {
             cableType,
             cableTypeLabel: this._cableLabel(cableType),
             runFt,
-            horizontal: Math.max(0, runFt - slackFt - (z.vertical_ft || ((cfg.stubUpFt || 15) + (cfg.idfDropFt || 10)))),
-            vertical: z.vertical_ft || ((cfg.stubUpFt || 15) + (cfg.idfDropFt || 10)),
+            horizontal: Math.max(0, runFt - slackFt - (z.vertical_ft || ((cfg.stubUpFt || 10) + (cfg.idfDropFt || 20)))),
+            vertical: z.vertical_ft || ((cfg.stubUpFt || 10) + (cfg.idfDropFt || 20)),
             slack: slackFt,
             qty,
             totalFtWithWaste,
@@ -403,8 +412,8 @@ const CableAnalyzer = {
           cableType,
           cableTypeLabel: this._cableLabel(cableType),
           runFt,
-          horizontal: Math.max(0, runFt - ((cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5)) - ((cfg.stubUpFt || 15) + (cfg.idfDropFt || 10))),
-          vertical: (cfg.stubUpFt || 15) + (cfg.idfDropFt || 10),
+          horizontal: Math.max(0, runFt - ((cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5)) - ((cfg.stubUpFt || 10) + (cfg.idfDropFt || 20))),
+          vertical: (cfg.stubUpFt || 10) + (cfg.idfDropFt || 20),
           slack: (cfg.serviceLoopTR_Ft || 10) + (cfg.serviceLoopWA_Ft || 1) + (cfg.dressingFt || 5),
           qty,
           totalFtWithWaste,
@@ -614,8 +623,25 @@ const CableAnalyzer = {
   INTER_BUILDING_PENALTY_FT: 100,
 
   _calcRunLength(device, idf, dims, cfg) {
-    const dx = Math.abs((device.x_pct || 50) - (idf?.x || 50)) / 100 * (dims?.w || 200);
-    const dy = Math.abs((device.y_pct || 50) - (idf?.y || 50)) / 100 * (dims?.d || 200);
+    let dx = Math.abs((device.x_pct || 50) - (idf?.x || 50)) / 100 * (dims?.w || 200);
+    let dy = Math.abs((device.y_pct || 50) - (idf?.y || 50)) / 100 * (dims?.d || 200);
+
+    // ── Detect useless position data ──
+    // When AI brain returns default 50,50 for both device and IDF, dx+dy = 0.
+    // This is WRONG — it means the brain couldn't determine real positions.
+    // Fall back to building-dimension average: Manhattan distance ≈ W/4 + D/4
+    // for uniform device distribution around a centrally-located IDF.
+    const devX = device.x_pct ?? 50;
+    const devY = device.y_pct ?? 50;
+    const idfX = idf?.x ?? 50;
+    const idfY = idf?.y ?? 50;
+    const positionsUseless = (dx + dy < 1) || (devX === 50 && devY === 50 && idfX === 50 && idfY === 50);
+    if (positionsUseless && dims?.w > 0) {
+      // Average Manhattan distance from center IDF to uniformly distributed devices
+      // = W/4 + D/4 (mathematical expectation for rectangular floor plate)
+      dx = (dims.w || 200) / 4;
+      dy = (dims.d || 200) / 4;
+    }
 
     // ── BICSI TDMM Pathway Routing ──
     // Cables follow J-hook runs, cable tray, and corridor pathways — NOT straight lines.
@@ -629,8 +655,8 @@ const CableAnalyzer = {
     const devFloor = parseInt(device.floor, 10) || 1;
     const idfFloor = idf?.floor || 1;
     const floorsApart = Math.abs(devFloor - idfFloor);
-    const stubUp = cfg.stubUpFt || 15;       // Device → plenum (one end)
-    const idfDrop = cfg.idfDropFt || 10;      // Plenum → patch panel (other end)
+    const stubUp = cfg.stubUpFt || 10;       // Device → plenum (10 ft up the wall)
+    const idfDrop = cfg.idfDropFt || 20;     // Plenum → patch panel (20 ft down rack)
     const riser = floorsApart > 0 ? floorsApart * cfg.floorToFloorFt : 0;
     const vertical = stubUp + idfDrop + riser;
 
