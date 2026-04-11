@@ -3069,7 +3069,7 @@ Return ONLY valid JSON:
           "device_count": 24,
           "est_run_ft": 185,
           "total_ft": 4440,
-          "basis": "Zone is ~150ft from IDF-2E horizontally + 10ft ceiling + 15ft slack + 10ft stub-up"
+          "basis": "Zone is ~150ft from IDF-2E horizontally × 1.30 routing + 10ft stub-up + 20ft IDF drop + 16ft slack/dressing"
         },
         {
           "zone_name": "3rd Floor Lobby",
@@ -3185,9 +3185,10 @@ These two fields are MANDATORY and must appear at the top level of the JSON obje
    - Final cleanup and demobilization
    - Dumpster/waste container rental
 
-5. EQUIPMENT RENTALS:
-   - Scissor lifts (electric indoor, rough-terrain outdoor)
-   - Boom lifts / articulating lifts (for high exterior work)
+5. EQUIPMENT RENTALS (all lifts: minimum 2-WEEK rental; certifier/splicer: 2-WEEK minimum):
+   - Scissor lifts (electric indoor, rough-terrain outdoor) — $925/week, 2-week minimum
+   - Boom lifts / articulating lifts (for high exterior work) — $1,700-$2,800/week, 2-week minimum
+   - Safety harness + lanyard — $250/each, REQUIRED with EVERY lift (1 per crew member using lift)
    - Scaffolding (stationary, rolling, suspended)
    - Telehandler/forklift (for heavy material handling)
    - Backhoe/mini-excavator (for trenching)
@@ -3323,6 +3324,7 @@ These two fields are MANDATORY and must appear at the top level of the JSON obje
     EQUIPMENT (all lifts & specialty tools: minimum 2-WEEK rental):
     - Hi-rail vehicle: $1,000/day (trackside work, ~40% of project days)
     - Scissor lift: $925/week (2-week minimum), Boom 40-60': $1,700/week, Boom 60-80': $2,800/week
+    - Safety harness + lanyard: $250/each — REQUIRED with EVERY lift (1 per crew member using lift)
     - Cable certifier (Fluke DSX): $1,200/week (2-week minimum)
     - Fusion splicer kit: $1,500/week (2-week minimum)
     - Generator (trackside power): $325/day + $250 delivery
@@ -3386,6 +3388,7 @@ Return ONLY valid JSON:
   "prevailing_wage_type": "none",
   "equipment_rentals": [
     { "item": "Scissor Lift", "duration_weeks": 2, "weekly_rate": 925, "reason": "Ceiling height 15ft+" },
+    { "item": "Safety Harness + Lanyard", "qty": 2, "unit_cost": 250, "reason": "REQUIRED with every lift — 1 per crew member using lift" },
     { "item": "Cable Certifier (Fluke DSX)", "duration_weeks": 2, "weekly_rate": 1200, "reason": "Cat 6/6A certification per TIA" },
     { "item": "Fusion Splicer Kit", "duration_weeks": 2, "weekly_rate": 1500, "reason": "Fiber optic splicing & termination" }
   ],
@@ -3457,9 +3460,10 @@ Return ONLY valid JSON:
     },
     "equipment": {
       "hirail_vehicle":      { "checked": false, "days": 0, "daily_rate": 1000, "total": 0, "note": "Required for trackside work" },
-      "scissor_lift":        { "checked": false, "days": 0, "daily_rate": 285,  "total": 0, "note": "" },
-      "boom_lift_40_60":     { "checked": false, "days": 0, "daily_rate": 425,  "total": 0, "note": "" },
-      "boom_lift_60_80":     { "checked": false, "days": 0, "daily_rate": 700,  "total": 0, "note": "" },
+      "scissor_lift":        { "checked": false, "weeks": 2, "weekly_rate": 925,  "total": 0, "note": "2-week minimum rental" },
+      "boom_lift_40_60":     { "checked": false, "weeks": 2, "weekly_rate": 1700, "total": 0, "note": "2-week minimum rental" },
+      "boom_lift_60_80":     { "checked": false, "weeks": 2, "weekly_rate": 2800, "total": 0, "note": "2-week minimum rental" },
+      "safety_harness":      { "checked": false, "qty": 0, "unit_cost": 250, "total": 0, "note": "Full-body harness + lanyard — REQUIRED with every lift" },
       "generator":           { "checked": false, "days": 0, "daily_rate": 325,  "total": 0, "note": "Trackside power" },
       "fall_protection":     { "checked": false, "est_cost": 500, "note": "" }
     },
@@ -3908,9 +3912,10 @@ Check the plans and specs for EACH — if present, you MUST price them:
    - Additional insured endorsements: 1% of contract value
    - These are MANDATORY — railroad will not issue NTP without RRPLI
 
-7. EQUIPMENT (transit-specific):
+7. EQUIPMENT (transit-specific — all lifts: 2-WEEK minimum rental):
    - Hi-rail vehicle: $1,000/day (required for trackside work, ~40% of project days)
-   - Scissor lift: $285/day, Boom lift 40-60': $425/day, Boom 60-80': $700/day
+   - Scissor lift: $925/week (2-week minimum), Boom 40-60': $1,700/week, Boom 60-80': $2,800/week
+   - Safety harness + lanyard: $250/each — REQUIRED with EVERY lift (1 per crew member using lift)
    - Generator (trackside power): $325/day
 
 8. MATERIAL PREMIUMS (transit-specific):

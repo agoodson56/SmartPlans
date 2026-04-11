@@ -5067,9 +5067,10 @@ function injectCalculatedCableQuantities(bom) {
     if (/cat\s*6a|cat6a/.test(s)) return 'cat6a';
     if (/cat\s*6(?!a)|cat6(?!a)/.test(s)) return 'cat6';
     if (/cat\s*5e?|cat5/.test(s)) return 'cat5e';
-    if (/fiber.*sm|sm.*fiber|os2|single\s*mode/i.test(s)) return 'fiber_sm_os2';
-    if (/fiber.*mm|mm.*fiber|om[34]|multi\s*mode/i.test(s)) return 'fiber_mm_om4';
+    if (/fiber.*sm|sm.*fiber|os2|single[\s-]*mode/i.test(s)) return 'fiber_sm_os2';
+    if (/fiber.*mm|mm.*fiber|om[34]|multi[\s-]*mode/i.test(s)) return 'fiber_mm_om4';
     if (/coax|rg.?6/.test(s)) return 'coax_rg6';
+    if (/(category|cat)\s*6a/i.test(s)) return 'cat6a';
     return s;
   };
 
@@ -5159,7 +5160,7 @@ function injectCalculatedCableQuantities(bom) {
       console.log(`[CableInjection] BUG#5 fix — ${key}: zones had 0 ft, overriding → ${calc.totalFt.toLocaleString()} ft (${consensusCableDrops} drops × ${buildingAvgRun} ft avg × ${WASTE} waste)`);
     }
   }
-  if ((Object.keys(calcByType).length === 0 || allZeroFt) && consensusCableDrops > 0 && pathway.hasDimensions) {
+  if (Object.keys(calcByType).length === 0 && consensusCableDrops > 0 && pathway.hasDimensions) {
     const totalFt = Math.round(consensusCableDrops * buildingAvgRun * WASTE);
     const ratePerFt = _getCableRatePerFt('cat6a', 'plenum');
     calcByType['cat6a'] = { totalFt, ratePerFt, mode: 'building-avg-fallback', deviceCount: consensusCableDrops, avgRunFt: buildingAvgRun };
@@ -5193,11 +5194,11 @@ function injectCalculatedCableQuantities(bom) {
       if (/cat\s*6a|cat6a/.test(name)) matchKey = 'cat6a';
       else if (/cat\s*6(?!a)|cat6(?!a)/.test(name)) matchKey = 'cat6';
       else if (/cat\s*5e?|cat5/.test(name)) matchKey = 'cat5e';
-      else if (/fiber.*sm|sm.*fiber|os2|single\s*mode/i.test(name)) matchKey = 'fiber_sm_os2';
-      else if (/fiber.*mm|mm.*fiber|om[34]|multi\s*mode/i.test(name)) matchKey = 'fiber_mm_om4';
+      else if (/fiber.*sm|sm.*fiber|os2|single[\s-]*mode/i.test(name)) matchKey = 'fiber_sm_os2';
+      else if (/fiber.*mm|mm.*fiber|om[34]|multi[\s-]*mode/i.test(name)) matchKey = 'fiber_mm_om4';
       else if (/coax|rg.?6/.test(name)) matchKey = 'coax_rg6';
 
-      if (matchKey && calcByType[matchKey] && /^(ft|lf|linear\s*f|feet|foot)$/i.test(item.unit || '')) {
+      if (matchKey && calcByType[matchKey] && /^(ft|lf|linear\s*f\w*|feet|foot)$/i.test(item.unit || '')) {
         const calc = calcByType[matchKey];
         const newQty  = Math.round(calc.totalFt);
         const newCost = Math.round(newQty * (item.unitCost || calc.ratePerFt) * 100) / 100;
@@ -5205,7 +5206,7 @@ function injectCalculatedCableQuantities(bom) {
       }
 
       // Match cable tray / basket tray line items
-      if (hasTrayData && (/cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(name)) && (item.unit === 'ft' || item.unit === 'lf')) {
+      if (hasTrayData && (/cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(name)) && /^(ft|lf|linear\s*f\w*|feet|foot)$/i.test(item.unit || '')) {
         const tray = pathway.cableTrayResults[0]; // Use first tray result for sizing
         if (tray) {
           const newQty = pathway.trayTotalFt;
@@ -5222,8 +5223,8 @@ function injectCalculatedCableQuantities(bom) {
       if (calcByType[fiberKey] && calcByType[fiberKey].totalFt > 0) {
         const alreadyInBOM = updatedItems.some(item => {
           const n = (item.name || item.item || '').toLowerCase();
-          return (fiberKey === 'fiber_sm_os2' && (/fiber.*sm|sm.*fiber|os2|single\s*mode/i.test(n)))
-              || (fiberKey === 'fiber_mm_om4' && (/fiber.*mm|mm.*fiber|om[34]|multi\s*mode/i.test(n)));
+          return (fiberKey === 'fiber_sm_os2' && (/fiber.*sm|sm.*fiber|os2|single[\s-]*mode/i.test(n)))
+              || (fiberKey === 'fiber_mm_om4' && (/fiber.*mm|mm.*fiber|om[34]|multi[\s-]*mode/i.test(n)));
         });
         if (!alreadyInBOM) {
           const calc = calcByType[fiberKey];
