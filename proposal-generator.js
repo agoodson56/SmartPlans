@@ -24,8 +24,8 @@ const ProposalGenerator = {
     gold: '#EBB328',
     teal: '#3B97A1',
     tealDark: '#2B828B',
-    navy: '#1B2A4A',
-    dark: '#1a1a2e',
+    navy: '#2B828B',      // Company teal green (was navy blue #2B828B)
+    dark: '#237078',       // Darker teal (was #1a1a2e)
     gray: '#4A5568',
     lightGray: '#F4F6F8',
     border: '#D1D5DB',
@@ -777,7 +777,7 @@ ${this._confBar()}
           // Header row
           tHtml += '<tr>';
           cells.forEach(cell => {
-            tHtml += `<td bgcolor="#1B2A4A" style="color:#FFFFFF;padding:7pt 10pt;font-size:8.5pt;text-transform:uppercase;font-weight:bold;letter-spacing:0.5pt;border:1pt solid #1B2A4A;"><font color="#FFFFFF"><b>${this._escText(cell.trim())}</b></font></td>`;
+            tHtml += `<td bgcolor="#2B828B" style="color:#FFFFFF;padding:7pt 10pt;font-size:8.5pt;text-transform:uppercase;font-weight:bold;letter-spacing:0.5pt;border:1pt solid #2B828B;"><font color="#FFFFFF"><b>${this._escText(cell.trim())}</b></font></td>`;
           });
           tHtml += '</tr>';
         } else {
@@ -793,7 +793,7 @@ ${this._confBar()}
             cellValues.forEach(cell => {
               const isMoney = /\$/.test(cell);
               const align = isMoney ? 'text-align:right;' : '';
-              tHtml += `<td bgcolor="${isSubtotal ? '#2B4A6A' : '#1B2A4A'}" style="color:#FFFFFF;padding:8pt 10pt;font-weight:bold;font-size:${isSubtotal ? '9.5pt' : '11pt'};${align}border:1pt solid #1B2A4A;"><font color="#FFFFFF"><b>${this._escText(cell)}</b></font></td>`;
+              tHtml += `<td bgcolor="${isSubtotal ? '#3B97A1' : '#2B828B'}" style="color:#FFFFFF;padding:8pt 10pt;font-weight:bold;font-size:${isSubtotal ? '9.5pt' : '11pt'};${align}border:1pt solid #2B828B;"><font color="#FFFFFF"><b>${this._escText(cell)}</b></font></td>`;
             });
             tHtml += '</tr>';
           } else {
@@ -836,7 +836,7 @@ ${this._confBar()}
 
     // Bold / Italic
     html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<b><i>$1</i></b>');
-    html = html.replace(/\*\*(.+?)\*\*/g, '<b style="color:#1B2A4A;">$1</b>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<b style="color:#2B828B;">$1</b>');
     html = html.replace(/\*(.+?)\*/g, '<i>$1</i>');
 
     // Lists — process line by line to avoid catastrophic backtracking on long documents
@@ -1013,8 +1013,8 @@ ${this._confBar(true)}
   </tr>
   ${rows}
   <tr>
-    <td bgcolor="#2B4A6A" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>SUBTOTAL</b></font></td>
-    <td bgcolor="#2B4A6A" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(subtotal)}</b></font></td>
+    <td bgcolor="#3B97A1" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #2B828B;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>SUBTOTAL</b></font></td>
+    <td bgcolor="#3B97A1" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #2B828B;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(subtotal)}</b></font></td>
   </tr>
   <tr>
     <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency ${Math.round((contingencyPct || 0.10) * 100)}%</font></td>
@@ -1094,8 +1094,8 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
   </tr>
   ${rows}
   <tr>
-    <td bgcolor="#2B4A6A" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;" colspan="3"><font color="#FFFFFF"><b>TOTAL WITH STRATEGY</b></font></td>
-    <td bgcolor="#2B4A6A" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #1B2A4A;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(result.grandTotalWithStrategy)}</b></font></td>
+    <td bgcolor="#3B97A1" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #2B828B;font-family:Calibri,Arial,sans-serif;" colspan="3"><font color="#FFFFFF"><b>TOTAL WITH STRATEGY</b></font></td>
+    <td bgcolor="#3B97A1" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #2B828B;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(result.grandTotalWithStrategy)}</b></font></td>
   </tr>
 </table>
 `;
