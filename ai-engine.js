@@ -2931,6 +2931,8 @@ Return ONLY valid JSON:
         { "item": "Ladder Rack Ground Lug", "qty": 10, "unit": "ea", "notes": "1 per 10ft section for bonding per TIA-607" },
         { "item": "Corning Rack-Mount Fiber Enclosure 1RU (CCH-01U)", "qty": 1, "unit": "ea", "notes": "MDF end — MUST have enclosure at BOTH ends" },
         { "item": "Corning LC Adapter Panel 6-Pack (CCH-CP06-E4)", "qty": 4, "unit": "ea", "notes": "24-strand ÷ 6 per pack = 4 panels (MDF end)" },
+        { "item": "Corning LC Fiber Splice-On Connector SM", "qty": 24, "unit": "ea", "notes": "1 per strand at MDF end (24-strand × 1)" },
+        { "item": "Fiber Splice Tray", "qty": 2, "unit": "ea", "notes": "Holds 12 splices each (24 strands ÷ 12)" },
         { "item": "Horizontal Cable Manager 2U", "qty": 4, "unit": "ea", "notes": "Between patch panels" },
         { "item": "Vertical Cable Manager", "qty": 2, "unit": "ea", "notes": "Side-mount, 42U" }
       ],
@@ -2948,7 +2950,9 @@ Return ONLY valid JSON:
       "equipment": [
         { "item": "7ft Floor-Mount Cabinet (84\"H)", "qty": 1, "unit": "ea", "notes": "" },
         { "item": "Corning Rack-Mount Fiber Enclosure 1RU (CCH-01U)", "qty": 1, "unit": "ea", "notes": "IDF end — fiber enclosure REQUIRED at BOTH ends" },
-        { "item": "Corning LC Adapter Panel 6-Pack (CCH-CP06-E4)", "qty": 4, "unit": "ea", "notes": "24-strand ÷ 6 per pack = 4 panels (IDF end)" }
+        { "item": "Corning LC Adapter Panel 6-Pack (CCH-CP06-E4)", "qty": 4, "unit": "ea", "notes": "24-strand ÷ 6 per pack = 4 panels (IDF end)" },
+        { "item": "Corning LC Fiber Splice-On Connector SM", "qty": 24, "unit": "ea", "notes": "1 per strand at IDF end (24-strand × 1)" },
+        { "item": "Fiber Splice Tray", "qty": 2, "unit": "ea", "notes": "Holds 12 splices each (24 strands ÷ 12)" }
       ],
       "grounding": { "tmgb": false, "tgb": true, "tbb_length_ft": 25 },
       "power": { "dedicated_circuits": 1, "ups_kva": 1.5, "generator": false },
@@ -4050,6 +4054,9 @@ A system with missing components DOES NOT WORK. For each discipline, you MUST in
   □ LC Adapter Panel 6-Pack (Corning CCH-CP06-E4 or equiv) — fiber strand count ÷ 6, round UP, × 2 (BOTH ends!)
     ⚠️ Example: 24-strand fiber = 24÷6 = 4 panels PER END × 2 ends = 8 total adapter panels
     ⚠️ COMMON ERROR: 1 fiber enclosure + 1 adapter panel = fiber cannot terminate at remote end
+  □ Fiber Splice-On Connectors (LC) — 1 per strand PER END. 24-strand = 24 connectors × 2 ends = 48 total minimum
+  □ Fiber Splice Trays — 1 tray per 12 splices, at EACH end (24-strand = 2 trays × 2 ends = 4 total)
+    ⚠️ COMMON ERROR: Buying fiber cable but no connectors = fiber cannot be terminated. EVERY strand needs a connector at EACH end.
   □ Grounding Busbar (TMGB at MDF, TGB at each IDF)
   □ Bonding Conductor (#6 AWG from busbar to building ground)
   □ LADDER RACK / CABLE RUNWAY — ALL of these parts are required (typical clinic ~100 LF):
@@ -4079,7 +4086,7 @@ You MUST add these to your output — they are REAL costs that every project inc
 2. CONDUIT WASTE: Add 8% to all conduit quantities. Mis-cuts, damaged sticks, offcuts.
 3. SPARE PARTS / ATTIC STOCK: Add a category called "Spare Parts & Attic Stock" with 5% of each device type quantity (cameras, readers, detectors, outlets, etc.) rounded up. Most specs REQUIRE attic stock delivery to owner.
 4. SMALL TOOLS & CONSUMABLES: Add a line item "Small Tools & Consumables" = 2.5% of total material cost. This covers drill bits, saw blades, anchors, screws, bolts, zip ties, tape, markers, velcro, cable lube, etc.
-5. CONNECTOR & TERMINATION SUPPLIES: Ensure you have enough RJ45 connectors, splice cassettes, heat shrink, crimp connectors, wire nuts, etc. (at least 15% overage on connectors).
+5. CONNECTOR & TERMINATION SUPPLIES: Ensure you have enough RJ45 connectors, LC fiber splice-on connectors (1 per fiber strand PER END — 24-strand = 48 LC connectors minimum), fiber splice trays (1 per 12 splices per end), heat shrink, crimp connectors, wire nuts, etc. (at least 15% overage on connectors).
 
 Return ONLY valid JSON:
 {

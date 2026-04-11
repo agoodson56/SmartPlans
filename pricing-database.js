@@ -57,6 +57,9 @@ const PRICING_DB = {
             fiber_enclosure_wall: { unit: "each", budget: 35.00, mid: 65.00, premium: 120.00, description: "Wall-mount fiber enclosure", mfg: { budget: "ICC", mid: "Corning", premium: "Corning" }, partNumber: { budget: "ICFOD104WM", mid: "WCH-02P", premium: "WCH-04P" } },
             fiber_enclosure_rack: { unit: "each", budget: 45.00, mid: 85.00, premium: 150.00, description: "Rack-mount fiber enclosure 1RU", mfg: { budget: "ICC", mid: "Corning", premium: "Corning" }, partNumber: { budget: "ICFORS1RM6", mid: "SPH-01P", premium: "CCH-01U" } },
             fiber_adapter_panel: { unit: "each", budget: 15.00, mid: 28.00, premium: 48.00, description: "LC adapter panel 6-pack", mfg: { budget: "ICC", mid: "Corning", premium: "Corning" }, partNumber: { budget: "ICFOPL16BK", mid: "CCH-CP06-A9", premium: "CCH-CP12-A9" } },
+            fiber_connector_lc_sm: { unit: "each", budget: 4.50, mid: 8.00, premium: 14.00, description: "LC Singlemode fiber splice-on connector (fusion)", mfg: { budget: "Corning", mid: "Corning", premium: "Corning" }, partNumber: { budget: "95-050-41", mid: "95-050-41", premium: "95-050-41" } },
+            fiber_connector_lc_mm: { unit: "each", budget: 4.00, mid: 7.00, premium: 12.00, description: "LC Multimode fiber splice-on connector (fusion)", mfg: { budget: "Corning", mid: "Corning", premium: "Corning" }, partNumber: { budget: "95-050-51", mid: "95-050-51", premium: "95-050-51" } },
+            fiber_splice_tray: { unit: "each", budget: 8.00, mid: 15.00, premium: 25.00, description: "Fiber splice tray (holds 12 splices)", mfg: { budget: "ICC", mid: "Corning", premium: "Corning" }, partNumber: { budget: "ICFORS12ST", mid: "FT-SPLICE-TRAY", premium: "FT-SPLICE-TRAY" } },
         },
         racks: {
             rack_2post: { unit: "each", budget: 120.00, mid: 220.00, premium: 380.00, description: "2-post relay rack 7ft 45RU" },
