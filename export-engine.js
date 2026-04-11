@@ -1654,12 +1654,16 @@ const SmartPlansExport = {
                 const catFirstItemRow = bomData.length; // 0-based row of first item in this category
 
                 for (const item of cat.items) {
+                    // Use name OR item property — injection code uses 'name:', BOM parser uses 'item:'
+                    const itemDesc = item.item || item.name || '';
+                    // Skip blank/empty description items (ghost items from old injection bug)
+                    if (!itemDesc || itemDesc.trim().length < 2) continue;
                     const curRow = bomData.length; // 0-based row index
                     bomData.push([
                         "",
                         item.mfg || "",
                         item.partNumber || "",
-                        item.item,
+                        itemDesc,
                         item.qty,
                         item.unit,
                         item.unitCost,

@@ -972,6 +972,24 @@ textarea:focus {
   min-height: 80px;
 }
 
+/* ─── Accuracy-Critical Input Highlight ─── */
+/* Light teal tint on fields that most impact bid accuracy */
+.accuracy-critical {
+  background: rgba(13, 148, 136, 0.06) !important;
+  border-color: rgba(13, 148, 136, 0.35) !important;
+}
+.accuracy-critical:focus {
+  background: rgba(13, 148, 136, 0.10) !important;
+  border-color: #0D9488 !important;
+}
+/* Teal tint for chip grids and grouped inputs that affect accuracy */
+.accuracy-critical-group {
+  background: rgba(13, 148, 136, 0.04);
+  border: 1px solid rgba(13, 148, 136, 0.18);
+  border-radius: var(--radius-md);
+  padding: 10px;
+}
+
 /* ─── Chip / Multi-Select Buttons ─── */
 .chip-grid {
   display: flex;

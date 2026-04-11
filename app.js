@@ -781,6 +781,357 @@ const state = {
   _exclusionsTab: 'exclusion', // active tab: 'exclusion', 'assumption', 'clarification'
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMART DEFAULTS ENGINE — Centralized cascade system for auto-applying settings
+// ═══════════════════════════════════════════════════════════════════════════════
+// Every field the SYSTEM can determine is auto-set, but always overridable.
+// Tracks which fields the estimator manually changed so auto-cascades don't
+// stomp on intentional overrides. Called from event listeners on key fields.
+//
+// Cascade map:
+//   projectType  →  routingFactor, ceilingHeight, floorToFloorHeight, disciplines (suggested)
+//   prevailingWage  →  burden OFF, laborRates (if location known), certified payroll
+//   projectLocation  →  regionalMultiplier, PW state auto-select
+//   buildingType (from projectName)  →  projectTypeMultiplier key
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const SmartDefaults = {
+
+  // Fields the estimator has manually overridden — don't auto-set these
+  _manualOverrides: new Set(),
+
+  // Mark a field as manually set by the user (called from input event listeners)
+  markManual(field) {
+    this._manualOverrides.add(field);
+  },
+
+  // Check if a field can be auto-set (not manually overridden)
+  _canAutoSet(field) {
+    return !this._manualOverrides.has(field);
+  },
+
+  // Auto-set a field only if user hasn't manually changed it
+  _autoSet(field, value, reason) {
+    if (!this._canAutoSet(field)) return false;
+    const path = field.split('.');
+    let obj = state;
+    for (let i = 0; i < path.length - 1; i++) obj = obj[path[i]];
+    const key = path[path.length - 1];
+    if (obj[key] === value) return false; // No change needed
+    obj[key] = value;
+    console.log(`[SmartDefaults] Auto-set ${field} = ${JSON.stringify(value)} — ${reason}`);
+    return true;
+  },
+
+  // Reset all manual overrides (for new bid)
+  reset() {
+    this._manualOverrides.clear();
+  },
+
+  // ── LOCATION → Regional Multiplier mapping ──
+  // Parses city/state from location string and maps to pricing DB region key
+  _LOCATION_REGION_MAP: [
+    // Exact city matches (most specific first)
+    { pattern: /\bsan\s*francisco|sf\s*bay|oakland|berkeley|san\s*jose/i, region: 'san_francisco', label: 'San Francisco Bay Area (1.50×)' },
+    { pattern: /\blos\s*angeles|la\s*county|pasadena|long\s*beach|glendale|burbank|torrance/i, region: 'los_angeles', label: 'Los Angeles (1.30×)' },
+    { pattern: /\bsacramento|stockton|modesto|elk\s*grove/i, region: 'sacramento', label: 'Sacramento (1.10×)' },
+    { pattern: /\bnew\s*york|nyc|manhattan|brooklyn|bronx|queens|staten/i, region: 'new_york_city', label: 'New York City (1.45×)' },
+    { pattern: /\bboston|cambridge|somerville/i, region: 'boston', label: 'Boston (1.30×)' },
+    { pattern: /\bchicago|cook\s*county/i, region: 'chicago', label: 'Chicago (1.15×)' },
+    { pattern: /\bseattle|tacoma|bellevue|redmond/i, region: 'seattle', label: 'Seattle (1.20×)' },
+    { pattern: /\bdenver|boulder|colorado\s*springs|aurora,?\s*co/i, region: 'denver', label: 'Denver (1.05×)' },
+    { pattern: /\bmiami|ft\.?\s*lauderdale|palm\s*beach|boca\s*raton/i, region: 'miami', label: 'Miami (1.05×)' },
+    { pattern: /\batlanta|marietta|decatur/i, region: 'atlanta', label: 'Atlanta (0.95×)' },
+    { pattern: /\bdallas|houston|san\s*antonio|ft\.?\s*worth/i, region: 'dallas_houston', label: 'Dallas/Houston (0.95×)' },
+    { pattern: /\baustin/i, region: 'austin', label: 'Austin (1.00×)' },
+    { pattern: /\bwashington|d\.?\s*c\.?|arlington,?\s*va|alexandria,?\s*va|bethesda|silver\s*spring/i, region: 'dc_metro', label: 'DC Metro (1.25×)' },
+    { pattern: /\bhonolulu|hawaii|maui|oahu/i, region: 'hawaii', label: 'Hawaii (1.40×)' },
+    { pattern: /\banchorage|fairbanks|juneau|alaska/i, region: 'alaska', label: 'Alaska (1.35×)' },
+    // State-level fallbacks (less specific)
+    { pattern: /\bca\b|california/i, region: 'west_coast', label: 'West Coast (1.25×)' },
+    { pattern: /\bor\b|oregon|portland/i, region: 'west_coast', label: 'West Coast (1.25×)' },
+    { pattern: /\bwa\b|washington\s*state/i, region: 'seattle', label: 'Seattle/WA (1.20×)' },
+    { pattern: /\bnv\b|nevada|las\s*vegas|reno|gardnerville/i, region: 'mountain', label: 'Mountain (0.95×)' },
+    { pattern: /\baz\b|arizona|phoenix|tucson|scottsdale/i, region: 'southwest', label: 'Southwest (0.95×)' },
+    { pattern: /\bco\b|colorado/i, region: 'denver', label: 'Denver/CO (1.05×)' },
+    { pattern: /\bny\b|new\s*york\s*state/i, region: 'northeast', label: 'Northeast (1.20×)' },
+    { pattern: /\bnj\b|new\s*jersey/i, region: 'northeast', label: 'Northeast (1.20×)' },
+    { pattern: /\bma\b|massachusetts/i, region: 'boston', label: 'Boston/MA (1.30×)' },
+    { pattern: /\bct\b|connecticut|ri\b|rhode\s*island|vt\b|vermont|nh\b|new\s*hampshire|me\b|maine/i, region: 'northeast', label: 'Northeast (1.20×)' },
+    { pattern: /\bpa\b|pennsylvania|philadelphia|pittsburgh/i, region: 'northeast', label: 'Northeast (1.20×)' },
+    { pattern: /\btx\b|texas/i, region: 'dallas_houston', label: 'Texas (0.95×)' },
+    { pattern: /\bfl\b|florida/i, region: 'southeast', label: 'Southeast (0.90×)' },
+    { pattern: /\bga\b|georgia/i, region: 'atlanta', label: 'Atlanta/GA (0.95×)' },
+    { pattern: /\bil\b|illinois/i, region: 'chicago', label: 'Chicago/IL (1.15×)' },
+    { pattern: /\boh\b|ohio|mi\b|michigan|in\b|indiana|wi\b|wisconsin|mn\b|minnesota|ia\b|iowa|mo\b|missouri/i, region: 'midwest', label: 'Midwest (0.95×)' },
+    { pattern: /\bnc\b|north\s*carolina|sc\b|south\s*carolina|va\b|virginia|tn\b|tennessee|al\b|alabama|ms\b|mississippi|la\b|louisiana|ar\b|arkansas|ky\b|kentucky|wv\b|west\s*virginia/i, region: 'southeast', label: 'Southeast (0.90×)' },
+    { pattern: /\but\b|utah|nm\b|new\s*mexico|id\b|idaho|mt\b|montana|wy\b|wyoming|nd\b|north\s*dakota|sd\b|south\s*dakota|ne\b|nebraska|ks\b|kansas|ok\b|oklahoma/i, region: 'mountain', label: 'Mountain (0.95×)' },
+  ],
+
+  // ── PROJECT TYPE → Building characteristics mapping ──
+  _PROJECT_TYPE_DEFAULTS: {
+    // Medical / Healthcare
+    'medical': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'healthcare',
+      suggestPW: null, // depends on owner (VA=federal, private=none)
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems'] },
+    'hospital': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'healthcare',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems'] },
+    'clinic': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'healthcare',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems'] },
+    // Government / Federal
+    'government': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'government_institutional',
+      suggestPW: 'davis-bacon',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection'] },
+    'federal': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'government_institutional',
+      suggestPW: 'davis-bacon',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection'] },
+    'va': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.40, pricingMultiplier: 'government_institutional',
+      suggestPW: 'davis-bacon',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Nurse Call Systems', 'Distributed Antenna Systems (DAS)'] },
+    'correctional': { ceilingHeight: 12, floorToFloor: 16, routingFactor: 1.40, pricingMultiplier: 'government_institutional',
+      suggestPW: 'davis-bacon',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection', 'Paging / Intercom'] },
+    // Education
+    'school': { ceilingHeight: 10, floorToFloor: 14, routingFactor: 1.30, pricingMultiplier: 'education_k12',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom'] },
+    'university': { ceilingHeight: 12, floorToFloor: 16, routingFactor: 1.30, pricingMultiplier: 'education_k12',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Audio Visual'] },
+    // Data Center
+    'data center': { ceilingHeight: 12, floorToFloor: 18, routingFactor: 1.30, pricingMultiplier: 'data_center',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm'] },
+    // Commercial / Office
+    'office': { ceilingHeight: 9, floorToFloor: 13, routingFactor: 1.25, pricingMultiplier: 'commercial_standard',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control'] },
+    'retail': { ceilingHeight: 12, floorToFloor: 16, routingFactor: 1.25, pricingMultiplier: 'commercial_standard',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Fire Alarm'] },
+    // Industrial / Warehouse
+    'warehouse': { ceilingHeight: 24, floorToFloor: 30, routingFactor: 1.20, pricingMultiplier: 'commercial_standard',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Fire Alarm'] },
+    'industrial': { ceilingHeight: 20, floorToFloor: 26, routingFactor: 1.25, pricingMultiplier: 'commercial_standard',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Fire Alarm', 'Access Control'] },
+    // Transit (handled by separate transit engine, but set defaults)
+    'transit': { ceilingHeight: 14, floorToFloor: 18, routingFactor: 1.40, pricingMultiplier: 'transit_railroad',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm', 'Paging / Intercom', 'Distributed Antenna Systems (DAS)'] },
+    'railroad': { ceilingHeight: 14, floorToFloor: 18, routingFactor: 1.40, pricingMultiplier: 'transit_railroad',
+      suggestDisciplines: ['Structured Cabling', 'CCTV', 'Paging / Intercom'] },
+  },
+
+  // ── PW state auto-detection from location ──
+  _PW_STATE_MAP: [
+    { pattern: /\bca\b|california/i, state: 'CA', caCountyDetect: true },
+    { pattern: /\btx\b|texas/i, state: 'TX', metro: 'tx_dallas' },
+    { pattern: /\bfl\b|florida/i, state: 'FL', metro: 'fl_miami' },
+    { pattern: /\bny\b|new\s*york/i, state: 'NY', metro: 'ny_nyc' },
+    { pattern: /\bil\b|illinois|chicago/i, state: 'IL', metro: 'il_chicago' },
+    { pattern: /\bwa\b|washington\s*state|seattle/i, state: 'WA', metro: 'wa_seattle' },
+    { pattern: /\bco\b|colorado|denver/i, state: 'CO', metro: 'co_denver' },
+    { pattern: /\bga\b|georgia|atlanta/i, state: 'GA', metro: 'ga_atlanta' },
+    { pattern: /\baz\b|arizona|phoenix/i, state: 'AZ', metro: 'az_phoenix' },
+    { pattern: /\bnv\b|nevada|las\s*vegas|reno|gardnerville/i, state: 'NV', metro: 'nv_las_vegas' },
+    { pattern: /\bma\b|massachusetts|boston/i, state: 'MA', metro: 'ma_boston' },
+    { pattern: /\bnj\b|new\s*jersey/i, state: 'NJ', metro: 'nj_newark' },
+    { pattern: /\bpa\b|pennsylvania|philadelphia/i, state: 'PA', metro: 'pa_philadelphia' },
+    { pattern: /\bva\b|virginia(?!.*\bclinic|\bmedical|\bva\s)/i, state: 'VA', metro: 'va_nova' },
+    { pattern: /\bnc\b|north\s*carolina|charlotte|raleigh/i, state: 'NC', metro: 'nc_charlotte' },
+    { pattern: /\boh\b|ohio|columbus|cleveland/i, state: 'OH', metro: 'oh_columbus' },
+    { pattern: /\bmi\b|michigan|detroit/i, state: 'MI', metro: 'mi_detroit' },
+    { pattern: /\bor\b|oregon|portland/i, state: 'OR', metro: 'or_portland' },
+  ],
+
+  // ══════════════════════════════════════════════════
+  // CASCADE HANDLERS — called when key fields change
+  // ══════════════════════════════════════════════════
+
+  // Called when projectType or projectName changes
+  onProjectTypeChanged() {
+    const projType = (state.projectType || '').toLowerCase();
+    const projName = (state.projectName || '').toLowerCase();
+    const combined = `${projType} ${projName}`;
+
+    // Find matching project type defaults
+    let matched = null;
+    for (const [key, defaults] of Object.entries(this._PROJECT_TYPE_DEFAULTS)) {
+      if (combined.includes(key)) {
+        matched = defaults;
+        break;
+      }
+    }
+    // Also check project name for specific keywords
+    if (!matched) {
+      if (/va\b|veteran|vamc/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['va'];
+      else if (/hospital/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['hospital'];
+      else if (/clinic/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['clinic'];
+      else if (/school|k[\s-]?12/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['school'];
+      else if (/courthouse|city\s*hall|municipal/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['government'];
+      else if (/prison|jail|detention/i.test(projName)) matched = this._PROJECT_TYPE_DEFAULTS['correctional'];
+    }
+
+    if (!matched) return;
+    let changed = false;
+
+    // Auto-set ceiling height & floor-to-floor (if user hasn't manually overridden)
+    changed |= this._autoSet('ceilingHeight', matched.ceilingHeight, `${projType || projName} typical`);
+    changed |= this._autoSet('floorToFloorHeight', matched.floorToFloor, `${projType || projName} typical`);
+
+    // Auto-suggest prevailing wage (only if not already set)
+    if (matched.suggestPW && !state.prevailingWage && this._canAutoSet('prevailingWage')) {
+      this._autoSet('prevailingWage', matched.suggestPW, `${projType || projName} is typically federal`);
+      // Cascade PW → burden
+      this.onPrevailingWageChanged();
+    }
+
+    // Auto-suggest disciplines (only if none selected yet)
+    if (matched.suggestDisciplines && state.disciplines.length === 0 && this._canAutoSet('disciplines')) {
+      state.disciplines = [...matched.suggestDisciplines];
+      console.log(`[SmartDefaults] Auto-suggested disciplines: ${state.disciplines.join(', ')}`);
+      changed = true;
+    }
+
+    return changed;
+  },
+
+  // Called when prevailingWage dropdown changes
+  onPrevailingWageChanged() {
+    let changed = false;
+    const pw = state.prevailingWage;
+
+    if (pw && pw !== '') {
+      // ── CRITICAL CASCADE: Disable burden when PW is active ──
+      // PW rates include fringes (health, pension, vacation, training) — burden would double-count
+      if (state.includeBurden && this._canAutoSet('includeBurden')) {
+        this._autoSet('includeBurden', false, 'PW rates include fringes — burden would double-count');
+        changed = true;
+      }
+
+      // If location is already known, auto-select PW state/metro for rate lookup
+      if (state.projectLocation && this._canAutoSet('_pwState')) {
+        this._autoSelectPWState(state.projectLocation);
+        changed = true;
+      }
+    } else {
+      // PW deselected — re-enable burden if we auto-disabled it
+      if (!state.includeBurden && this._canAutoSet('includeBurden')) {
+        this._autoSet('includeBurden', true, 'PW deselected — re-enabling burden');
+        this._autoSet('burdenRate', 35, 'restoring standard burden rate');
+        changed = true;
+      }
+    }
+    return changed;
+  },
+
+  // Called when projectLocation changes
+  onLocationChanged() {
+    const loc = (state.projectLocation || '').trim();
+    if (!loc || loc.length < 3) return false;
+    let changed = false;
+
+    // ── Auto-detect regional multiplier from location ──
+    if (this._canAutoSet('regionalMultiplier')) {
+      for (const entry of this._LOCATION_REGION_MAP) {
+        if (entry.pattern.test(loc)) {
+          if (state.regionalMultiplier !== entry.region) {
+            this._autoSet('regionalMultiplier', entry.region, `location "${loc}" → ${entry.label}`);
+            changed = true;
+          }
+          break;
+        }
+      }
+    }
+
+    // ── Auto-select PW state if prevailing wage is active ──
+    if (state.prevailingWage && this._canAutoSet('_pwState')) {
+      this._autoSelectPWState(loc);
+      changed = true;
+    }
+
+    return changed;
+  },
+
+  // Internal: auto-select PW state/metro from location string
+  _autoSelectPWState(locationStr) {
+    const loc = (locationStr || '').trim();
+    for (const entry of this._PW_STATE_MAP) {
+      if (entry.pattern.test(loc)) {
+        if (entry.caCountyDetect) {
+          // California — need county, can't auto-select from city alone
+          this._autoSet('_pwState', 'CA', `location matches California`);
+        } else if (entry.metro) {
+          this._autoSet('_pwState', entry.state, `location matches ${entry.state}`);
+          // Auto-populate metro if national PW data is available
+          if (typeof NATIONAL_PREVAILING_WAGES !== 'undefined' && this._canAutoSet('_pwMetro')) {
+            const rates = NATIONAL_PREVAILING_WAGES.zones?.[entry.metro];
+            if (rates) {
+              this._autoSet('_pwMetro', entry.metro, `${entry.state} metro auto-selected`);
+              // Cascade: auto-populate labor rates from metro rates
+              this._populateRatesFromNational(entry.metro);
+            }
+          }
+        }
+        break;
+      }
+    }
+  },
+
+  // Internal: populate labor rates from national PW database
+  _populateRatesFromNational(metroKey) {
+    if (typeof NATIONAL_PREVAILING_WAGES === 'undefined') return;
+    const wageType = state.prevailingWage === 'davis-bacon' ? 'davis_bacon'
+                   : state.prevailingWage === 'pla' ? 'pla' : 'davis_bacon';
+    const zone = NATIONAL_PREVAILING_WAGES.zones?.[metroKey];
+    if (!zone) return;
+    const rates = zone[wageType] || zone.davis_bacon;
+    if (!rates) return;
+
+    if (this._canAutoSet('laborRates')) {
+      state.laborRates.journeyman = rates.comm_installer?.total || state.laborRates.journeyman;
+      state.laborRates.lead = rates.comm_tech?.total || state.laborRates.lead;
+      state.laborRates.foreman = Math.round((rates.comm_tech?.total || state.laborRates.foreman) * (1 + (rates.foreman_pct || 10) / 100) * 100) / 100;
+      state.laborRates.apprentice = Math.round((rates.comm_installer?.total || state.laborRates.apprentice) * ((rates.apprentice_pct || 50) / 100) * 100) / 100;
+      state.laborRates.pm = rates.electrician?.total || state.laborRates.pm;
+      state.laborRates.programmer = rates.electrician?.total || state.laborRates.programmer;
+      console.log(`[SmartDefaults] Labor rates auto-populated from ${metroKey} ${wageType}: J=$${state.laborRates.journeyman}/hr`);
+    }
+  },
+
+  // Called after AI analysis completes — pick up anything the AI found
+  onAnalysisComplete(brainResults) {
+    const spatial = brainResults?.wave0?.SPATIAL_LAYOUT;
+
+    // Auto-set ceiling height from AI if it found one
+    if (spatial?.ceiling_height_ft && spatial.ceiling_height_ft !== 10 && this._canAutoSet('ceilingHeight')) {
+      this._autoSet('ceilingHeight', spatial.ceiling_height_ft, 'AI detected from plans');
+    }
+    if (spatial?.floor_to_floor_ft && spatial.floor_to_floor_ft !== 14 && this._canAutoSet('floorToFloorHeight')) {
+      this._autoSet('floorToFloorHeight', spatial.floor_to_floor_ft, 'AI detected from plans');
+    }
+
+    // Auto-detect plan sheet size from title block text
+    if (!state.planSheetSize && this._canAutoSet('planSheetSize')) {
+      const titleBlockText = (spatial?.title_block_text || spatial?.sheet_notes || '').toLowerCase();
+      // Look for common title block warnings like "IF THIS SHEET IS NOT 30x42 IT IS A REDUCED PRINT"
+      const sheetSizeMatch = titleBlockText.match(/(\d{2,3})\s*[x×]\s*(\d{2,3})/);
+      if (sheetSizeMatch) {
+        const w = parseInt(sheetSizeMatch[1]), h = parseInt(sheetSizeMatch[2]);
+        // Map dimensions to standard sheet size keys
+        const sizeMap = {
+          '30x42': 'ARCH_E1', '42x30': 'ARCH_E1',
+          '36x48': 'ARCH_E', '48x36': 'ARCH_E',
+          '24x36': 'ARCH_D', '36x24': 'ARCH_D',
+          '18x24': 'ARCH_C', '24x18': 'ARCH_C',
+          '22x34': 'ANSI_D', '34x22': 'ANSI_D',
+          '34x44': 'ANSI_E', '44x34': 'ANSI_E',
+          '11x17': 'HALF_SIZE', '17x11': 'HALF_SIZE',
+        };
+        const key = `${Math.min(w,h)}x${Math.max(w,h)}`;
+        const matched = sizeMap[key];
+        if (matched) {
+          this._autoSet('planSheetSize', matched, `title block says ${w}×${h}`);
+        }
+      }
+    }
+  },
+};
+
 // ─── Start New Bid — full state reset ───
 function startNewBid() {
   if (state.analyzing) {
@@ -814,6 +1165,7 @@ function startNewBid() {
   state.workShift = '';
   state.priorEstimate = '';
   state.isTransitRailroad = false;
+  SmartDefaults.reset(); // Clear manual override tracking for fresh bid
 
   // Reset files
   state.legendFiles = [];
@@ -3069,7 +3421,7 @@ function renderStep0(container) {
     <div class="form-group">
       <label class="form-label" for="project-type">Project Type <span class="required">*</span></label>
       <p class="form-hint">This determines how I interpret existing vs. new work on the plans</p>
-      <select class="form-select" id="project-type">
+      <select class="form-select accuracy-critical" id="project-type">
         <option value="">Select…</option>
         ${projectTypeOptions}
       </select>
@@ -3078,7 +3430,7 @@ function renderStep0(container) {
     <div class="form-group">
       <label class="form-label">Which disciplines should I focus on? <span class="required">*</span></label>
       <p class="form-hint">Select all that apply. Focusing on specific trades eliminates false positives from similar-looking symbols across disciplines.</p>
-      <div class="chip-grid" id="discipline-chips">${disciplineChips}</div>
+      <div class="chip-grid accuracy-critical-group" id="discipline-chips">${disciplineChips}</div>
     </div>
 
     <div class="form-group">
@@ -3099,7 +3451,7 @@ function renderStep0(container) {
     <div class="form-group">
       <label class="form-label" for="known-quantities">Known quantities for verification <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
       <p class="form-hint">If you already know approximate counts (e.g., "roughly 47 light fixtures on 2nd floor"), I can flag significant deviations.</p>
-      <textarea class="form-textarea" id="known-quantities" placeholder="Describe any counts you already have…">${esc(state.knownQuantities)}</textarea>
+      <textarea class="form-textarea accuracy-critical" id="known-quantities" placeholder="Describe any counts you already have…">${esc(state.knownQuantities)}</textarea>
     </div>
 
     <div class="form-group">
@@ -3111,7 +3463,7 @@ function renderStep0(container) {
     <div class="form-group">
       <label class="form-label" for="project-location">Project Location</label>
       <p class="form-hint">City and state of the project site. Used by the AI for regional context (prevailing wage area, material availability, climate). Travel and per diem are configured separately in <strong>Stage 7</strong> after the AI analysis — they are not calculated automatically from this field.</p>
-      <input class="form-input" type="text" id="project-location" value="${esc(state.projectLocation)}" placeholder="e.g., Austin, TX or Miami, FL">
+      <input class="form-input accuracy-critical" type="text" id="project-location" value="${esc(state.projectLocation)}" placeholder="e.g., Austin, TX or Miami, FL">
     </div>
 
     <div class="form-group">
@@ -3120,12 +3472,12 @@ function renderStep0(container) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
         <div>
           <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Ceiling Height (ft)</label>
-          <input class="form-input" type="number" id="ceiling-height" min="6" max="40" step="0.5"
+          <input class="form-input accuracy-critical" type="number" id="ceiling-height" min="6" max="40" step="0.5"
             value="${state.ceilingHeight || 10}" placeholder="10">
         </div>
         <div>
           <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Floor-to-Floor Height (ft)</label>
-          <input class="form-input" type="number" id="floor-to-floor-height" min="8" max="60" step="0.5"
+          <input class="form-input accuracy-critical" type="number" id="floor-to-floor-height" min="8" max="60" step="0.5"
             value="${state.floorToFloorHeight || 14}" placeholder="14">
         </div>
       </div>
@@ -3135,7 +3487,7 @@ function renderStep0(container) {
     <div class="form-group">
       <label class="form-label" for="plan-sheet-size">Plan Sheet Size <span style="color:var(--text-muted);font-weight:400">(recommended)</span></label>
       <p class="form-hint">Selecting your sheet size dramatically improves cable length accuracy. The AI reads the scale from the title block, but if it guesses the wrong sheet size, all building dimensions will be off. When set, the AI only needs to read the scale — not guess the paper size.</p>
-      <select class="form-select" id="plan-sheet-size">
+      <select class="form-select accuracy-critical" id="plan-sheet-size">
         <option value="">Auto-detect (let AI figure it out)</option>
         <optgroup label="Architectural (most common)">
           <option value="ARCH_D" ${state.planSheetSize === 'ARCH_D' ? 'selected' : ''}>ARCH D — 24" × 36" (most common)</option>
@@ -3159,7 +3511,7 @@ function renderStep0(container) {
     <div class="form-group">
       <label class="form-label" for="prevailing-wage">Prevailing Wage / Davis-Bacon</label>
       <p class="form-hint">For government, public, or federally funded projects. Determines labor rate classifications and certified payroll requirements. When active, labor rates auto-populate with loaded rates (base + fringes) and burden is disabled to prevent double-counting.</p>
-      <select class="form-select" id="prevailing-wage">
+      <select class="form-select accuracy-critical" id="prevailing-wage">
         <option value="">Not applicable — standard rates</option>
         <option value="davis-bacon">Davis-Bacon (federal project)</option>
         <option value="state-prevailing">State prevailing wage</option>
@@ -3359,7 +3711,7 @@ function renderStep0(container) {
       <div class="form-group">
         <label class="form-label" for="pricing-tier">Material Pricing Tier</label>
         <p class="form-hint">Sets the unit cost level for all 200+ materials in the pricing database. This is one of the biggest factors in your total bid price. Choose based on what the project specifications require.</p>
-        <select class="form-select" id="pricing-tier">
+        <select class="form-select accuracy-critical" id="pricing-tier">
           <option value="budget">💰 Budget — Value brands, competitive bid</option>
           <option value="mid">⚖️ Mid-Range — Standard spec, name brands (default)</option>
           <option value="premium">👑 Premium — High-end, specified brand</option>
@@ -3419,7 +3771,7 @@ function renderStep0(container) {
       <div class="form-group">
         <label class="form-label" for="regional-multiplier">Regional Cost Multiplier</label>
         <p class="form-hint">Adjusts all material costs based on geographic market conditions. Example: 1.15x means materials cost 15% more than national average. Select the region closest to your project location.</p>
-        <select class="form-select" id="regional-multiplier">
+        <select class="form-select accuracy-critical" id="regional-multiplier">
           ${Object.entries(PRICING_DB.regionalMultipliers).map(([key, val]) =>
     `<option value="${key}">${key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())} (${val.toFixed(2)}×)</option>`
   ).join("")}
@@ -3441,7 +3793,7 @@ function renderStep0(container) {
           return `
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="labor-${key}">${labels[key] || key}</label>
-            <input class="form-input labor-rate-input" type="number" step="0.50" min="0" id="labor-${key}" value="${val.toFixed(2)}" style="font-size:14px;padding:8px 10px;">
+            <input class="form-input labor-rate-input accuracy-critical" type="number" step="0.50" min="0" id="labor-${key}" value="${val.toFixed(2)}" style="font-size:14px;padding:8px 10px;">
             <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${hints[key] || ''}</div>
           </div>`;
         }).join("")}
@@ -3461,7 +3813,7 @@ function renderStep0(container) {
       ${state.includeBurden ? `
       <div class="form-group" style="margin-top:8px;margin-bottom:0;">
         <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="burden-rate">Burden Rate (%)</label>
-        <input class="form-input" type="number" step="1" min="0" max="100" id="burden-rate" value="${state.burdenRate}" style="width:120px;font-size:14px;padding:8px 10px;">
+        <input class="form-input accuracy-critical" type="number" step="1" min="0" max="100" id="burden-rate" value="${state.burdenRate}" style="width:120px;font-size:14px;padding:8px 10px;">
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
           Typical: 30-40% for private work. Covers FICA (7.65%), FUTA/SUTA (3-6%), Workers Comp (5-15%), GL (3-5%), Health/Benefits (5-12%).
         </div>
@@ -3478,22 +3830,22 @@ function renderStep0(container) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-material">Material Markup</label>
-          <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-material" value="${state.markup.material}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input markup-input accuracy-critical" type="number" step="1" min="0" max="200" id="markup-material" value="${state.markup.material}" style="font-size:14px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Applied to all cable, devices, panels, hardware. Typical: 15-30%</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-labor">Labor Markup</label>
-          <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-labor" value="${state.markup.labor}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input markup-input accuracy-critical" type="number" step="1" min="0" max="200" id="markup-labor" value="${state.markup.labor}" style="font-size:14px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Applied to total labor cost (hours × rate ${state.includeBurden ? '× burden' : ''}). Typical: 20-40%</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-equipment">Equipment Markup</label>
-          <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-equipment" value="${state.markup.equipment}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input markup-input accuracy-critical" type="number" step="1" min="0" max="200" id="markup-equipment" value="${state.markup.equipment}" style="font-size:14px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Lifts, test equipment, specialty tools. Typical: 10-25%</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="markup-subcontractor">Subcontractor Markup</label>
-          <input class="form-input markup-input" type="number" step="1" min="0" max="200" id="markup-subcontractor" value="${state.markup.subcontractor}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input markup-input accuracy-critical" type="number" step="1" min="0" max="200" id="markup-subcontractor" value="${state.markup.subcontractor}" style="font-size:14px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Applied to sub bids (fire alarm, electrical, etc.). Typical: 5-15%</div>
         </div>
       </div>
@@ -3518,6 +3870,8 @@ function renderStep0(container) {
   nameInput.addEventListener("input", () => {
     state.projectName = nameInput.value;
     _autoDetectTransitFromProjectText();
+    // Smart Defaults: project name often contains building type (e.g., "VA Clinic", "Hospital")
+    if (SmartDefaults.onProjectTypeChanged()) renderStep0(container);
     renderFooter();
   });
 
@@ -3529,7 +3883,12 @@ function renderStep0(container) {
 
   const typeSelect = document.getElementById("project-type");
   typeSelect.value = state.projectType;
-  typeSelect.addEventListener("change", () => { state.projectType = typeSelect.value; renderFooter(); });
+  typeSelect.addEventListener("change", () => {
+    state.projectType = typeSelect.value;
+    SmartDefaults.onProjectTypeChanged();
+    renderStep0(container); // Re-render to show cascaded changes
+    renderFooter();
+  });
 
   document.getElementById("discipline-chips").addEventListener("click", e => {
     const btn = e.target.closest(".chip");
@@ -3538,6 +3897,7 @@ function renderStep0(container) {
     const idx = state.disciplines.indexOf(d);
     if (idx >= 0) state.disciplines.splice(idx, 1);
     else state.disciplines.push(d);
+    SmartDefaults.markManual('disciplines'); // User manually chose — don't auto-suggest
     renderStep0(container);
     renderFooter();
   });
@@ -3549,7 +3909,11 @@ function renderStep0(container) {
   document.getElementById("specific-items").addEventListener("input", e => { state.specificItems = e.target.value; });
   document.getElementById("known-quantities").addEventListener("input", e => { state.knownQuantities = e.target.value; });
   document.getElementById("code-jurisdiction").addEventListener("input", e => { state.codeJurisdiction = e.target.value; });
-  document.getElementById("project-location").addEventListener("input", e => { state.projectLocation = e.target.value; });
+  document.getElementById("project-location").addEventListener("input", e => {
+    state.projectLocation = e.target.value;
+    // Smart Defaults: auto-detect regional multiplier + PW state from location
+    if (SmartDefaults.onLocationChanged()) renderStep0(container);
+  });
 
   const sheetSizeSelect = document.getElementById("plan-sheet-size");
   if (sheetSizeSelect) {
@@ -3559,7 +3923,13 @@ function renderStep0(container) {
 
   const pwSelect = document.getElementById("prevailing-wage");
   pwSelect.value = state.prevailingWage;
-  pwSelect.addEventListener("change", () => { state.prevailingWage = pwSelect.value; renderStep0(container); renderFooter(); });
+  pwSelect.addEventListener("change", () => {
+    state.prevailingWage = pwSelect.value;
+    SmartDefaults.markManual('prevailingWage'); // User explicitly chose this
+    SmartDefaults.onPrevailingWageChanged();    // Cascade: burden, labor rates, PW state
+    renderStep0(container);
+    renderFooter();
+  });
 
   // County prevailing wage dropdown
   const pwCounty = document.getElementById("pw-county");
@@ -3681,9 +4051,9 @@ function renderStep0(container) {
 
   // Building height fields (ceiling + floor-to-floor only — scale/dimensions are AI-detected per-sheet)
   const ch = document.getElementById("ceiling-height");
-  if (ch) ch.addEventListener("input", e => { state.ceilingHeight = parseFloat(e.target.value) || 10; });
+  if (ch) ch.addEventListener("input", e => { state.ceilingHeight = parseFloat(e.target.value) || 10; SmartDefaults.markManual('ceilingHeight'); });
   const ftf = document.getElementById("floor-to-floor-height");
-  if (ftf) ftf.addEventListener("input", e => { state.floorToFloorHeight = parseFloat(e.target.value) || 14; });
+  if (ftf) ftf.addEventListener("input", e => { state.floorToFloorHeight = parseFloat(e.target.value) || 14; SmartDefaults.markManual('floorToFloorHeight'); });
 
   // Pricing panel toggle
   document.getElementById("pricing-toggle").addEventListener("click", () => {
@@ -3702,7 +4072,7 @@ function renderStep0(container) {
   const regionSelect = document.getElementById("regional-multiplier");
   if (regionSelect) {
     regionSelect.value = state.regionalMultiplier;
-    regionSelect.addEventListener("change", () => { state.regionalMultiplier = regionSelect.value; renderStep0(container); });
+    regionSelect.addEventListener("change", () => { state.regionalMultiplier = regionSelect.value; SmartDefaults.markManual('regionalMultiplier'); renderStep0(container); });
   }
 
   // Labor rates
@@ -3713,17 +4083,18 @@ function renderStep0(container) {
       if (val < 0) { val = 0; e.target.value = val; showValidationToast(["Labor rate cannot be negative."]); }
       else if (val > 500) { val = 500; e.target.value = val; showValidationToast(["Labor rate cannot exceed $500/hr."]); }
       state.laborRates[key] = val;
+      SmartDefaults.markManual('laborRates'); // User manually adjusted — don't auto-override
     });
   });
 
   // Burden
   const burdenCheck = document.getElementById("include-burden");
   if (burdenCheck) {
-    burdenCheck.addEventListener("change", () => { state.includeBurden = burdenCheck.checked; renderStep0(container); });
+    burdenCheck.addEventListener("change", () => { state.includeBurden = burdenCheck.checked; SmartDefaults.markManual('includeBurden'); renderStep0(container); });
   }
   const burdenInput = document.getElementById("burden-rate");
   if (burdenInput) {
-    burdenInput.addEventListener("change", e => { state.burdenRate = parseFloat(e.target.value) || 0; renderStep0(container); });
+    burdenInput.addEventListener("change", e => { state.burdenRate = parseFloat(e.target.value) || 0; SmartDefaults.markManual('burdenRate'); renderStep0(container); });
   }
 
   // Markup inputs
@@ -3734,6 +4105,7 @@ function renderStep0(container) {
       if (val < 0) { val = 0; e.target.value = val; showValidationToast(["Markup cannot be negative."]); }
       else if (val > 500) { val = 500; e.target.value = val; showValidationToast(["Markup cannot exceed 500%."]); }
       state.markup[key] = val;
+      SmartDefaults.markManual('markup'); // User manually adjusted markups
     });
   });
 }
@@ -5029,11 +5401,19 @@ function computePathwayDistances() {
   const cableTrayResults = [];
   let trayTotalFt = 0;
   let trayTotalCost = 0;
+  const byOthersPathways = []; // Track items furnished by other contractors (not in our BOM)
   pathways.forEach(p => {
     const pType = (p.type || '').toLowerCase();
     if (!pType.includes('tray') && !pType.includes('basket') && !pType.includes('ladder') && !pType.includes('runway')) return;
     const lengthFt = p.length_ft || 0;
     if (lengthFt <= 0) return;
+    // CRITICAL: Skip "by others" items — these are furnished/installed by electrical contractor
+    // per the Technology Systems Responsibility Matrix on the plans
+    if (p.by_others === true) {
+      console.log(`[Pathway] SKIPPING ${p.type} (${lengthFt}ft) — by others: ${p.by_others_note || 'furnished by other contractor'}`);
+      byOthersPathways.push({ type: p.type, lengthFt, note: p.by_others_note || '' });
+      return;
+    }
     // Determine tray size for pricing lookup
     const size = (p.size || '').toLowerCase();
     let unitCost = 0;
@@ -5058,6 +5438,58 @@ function computePathwayDistances() {
   });
   grandTotalCost += trayTotalCost;
 
+  // ═══ CALCULATED CABLE TRAY / RUNWAY FOOTAGE ═══
+  // When AI pathway data is missing or suspect, calculate from building dimensions + IDF layout.
+  // Cable tray runs along main corridors from MDF/IDFs to distribution areas.
+  // Formula: sum of IDF-to-IDF distances + main corridor run + 10% for turns/transitions
+  let calculatedTrayFt = 0;
+  if (hasDimensions) {
+    const idfPositions = Object.values(idfMap);
+    if (idfPositions.length >= 2) {
+      // Calculate total pathway between all IDFs (MDF↔IDF runs)
+      let totalIdfPathway = 0;
+      for (let i = 0; i < idfPositions.length; i++) {
+        for (let j = i + 1; j < idfPositions.length; j++) {
+          const a = idfPositions[i], b = idfPositions[j];
+          const effW = bldgW || 200, effD = bldgD || 200;
+          const dx = Math.abs(a.x - b.x) / 100 * effW;
+          const dy = Math.abs(a.y - b.y) / 100 * effD;
+          totalIdfPathway += (dx + dy) * ROUTING_FACTOR;
+        }
+      }
+      // Main corridor distribution: longest building dimension / 2 (tray extends from IDF to wing ends)
+      const mainCorridorRun = Math.max(bldgW || 0, bldgD || 0) * 0.6;
+      // Cable runway in MDF/IDF: ~20ft per room (rack-to-ceiling + short horizontal)
+      const runwayInRooms = idfPositions.length * 20;
+      calculatedTrayFt = Math.round(totalIdfPathway + mainCorridorRun + runwayInRooms);
+      // Sanity bounds: min 50ft (small building), max 2000ft (large campus)
+      calculatedTrayFt = Math.max(50, Math.min(calculatedTrayFt, 2000));
+      console.log(`[Pathway] Calculated tray: IDF-IDF=${Math.round(totalIdfPathway)}ft + corridor=${Math.round(mainCorridorRun)}ft + rooms=${runwayInRooms}ft = ${calculatedTrayFt}ft`);
+    } else if (idfPositions.length === 1) {
+      // Single IDF/MDF: tray runs from TR along main corridor (~40% of building longest dimension)
+      const mainRun = Math.max(bldgW || 200, bldgD || 200) * 0.4;
+      calculatedTrayFt = Math.round(mainRun * ROUTING_FACTOR + 20); // +20ft in-room
+      calculatedTrayFt = Math.max(50, Math.min(calculatedTrayFt, 1000));
+      console.log(`[Pathway] Calculated tray (single IDF): ${calculatedTrayFt}ft`);
+    }
+
+    // If AI tray footage is wildly different from calculated, prefer calculated
+    if (trayTotalFt > 0 && calculatedTrayFt > 0) {
+      const ratio = trayTotalFt / calculatedTrayFt;
+      if (ratio > 2.0 || ratio < 0.3) {
+        console.warn(`[Pathway] AI tray (${trayTotalFt}ft) vs calculated (${calculatedTrayFt}ft) — ratio ${ratio.toFixed(2)}× — using calculated`);
+        // Override AI tray results with calculated value
+        trayTotalFt = calculatedTrayFt;
+        if (cableTrayResults.length > 0) {
+          cableTrayResults[0].lengthFt = calculatedTrayFt;
+          cableTrayResults[0]._overridden = true;
+          cableTrayResults[0].cost = Math.round(calculatedTrayFt * cableTrayResults[0].unitCost * 100) / 100;
+          trayTotalCost = cableTrayResults.reduce((s, t) => s + t.cost, 0);
+        }
+      }
+    }
+  }
+
   // TIA-568 violations across all zones
   const tiaViolations = results.flatMap(r => r.zones.filter(z => z.tiaFlag));
 
@@ -5065,7 +5497,7 @@ function computePathwayDistances() {
     results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD,
     backboneResults, backboneTotalFt: backboneResults.reduce((s, b) => s + b.totalFt, 0),
     backboneTotalCost: backboneResults.reduce((s, b) => s + b.cost, 0),
-    cableTrayResults, trayTotalFt, trayTotalCost,
+    cableTrayResults, trayTotalFt, trayTotalCost, calculatedTrayFt, byOthersPathways,
   };
 }
 
@@ -5249,10 +5681,17 @@ function injectCalculatedCableQuantities(bom) {
   if (!hasCalcData && !hasTrayData) return bom;
 
   // Walk BOM categories and update cable + tray line items
+  // CRITICAL FIX: Two-tier matching prevents pathway items from being INJECTED into every discipline
+  // - isPrimaryInfraCat: tight match → Structured Cabling + MDF/IDF only → gets INJECTION of missing items
+  // - isCablingRelated: broader match → any category with cable items → only UPDATES existing line items
+  let alreadyInjectedPathway = false; // Ensure pathway items injected into at most ONE category
   const updatedCategories = (bom.categories || []).map(cat => {
     const catName = (cat.name || '').toLowerCase();
-    const isCablingCat = /(cabling|structured|cable|network|telecom|infrastructure|pathway|data|voice|low.voltage|material|mdf|idf|horizontal|backbone|fiber|cat\s*[56])/i.test(catName);
-    if (!isCablingCat) return cat;
+    // Primary infrastructure categories — these are the ONLY ones that get missing items injected
+    const isPrimaryInfraCat = /(structured\s*cabling|^2\.\s*mdf|mdf.*idf.*tr|^cabling\s*material|^infrastructure|^pathway)/i.test(catName);
+    // Broader match — any category that MIGHT contain cable line items to update (NOT inject)
+    const isCablingRelated = isPrimaryInfraCat || /(cable|network|telecom|data|voice|low.voltage|fiber|cat\s*[56])/i.test(catName);
+    if (!isCablingRelated) return cat;
 
     const updatedItems = (cat.items || []).map(item => {
       const name = (item.name || item.item || '').toLowerCase();
@@ -5273,96 +5712,194 @@ function injectCalculatedCableQuantities(bom) {
         return { ...item, qty: newQty, extCost: newCost, _calculatedRun: true };
       }
 
-      // Match cable tray / basket tray line items
-      if (hasTrayData && (/cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(name)) && /^(ft|lf|linear\s*f\w*|feet|foot)$/i.test(item.unit || '')) {
-        const tray = pathway.cableTrayResults[0]; // Use first tray result for sizing
-        if (tray) {
-          const newQty = pathway.trayTotalFt;
-          const newCost = Math.round(newQty * (item.unitCost || tray.unitCost) * 100) / 100;
-          return { ...item, qty: newQty, extCost: newCost, _calculatedRun: true };
+      // Match cable tray / basket tray / ladder rack / cable runway line items
+      // Use calculated tray footage (from building dimensions) when available; fall back to AI tray data
+      if ((/cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(name)) && /^(ft|lf|linear\s*f\w*|feet|foot)$/i.test(item.unit || '')) {
+        const bestTrayFt = pathway.calculatedTrayFt || pathway.trayTotalFt || 0;
+        if (bestTrayFt > 0) {
+          const newCost = Math.round(bestTrayFt * (item.unitCost || 10.50) * 100) / 100;
+          return { ...item, qty: bestTrayFt, extCost: newCost, _calculatedRun: true };
         }
       }
 
       return item;
     });
 
-    // If backbone fiber was calculated but no matching BOM line existed, inject it
-    ['fiber_sm_os2', 'fiber_mm_om4'].forEach(fiberKey => {
-      if (calcByType[fiberKey] && calcByType[fiberKey].totalFt > 0) {
-        const alreadyInBOM = updatedItems.some(item => {
-          const n = (item.name || item.item || '').toLowerCase();
-          return (fiberKey === 'fiber_sm_os2' && (/fiber.*sm|sm.*fiber|os2|single[\s-]*mode/i.test(n)))
-              || (fiberKey === 'fiber_mm_om4' && (/fiber.*mm|mm.*fiber|om[34]|multi[\s-]*mode/i.test(n)));
-        });
-        if (!alreadyInBOM) {
-          const calc = calcByType[fiberKey];
-          const label = fiberKey === 'fiber_sm_os2' ? 'Fiber SM OS2 (Backbone)' : 'Fiber MM OM4 (Backbone)';
-          updatedItems.push({
-            name: label, qty: Math.round(calc.totalFt), unit: 'ft',
-            unitCost: calc.ratePerFt, extCost: Math.round(calc.totalFt * calc.ratePerFt * 100) / 100,
-            _calculatedRun: true, _injected: true
+    // ── INJECTION BLOCK: Only runs for PRIMARY infrastructure categories (Structured Cabling / MDF-IDF) ──
+    // CRITICAL FIX: Previously this ran for EVERY category matching "material" — duplicated
+    // fiber, tray, and J-hooks into CCTV, Access Control, Fire Alarm, AV, Paging, etc.
+    // Now only injects into the FIRST primary cabling category, never into discipline sections.
+    if (isPrimaryInfraCat && !alreadyInjectedPathway) {
+      alreadyInjectedPathway = true; // Only inject once across all categories
+
+      // If backbone fiber was calculated but no matching BOM line existed, inject it
+      // FIX: Set BOTH 'item:' (for Excel export) and 'name:' (for internal matching)
+      ['fiber_sm_os2', 'fiber_mm_om4'].forEach(fiberKey => {
+        if (calcByType[fiberKey] && calcByType[fiberKey].totalFt > 0) {
+          const alreadyInBOM = updatedItems.some(item => {
+            const n = (item.name || item.item || '').toLowerCase();
+            return (fiberKey === 'fiber_sm_os2' && (/fiber.*sm|sm.*fiber|os2|single[\s-]*mode/i.test(n)))
+                || (fiberKey === 'fiber_mm_om4' && (/fiber.*mm|mm.*fiber|om[34]|multi[\s-]*mode/i.test(n)));
           });
-        }
-      }
-    });
-
-    // If cable tray was calculated but no matching BOM line existed, inject it
-    if (hasTrayData) {
-      const hasTrayInBOM = updatedItems.some(item =>
-        /cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(item.name || item.item || '')
-      );
-      if (!hasTrayInBOM && pathway.trayTotalFt > 0) {
-        const tray = pathway.cableTrayResults[0];
-        updatedItems.push({
-          name: `Cable Tray / Basket Tray (${tray?.size || '12"'})`, qty: pathway.trayTotalFt, unit: 'lf',
-          unitCost: tray?.unitCost || 10.50,
-          extCost: Math.round(pathway.trayTotalFt * (tray?.unitCost || 10.50) * 100) / 100,
-          _calculatedRun: true, _injected: true
-        });
-      }
-    }
-
-    // ── BUG #3 FIX: J-hook quantity injection ──
-    // J-hooks = 1 every 4-5 ft of horizontal cable run. Recalculate from grand total cable footage.
-    if (hasCalcData) {
-      const grandTotalCableFt = Object.values(calcByType)
-        .filter(c => !c.mode?.includes('backbone'))
-        .reduce((s, c) => s + (c.totalFt || 0), 0);
-      if (grandTotalCableFt > 0) {
-        const correctJhookQty = Math.ceil(grandTotalCableFt / 4.5);
-        const jhookIdx = updatedItems.findIndex(item =>
-          /j[\s-]*hook/i.test(item.name || item.item || '')
-        );
-        if (jhookIdx >= 0) {
-          const item = updatedItems[jhookIdx];
-          const oldQty = item.qty || 0;
-          if (correctJhookQty > oldQty * 1.5 || correctJhookQty < oldQty * 0.5) {
-            const unitCost = item.unitCost || 1.85;
-            updatedItems[jhookIdx] = {
-              ...item, qty: correctJhookQty, extCost: Math.round(correctJhookQty * unitCost * 100) / 100,
-              _calculatedRun: true, _jhookCorrected: true
-            };
-            console.log(`[CableInjection] J-hook corrected: ${oldQty} → ${correctJhookQty} (${grandTotalCableFt.toLocaleString()} ft ÷ 4.5)`);
+          if (!alreadyInBOM) {
+            const calc = calcByType[fiberKey];
+            const label = fiberKey === 'fiber_sm_os2' ? 'Fiber SM OS2 (Backbone)' : 'Fiber MM OM4 (Backbone)';
+            updatedItems.push({
+              item: label, name: label, qty: Math.round(calc.totalFt), unit: 'ft',
+              unitCost: calc.ratePerFt, extCost: Math.round(calc.totalFt * calc.ratePerFt * 100) / 100,
+              _calculatedRun: true, _injected: true
+            });
           }
-        } else {
-          // No J-hook line exists — inject one
-          const unitCost = 1.85;
-          updatedItems.push({
-            name: 'J-Hook (2" or 4")', qty: correctJhookQty, unit: 'ea',
-            unitCost, extCost: Math.round(correctJhookQty * unitCost * 100) / 100,
-            _calculatedRun: true, _injected: true, _jhookCorrected: true
-          });
-          console.log(`[CableInjection] J-hook injected: ${correctJhookQty} ea (${grandTotalCableFt.toLocaleString()} ft ÷ 4.5)`);
         }
+      });
+
+      // If cable tray was calculated but no matching BOM line existed, inject it
+      if (hasTrayData || pathway.calculatedTrayFt > 0) {
+        const hasTrayInBOM = updatedItems.some(item =>
+          /cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(item.name || item.item || '')
+        );
+        if (!hasTrayInBOM) {
+          const trayFt = pathway.calculatedTrayFt || pathway.trayTotalFt || 0;
+          if (trayFt > 0) {
+            const tray = (pathway.cableTrayResults || [])[0];
+            const trayLabel = `Cable Tray / Basket Tray (${tray?.size || '18"'})`;
+            updatedItems.push({
+              item: trayLabel, name: trayLabel, qty: trayFt, unit: 'lf',
+              unitCost: tray?.unitCost || 10.50,
+              extCost: Math.round(trayFt * (tray?.unitCost || 10.50) * 100) / 100,
+              _calculatedRun: true, _injected: true
+            });
+          }
+        }
+      }
+
+      // ── J-hook quantity: 1 hook every 4.5 ft of pathway, shared by ~5 cables per bundle ──
+      // CRITICAL FIX: Was missing /5 bundle divider → 5× overcounted (7,811 instead of ~1,562)
+      if (hasCalcData) {
+        const grandTotalCableFt = Object.values(calcByType)
+          .filter(c => !c.mode?.includes('backbone'))
+          .reduce((s, c) => s + (c.totalFt || 0), 0);
+        if (grandTotalCableFt > 0) {
+          const BUNDLE_SIZE = 5; // Avg cables sharing a J-hook in same pathway
+          const correctJhookQty = Math.ceil(grandTotalCableFt / 4.5 / BUNDLE_SIZE);
+          const jhookIdx = updatedItems.findIndex(item =>
+            /j[\s-]*hook/i.test(item.name || item.item || '')
+          );
+          if (jhookIdx >= 0) {
+            const item = updatedItems[jhookIdx];
+            const oldQty = item.qty || 0;
+            if (correctJhookQty !== oldQty) {
+              const unitCost = item.unitCost || 1.85;
+              updatedItems[jhookIdx] = {
+                ...item, qty: correctJhookQty, extCost: Math.round(correctJhookQty * unitCost * 100) / 100,
+                _calculatedRun: true, _jhookCorrected: true
+              };
+              console.log(`[CableInjection] J-hook corrected: ${oldQty} → ${correctJhookQty} (${grandTotalCableFt.toLocaleString()} ft ÷ 4.5 ÷ ${BUNDLE_SIZE} bundle)`);
+            }
+          } else {
+            const unitCost = 1.85;
+            const jhookLabel = 'J-Hook (2" or 4")';
+            updatedItems.push({
+              item: jhookLabel, name: jhookLabel, qty: correctJhookQty, unit: 'ea',
+              unitCost, extCost: Math.round(correctJhookQty * unitCost * 100) / 100,
+              _calculatedRun: true, _injected: true, _jhookCorrected: true
+            });
+            console.log(`[CableInjection] J-hook injected: ${correctJhookQty} ea (${grandTotalCableFt.toLocaleString()} ft ÷ 4.5 ÷ ${BUNDLE_SIZE} bundle)`);
+          }
+        }
+      }
+    } // end isPrimaryInfraCat injection block
+
+    // ── DEDUPLICATION: Merge items with same part number OR same description ──
+    // Suppliers get confused when the same part number appears on multiple lines.
+    // This merges qty and recalculates extended cost for duplicate entries.
+    const deduped = [];
+    const seen = new Map(); // key → index in deduped[]
+    for (const item of updatedItems) {
+      const desc = (item.item || item.name || '').trim();
+      // Skip blank/ghost items (no description)
+      if (!desc || desc.length < 2) {
+        console.log(`[CableInjection] Removing ghost item: qty=${item.qty} unit=${item.unit} cost=${item.unitCost}`);
+        continue;
+      }
+      // Build dedup key: prefer part number, fall back to normalized description + unit cost
+      const partNo = (item.partNumber || '').trim();
+      const dedupKey = partNo
+        ? `pn:${partNo.toLowerCase()}`
+        : `desc:${desc.toLowerCase().replace(/\s+/g, ' ')}|uc:${item.unitCost || 0}`;
+
+      if (seen.has(dedupKey)) {
+        // Merge into existing item
+        const existingIdx = seen.get(dedupKey);
+        const existing = deduped[existingIdx];
+        const oldQty = existing.qty || 0;
+        existing.qty = oldQty + (item.qty || 0);
+        existing.extCost = Math.round(existing.qty * (existing.unitCost || 0) * 100) / 100;
+        // Keep the longer/better description
+        const existingDesc = (existing.item || existing.name || '');
+        if (desc.length > existingDesc.length && !desc.toLowerCase().includes('waste')) {
+          existing.item = desc;
+          existing.name = desc;
+        }
+        // Preserve MFG/Part# from either
+        if (!existing.mfg && item.mfg) existing.mfg = item.mfg;
+        if (!existing.partNumber && item.partNumber) existing.partNumber = item.partNumber;
+        console.log(`[CableInjection] Dedup merged "${desc}" (${partNo || 'no PN'}): ${oldQty} + ${item.qty} = ${existing.qty} ${existing.unit}`);
+      } else {
+        // Ensure both item and name are set for Excel compatibility
+        if (!item.item) item.item = desc;
+        if (!item.name) item.name = desc;
+        seen.set(dedupKey, deduped.length);
+        deduped.push(item);
       }
     }
 
-    const newSubtotal = updatedItems.reduce((s, i) => s + (i.extCost || 0), 0);
-    return { ...cat, items: updatedItems, subtotal: Math.round(newSubtotal * 100) / 100 };
+    const newSubtotal = deduped.reduce((s, i) => s + (i.extCost || 0), 0);
+    return { ...cat, items: deduped, subtotal: Math.round(newSubtotal * 100) / 100, _dedupDone: true };
   });
 
-  const newGrandTotal = updatedCategories.reduce((s, c) => s + (c.subtotal || 0), 0);
-  return { ...bom, categories: updatedCategories, grandTotal: Math.round(newGrandTotal * 100) / 100 };
+  // ── GLOBAL CLEANUP: Remove ghost items & dedup across ALL categories (including non-cabling) ──
+  // The old injection bug left blank-description phantom items in CCTV, Access Control, etc.
+  // This catches any orphans that weren't processed by the cabling-specific loop above.
+  const cleanedCategories = updatedCategories.map(cat => {
+    // Skip categories already processed by cabling dedup (they're clean)
+    if (cat._dedupDone) return cat;
+
+    const cleaned = [];
+    const seenGlobal = new Map();
+    for (const item of (cat.items || [])) {
+      const desc = (item.item || item.name || '').trim();
+      if (!desc || desc.length < 2) {
+        console.log(`[BOM Cleanup] Removing ghost item from "${cat.name}": qty=${item.qty} unit=${item.unit} cost=$${item.unitCost}`);
+        continue;
+      }
+      const partNo = (item.partNumber || '').trim();
+      const key = partNo
+        ? `pn:${partNo.toLowerCase()}`
+        : `desc:${desc.toLowerCase().replace(/\s+/g, ' ')}|uc:${item.unitCost || 0}`;
+      if (seenGlobal.has(key)) {
+        const eIdx = seenGlobal.get(key);
+        const existing = cleaned[eIdx];
+        existing.qty = (existing.qty || 0) + (item.qty || 0);
+        existing.extCost = Math.round(existing.qty * (existing.unitCost || 0) * 100) / 100;
+        if (!existing.mfg && item.mfg) existing.mfg = item.mfg;
+        if (!existing.partNumber && item.partNumber) existing.partNumber = item.partNumber;
+      } else {
+        if (!item.item) item.item = desc;
+        if (!item.name) item.name = desc;
+        seenGlobal.set(key, cleaned.length);
+        cleaned.push(item);
+      }
+    }
+    if (cleaned.length !== (cat.items || []).length) {
+      const newSub = cleaned.reduce((s, i) => s + (i.extCost || 0), 0);
+      return { ...cat, items: cleaned, subtotal: Math.round(newSub * 100) / 100 };
+    }
+    return cat;
+  });
+
+  const newGrandTotal = cleanedCategories.reduce((s, c) => s + (c.subtotal || 0), 0);
+  return { ...bom, categories: cleanedCategories, grandTotal: Math.round(newGrandTotal * 100) / 100 };
 }
 
 // ─── Step 6: Travel, Per Diem & Incidentals ───
@@ -5459,7 +5996,7 @@ function renderStep6Travel(container) {
         ${t.calcMode === 'byTechs' ? `
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="sched-techs">Techs on Job</label>
-          <input class="form-input sched-input" type="number" min="1" max="50" id="sched-techs" value="${t.techCount}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input sched-input accuracy-critical" type="number" min="1" max="50" id="sched-techs" value="${t.techCount}" style="font-size:14px;padding:8px 10px;">
           ${t.aiRecommendedTechs ? `<div style="font-size:10px;color:var(--accent-indigo);margin-top:2px;">AI recommends: ${t.aiRecommendedTechs}</div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(16,185,129,0.08);border-radius:8px;padding:8px;">
@@ -5469,7 +6006,7 @@ function renderStep6Travel(container) {
         ` : `
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="sched-days">Days to Complete</label>
-          <input class="form-input sched-input" type="number" min="1" max="365" id="sched-days" value="${t.projectDays}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input sched-input accuracy-critical" type="number" min="1" max="365" id="sched-days" value="${t.projectDays}" style="font-size:14px;padding:8px 10px;">
           ${t.aiRecommendedDays ? `<div style="font-size:10px;color:var(--accent-indigo);margin-top:2px;">AI recommends: ${t.aiRecommendedDays}</div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(16,185,129,0.08);border-radius:8px;padding:8px;">
@@ -5479,7 +6016,7 @@ function renderStep6Travel(container) {
         `}
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="sched-trips">Mobilizations (Trips)</label>
-          <input class="form-input sched-input" type="number" min="1" max="10" id="sched-trips" value="${t.numTrips}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input sched-input accuracy-critical" type="number" min="1" max="10" id="sched-trips" value="${t.numTrips}" style="font-size:14px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Separate crew deployments — usually 1</div>
         </div>
       </div>
@@ -5494,7 +6031,7 @@ function renderStep6Travel(container) {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-hotel">Hotel $/night</label>
-          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-hotel" data-key="hotelPerNight" value="${t.hotelPerNight || 175}" placeholder="175" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input t6-input accuracy-critical" type="number" min="0" step="5" id="t6-hotel" data-key="hotelPerNight" value="${t.hotelPerNight || 175}" placeholder="175" style="font-size:14px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA avg: $175/night</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
@@ -5504,29 +6041,29 @@ function renderStep6Travel(container) {
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-perdiem">Per Diem $/day</label>
-          <input class="form-input t6-input" type="number" min="0" step="1" id="t6-perdiem" data-key="perDiemPerDay" value="${t.perDiemPerDay || 79}" placeholder="79" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input t6-input accuracy-critical" type="number" min="0" step="1" id="t6-perdiem" data-key="perDiemPerDay" value="${t.perDiemPerDay || 79}" placeholder="79" style="font-size:14px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">GSA rate: $79/day — charged all 5 work days</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-mileage">Mileage (RT miles)</label>
-          <input class="form-input t6-input" type="number" min="0" id="t6-mileage" data-key="mileageRoundTrip" value="${t.mileageRoundTrip}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input t6-input accuracy-critical" type="number" min="0" id="t6-mileage" data-key="mileageRoundTrip" value="${t.mileageRoundTrip}" style="font-size:14px;padding:8px 10px;">
           <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@ $${t.mileageRate}/mi</div>
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-airfare">Airfare $/person</label>
-          <input class="form-input t6-input" type="number" min="0" step="25" id="t6-airfare" data-key="airfarePerPerson" value="${t.airfarePerPerson}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input t6-input accuracy-critical" type="number" min="0" step="25" id="t6-airfare" data-key="airfarePerPerson" value="${t.airfarePerPerson}" style="font-size:14px;padding:8px 10px;">
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-rental">Rental Car $/day</label>
-          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-rental" data-key="rentalCarPerDay" value="${t.rentalCarPerDay}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input t6-input accuracy-critical" type="number" min="0" step="5" id="t6-rental" data-key="rentalCarPerDay" value="${t.rentalCarPerDay}" style="font-size:14px;padding:8px 10px;">
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-parking">Parking $/day</label>
-          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-parking" data-key="parkingPerDay" value="${t.parkingPerDay}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input t6-input accuracy-critical" type="number" min="0" step="5" id="t6-parking" data-key="parkingPerDay" value="${t.parkingPerDay}" style="font-size:14px;padding:8px 10px;">
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label" style="font-size:12px;margin-bottom:4px;" for="t6-tolls">Tolls $/trip</label>
-          <input class="form-input t6-input" type="number" min="0" step="5" id="t6-tolls" data-key="tollsPerTrip" value="${t.tollsPerTrip}" style="font-size:14px;padding:8px 10px;">
+          <input class="form-input t6-input accuracy-critical" type="number" min="0" step="5" id="t6-tolls" data-key="tollsPerTrip" value="${t.tollsPerTrip}" style="font-size:14px;padding:8px 10px;">
         </div>
       </div>
     </div>
@@ -9279,6 +9816,8 @@ async function runGeminiAnalysis(updateProgress) {
       AnalysisTimer.stop();
       state.analysisComplete = true;
       state.completedSteps.add("review");
+      // Smart Defaults: pick up AI-detected values (ceiling height, sheet size, etc.)
+      SmartDefaults.onAnalysisComplete(result.brainResults || {});
       // ── BOM & labor validation disabled — letting AI output run unmodified ──
       // validateAndRepairBOM() and labor hour clamping available but not called.
       // The temperature=0 and tier anchoring in ai-engine.js handle consistency at the source.
