@@ -3932,6 +3932,90 @@ If ANY item is missing mfg or partNumber, FIX IT NOW before returning.
 If ANY selected discipline is missing from your categories array, ADD IT NOW with all required materials.
 Missing an entire discipline is a FATAL ERROR that will cause catastrophic underestimation.
 
+═══ SYSTEM COMPLETENESS CHECKLIST (MANDATORY — every system must be FUNCTIONAL) ═══
+A system with missing components DOES NOT WORK. For each discipline, you MUST include ALL of these:
+
+🔒 ACCESS CONTROL — Every controlled door needs ALL of these:
+  □ Card Reader (1 per door, or 2 if in+out) — match schedule/consensus count
+  □ REX Button / Request-to-Exit device (1 per door) — DOORS CANNOT OPEN WITHOUT REX
+  □ Electric Strike OR Mag-Lock (1 per door) — DOORS CANNOT LOCK WITHOUT HARDWARE
+  □ Door Position Switch / Door Contact (1 per door) — monitors open/close status
+  □ Dual Reader Interface Module (DRIM) — 1 per 2 doors (round UP: 15 doors = 8 DRIMs)
+  □ Controller (1 per 8-16 doors depending on manufacturer)
+  □ Power Supply w/ battery backup (1 per 4-8 doors)
+  □ Composite Access Control Cable — per door run (22/6 + 18/4 or equiv)
+  □ Lock Power Cable — 18/2 or 16/2 for strikes/mag-locks (separate run per door)
+  ⚠️ COMMON ERROR: Pricing readers but forgetting REX + strikes = doors that don't lock or unlock
+
+🔐 INTRUSION DETECTION — Complete system needs:
+  □ Control Panel (1 per building)
+  □ LCD Keypad (minimum 2 — main entrance + secondary entry/admin area)
+  □ Motion Detectors / PIR (6-15 for a clinic — hallways, lobbies, admin areas after-hours)
+  □ Glass Break Detectors (perimeter rooms with windows)
+  □ Door Contacts (entry doors not covered by access control, or SHARED with access control)
+  □ Interior Siren / Sounder (minimum 1 — audible alarm notification)
+  □ Tamper Switch on panel enclosure
+  □ 22/4 Cable for all devices
+  ⚠️ COMMON ERROR: Pricing panel + glass breaks but no motion detectors or siren = non-functional system
+
+📹 CCTV — Every camera needs:
+  □ Camera (dome, bullet, PTZ, etc.)
+  □ Camera Mount / Pendant / Adapter (wall mount, ceiling pendant, corner adapter, pole mount)
+  □ Camera Back Box or Junction Box (weatherproof for exterior)
+  □ Camera License / VMS License (1 per camera)
+  □ NVR or Server with adequate storage
+  □ PoE Network Switch with sufficient ports (cameras + uplinks + spare ports)
+  □ Cat6A cable per camera (counted in structured cabling)
+  ⚠️ COMMON ERROR: Pricing cameras but no mounts = cameras can't be installed
+
+🔊 PAGING / INTERCOM — Complete system needs:
+  □ Paging Controller / Master Station
+  □ Amplifier(s) — total wattage must exceed speaker tap wattage (speakers × tap setting)
+  □ Ceiling Speakers with transformers (25V or 70V line)
+  □ Speaker Back Can / Enclosure (plenum-rated if above drop ceiling — REQUIRED by code)
+  □ Audio Cable (16/2 or 18/2) — avg run 150-200 ft for commercial buildings, NOT 60 ft
+  □ Volume Controls / Zone Attenuators (if multiple zones shown on plans)
+  ⚠️ COMMON ERROR: 63 speakers × 150 ft avg = 9,450 ft cable, NOT 4,000 ft
+
+🏥 NURSE CALL — VA/Healthcare MUST include:
+  □ Master Console / Annunciator (1 per nurse station)
+  □ Patient Station (1 per bed)
+  □ Corridor Dome Light (1 per patient room — matches patient station count)
+  □ Staff Station / Duty Station (at nurse station — for call acknowledgment)
+  □ Bathroom Emergency Pull Cord (1 per patient bathroom — REQUIRED for VA/ADA)
+  □ Code Blue Station (emergency — REQUIRED for VA healthcare facilities)
+  □ Pillow Speaker (if patient rooms have entertainment/communication)
+  □ Nurse Call Cable (dedicated plenum-rated)
+  ⚠️ COMMON ERROR: Missing bathroom pull cords + staff station + Code Blue = non-compliant VA system
+
+📺 AUDIO VISUAL — Complete installations need:
+  □ Displays / Monitors
+  □ Wall Mounts / Ceiling Mounts (1 per display)
+  □ HDMI / DisplayPort Cables (1-2 per display)
+  □ AV Wall Plates / Input Receptacles (for conference/meeting rooms)
+  □ DSP / Audio Processor (if audio system present)
+  □ AV Rack Shelf or mounting hardware for head-end equipment
+
+🏗️ MDF / IDF — Every telecom room needs:
+  □ Rack(s) (2-post or 4-post per plan)
+  □ Patch Panels — enough ports for ALL drops served (total drops ÷ 48, round UP)
+  □ Horizontal Cable Managers (minimum 2 per rack — above and below patch panels)
+  □ Vertical Cable Manager (1 per rack)
+  □ PDU (minimum 2 per rack for redundancy)
+  □ UPS (sized for equipment load)
+  □ Fiber Shelf / Fiber Enclosure (at BOTH ends — MDF AND every IDF)
+  □ Ladder Rack / Cable Runway (overhead from rack to corridor pathway — measure LF from plans)
+  □ Grounding Busbar (TMGB at MDF, TGB at each IDF)
+  □ Bonding Conductor (#6 AWG from busbar to building ground)
+  ⚠️ COMMON ERROR: Fiber shelf at MDF but not at IDF = fiber can't terminate at remote end
+
+🔌 STRUCTURED CABLING — J-hooks and pathway:
+  □ J-Hooks — 1 every 4-5 ft of horizontal cable run (total horizontal ft ÷ 4.5)
+  □ Cable Tray / Basket Tray (if shown on plans — measure LF from routing)
+  □ Ladder Rack in telecom rooms (see MDF/IDF above)
+  □ Firestop Penetrations (every floor/wall penetration)
+  ⚠️ COMMON ERROR: 90,000 ft cable ÷ 4.5 = 20,000 J-hooks, NOT 1,500
+
 ═══ WASTE FACTOR, SPARE PARTS & CONSUMABLES ═══
 You MUST add these to your output — they are REAL costs that every project incurs:
 1. CABLE WASTE FACTOR: Add 12% to all cable quantities. Cable gets cut, pulled wrong, rejected, damaged. Price the waste.
