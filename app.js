@@ -1062,11 +1062,15 @@ const SmartDefaults = {
   // Build auto-fill text from selected disciplines
   _buildSpecificItemsText(disciplines) {
     if (!disciplines || disciplines.length === 0) return '';
-    const lines = [];
+    const lines = [
+      'PRIORITY ITEMS — ensure these are accurately counted (do NOT skip any):',
+    ];
     for (const disc of disciplines) {
       const instruction = this._DISCIPLINE_COUNT_INSTRUCTIONS[disc];
       if (instruction) lines.push(`• ${disc}: ${instruction}`);
     }
+    lines.push('');
+    lines.push('IMPORTANT: Also count ALL other low-voltage devices, symbols, and equipment found on the plans even if not listed above. The items above are priorities — not an exhaustive list. If you see it on the drawings, count it.');
     return lines.join('\n');
   },
 
@@ -8839,7 +8843,7 @@ Work Shift: ${state.workShift === "2nd-shift" ? "2nd Shift (3PM-11:30PM)" : stat
   prompt += buildPricingContext();
 
   if (state.specificItems) {
-    prompt += `\nSpecific items to count:\n${state.specificItems}\n`;
+    prompt += `\nSpecific items to count (PRIORITY — ensure accurate counts, but also count ANY other devices/symbols found on drawings):\n${state.specificItems}\n`;
   }
   if (state.knownQuantities) {
     prompt += `\nKnown quantities for verification:\n${state.knownQuantities}\n`;
