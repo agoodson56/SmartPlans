@@ -4768,9 +4768,15 @@ function injectTravelIntoBOM(bom) {
 function computePathwayDistances() {
   const cable  = state.brainResults?.wave1?.CABLE_PATHWAY || {};
   const spatial = state.brainResults?.wave0?.SPATIAL_LAYOUT || {};
+  const mdfIdf  = state.brainResults?.wave1?.MDF_IDF_ANALYZER || {};
+  const riserBrain = state.brainResults?.wave1?.RISER_DIAGRAM_ANALYZER || {};
   const ceilingH = state.ceilingHeight || 10;
   const floorH   = state.floorToFloorHeight || 14;
-  const SLACK_FT = 15;   // termination + dressing + slack loops
+  // BICSI TDMM overhead per cable run (matches cable-analyzer.js)
+  const STUB_UP  = 10;   // Device end: up the wall to plenum
+  const IDF_DROP = 20;   // IDF end: from plenum down rack to patch panel
+  const SLACK_FT = 16;   // 10 TR loop + 1 outlet loop + 5 dressing
+  const ROUTING_FACTOR = 1.30; // BICSI TDMM pathway multiplier
   const WASTE    = 1.12; // 12% cable waste factor
 
   // Build IDF position lookup: { "IDF-1A": { x_pct, y_pct, floor } }
@@ -4788,6 +4794,23 @@ function computePathwayDistances() {
       sheetDims[sh.sheet_id] = { w: sh.sheet_area_width_ft, d: sh.sheet_area_depth_ft };
     }
   });
+  // Merge ScaleCalibration data (same as cable-analyzer.js _buildSheetDims)
+  if (typeof ScaleCalibration !== 'undefined') {
+    const scSheets = ScaleCalibration._sheets || {};
+    Object.keys(scSheets).forEach(sheetId => {
+      if (sheetDims[sheetId]) return; // AI data takes priority
+      const sc = scSheets[sheetId];
+      if (sc._ftPerInch > 0) {
+        const drawableW = sc._drawableW || 33;
+        const drawableD = sc._drawableH || 21;
+        const wFt = Math.round(drawableW * sc._ftPerInch);
+        const dFt = Math.round(drawableD * sc._ftPerInch);
+        if (wFt > 10 && dFt > 10) {
+          sheetDims[sheetId] = { w: wFt, d: dFt, source: 'scale_calibration' };
+        }
+      }
+    });
+  }
   const hasPerSheetDims = Object.keys(sheetDims).length > 0;
 
   // Overall building envelope — fallback when no per-sheet data
@@ -4818,14 +4841,25 @@ function computePathwayDistances() {
           const zoneSheet = z.sheet_id && sheetDims[z.sheet_id];
           const zW = zoneSheet ? zoneSheet.w : bldgW;
           const zD = zoneSheet ? zoneSheet.d : bldgD;
-          const dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * zW;
-          const dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * zD;
+          let dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * zW;
+          let dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * zD;
+          // Detect useless 50/50 position data — fall back to building-dimension average
+          const zoneX = z.approx_x_pct ?? 50;
+          const zoneY = z.approx_y_pct ?? 50;
+          const positionsUseless = (dx + dy < 1) || (zoneX === 50 && zoneY === 50 && idf.x === 50 && idf.y === 50);
+          if (positionsUseless && zW > 0) {
+            dx = zW / 4;
+            dy = zD / 4;
+          }
           const floorsApart = Math.abs((z.floor || 1) - (idf.floor || 1));
-          const vertFt = floorsApart > 0 ? floorsApart * floorH : ceilingH;
-          runFt = Math.round(dx + dy + vertFt + SLACK_FT);
+          const riser = floorsApart > 0 ? floorsApart * floorH : 0;
+          const vertFt = STUB_UP + IDF_DROP + riser;
+          runFt = Math.round((dx + dy) * ROUTING_FACTOR + vertFt + SLACK_FT);
+          // Enforce minimum
+          if (runFt < 75) runFt = 75;
         } else {
           // IDF not in map — use zone's own estimate or fall back
-          runFt = z.est_run_ft || hc.avg_length_ft || 150;
+          runFt = z.est_run_ft || hc.avg_length_ft || 175;
         }
         // TIA-568 horizontal cable limit
         const tiaFlag = runFt > 295;
@@ -4834,7 +4868,7 @@ function computePathwayDistances() {
         const cost = totalFt * ratePerFt;
         grandTotalFt += totalFt;
         grandTotalCost += cost;
-        return { zone: z.zone_name || z.zone, idf: z.idf_serving, deviceCount: qty, runFt, totalFt, cost, tiaFlag, basis: z.basis || 'spatial calculation' };
+        return { zone: z.zone_name || z.zone, idf: z.idf_serving, deviceCount: qty, runFt, totalFt, cost, tiaFlag, basis: z.basis || 'spatial (BICSI TDMM)' };
       });
       results.push({ cableType, rating: hc.rating || '', zones: zoneRows, mode: 'spatial', ratePerFt });
 
@@ -4842,7 +4876,7 @@ function computePathwayDistances() {
       // ── ZONE MODE: use AI's per-zone est_run_ft, just no coordinate math ──
       hasSpatialZones = true;
       const zoneRows = zones.map(z => {
-        const runFt = z.est_run_ft || hc.avg_length_ft || 150;
+        const runFt = z.est_run_ft || hc.avg_length_ft || 175;
         const tiaFlag = runFt > 295;
         const qty = z.device_count || 0;
         const totalFt = Math.round(qty * runFt * WASTE);
@@ -4855,7 +4889,7 @@ function computePathwayDistances() {
 
     } else {
       // ── FALLBACK: single average (old brain output format) ──
-      const runFt = hc.avg_length_ft || 150;
+      const runFt = hc.avg_length_ft || 175;
       const qty   = hc.count || 0;
       const totalFt = hc.total_ft || Math.round(qty * runFt * WASTE);
       const cost = totalFt * ratePerFt;
@@ -4865,10 +4899,102 @@ function computePathwayDistances() {
     }
   });
 
+  // ═══ BACKBONE / FIBER PROCESSING ═══
+  // Process backbone cables from CABLE_PATHWAY + RISER_DIAGRAM_ANALYZER + MDF_IDF_ANALYZER
+  // These are fiber/copper runs between MDF, IDFs, and telecom rooms
+  let backboneCables = [...(cable.backbone_cables || [])];
+  if (backboneCables.length === 0) backboneCables = [...(riserBrain.backbone_cables || [])];
+
+  // Merge backbone_connections from MDF_IDF_ANALYZER (has per-connection fiber counts + distances)
+  const backboneConnections = mdfIdf.backbone_connections || [];
+  backboneConnections.forEach(bc => {
+    // Check if this connection is already represented in backbone_cables
+    const alreadyExists = backboneCables.some(b => {
+      const bType = (b.type || '').toLowerCase();
+      return (bType.includes('fiber') || bType.includes('sm') || bType.includes('mm')) &&
+             b.avg_length_ft && Math.abs((b.avg_length_ft || 0) - (bc.est_distance_ft || 0)) < 50;
+    });
+    if (!alreadyExists) {
+      if (bc.fiber_sm_count > 0) {
+        backboneCables.push({
+          type: 'Fiber SM OS2', strand_count: bc.fiber_sm_count, runs: 1,
+          avg_length_ft: bc.est_distance_ft || 0,
+          _from: bc.from, _to: bc.to, _source: 'MDF_IDF_ANALYZER'
+        });
+      }
+      if (bc.fiber_mm_count > 0) {
+        backboneCables.push({
+          type: 'Fiber MM OM4', strand_count: bc.fiber_mm_count, runs: 1,
+          avg_length_ft: bc.est_distance_ft || 0,
+          _from: bc.from, _to: bc.to, _source: 'MDF_IDF_ANALYZER'
+        });
+      }
+    }
+  });
+
+  // Calculate backbone totals and ADD to grand totals
+  const backboneResults = [];
+  const _bldgDiag = (bldgW > 0 && bldgD > 0) ? Math.sqrt(bldgW * bldgW + bldgD * bldgD) : 200;
+  backboneCables.forEach(b => {
+    let avgLen = b.avg_length_ft;
+    if (!avgLen && b.total_length_ft && b.runs > 0) avgLen = Math.round(b.total_length_ft / b.runs);
+    if (!avgLen) avgLen = Math.round(_bldgDiag / 2 + floorH + 30); // Estimate fallback
+    const runs = b.runs || 1;
+    const totalFt = Math.round(runs * avgLen * WASTE);
+    const ratePerFt = _getCableRatePerFt(b.type || '', '');
+    const cost = Math.round(totalFt * ratePerFt * 100) / 100;
+    grandTotalFt += totalFt;
+    grandTotalCost += cost;
+    backboneResults.push({
+      type: b.type, strandCount: b.strand_count || b.pairs, runs, avgLengthFt: avgLen,
+      totalFt, cost, ratePerFt, from: b._from, to: b._to, source: b._source || 'CABLE_PATHWAY'
+    });
+  });
+
+  // ═══ CABLE TRAY / BASKET TRAY PROCESSING ═══
+  // Process pathways from CABLE_PATHWAY brain — cable tray, basket tray, ladder rack
+  const pathways = cable.pathways || [];
+  const cableTrayResults = [];
+  let trayTotalFt = 0;
+  let trayTotalCost = 0;
+  pathways.forEach(p => {
+    const pType = (p.type || '').toLowerCase();
+    if (!pType.includes('tray') && !pType.includes('basket') && !pType.includes('ladder') && !pType.includes('runway')) return;
+    const lengthFt = p.length_ft || 0;
+    if (lengthFt <= 0) return;
+    // Determine tray size for pricing lookup
+    const size = (p.size || '').toLowerCase();
+    let unitCost = 0;
+    if (typeof PRICING_DB !== 'undefined') {
+      const tier = state.pricingTier || 'mid';
+      const trayDb = PRICING_DB.structuredCabling?.pathway || {};
+      if (size.includes('24')) unitCost = trayDb.cable_tray_24in?.[tier] || 18.00;
+      else if (size.includes('18')) unitCost = trayDb.cable_tray_18in?.[tier] || 14.00;
+      else if (size.includes('12')) unitCost = trayDb.cable_tray_12in?.[tier] || 10.50;
+      else if (size.includes('6')) unitCost = trayDb.cable_tray_6in?.[tier] || 7.50;
+      else unitCost = trayDb.cable_tray_12in?.[tier] || 10.50; // Default 12" tray
+    } else {
+      unitCost = 10.50; // Fallback mid-tier 12" tray
+    }
+    const cost = Math.round(lengthFt * unitCost * 100) / 100;
+    trayTotalFt += lengthFt;
+    trayTotalCost += cost;
+    cableTrayResults.push({
+      type: p.type, size: p.size || '12"', lengthFt, location: p.location || '',
+      unitCost, cost
+    });
+  });
+  grandTotalCost += trayTotalCost;
+
   // TIA-568 violations across all zones
   const tiaViolations = results.flatMap(r => r.zones.filter(z => z.tiaFlag));
 
-  return { results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD };
+  return {
+    results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD,
+    backboneResults, backboneTotalFt: backboneResults.reduce((s, b) => s + b.totalFt, 0),
+    backboneTotalCost: backboneResults.reduce((s, b) => s + b.cost, 0),
+    cableTrayResults, trayTotalFt, trayTotalCost,
+  };
 }
 
 // Helper: look up cable cost rate — prefers Company Profile (actual distributor cost)
@@ -4924,16 +5050,8 @@ function _getCableRatePerFt(type, rating) {
 // Replaces AI-estimated cable line items with spatially-calculated quantities
 // ONLY when zone data is available and quantities have improved confidence.
 function injectCalculatedCableQuantities(bom) {
-  // Only run when CABLE_PATHWAY brain has zone-level data
-  const cable = state.brainResults?.wave1?.CABLE_PATHWAY || {};
-  const horizontals = cable.horizontal_cables || [];
-  const hasZones = horizontals.some(hc => (hc.zones || []).length > 0);
-  if (!hasZones) return bom; // No zone data — leave BOM untouched
-
   const pathway = computePathwayDistances();
-  if (!pathway.hasSpatialZones || pathway.grandTotalFt <= 0) return bom;
 
-  // Build a lookup of calculated totals by cable type
   // Normalize keys to match the simplified BOM lookup keys (cat6a, cat6, cat5e, etc.)
   const _normalizeCableKey = (raw) => {
     const s = raw.toLowerCase();
@@ -4943,20 +5061,42 @@ function injectCalculatedCableQuantities(bom) {
     if (/fiber.*sm|sm.*fiber|os2/.test(s)) return 'fiber_sm_os2';
     if (/fiber.*mm|mm.*fiber|om[34]/.test(s)) return 'fiber_mm_om4';
     if (/coax|rg.?6/.test(s)) return 'coax_rg6';
-    return s; // fallback: use raw lowercased
+    return s;
   };
+
+  // Build lookup of calculated totals by cable type (horizontal)
   const calcByType = {};
-  pathway.results.forEach(r => {
-    const key = _normalizeCableKey(r.cableType);
-    if (!calcByType[key]) calcByType[key] = { totalFt: 0, ratePerFt: r.ratePerFt, mode: r.mode };
-    r.zones.forEach(z => { calcByType[key].totalFt += z.totalFt; });
+  if (pathway.hasSpatialZones && pathway.grandTotalFt > 0) {
+    pathway.results.forEach(r => {
+      const key = _normalizeCableKey(r.cableType);
+      if (!calcByType[key]) calcByType[key] = { totalFt: 0, ratePerFt: r.ratePerFt, mode: r.mode };
+      r.zones.forEach(z => { calcByType[key].totalFt += z.totalFt; });
+    });
+  }
+
+  // Add backbone fiber totals to the cable type lookup
+  (pathway.backboneResults || []).forEach(b => {
+    const key = _normalizeCableKey(b.type || '');
+    if (key.includes('fiber')) {
+      if (!calcByType[key]) calcByType[key] = { totalFt: 0, ratePerFt: b.ratePerFt, mode: 'backbone' };
+      calcByType[key].totalFt += b.totalFt;
+    }
   });
 
-  // Walk BOM categories and update cable line items
+  const hasCalcData = Object.keys(calcByType).length > 0;
+  const hasTrayData = (pathway.cableTrayResults || []).length > 0;
+  if (!hasCalcData && !hasTrayData) return bom;
+
+  // Walk BOM categories and update cable + tray line items
   const updatedCategories = (bom.categories || []).map(cat => {
-    if (!/(cabling|structured|cable|network|telecom)/i.test(cat.name)) return cat;
+    const catName = (cat.name || '').toLowerCase();
+    const isCablingCat = /(cabling|structured|cable|network|telecom|infrastructure|pathway)/i.test(catName);
+    if (!isCablingCat) return cat;
+
     const updatedItems = (cat.items || []).map(item => {
       const name = (item.name || item.item || '').toLowerCase();
+
+      // Match cable line items
       let matchKey = null;
       if (/cat\s*6a|cat6a/.test(name)) matchKey = 'cat6a';
       else if (/cat\s*6(?!a)|cat6(?!a)/.test(name)) matchKey = 'cat6';
@@ -4971,8 +5111,56 @@ function injectCalculatedCableQuantities(bom) {
         const newCost = Math.round(newQty * (item.unitCost || calc.ratePerFt) * 100) / 100;
         return { ...item, qty: newQty, extCost: newCost, _calculatedRun: true };
       }
+
+      // Match cable tray / basket tray line items
+      if (hasTrayData && (/cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(name)) && (item.unit === 'ft' || item.unit === 'lf')) {
+        const tray = pathway.cableTrayResults[0]; // Use first tray result for sizing
+        if (tray) {
+          const newQty = pathway.trayTotalFt;
+          const newCost = Math.round(newQty * (item.unitCost || tray.unitCost) * 100) / 100;
+          return { ...item, qty: newQty, extCost: newCost, _calculatedRun: true };
+        }
+      }
+
       return item;
     });
+
+    // If backbone fiber was calculated but no matching BOM line existed, inject it
+    ['fiber_sm_os2', 'fiber_mm_om4'].forEach(fiberKey => {
+      if (calcByType[fiberKey] && calcByType[fiberKey].totalFt > 0) {
+        const alreadyInBOM = updatedItems.some(item => {
+          const n = (item.name || item.item || '').toLowerCase();
+          return (fiberKey === 'fiber_sm_os2' && (/fiber.*sm|sm.*fiber|os2/.test(n)))
+              || (fiberKey === 'fiber_mm_om4' && (/fiber.*mm|mm.*fiber|om[34]/.test(n)));
+        });
+        if (!alreadyInBOM) {
+          const calc = calcByType[fiberKey];
+          const label = fiberKey === 'fiber_sm_os2' ? 'Fiber SM OS2 (Backbone)' : 'Fiber MM OM4 (Backbone)';
+          updatedItems.push({
+            name: label, qty: Math.round(calc.totalFt), unit: 'ft',
+            unitCost: calc.ratePerFt, extCost: Math.round(calc.totalFt * calc.ratePerFt * 100) / 100,
+            _calculatedRun: true, _injected: true
+          });
+        }
+      }
+    });
+
+    // If cable tray was calculated but no matching BOM line existed, inject it
+    if (hasTrayData) {
+      const hasTrayInBOM = updatedItems.some(item =>
+        /cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(item.name || item.item || '')
+      );
+      if (!hasTrayInBOM && pathway.trayTotalFt > 0) {
+        const tray = pathway.cableTrayResults[0];
+        updatedItems.push({
+          name: `Cable Tray / Basket Tray (${tray?.size || '12"'})`, qty: pathway.trayTotalFt, unit: 'lf',
+          unitCost: tray?.unitCost || 10.50,
+          extCost: Math.round(pathway.trayTotalFt * (tray?.unitCost || 10.50) * 100) / 100,
+          _calculatedRun: true, _injected: true
+        });
+      }
+    }
+
     const newSubtotal = updatedItems.reduce((s, i) => s + (i.extCost || 0), 0);
     return { ...cat, items: updatedItems, subtotal: Math.round(newSubtotal * 100) / 100 };
   });
