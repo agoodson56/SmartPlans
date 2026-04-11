@@ -5610,6 +5610,7 @@ function computePathwayDistances() {
     backboneTotalCost: backboneResults.reduce((s, b) => s + b.cost, 0),
     cableTrayResults, trayTotalFt, trayTotalCost, calculatedTrayFt, byOthersPathways,
     consensusCableDrops, // Total data/voice/WAP drops from AI consensus (used for jack/faceplate correction)
+    consensusWAPCount,   // WAP-only count — WAPs need jacks but NOT faceplates
   };
 }
 
@@ -5690,12 +5691,17 @@ function injectCalculatedCableQuantities(bom) {
     || state.brainResults?.wave1?.SYMBOL_SCANNER?.totals || {};
   // Count total data/voice drops from consensus (these map to cat6/cat6a cables)
   let consensusCableDrops = 0;
+  let consensusWAPCount = 0; // WAPs need jacks but NOT faceplates (mount directly to cable)
   for (const [key, val] of Object.entries(consensus)) {
     const k = key.toLowerCase();
     // AUDIT FIX #5: Use precise regex to avoid false positives (power_outlet, transport, report, metadata)
     if (/^(data[_\s]?(outlet|drop|port)|voice[_\s]?(outlet|drop)|wap|wireless[_\s]?access|network[_\s]?jack|cat6a?[_\s]?drop|ethernet[_\s]?(outlet|port|drop)|rj45)$/i.test(k)) {
       const count = typeof val === 'object' ? (val.consensus || val.count || val.total || 0) : (val || 0);
       consensusCableDrops += count;
+      // Track WAPs separately — they need jacks + cable but NOT faceplates or outlet patch cords
+      if (/^(wap|wireless[_\s]?access)/i.test(k)) {
+        consensusWAPCount += count;
+      }
     }
   }
 
@@ -5964,15 +5970,18 @@ function injectCalculatedCableQuantities(bom) {
         // Jacks / keystones: 1 per drop
         _correctAccessoryQty(/keystone\s*jack|cat\s*6a?\s*jack|data\s*jack|rj.?45\s*jack/i, totalDrops, 'Keystone Jack', 'ea', 19.86);
 
-        // Faceplates: ceil(totalDrops / ports_per_plate)
+        // Faceplates: ceil(outletDrops / ports_per_plate)
+        // WAPs mount directly to cable (no faceplate) — only count outlet drops
+        const wapCount = pathway.consensusWAPCount || 0;
+        const outletDrops = totalDrops - wapCount; // Data/voice outlets that need faceplates
         // Detect port count from existing faceplate description
         const fpIdx = updatedItems.findIndex(item => /faceplate|face\s*plate|wall\s*plate/i.test(item.name || item.item || ''));
-        if (fpIdx >= 0) {
+        if (fpIdx >= 0 && outletDrops > 0) {
           const fpItem = updatedItems[fpIdx];
           const fpName = (fpItem.name || fpItem.item || '').toLowerCase();
           const portsMatch = fpName.match(/(\d+)[\s-]*port/);
           const portsPerPlate = portsMatch ? parseInt(portsMatch[1]) : 2; // Default 2-port
-          const correctFpQty = Math.ceil(totalDrops / portsPerPlate);
+          const correctFpQty = Math.ceil(outletDrops / portsPerPlate);
           const oldFpQty = fpItem.qty || 0;
           if (oldFpQty !== correctFpQty) {
             const uc = fpItem.unitCost || 5.42;
@@ -5980,21 +5989,22 @@ function injectCalculatedCableQuantities(bom) {
               ...fpItem, qty: correctFpQty, extCost: Math.round(correctFpQty * uc * 100) / 100,
               _calculatedRun: true, _accessoryCorrected: true
             };
-            console.log(`[CableInjection] Faceplate corrected: ${oldFpQty} → ${correctFpQty} (${totalDrops} drops ÷ ${portsPerPlate} ports)`);
+            console.log(`[CableInjection] Faceplate corrected: ${oldFpQty} → ${correctFpQty} (${outletDrops} outlet drops ÷ ${portsPerPlate} ports, excl ${wapCount} WAPs)`);
           }
         }
 
-        // Patch cords: 1 per drop for each length (3ft at outlet, 10ft at patch panel)
+        // Patch cords: 1 per outlet drop for each length (3ft at outlet, 10ft at patch panel)
+        // WAPs don't use outlet patch cords — they connect directly
         updatedItems.forEach((item, i) => {
           if (/patch\s*cord|patch\s*cable/i.test(item.name || item.item || '') && /^ea$/i.test(item.unit || '')) {
             const oldQty = item.qty || 0;
-            if (oldQty !== totalDrops) {
+            if (oldQty !== outletDrops) {
               const uc = item.unitCost || 10.00;
               updatedItems[i] = {
-                ...item, qty: totalDrops, extCost: Math.round(totalDrops * uc * 100) / 100,
+                ...item, qty: outletDrops, extCost: Math.round(outletDrops * uc * 100) / 100,
                 _calculatedRun: true, _accessoryCorrected: true
               };
-              console.log(`[CableInjection] Patch cord corrected: ${oldQty} → ${totalDrops} ("${item.item || item.name}")`);
+              console.log(`[CableInjection] Patch cord corrected: ${oldQty} → ${outletDrops} ("${item.item || item.name}", excl ${wapCount} WAPs)`);
             }
           }
         });
