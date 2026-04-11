@@ -15,8 +15,8 @@ const CableAnalyzer = {
     serviceLoopWA_Ft:   1,    // BICSI: 12" service loop at work area outlet
     dressingFt:         5,    // Patch panel dressing, cable management, lacing within rack
     // ── Vertical Components ──
-    stubUpFt:          15,    // Device to ceiling plenum (wall cavity + stub-up above drop ceiling)
-    idfDropFt:         10,    // Plenum drop-down into IDF rack (ceiling to patch panel height)
+    stubUpFt:          10,    // Device end: up the wall into ceiling plenum (~10 ft wall height)
+    idfDropFt:         20,    // IDF end: down from plenum, through TR wall, down rack to patch panel (~20 ft)
     ceilingHeightFt:   10,    // Typical finished ceiling height (AFF to grid)
     floorToFloorFt:    14,    // Slab-to-slab height for riser runs
     // ── Horizontal Pathway ──
@@ -54,7 +54,7 @@ const CableAnalyzer = {
     serviceLoopWA_Ft:{ label: 'Outlet Service Loop (ft)',  min: 0,   max: 5,   step: 0.5 },
     dressingFt:      { label: 'Rack Dressing (ft)',        min: 0,   max: 15,  step: 1   },
     stubUpFt:        { label: 'Stub-Up to Plenum (ft)',    min: 5,   max: 25,  step: 1   },
-    idfDropFt:       { label: 'IDF Plenum Drop (ft)',      min: 5,   max: 20,  step: 1   },
+    idfDropFt:       { label: 'IDF Plenum Drop (ft)',      min: 5,   max: 30,  step: 1   },
     wastePct:        { label: 'Waste Factor (%)',          min: 0,   max: 30,  step: 1   },
     ceilingHeightFt: { label: 'Ceiling Height (ft)',       min: 8,   max: 30,  step: 0.5 },
     floorToFloorFt:  { label: 'Floor-to-Floor (ft)',       min: 10,  max: 25,  step: 0.5 },

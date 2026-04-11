@@ -926,7 +926,6 @@ const AnalysisTimer = {
   _startTime: null,
 
   start() {
-    if (!_currentUser?.is_admin) return;
     this._startTime = Date.now();
     const el = document.getElementById('admin-analysis-timer');
     const display = document.getElementById('admin-timer-display');
