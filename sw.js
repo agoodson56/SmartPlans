@@ -1,4 +1,4 @@
-const CACHE_NAME = 'smartplans-v5.104.1';
+const CACHE_NAME = 'smartplans-v5.104.2';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -19,12 +19,17 @@ const APP_SHELL = [
     '/smartplans-logo.png',
 ];
 
-// Install — cache app shell, immediately take over
+// Install — cache app shell, then take over
 self.addEventListener('install', (event) => {
-    // Force skip waiting — don't wait for old tabs to close
-    self.skipWaiting();
     event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
+        caches.open(CACHE_NAME)
+            .then(cache => cache.addAll(APP_SHELL))
+            .then(() => {
+                // Only skip waiting AFTER cache is successfully populated
+                // Calling skipWaiting() before addAll() resolves can cause reload loops
+                // if addAll() fails (e.g., a file 404s)
+                return self.skipWaiting();
+            })
     );
 });
 

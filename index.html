@@ -218,29 +218,22 @@
     <script>
         // ═══ CACHE BUSTER — Runs FIRST, before SW registration ═══
         // If the old SW is serving stale files, nuke everything and reload fresh
+        // NOTE: No hardcoded version — only bust if there are 2+ different smartplans caches
+        // (meaning an old one is stuck alongside the new one). Single cache = healthy state.
         (async function cacheBuster() {
             if (!('serviceWorker' in navigator)) return;
-            var EXPECTED_VERSION = 'smartplans-v5.103.0';
             try {
-                // Check what cache version we have locally
                 var keys = await caches.keys();
-                var hasCurrentCache = keys.some(function(k) { return k === EXPECTED_VERSION; });
-                var hasStaleCache = keys.some(function(k) { return k.startsWith('smartplans-') && k !== EXPECTED_VERSION; });
-
-                if (hasStaleCache) {
-                    console.log('[CacheBuster] Stale cache detected: ' + keys.join(', ') + ' — nuking all caches');
-                    // Delete ALL caches
-                    await Promise.all(keys.map(function(k) { return caches.delete(k); }));
-                    // Unregister ALL service workers
-                    var regs = await navigator.serviceWorker.getRegistrations();
-                    await Promise.all(regs.map(function(r) { return r.unregister(); }));
-                    console.log('[CacheBuster] All caches and SWs destroyed — reloading fresh');
-                    // Hard reload bypassing cache
-                    if (!window._cacheBustReloading) {
-                        window._cacheBustReloading = true;
-                        location.reload();
-                    }
-                    return; // Stop — page will reload
+                var spCaches = keys.filter(function(k) { return k.startsWith('smartplans-'); });
+                // Only bust if there are MULTIPLE smartplans caches (old stuck alongside new)
+                // A single cache (old or new) is fine — the SW update flow handles the transition
+                if (spCaches.length > 1) {
+                    console.log('[CacheBuster] Multiple caches detected: ' + spCaches.join(', ') + ' — nuking stale ones');
+                    // Keep the newest (highest version), delete the rest
+                    spCaches.sort();
+                    var newest = spCaches.pop();
+                    await Promise.all(spCaches.map(function(k) { return caches.delete(k); }));
+                    console.log('[CacheBuster] Cleaned up old caches, kept: ' + newest);
                 }
             } catch (e) {
                 console.warn('[CacheBuster] Error:', e);
