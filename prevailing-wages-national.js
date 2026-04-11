@@ -351,3 +351,8 @@ const NATIONAL_PREVAILING_WAGES = {
     'NC': 'NORTH CAROLINA', 'OH': 'OHIO', 'MI': 'MICHIGAN', 'OR': 'OREGON',
   },
 };
+
+// AUDIT FIX M5: Export to window for browser access (matches prevailing-wages-ca.js pattern)
+if (typeof window !== 'undefined') {
+  window.NationalPrevailingWages = NATIONAL_PREVAILING_WAGES;
+}

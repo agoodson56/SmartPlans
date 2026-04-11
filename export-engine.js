@@ -437,13 +437,15 @@ const SmartPlansExport = {
     _computeFullBreakdown(state, bom) {
         const { materials, equipment, subs, labor: bomLabor, bomTravel } = this._classifyBOM(bom);
         const cfg = state.pricingConfig?.markup || state.markup || {};
-        // AUDIT FIX #3: Use Number() to guard against empty string "" from form inputs
-        // "" ?? 50 returns "" (nullish only catches null/undefined), but Number("") || 50 returns 50
-        const matPct = (Number(cfg.material) || 50) / 100;
-        const labPct = (Number(cfg.labor) || 50) / 100;
-        const eqPct = (Number(cfg.equipment) || 15) / 100;
-        const subPct = (Number(cfg.subcontractor) || 10) / 100;
-        const rawBurden = Number(state.pricingConfig?.burdenRate) || 35;
+        // AUDIT FIX C6: Guard against both empty string "" AND intentional 0% markup
+        // Number("") = 0, Number(0) = 0, Number("50") = 50, Number(null) = 0
+        // Use Number.isFinite() to allow explicit 0% while defaulting empty/null/undefined
+        const _pct = (v, def) => { const n = Number(v); return Number.isFinite(n) && v !== '' && v !== null && v !== undefined ? n : def; };
+        const matPct = _pct(cfg.material, 50) / 100;
+        const labPct = _pct(cfg.labor, 50) / 100;
+        const eqPct = _pct(cfg.equipment, 15) / 100;
+        const subPct = _pct(cfg.subcontractor, 10) / 100;
+        const rawBurden = _pct(state.pricingConfig?.burdenRate, 35);
         const burdenRate = rawBurden >= 1 ? rawBurden / 100 : rawBurden;
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         // AUDIT FIX #13: Contingency configurable (default 10%)
@@ -3349,6 +3351,11 @@ Return ONLY the JSON array. No other text.`;
 
         const bs = state.bidStrategy;
         const isLaborCat = (name) => /\blabor\b|\binstall(ation)?\b|rough[\s-]?in|trim[\s-]?out|\bcommission(ing)?\b|\bprogram(ming)?\s+(labor|service|hours)\b|\btest(ing)?\s*[&,]\s*commission|\bmobiliz/i.test(name);
+        // AUDIT FIX C7: Detect equipment and subcontractor categories for correct markup rates
+        const isEquipmentCat = (name) => /\bequipment\b|\brental\b|\blift\b|\bscaffold/i.test(name);
+        const isSubCat = (name) => /\bsubcontract/i.test(name);
+        // AUDIT FIX C8: Detect travel categories to prevent double-counting with computeTravelIncidentals
+        const isTravelCat = (name) => /\btravel\b|\bper\s*diem\b|\bhotel\b|\blodging\b|\bmileage\b/i.test(name);
 
         let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
         const categoryBreakdown = [];
@@ -3356,14 +3363,21 @@ Return ONLY the JSON array. No other text.`;
         for (const cat of bom.categories) {
             const catName = cat.name;
             const isLabor = isLaborCat(catName);
+            const isEquip = isEquipmentCat(catName);
+            const isSub = isSubCat(catName);
+            const isTravel = isTravelCat(catName);
             const cm = bs.categoryMarkups[catName] || {
                 materialMarkup: bs.defaultMaterialMarkup,
                 laborMarkup: bs.defaultLaborMarkup,
                 confidence: 'medium'
             };
 
-            const materialCost = isLabor ? 0 : cat.subtotal;
+            // AUDIT FIX C7: Equipment gets 15% markup, subs get 10% — not material 50%
+            const materialCost = (isLabor || isEquip || isSub || isTravel) ? 0 : cat.subtotal;
             const laborCost = isLabor ? cat.subtotal : 0;
+            const equipCost = isEquip ? cat.subtotal : 0;
+            const subCost = isSub ? cat.subtotal : 0;
+            const travelCost = isTravel ? cat.subtotal : 0;
             const matPct = cm.materialMarkup;
             const labPct = cm.laborMarkup;
             const confidence = cm.confidence;
@@ -3371,13 +3385,16 @@ Return ONLY the JSON array. No other text.`;
 
             const matWithMarkup = materialCost * (1 + matPct / 100);
             const labWithMarkup = laborCost * (1 + labPct / 100);
-            const subtotalWithMarkup = matWithMarkup + labWithMarkup;
+            // AUDIT FIX C7: Equipment 15%, subs 10%, travel 0% (pass-through)
+            const eqWithMarkup = equipCost * (1 + (bs.equipmentMarkup || 15) / 100);
+            const subWithMarkup = subCost * (1 + (bs.subcontractorMarkup || 10) / 100);
+            const subtotalWithMarkup = matWithMarkup + labWithMarkup + eqWithMarkup + subWithMarkup + travelCost;
             const contingencyAmt = this._round(subtotalWithMarkup * (contingencyPct / 100));
             const finalPrice = this._round(subtotalWithMarkup + contingencyAmt);
 
-            totalMaterial += materialCost;
+            totalMaterial += materialCost + equipCost + subCost;
             totalLabor += laborCost;
-            totalMarkup += (matWithMarkup - materialCost) + (labWithMarkup - laborCost);
+            totalMarkup += (matWithMarkup - materialCost) + (labWithMarkup - laborCost) + (eqWithMarkup - equipCost) + (subWithMarkup - subCost);
             totalContingency += contingencyAmt;
 
             categoryBreakdown.push({
@@ -3400,9 +3417,11 @@ Return ONLY the JSON array. No other text.`;
         const includeBurden = cfg.includeBurden !== false;
         const burden = includeBurden ? this._round(totalLabor * burdenRate) : 0;
 
-        // Travel from state
+        // AUDIT FIX C8: Only add deterministic travel if BOM didn't already include travel categories
+        // Check if any BOM category was flagged as travel (prevents double-counting)
+        const hasBOMTravel = categoryBreakdown.some(c => isTravelCat(c.name));
         let travel = 0;
-        if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
+        if (!hasBOMTravel && state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
             travel = this._round(computeTravelIncidentals().grandTotal || 0);
         }
 

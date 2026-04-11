@@ -4796,7 +4796,8 @@ function computePathwayDistances() {
   const idfMap = {};
   (spatial.floors || []).forEach(fl => {
     (fl.idf_locations || []).forEach(idf => {
-      idfMap[idf.label] = { x: idf.approx_x_pct || 50, y: idf.approx_y_pct || 50, floor: fl.floor || 1 };
+      // AUDIT FIX C1: Use ?? instead of || — 0% position is valid (corner IDF), || treats 0 as falsy → snaps to center
+      idfMap[idf.label] = { x: idf.approx_x_pct ?? 50, y: idf.approx_y_pct ?? 50, floor: fl.floor || 1 };
     });
   });
 
@@ -4857,8 +4858,9 @@ function computePathwayDistances() {
           const zoneSheet = z.sheet_id && sheetDims[z.sheet_id];
           const zW = zoneSheet ? zoneSheet.w : bldgW;
           const zD = zoneSheet ? zoneSheet.d : bldgD;
-          let dx = Math.abs((z.approx_x_pct || 50) - idf.x) / 100 * zW;
-          let dy = Math.abs((z.approx_y_pct || 50) - idf.y) / 100 * zD;
+          // AUDIT FIX C1: Use ?? instead of || — 0% position is valid, || snaps 0 to 50 (center)
+          let dx = Math.abs((z.approx_x_pct ?? 50) - idf.x) / 100 * zW;
+          let dy = Math.abs((z.approx_y_pct ?? 50) - idf.y) / 100 * zD;
           // Detect useless 50/50 position data — fall back to building-dimension average
           const zoneX = z.approx_x_pct ?? 50;
           const zoneY = z.approx_y_pct ?? 50;
@@ -4907,7 +4909,9 @@ function computePathwayDistances() {
       // ── FALLBACK: single average (old brain output format) ──
       const runFt = hc.avg_length_ft || 175;
       const qty   = hc.count || 0;
-      const totalFt = hc.total_ft || Math.round(qty * runFt * WASTE);
+      // AUDIT FIX C3: Always calculate totalFt from qty × runFt × waste — don't trust AI's total_ft
+      // AI total_ft is often inconsistent with avg_length_ft or missing waste factor
+      const totalFt = (qty > 0 && runFt > 0) ? Math.round(qty * runFt * WASTE) : (hc.total_ft || 0);
       const cost = totalFt * ratePerFt;
       grandTotalFt += totalFt;
       grandTotalCost += cost;
@@ -4925,10 +4929,17 @@ function computePathwayDistances() {
   const backboneConnections = mdfIdf.backbone_connections || [];
   backboneConnections.forEach(bc => {
     // Check if this connection is already represented in backbone_cables
+    // AUDIT FIX C4: Compare endpoints, not just distance — two different MDF↔IDF runs can have similar distance
     const alreadyExists = backboneCables.some(b => {
       const bType = (b.type || '').toLowerCase();
-      return (bType.includes('fiber') || bType.includes('sm') || bType.includes('mm')) &&
-             b.avg_length_ft && Math.abs((b.avg_length_ft || 0) - (bc.est_distance_ft || 0)) < 50;
+      const isFiber = bType.includes('fiber') || bType.includes('sm') || bType.includes('mm');
+      if (!isFiber) return false;
+      // If we have endpoint data, compare from/to labels for exact match
+      if (b._from && b._to && bc.from && bc.to) {
+        return (b._from === bc.from && b._to === bc.to) || (b._from === bc.to && b._to === bc.from);
+      }
+      // Fallback: distance-only comparison (legacy brain output without endpoints)
+      return b.avg_length_ft && Math.abs((b.avg_length_ft || 0) - (bc.est_distance_ft || 0)) < 50;
     });
     if (!alreadyExists) {
       if (bc.fiber_sm_count > 0) {
@@ -5125,7 +5136,11 @@ function injectCalculatedCableQuantities(bom) {
   // When coverage 50-80%, zone avg is decent but needs consensus count scaling.
   const bW = pathway.bldgW || 200;
   const bD = pathway.bldgD || 200;
-  const buildingAvgHorizontal = Math.round(((bW / 4) + (bD / 4)) * 1.30);
+  // AUDIT FIX C2: Use project-type-aware routing factor (1.40 for VA/medical) instead of hardcoded 1.30
+  const _projType = (state.projectType || state.buildingType || '').toLowerCase();
+  const _isMedGov = /medical|hospital|healthcare|clinic|government|federal|dod|va\b|correctional|detention/i.test(_projType);
+  const _ROUTING_FACTOR = _isMedGov ? 1.40 : 1.30;
+  const buildingAvgHorizontal = Math.round(((bW / 4) + (bD / 4)) * _ROUTING_FACTOR);
   const buildingAvgRun = buildingAvgHorizontal + 30 + 16; // + stub-up/IDF-drop + slack
   const WASTE = 1.12;
 

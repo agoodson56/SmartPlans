@@ -488,6 +488,8 @@ const CA_PREVAILING_WAGES = {
       // Apply PLA premium (8% above DIR) since PLA agreements include additional trust fund contributions
       const plaRates = {};
       for (const [role, rateObj] of Object.entries(zoneData.dir)) {
+        // AUDIT FIX C9: Skip non-object properties (e.g., foreman_pct: 10) that cause NaN
+        if (typeof rateObj !== 'object' || rateObj === null) { plaRates[role] = rateObj; continue; }
         plaRates[role] = { base: +(rateObj.base * 1.08).toFixed(2), fringe: +(rateObj.fringe * 1.08).toFixed(2), total: +(rateObj.total * 1.08).toFixed(2) };
       }
       return plaRates;

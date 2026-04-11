@@ -690,8 +690,9 @@ const FormulaEngine3D = {
             const docsCost = this._round(this.testingRates.om_manual_per_system * 2 + this.testingRates.asbuilt_per_sheet * 15);
 
             // 15. Travel costs (per diem + mileage — transit sites are typically remote/distant)
-            const perDiemDaily = this.sageRates?.sage_transit?.per_diem?.cost || 38;
-            const mileagePerMile = this.sageRates?.sage_transit?.mileage?.cost || 0.65;
+            // AUDIT FIX H2: Correct property path — sageRates doesn't exist, use laborRates
+            const perDiemDaily = this.laborRates?.sage_transit?.per_diem?.cost || 38;
+            const mileagePerMile = this.laborRates?.sage_transit?.mileage?.cost || 0.65;
             const perDiemCost = this._round(estCrewSize * estProjectDays * perDiemDaily);
             // Mileage: estimate 100mi round-trip per crew member, first/last week only (2 trips)
             const mileageTrips = Math.max(2, Math.ceil(estProjectDays / 5));

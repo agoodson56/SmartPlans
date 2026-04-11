@@ -264,6 +264,20 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
           }
         }
       }
+      // AUDIT FIX M2: Process any residual buffer content after stream ends
+      // SSE streams may not end with \n, leaving the last data: line in the buffer
+      if (buffer && buffer.startsWith('data: ')) {
+        const jsonStr = buffer.slice(6).trim();
+        if (jsonStr && jsonStr !== '[DONE]') {
+          try {
+            const chunk = JSON.parse(jsonStr);
+            const chunkParts = chunk?.candidates?.[0]?.content?.parts || [];
+            for (const p of chunkParts) {
+              if (p.text && !p.thought) proposalText += p.text;
+            }
+          } catch (e) { /* skip malformed */ }
+        }
+      }
     } else {
       // Plain JSON response (fallback)
       const data = await response.json();
@@ -932,7 +946,8 @@ ${this._confBar()}
    try {
     const b = this.BRAND;
     const analysis = state.aiAnalysis || '';
-    const fmt = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // AUDIT FIX M1: Guard against NaN/undefined — fmt("") or fmt(undefined) would produce "$NaN"
+    const fmt = (n) => { const v = Number(n); return '$' + (isNaN(v) ? '0.00' : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); };
 
     // Extract BOM from analysis (same function used by export-engine)
     let bom = null;
@@ -1050,7 +1065,8 @@ ${this._confBar(true)}
     if (!state.bidStrategy || !state.bidStrategy.applied) return '';
 
     const b = this.BRAND;
-    const fmt = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // AUDIT FIX M1: Guard against NaN/undefined — fmt("") or fmt(undefined) would produce "$NaN"
+    const fmt = (n) => { const v = Number(n); return '$' + (isNaN(v) ? '0.00' : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); };
 
     let result = null;
     try {
@@ -1308,7 +1324,8 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The 
       }, 3);
 
       if (!response.ok) {
-        const err = await response.text();
+        // AUDIT FIX M3: Guard .text() in error path — response may have no body
+        const err = await response.text().catch(() => '');
         throw new Error(`AI request failed (${response.status}): ${err.substring(0, 200)}`);
       }
 

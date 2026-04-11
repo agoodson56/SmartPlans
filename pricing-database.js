@@ -238,7 +238,7 @@ const PRICING_DB = {
             smoke_multi: { unit: "each", budget: 45.00, mid: 85.00, premium: 150.00, description: "Multi-criteria smoke detector (addressable)" },
             heat_fixed: { unit: "each", budget: 22.00, mid: 42.00, premium: 75.00, description: "Fixed-temp heat detector (addressable)" },
             heat_ror: { unit: "each", budget: 28.00, mid: 52.00, premium: 90.00, description: "Rate-of-rise heat detector (addressable)" },
-            pull_station: { unit: "each", budget: 25.00, mid: 48.00, premium: 85.00, description: "Manual pull station (addressable)" },
+            pull_station: { unit: "each", budget: 35.00, mid: 55.00, premium: 95.00, description: "Manual pull station (addressable)" },
             duct_detector: { unit: "each", budget: 120.00, mid: 220.00, premium: 380.00, description: "Duct smoke detector w/ housing, test/reset" },
             beam_detector: { unit: "each", budget: 450.00, mid: 850.00, premium: 1500.00, description: "Beam detector (high ceilings)" },
             waterflow: { unit: "each", budget: 85.00, mid: 150.00, premium: 250.00, description: "Waterflow switch" },
@@ -301,6 +301,8 @@ const PRICING_DB = {
         wire: {
             alarm_wire_224: { unit: "per ft", budget: 0.06, mid: 0.10, premium: 0.15, description: "Alarm wire 22/4 stranded" },
             alarm_wire_226: { unit: "per ft", budget: 0.08, mid: 0.13, premium: 0.20, description: "Alarm wire 22/6 stranded" },
+            access_control_186: { unit: "per ft", budget: 0.12, mid: 0.18, premium: 0.28, description: "Access control wire 18/6 shielded" },
+            access_control_182: { unit: "per ft", budget: 0.08, mid: 0.12, premium: 0.18, description: "Access control wire 18/2" },
         },
     },
 
@@ -482,16 +484,16 @@ const PRICING_DB = {
             lead: { rate: 45.00, description: "Lead Technician" },
             foreman: { rate: 52.00, description: "Foreman" },
             apprentice: { rate: 22.00, description: "Apprentice" },
-            pm: { rate: 65.00, description: "Project Manager (on-site)" },
-            programmer: { rate: 55.00, description: "Programmer / Commissioning Tech" },
+            pm: { rate: 75.00, description: "Project Manager (on-site)" },
+            programmer: { rate: 65.00, description: "Programmer / Commissioning Tech" },
         },
         burden: {
-            rate: 35, // percentage on top of base rate
+            rate: 38, // percentage on top of base rate (7.65+0.6+3.5+11+5+6.25+2+2=38%)
             components: {
                 fica: 7.65,
                 futa: 0.60,
                 suta: 3.50,
-                workers_comp: 8.00,
+                workers_comp: 11.00,
                 general_liability: 5.00,
                 health_insurance: 6.25,
                 retirement: 2.00,
@@ -527,7 +529,7 @@ const PRICING_DB = {
         "denver": 1.05,
         "west_coast": 1.25,
         "los_angeles": 1.30,
-        "san_francisco": 1.45,
+        "san_francisco": 1.50,
         "sacramento": 1.10,
         "seattle": 1.20,
         "hawaii": 1.40,
@@ -695,6 +697,9 @@ const PRICING_DB = {
             core_drill:      { unit: "per day", budget: 75,  mid: 125, premium: 200, description: "Core drill with bits" },
             generator_port:  { unit: "per day", budget: 75,  mid: 125, premium: 200, description: "Portable generator 5-10kW" },
             fusion_splicer:  { unit: "per day", budget: 200, mid: 350, premium: 500, description: "Fiber optic fusion splicer" },
+            cable_certifier: { unit: "per day", budget: 75,  mid: 125, premium: 200, description: "Cable certifier (Fluke DSX-5000/8000)" },
+            otdr_tester:     { unit: "per day", budget: 100, mid: 175, premium: 275, description: "OTDR fiber tester" },
+            safety_harness:  { unit: "per week", budget: 25,  mid: 45,  premium: 75,  description: "Safety harness & lanyard (per worker)" },
         },
     },
 

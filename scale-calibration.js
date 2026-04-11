@@ -142,7 +142,15 @@ const ScaleCalibration = {
     }
 
     // Store image dimensions if provided (for percentage-to-pixel conversion)
+    // AUDIT FIX H3: Store image dimensions per-sheet, not on singleton — prevents leaking between sheets
     if (deviceResult.image_dimensions) {
+      const sheetId = deviceResult.sheet_id || 'default';
+      if (!this._sheetImageDims) this._sheetImageDims = {};
+      this._sheetImageDims[sheetId] = {
+        width: deviceResult.image_dimensions.width_px || 0,
+        height: deviceResult.image_dimensions.height_px || 0,
+      };
+      // Keep legacy properties for backward compatibility (set to latest sheet)
       this._imageWidth = deviceResult.image_dimensions.width_px || this._imageWidth;
       this._imageHeight = deviceResult.image_dimensions.height_px || this._imageHeight;
     }

@@ -2761,10 +2761,12 @@ const SmartBrains = {
               .replace(/(?:you\s+are\s+now|new\s+instructions?|system\s*:\s*|assistant\s*:\s*|human\s*:\s*)/gi, '[FILTERED]')
               .replace(/(?:output|return|respond\s+with)\s+(?:only|just)\s+(?:the\s+word|")/gi, '[FILTERED]');
     };
-    // Sanitize user-facing context fields (mutate in place so all prompt closures see safe values)
-    if (context.projectName) context.projectName = _sanitize(context.projectName);
-    if (context.projectType) context.projectType = _sanitize(context.projectType);
-    if (context.codeJurisdiction) context.codeJurisdiction = _sanitize(context.codeJurisdiction);
+    // AUDIT FIX M4: Sanitize ALL user-facing context fields, not just 3
+    const _userFields = ['projectName', 'projectType', 'codeJurisdiction', 'projectLocation',
+      'buildingType', 'clientName', 'notes', 'specialInstructions', 'scopeNotes'];
+    for (const field of _userFields) {
+      if (context[field]) context[field] = _sanitize(context[field]);
+    }
 
     const prompts = {
 
@@ -3758,7 +3760,7 @@ MDF/IDF ROOMS & EQUIPMENT:
 ${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 4000)}
 
 CABLE QUANTITIES & PATHWAYS (zone-by-zone run lengths — DO NOT use flat averages if this data exists):
-${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 8000)}
+${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 16000)}
 
 SPATIAL LAYOUT (scale per sheet, building dimensions — use for cable run verification):
 ${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 6000)}
@@ -4301,21 +4303,21 @@ Return ONLY valid JSON:
     },
     {
       "name": "Project Management",
-      "pct_of_total": 0,
+      "pct_of_total": 8,
       "tasks": [
-        { "description": "Dedicated PM for project duration", "classification": "pm", "hours": 0, "rate": 75.00, "cost": 0 }
+        { "description": "Dedicated PM for project duration — CALCULATE from total field hours × 15-20%", "classification": "pm", "hours": 200, "rate": 75.00, "cost": 15000.00 }
       ],
-      "phase_hours": 0,
-      "phase_cost": 0
+      "phase_hours": 200,
+      "phase_cost": 15000.00
     },
     {
       "name": "Coordination & Idle Time",
       "pct_of_total": 12,
       "tasks": [
-        { "description": "Trade coordination, GC delays, access waits", "classification": "journeyman", "hours": 0, "rate": 65.00, "cost": 0 }
+        { "description": "Trade coordination, GC delays, access waits — CALCULATE from total field hours × 12-15%", "classification": "journeyman", "hours": 180, "rate": 65.00, "cost": 11700.00 }
       ],
-      "phase_hours": 0,
-      "phase_cost": 0
+      "phase_hours": 180,
+      "phase_cost": 11700.00
     }
   ],
   "total_field_hours": 0,
@@ -4386,16 +4388,10 @@ ${context.nearestOfficeDistance !== undefined ? `   COMPUTED: ${context.nearestO
 4. Prevailing wage determination (if applicable)
 5. Complete project cost summary with G&A, profit, warranty, and contingency
 
-═══ TRAVEL & PER DIEM CALCULATION RULES ═══
-3D has 4 offices: Rancho Cordova CA, Livermore CA, Sparks NV, McCall ID.
-${context.nearestOfficeDistance !== undefined && context.nearestOfficeDistance <= 60 ? `⚠️ THIS IS A LOCAL PROJECT — ${context.nearestOfficeDistance} miles from ${context.nearestOfficeName}. DO NOT include ANY travel, hotel, per diem, vehicle, or weekend trip costs. Set ALL travel line items to $0 or omit them entirely.` : `If the project is 60+ miles from ALL 3D offices:
-- Crew size: use the Labor Calculator's crew_recommendation
-- Project duration: use the Labor Calculator's duration_weeks × 5 working days
-- Hotel: use GSA rate for the city (typically $150-$250/night)
-- Per diem: use GSA M&IE rate for the city (typically $60-$79/day)
-- Vehicle: $2,000-$3,500/month for truck rental + fuel
-- Weekend trips home: 1 round-trip per worker per 2 weeks if project > 2 weeks
-- FORMULA: travel_total = (hotel_rate + per_diem_rate) × crew_size × working_days + vehicle_costs + weekend_trips`}
+═══ TRAVEL & PER DIEM ═══
+IMPORTANT: Travel costs are handled deterministically by the system from user-configured Stage 7 settings.
+Do NOT calculate or estimate travel costs. Set total_travel to $0 in your output.
+The system will inject the correct travel amount after your analysis.
 
 ═══ TRANSIT / RAILROAD COST RULES ═══
 If Special Conditions flagged transit/railroad work:
@@ -5233,7 +5229,7 @@ CONSENSUS RULES:
 2. If 2+ reads agree within 5% → MODERATE CONFIDENCE. Use the agreeing group's average.
 3. If ALL reads disagree by >10% → DISPUTE. Flag for targeted re-scan.
 4. For disputed items, identify WHICH sheets/areas likely caused the disagreement.
-5. ALWAYS prefer the HIGHER count when in doubt — undercounting loses bids, overcounting can be trimmed in VE.
+5. When reads disagree, prefer the count that is most CONSISTENT with the building size and floor plan density. Do NOT blindly use the highest count — overcounting inflates bids and loses competitiveness. Use the MEDIAN of agreeing reads when possible.
 6. COMMON UNDERCOUNTING ERRORS TO WATCH FOR:
    - Data drops: Check EVERY floor including basement, mechanical rooms, and spaces behind the main corridors
    - WAPs: Look in reflected ceiling plans AND enlarged plans — WAPs are often on separate sheets
@@ -7319,28 +7315,34 @@ ${legendContext}
     if (_pricer && (_pricer.categories || _pricer.material_categories)) {
       const _pCats = _pricer.categories || _pricer.material_categories || [];
       // MAX prices differ by project type — transit cameras cost 2-3x more than commercial
+      // AUDIT FIX C10: Per-subtype pricing guardrails — PTZ cameras cost $4K-$8K, can't use flat $2500 cap
       const _maxCosts = _isTransit ? {
-        // Transit clamps: calibrated to actual Amtrak distributor pricing + 50% buffer
-        // Actual costs: P3267 $729, P3268 $779, P4708 $977, P3738 $1,417, Q6300 $1,714
-        'camera': 2500, 'dome': 2000, 'bullet': 2000, 'ptz': 3000,
-        'fisheye': 2500, 'panoram': 2500, 'multi-sensor': 2500, 'multi-lens': 2500,
+        // Transit: calibrated to actual Amtrak distributor pricing + 50% buffer
+        'fixed camera': 2500, 'dome': 2500, 'bullet': 2500, 'ptz': 8000,
+        'fisheye': 3500, 'panoram': 4000, 'multi-sensor': 6000, 'multi-lens': 6000,
+        'mini dome': 2000, 'turret': 2500, 'box camera': 2500,
         'nvr': 18000, 'server': 18000, 'switch': 6000, 'reader': 800,
         'panel': 4000, 'controller': 4000, 'ups': 9000, 'patch panel': 800,
-        'jack': 50, 'faceplate': 25, 'cable': 1500,
+        'jack': 50, 'faceplate': 25, 'cable': 1500, 'speaker': 800,
+        'strobe': 600, 'horn': 400, 'detector': 300, 'pull station': 150,
       } : {
         // Commercial: based on actual 3D purchase costs × 1.5 buffer
-        'camera': 2500, 'dome': 2000, 'bullet': 1500, 'ptz': 2500,
-        'fisheye': 1600, 'panoram': 1600, 'multi-sensor': 2000, 'multi-lens': 2000,
+        'fixed camera': 2000, 'dome': 2000, 'bullet': 1500, 'ptz': 7000,
+        'fisheye': 2500, 'panoram': 3000, 'multi-sensor': 5000, 'multi-lens': 5000,
+        'mini dome': 1500, 'turret': 1500, 'box camera': 2000,
         'nvr': 16500, 'server': 16500, 'switch': 5000, 'reader': 500,
         'panel': 3000, 'controller': 3000, 'ups': 5000, 'patch panel': 700,
-        'jack': 30, 'faceplate': 20, 'cable': 800,
+        'jack': 30, 'faceplate': 20, 'cable': 800, 'speaker': 600,
+        'strobe': 400, 'horn': 300, 'detector': 200, 'pull station': 100,
       };
       let _clampCount = 0;
       for (const cat of _pCats) {
         for (const item of (cat.items || [])) {
           const iName = (item.item || item.name || '').toLowerCase();
           const iCost = item.unit_cost || item.unitCost || 0;
-          for (const [keyword, maxPrice] of Object.entries(_maxCosts)) {
+          // AUDIT FIX C10: Match longest keyword first so "ptz" doesn't match before "fixed camera"
+          const _sortedGuardrails = Object.entries(_maxCosts).sort((a, b) => b[0].length - a[0].length);
+          for (const [keyword, maxPrice] of _sortedGuardrails) {
             if (iName.includes(keyword) && iCost > maxPrice) {
               console.warn(`[SmartBrains] ⚠️ CLAMPED ${item.item || item.name}: $${iCost} -> $${maxPrice} (actual 3D max for ${keyword})`);
               item.unit_cost = maxPrice; item.unitCost = maxPrice;

@@ -238,7 +238,9 @@ const CableAnalyzer = {
     // Pathway materials estimate
     const totalHorizontalFt = assignments.reduce((s, a) => s + (a.horizontal || 0) * a.qty, 0);
     const pathwayMaterials = {
-      jHooks: Math.ceil(totalHorizontalFt / cfg.jHookSpacingFt),
+      // AUDIT FIX H1: J-hooks support multiple cables — divide by avg cable bundle size (4-6 cables per hook)
+      // Individual cable runs share J-hooks in the same pathway, not 1 hook per cable per 5ft
+      jHooks: Math.ceil(totalHorizontalFt / cfg.jHookSpacingFt / 5),
       fireStopPenetrations: Object.keys(byFloor).length > 1 ? Object.keys(byIdf).length * (Object.keys(byFloor).length - 1) : 0,
     };
 
@@ -554,8 +556,12 @@ const CableAnalyzer = {
         if (sc.pixelsPerFoot > 0 && sc.pixelWidth && sc.pixelHeight) {
           const wFt = sc.pixelWidth / sc.pixelsPerFoot;
           const dFt = sc.pixelHeight / sc.pixelsPerFoot;
-          if (wFt > 0 && dFt > 0) {
+          // AUDIT FIX C5: Upper-bound check — reject absurd dimensions from bad pixelsPerFoot
+          // A single floor plan sheet rarely exceeds 1500ft in any direction
+          if (wFt > 10 && dFt > 10 && wFt < 2000 && dFt < 2000) {
             dims[sheetId] = { w: Math.round(wFt), d: Math.round(dFt), source: sc.activeSource };
+          } else if (wFt > 0 && dFt > 0) {
+            console.warn(`[CableAnalyzer] Rejecting suspect sheet dims for ${sheetId}: ${Math.round(wFt)}×${Math.round(dFt)}ft — likely bad scale`);
           }
         }
 
