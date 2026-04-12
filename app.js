@@ -6509,7 +6509,7 @@ function injectCalculatedCableQuantities(bom) {
     }
 
     // Primary infrastructure categories — these are the ONLY ones that get missing items injected
-    const isPrimaryInfraCat = /(structured\s*cabling|^2\.\s*mdf|mdf.*idf.*tr|^cabling\s*material|^infrastructure|^pathway)/i.test(catName);
+    const isPrimaryInfraCat = /(structured\s*cabling|^2\.\s*mdf|mdf.*idf.*tr|^cabling\s*material|^infrastructure|^pathway|telecomm|equipment\s*room|server\s*room|^room:)/i.test(catName);
     // Broader match — any category that MIGHT contain cable line items to update (NOT inject)
     const isCablingRelated = isPrimaryInfraCat || /(cable|network|telecom|data|voice|low.voltage|fiber|cat\s*[56])/i.test(catName);
     if (!isCablingRelated) return cat;
@@ -6892,8 +6892,11 @@ function injectCalculatedCableQuantities(bom) {
               // Scale unit cost by port count relative to base (2-port is typical baseline)
               const uc = dominant.ports <= 2 ? ucBase : Math.round(ucBase * (dominant.ports / 2) * 100) / 100;
               const newName = (fpItem.name || fpItem.item || '').replace(/\d+[\s-]*port/i, `${dominant.ports}-Port`);
+              // FIX: Assign unique part number per port count to prevent dedup merging
+              const _fpPNMap = { 1: 'CFPE1IGY', 2: 'CFPE2IGY', 4: 'CFPE4IGY', 6: 'CFPE6IGY' };
               updatedItems[fpIdx] = {
                 ...fpItem, qty: domQty, item: newName, name: newName,
+                partNumber: _fpPNMap[dominant.ports] || fpItem.partNumber,
                 unitCost: uc, extCost: Math.round(domQty * uc * 100) / 100,
                 _calculatedRun: true, _accessoryCorrected: true
               };
@@ -6910,6 +6913,7 @@ function injectCalculatedCableQuantities(bom) {
                 const sName = (fpItem.name || fpItem.item || '').replace(/\d+[\s-]*port/i, `${s.ports}-Port`);
                 updatedItems.splice(fpIdx + fpInsertOffset, 0, {
                   ...fpItem, qty: sQty, item: sName, name: sName,
+                  partNumber: _fpPNMap[s.ports] || `FP${s.ports}P`,
                   unitCost: sUc, extCost: Math.round(sQty * sUc * 100) / 100,
                   _calculatedRun: true, _accessoryCorrected: true, _injected: true
                 });
@@ -7128,6 +7132,69 @@ function injectCalculatedCableQuantities(bom) {
       }
     }
 
+    // ── INJECT MISSING DEVICES: If text layer found devices but BOM has no matching line, add them ──
+    const _missingDeviceInjections = [
+      { count: textDeviceCounts.glass_break, regex: /glass\s*break|glassbreak/i, label: 'Acoustic Glass Break Sensor',
+        category: /intrusion|security|alarm/i, mfg: 'Honeywell', pn: 'FG-1625', unitCost: 60, unit: 'ea' },
+    ];
+    for (const inj of _missingDeviceInjections) {
+      if (!inj.count || inj.count <= 0) continue;
+      // Check if any category already has this item
+      let found = false;
+      for (const cat of updatedCategories) {
+        for (const item of (cat.items || [])) {
+          if (inj.regex.test(item.item || item.name || '') && !item._byOthersRemoved) { found = true; break; }
+        }
+        if (found) break;
+      }
+      if (!found) {
+        // Find the target category and inject
+        let targetCat = updatedCategories.find(c => inj.category.test(c.name || ''));
+        if (!targetCat) targetCat = updatedCategories.find(c => /general|misc|other/i.test(c.name || ''));
+        if (targetCat) {
+          targetCat.items.push({
+            item: inj.label, name: inj.label, mfg: inj.mfg, partNumber: inj.pn,
+            qty: inj.count, unit: inj.unit, unitCost: inj.unitCost,
+            extCost: Math.round(inj.count * inj.unitCost * 100) / 100,
+            _textLayerCorrected: true, _injected: true
+          });
+          targetCat.subtotal = Math.round(targetCat.items.reduce((s, i) => s + (i.extCost || 0), 0) * 100) / 100;
+          console.log(`[TextLayer] INJECTED missing ${inj.label}: ${inj.count} ea into "${targetCat.name}" (text layer ground truth)`);
+        }
+      }
+    }
+
+    // ── ACCESS CONTROL HARDWARE SYNC: Strikes and REX should match card reader count ──
+    // If text layer has card_readers, electrified strikes and REX sensors should match
+    // (each controlled door needs 1 reader + 1 strike + 1 REX)
+    if (textDeviceCounts.card_readers > 0) {
+      const readerCount = textDeviceCounts.card_readers;
+      for (const cat of updatedCategories) {
+        const cn = (cat.name || '').toLowerCase();
+        if (!/access|door\s*hardware|security/i.test(cn)) continue;
+        for (let i = 0; i < (cat.items || []).length; i++) {
+          const item = cat.items[i];
+          const desc = (item.item || item.name || '').toLowerCase();
+          // Electrified strike / electric strike
+          if (/electrified.*strike|electric.*strike|door\s*strike/i.test(desc)) {
+            const oldQty = item.qty || 0;
+            if (oldQty !== readerCount && oldQty < readerCount) {
+              cat.items[i] = { ...item, qty: readerCount, extCost: Math.round(readerCount * (item.unitCost || 0) * 100) / 100, _textLayerCorrected: true };
+              console.log(`[TextLayer] Electrified Strike synced to card readers: ${oldQty} → ${readerCount}`);
+            }
+          }
+          // REX sensor
+          if (/rex|request.to.exit|exit.*sensor|pir.*exit/i.test(desc)) {
+            const oldQty = item.qty || 0;
+            if (oldQty !== readerCount && oldQty < readerCount) {
+              cat.items[i] = { ...item, qty: readerCount, extCost: Math.round(readerCount * (item.unitCost || 0) * 100) / 100, _textLayerCorrected: true };
+              console.log(`[TextLayer] REX Sensor synced to card readers: ${oldQty} → ${readerCount}`);
+            }
+          }
+        }
+      }
+    }
+
     // ── MDF/IDF EQUIPMENT CORRECTION: Apply text-layer rack equipment counts ──
     // When MDF/IDF elevation pages have deterministic text (CAD labels), override AI quantities
     // for cabinets, patch panels, UPS, PDUs in MDF/IDF categories.
@@ -7138,7 +7205,10 @@ function injectCalculatedCableQuantities(bom) {
         { regex: /open\s*frame|[24][\s-]*post\s*rack/i, count: mdfEq.open_racks, label: 'Open Frame Rack' },
         { regex: /\bups\b|smart[\s-]*ups|uninterruptible/i, count: mdfEq.ups, label: 'UPS' },
         { regex: /\bpdu\b|power\s*distribution/i, count: mdfEq.pdus, label: 'PDU' },
-        { regex: /horizontal.*manager|manager.*1ru|1ru.*manager/i, count: mdfEq.horiz_managers, label: 'Horizontal Cable Manager' },
+        // Horizontal cable managers: if text layer found them use that, otherwise formula = 2 per patch panel
+        { regex: /horizontal.*manager|manager.*1ru|1ru.*manager/i,
+          count: mdfEq.horiz_managers > 0 ? mdfEq.horiz_managers : (mdfEq.patch_panels_48 > 0 ? mdfEq.patch_panels_48 * 2 : 0),
+          label: 'Horizontal Cable Manager' },
         { regex: /vertical.*manager/i, count: mdfEq.vert_managers, label: 'Vertical Cable Manager' },
         { regex: /fiber.*enclosure|fiber.*shelf|fiber.*panel|rack.*fiber/i, count: mdfEq.fiber_enclosures, label: 'Fiber Enclosure' },
       ];
