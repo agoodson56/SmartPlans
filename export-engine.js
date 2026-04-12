@@ -450,7 +450,8 @@ const SmartPlansExport = {
         const burdenRate = rawBurden >= 1 ? rawBurden / 100 : rawBurden;
         const includeBurden = state.pricingConfig?.includeBurden !== false;
         // AUDIT FIX #13: Contingency configurable (default 10%)
-        const contingencyPct = (Number(cfg.contingency) || 10) / 100;
+        // FIX: Number(0) || 10 was forcing 10% when user set 0%. Use nullish check instead.
+        const contingencyPct = (cfg.contingency !== undefined && cfg.contingency !== '' ? Number(cfg.contingency) : 10) / 100;
 
         // ── Labor: use REAL data from Labor Calculator brain when available ──
         const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
