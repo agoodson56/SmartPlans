@@ -1572,18 +1572,25 @@ const SmartPlansExport = {
                                 const desc = item.item_name || '';
                                 let mfg = '', partNumber = '', cleanDesc = desc;
                                 // Known MFG prefixes in telecom/infrastructure
-                                const mfgPatterns = /^(Chatsworth|Panduit|APC|Corning|CommScope|Leviton|B-Line|Cablofil|Hubbell|Ortronics|Belden|Legrand|Allied|Eaton|Harger|STI|Hilti|Fluke|Brady)\b/i;
+                                const mfgPatterns = /\b(Chatsworth|Panduit|APC|Corning|CommScope|Leviton|B-Line|Cablofil|Hubbell|Ortronics|Belden|Legrand|Allied|Eaton|Harger|STI|Hilti|Fluke|Brady|Avigilon|Mercury|HID|Bosch|Notifier|System Sensor|Rauland|Aiphone|Honeywell|Atlas IED|QSC|Chief|LG|Extron|Bogen|Jeron|HES|Schlage|Altronix|West Penn|Genesis|Windy City)\b/i;
                                 const mfgMatch = desc.match(mfgPatterns);
                                 if (mfgMatch) {
                                     mfg = mfgMatch[1];
-                                    const afterMfg = desc.substring(mfg.length).trim();
-                                    // Next token is likely the part number (alphanumeric with dashes)
-                                    const pnMatch = afterMfg.match(/^([\w][\w-]{2,}[\w])\s+(.+)/);
-                                    if (pnMatch) {
-                                        partNumber = pnMatch[1];
-                                        cleanDesc = pnMatch[2].trim();
+                                    const afterMfg = desc.substring(desc.indexOf(mfg) + mfg.length).trim();
+                                    // Try parenthetical part number first: "Chatsworth 7ft Rack (55053-703)"
+                                    const parenPN = desc.match(/\(([A-Z0-9][\w-]{2,}[\w])\)\s*$/i);
+                                    if (parenPN) {
+                                        partNumber = parenPN[1];
+                                        cleanDesc = desc.replace(mfgMatch[0], '').replace(parenPN[0], '').trim();
                                     } else {
-                                        cleanDesc = afterMfg;
+                                        // Fallback: next token after MFG is part number
+                                        const pnMatch = afterMfg.match(/^([\w][\w-]{2,}[\w])\s+(.+)/);
+                                        if (pnMatch) {
+                                            partNumber = pnMatch[1];
+                                            cleanDesc = pnMatch[2].trim();
+                                        } else {
+                                            cleanDesc = afterMfg;
+                                        }
                                     }
                                 }
                                 return {
@@ -1681,11 +1688,34 @@ const SmartPlansExport = {
                     const itemDesc = item.item || item.name || '';
                     // Skip blank/empty description items (ghost items from old injection bug)
                     if (!itemDesc || itemDesc.trim().length < 2) continue;
+
+                    // ── Extract MFG and Part# from description if not already set ──
+                    let _mfg = item.mfg || '';
+                    let _pn = item.partNumber || '';
+                    if (!_mfg || !_pn) {
+                        const _mfgRx = /\b(Chatsworth|Panduit|APC|Corning|CommScope|Leviton|B-Line|Cablofil|Hubbell|Ortronics|Belden|Legrand|Allied|Eaton|Harger|STI|Hilti|Fluke|Brady|Avigilon|Mercury|HID|Bosch|Notifier|System Sensor|Rauland|Aiphone|Honeywell|Atlas IED|QSC|Chief|LG|Extron|Bogen|Jeron|HES|Schlage|Altronix|West Penn|Genesis|Windy City)\b/i;
+                        const _mm = itemDesc.match(_mfgRx);
+                        if (_mm && !_mfg) _mfg = _mm[1];
+                        // Try parenthetical PN: "Chatsworth 7ft Rack (55053-703)"
+                        if (!_pn) {
+                            const _ppn = itemDesc.match(/\(([A-Z0-9][\w-]{2,})\)\s*$/i);
+                            if (_ppn) { _pn = _ppn[1]; }
+                            else {
+                                // Try "MFG PartNum Description" format
+                                if (_mm) {
+                                    const _after = itemDesc.substring(itemDesc.indexOf(_mm[1]) + _mm[1].length).trim();
+                                    const _tk = _after.match(/^([A-Z0-9][\w-]{2,}[\w])\s/i);
+                                    if (_tk) _pn = _tk[1];
+                                }
+                            }
+                        }
+                    }
+
                     const curRow = bomData.length; // 0-based row index
                     bomData.push([
                         "",
-                        item.mfg || "",
-                        item.partNumber || "",
+                        _mfg,
+                        _pn,
                         itemDesc,
                         item.qty,
                         item.unit,

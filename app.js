@@ -5434,8 +5434,20 @@ function injectTravelIntoBOM(bom) {
 // gives exact device quantities without AI variance.
 function getTextLayerDeviceCounts() {
   // Use pre-extracted OCR text from the analysis upload phase
-  const ocrPages = state._ocrPageTexts || {};
-  if (Object.keys(ocrPages).length === 0) return null;
+  let ocrPages = state._ocrPageTexts || {};
+  // Fallback: if state didn't get page texts, try retrieving from the AI engine instance
+  if (Object.keys(ocrPages).length === 0 && typeof SmartBrains !== 'undefined') {
+    const engine = window._smartBrainsInstance || SmartBrains._instance;
+    if (engine && engine._fallbackPageTexts && Object.keys(engine._fallbackPageTexts).length > 0) {
+      ocrPages = engine._fallbackPageTexts;
+      state._ocrPageTexts = ocrPages; // Cache for future calls
+      console.log(`[TextLayer] Recovered ${Object.keys(ocrPages).length} page texts from engine fallback`);
+    }
+  }
+  if (Object.keys(ocrPages).length === 0) {
+    console.warn('[TextLayer] ⚠️ state._ocrPageTexts is EMPTY — text layer counting will be skipped. This means by-others detection and device counting will rely on AI consensus only.');
+    return null;
+  }
 
   // Combine all page texts
   const allText = Object.values(ocrPages).join('\n');
@@ -6508,14 +6520,24 @@ function injectCalculatedCableQuantities(bom) {
               found = true;
             }
           });
-          if (!found) {
-            console.log(`[CableInjection] ${defaultLabel} not found in BOM — INJECTING with qty=${correctQty}`);
-            updatedItems.push({
-              item: defaultLabel, name: defaultLabel, qty: correctQty,
-              unit: defaultUnit, unitCost: defaultUnitCost,
-              extCost: Math.round(correctQty * defaultUnitCost * 100) / 100,
-              _calculatedRun: true, _accessoryInjected: true
-            });
+          if (!found && isPrimaryInfraCat && !/mdf|idf|tr\b/i.test(catName)) {
+            // Only inject into Structured Cabling category, never MDF/IDF
+            // Check if the item exists in ANY other category before injecting
+            const existsElsewhere = cleanedCategories.some(c => (c.items || []).some(i => regex.test(i.name || i.item || i.description || '')));
+            if (!existsElsewhere) {
+              console.log(`[CableInjection] ${defaultLabel} not found in ANY BOM category — INJECTING with qty=${correctQty}`);
+              updatedItems.push({
+                item: defaultLabel, name: defaultLabel, qty: correctQty,
+                unit: defaultUnit, unitCost: defaultUnitCost,
+                extCost: Math.round(correctQty * defaultUnitCost * 100) / 100,
+                _calculatedRun: true, _accessoryInjected: true,
+                mfg: 'Panduit', partNumber: 'CJ6X88TGIG'
+              });
+            } else {
+              console.log(`[CableInjection] ${defaultLabel} not in this category but exists in another — skipping injection (will be corrected in that category)`);
+            }
+          } else if (!found) {
+            console.log(`[CableInjection] ${defaultLabel} not in "${catName}" — skipping (not primary cabling category)`);
           }
         };
 

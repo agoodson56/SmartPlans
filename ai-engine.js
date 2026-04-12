@@ -644,9 +644,19 @@ const SmartBrains = {
                   console.log(`[SmartBrains] OCR Scale: Found scale on ${scaleData.pagesWithScale}/${scaleData.totalPages} pages of ${entry.name}`);
                 }
                 // Store page texts for text-layer device counting (ground truth)
-                if (scaleData._pageTexts && typeof state !== 'undefined') {
-                  if (!state._ocrPageTexts) state._ocrPageTexts = {};
-                  Object.assign(state._ocrPageTexts, scaleData._pageTexts);
+                if (scaleData._pageTexts && Object.keys(scaleData._pageTexts).length > 0) {
+                  try {
+                    if (!state._ocrPageTexts) state._ocrPageTexts = {};
+                    Object.assign(state._ocrPageTexts, scaleData._pageTexts);
+                    console.log(`[SmartBrains] Stored ${Object.keys(scaleData._pageTexts).length} page texts for text-layer device counting (total: ${Object.keys(state._ocrPageTexts).length} pages)`);
+                  } catch (e) {
+                    console.error('[SmartBrains] ⚠️ FAILED to store page texts — state may not be accessible:', e.message);
+                    // Fallback: store on the engine instance so app.js can retrieve it later
+                    if (!this._fallbackPageTexts) this._fallbackPageTexts = {};
+                    Object.assign(this._fallbackPageTexts, scaleData._pageTexts);
+                  }
+                } else {
+                  console.warn(`[SmartBrains] ⚠️ No page texts extracted from ${entry.name} — text layer counting will not work for this file`);
                 }
 
                 // Fallback: if OCR text extraction found no scale for some pages,
