@@ -10713,13 +10713,7 @@ async function runGeminiAnalysis(updateProgress) {
     }
 
     // ═══ USE MULTI-BRAIN ENGINE ═══
-    // AUDIT FIX C9: Wrap in safety timeout — if analysis hangs >30 min, force-reset state
-    // NOTE: 15 min was too aggressive — 524 retries + large plan sets legitimately take 20+ min
-    const ANALYSIS_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes max
-    const result = await Promise.race([
-      SmartBrains.runFullAnalysis(state, updateProgress),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Analysis timed out after 30 minutes — please retry')), ANALYSIS_TIMEOUT_MS))
-    ]);
+    const result = await SmartBrains.runFullAnalysis(state, updateProgress);
 
     // Check if user hit Stop during analysis
     if (window._analysisAborted) {
