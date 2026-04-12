@@ -6773,7 +6773,11 @@ ${legendContext}
         }
       }
 
-        // Merge exclusions (union, not max)
+      // Merge exclusions and rooms from all passes (union strategy)
+      for (let p = 1; p < passes.length; p++) {
+        const passData = passes[p].data;
+
+        // Merge exclusions (union, not median)
         if (passData.exclusions && mergedData.exclusions) {
           const seenExcl = new Set(mergedData.exclusions.map(e =>
             `${(e.item || '').toLowerCase()}_${(e.treatment || '').toLowerCase()}`
