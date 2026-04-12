@@ -6778,6 +6778,62 @@ function injectCalculatedCableQuantities(bom) {
     return cat;
   });
 
+  // ── RECOMMENDED ADDITIONS: Items needed for complete working systems ──
+  // These are items the plans require but the AI may not have included.
+  // Each item is flagged with a reason so the client can deduct if desired.
+  const recAdditions = [];
+  const textCts = pathway.textLayerCounts || {};
+  const allItems = cleanedCategories.flatMap(c => (c.items || []).map(i => (i.item || i.name || '').toLowerCase()));
+  const _hasItem = (regex) => allItems.some(d => regex.test(d));
+
+  // DAS: BDA headend required for antennas to function
+  if (_hasItem(/antenna|das|omni/i) && !_hasItem(/bda|bi[\s-]*directional|amplifier.*bda/i)) {
+    recAdditions.push({ item: 'Bi-Directional Amplifier (BDA) — Required for DAS antennas to function', mfg: 'CommScope', partNumber: 'BDA-P25-1W', qty: 1, unit: 'ea', unitCost: 8500, extCost: 8500, _recommended: true, _reason: 'DAS antennas cannot operate without BDA headend' });
+    recAdditions.push({ item: 'Donor Antenna (Roof Mount) — Required to receive carrier signal', mfg: 'CommScope', partNumber: 'DB201', qty: 1, unit: 'ea', unitCost: 650, extCost: 650, _recommended: true, _reason: 'Roof-mount donor antenna receives cellular signal for BDA' });
+  }
+
+  // Access Control: Power supplies required for electric locks
+  if (_hasItem(/electric\s*strike|mag\s*lock|electrified/i) && !_hasItem(/power\s*supply.*access|altronix/i)) {
+    const doorCount = textCts.card_readers || 15;
+    const psCount = Math.ceil(doorCount / 4); // 1 power supply per 4 doors
+    recAdditions.push({ item: `Access Control Power Supply (${psCount}× for ${doorCount} doors)`, mfg: 'Altronix', partNumber: 'AL600ULACM', qty: psCount, unit: 'ea', unitCost: 850, extCost: psCount * 850, _recommended: true, _reason: 'Electric strikes/maglocks require dedicated 24VDC power supplies' });
+  }
+
+  // Fiber: Splice-on connectors required for fiber termination
+  if (_hasItem(/fiber.*om[34]|om[34].*fiber|fiber.*backbone/i) && !_hasItem(/splice.*on|soc|fiber.*connector/i)) {
+    recAdditions.push({ item: 'LC Fiber Splice-On Connectors (OM4)', mfg: 'Corning', partNumber: 'SOC-LC-MM', qty: 48, unit: 'ea', unitCost: 10.94, extCost: 525.12, _recommended: true, _reason: 'Required to terminate fiber strands — cannot use enclosure without connectors' });
+    recAdditions.push({ item: 'Fiber Splice Tray (12-splice)', mfg: 'Corning', partNumber: 'M67-048', qty: 4, unit: 'ea', unitCost: 23.44, extCost: 93.76, _recommended: true, _reason: 'Organizes fiber splices inside enclosure' });
+  }
+
+  // Fire-rated sleeves for wall penetrations (code requirement)
+  if (!_hasItem(/fire.*rated.*sleeve|ez[\s-]*path|sti.*sleeve/i) && _hasItem(/ladder\s*rack|cable\s*runway/i)) {
+    recAdditions.push({ item: 'Fire-Rated Pathway Sleeves (STI EZ-Path)', mfg: 'STI', partNumber: 'EZD44S', qty: 8, unit: 'ea', unitCost: 150, extCost: 1200, _recommended: true, _reason: 'NEC/NFPA code requires fire-rated sleeves for cable penetrations through rated walls' });
+  }
+
+  // WAP installation labor (owner furnishes WAPs, we install)
+  const wapCount = textCts.wap_count || 0;
+  if (wapCount > 0 && !_hasItem(/wap.*install.*labor|wireless.*install.*labor/i)) {
+    const wapInstallCost = wapCount * 1 * 85; // 1 hr per WAP × $85/hr
+    recAdditions.push({ item: `WAP Installation Labor (${wapCount} OFCI access points × 1 hr)`, mfg: '', partNumber: '', qty: wapCount, unit: 'ea', unitCost: 85, extCost: wapInstallCost, _recommended: true, _reason: 'Owner furnishes WAPs — 3D installs, tests, and configures mounting' });
+  }
+
+  // Labels, velcro, firestopping materials
+  if (!_hasItem(/label.*tag|brady|velcro|cable\s*tie/i)) {
+    recAdditions.push({ item: 'Cable Labels & Tags', mfg: 'Brady', partNumber: 'BMP21', qty: 1, unit: 'lot', unitCost: 500, extCost: 500, _recommended: true, _reason: 'TIA-606 requires labeling of all cables, outlets, and patch panels' });
+    recAdditions.push({ item: 'Velcro Cable Ties (Plenum-Rated)', mfg: 'Panduit', partNumber: 'HLS-15R0', qty: 1, unit: 'lot', unitCost: 350, extCost: 350, _recommended: true, _reason: 'Cable management per BICSI standards — zip ties not permitted' });
+  }
+
+  if (recAdditions.length > 0) {
+    const recSubtotal = recAdditions.reduce((s, i) => s + (i.extCost || 0), 0);
+    cleanedCategories.push({
+      name: 'Recommended Additions (for complete system — deductible if not required)',
+      items: recAdditions,
+      subtotal: Math.round(recSubtotal * 100) / 100,
+      _recommendedAdditions: true,
+    });
+    console.log(`[CableInjection] Added ${recAdditions.length} recommended additions ($${recSubtotal.toLocaleString()}) for complete working systems`);
+  }
+
   const newGrandTotal = cleanedCategories.reduce((s, c) => s + (c.subtotal || 0), 0);
   return { ...bom, categories: cleanedCategories, grandTotal: Math.round(newGrandTotal * 100) / 100 };
 }
