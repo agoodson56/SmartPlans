@@ -128,13 +128,13 @@
         Sentry.init({
           dsn: "https://60b02e5d7804fc77476c97324b9039e5@o4511099720957952.ingest.us.sentry.io/4511099752284160",
           environment: location.hostname.includes('localhost') ? 'development' : 'production',
-          release: 'smartplans@5.0.0',
+          release: 'smartplans@5.111.0',
           integrations: [Sentry.browserTracingIntegration()],
           tracesSampleRate: 0.1,
           initialScope: { tags: { app: 'smartplans' } },
         });
         console.log('[SmartPlans] Sentry error tracking initialized');
-        console.log('[SmartPlans] Build: v5.110.4 — 2026-04-12');
+        console.log('[SmartPlans] Build: v5.111.0 — 2026-04-12');
       }
     </script>
     <script>
@@ -207,6 +207,7 @@
     <script src="scale-calibration.js"></script>
     <script src="export-engine.js"></script>
     <script src="proposal-generator.js"></script>
+    <script src="rate-library.js"></script>
     <script src="ai-engine.js"></script>
     <script src="app.js"></script>
     <script>
@@ -214,7 +215,6 @@
         var el=document.getElementById('step-content');if(el){el.textContent='';var d=document.createElement('div');d.style.cssText='padding:40px;color:#f43f5e;font-family:monospace;';var h=document.createElement('h2');h.textContent='app.js failed to load (404)';d.appendChild(h);var p=document.createElement('p');p.textContent='The script file was not found on the server.';d.appendChild(p);el.appendChild(d);}
     });
     </script>
-    <script src="rate-library.js"></script>
     <script>
         // ═══ CACHE BUSTER — Runs FIRST, before SW registration ═══
         // If the old SW is serving stale files, nuke everything and reload fresh

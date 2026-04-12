@@ -654,7 +654,8 @@ function _autoPopulateExclusions(brainResults) {
   const cableBrain = brainResults?.wave1?.CABLE_PATHWAY || brainResults?.wave1_75?.CABLE_PATHWAY || {};
   const pathways = cableBrain.pathways || [];
   pathways.forEach(p => {
-    if (p.by_others === true) {
+    // AUDIT FIX M13: AI may return by_others as string "true" — use truthy check, not strict ===
+    if (p.by_others === true || p.by_others === 'true' || p.by_others === 'yes') {
       const note = p.by_others_note || `${p.type || 'Item'} furnished and installed by others`;
       _addUnique({
         type: 'exclusion',
@@ -5791,7 +5792,8 @@ function computePathwayDistances() {
     if (lengthFt <= 0) return;
     // CRITICAL: Skip "by others" items — these are furnished/installed by electrical contractor
     // per the Technology Systems Responsibility Matrix on the plans
-    if (p.by_others === true) {
+    // AUDIT FIX M13: AI may return by_others as string "true" — use truthy check
+    if (p.by_others === true || p.by_others === 'true' || p.by_others === 'yes') {
       console.log(`[Pathway] SKIPPING ${p.type} (${lengthFt}ft) — by others: ${p.by_others_note || 'furnished by other contractor'}`);
       byOthersPathways.push({ type: p.type, lengthFt, note: p.by_others_note || '' });
       return;
@@ -8262,8 +8264,9 @@ function renderStep7(container) {
   const _fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   function _bomRecalc(key, qtyInput, costInput) {
-    const qty = parseFloat(qtyInput.value) || 0;
-    const unitCost = parseFloat(costInput.value) || 0;
+    // AUDIT FIX H11: Prevent negative quantities — clamp to 0
+    const qty = Math.max(0, parseFloat(qtyInput.value) || 0);
+    const unitCost = Math.max(0, parseFloat(costInput.value) || 0);
     const extCost = Math.round(qty * unitCost * 100) / 100;
 
     // Update ext cost cell
@@ -10710,7 +10713,12 @@ async function runGeminiAnalysis(updateProgress) {
     }
 
     // ═══ USE MULTI-BRAIN ENGINE ═══
-    const result = await SmartBrains.runFullAnalysis(state, updateProgress);
+    // AUDIT FIX C9: Wrap in safety timeout — if analysis hangs >15 min, force-reset state
+    const ANALYSIS_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes max
+    const result = await Promise.race([
+      SmartBrains.runFullAnalysis(state, updateProgress),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Analysis timed out after 15 minutes — please retry')), ANALYSIS_TIMEOUT_MS))
+    ]);
 
     // Check if user hit Stop during analysis
     if (window._analysisAborted) {

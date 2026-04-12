@@ -6690,7 +6690,15 @@ ${legendContext}
     }
   },
 
-  // Deduplicate multi-pass per-page results: for each page, merge passes using HIGHER counts
+  // AUDIT FIX H1: Helper — compute median of array of numbers
+  _median(arr) {
+    if (!arr || arr.length === 0) return 0;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  },
+
+  // Deduplicate multi-pass per-page results: for each page, merge passes using MEDIAN counts
   _deduplicateMultiPassResults(brainKey, allResults, scansPerPage) {
     if (scansPerPage <= 1) return allResults;
 
@@ -6710,50 +6718,53 @@ ${legendContext}
         continue;
       }
 
-      // Merge strategy: take the HIGHER count for each device type across passes
-      // This is intentional — undercounting loses bids, overcounting gets caught by consensus
+      // AUDIT FIX H1: Use MEDIAN instead of MAX for device counts across passes
+      // Math.max caused consistent 5-15% overcounting. Median is more robust to outliers.
+      // Text layer is ground truth for counting; this only affects AI-supplementary data.
       const mergedData = JSON.parse(JSON.stringify(passes[0].data)); // Deep clone pass 1
 
-      for (let p = 1; p < passes.length; p++) {
-        const passData = passes[p].data;
-
-        // Merge totals (take max per key)
-        if (passData.totals && mergedData.totals) {
-          for (const [k, v] of Object.entries(passData.totals)) {
-            if (typeof v === 'number') {
-              mergedData.totals[k] = Math.max(mergedData.totals[k] || 0, v);
+      // Helper: merge numeric fields using median across all passes
+      const _mergeNumericMedian = (target, fieldName) => {
+        if (!target) return;
+        for (const k of Object.keys(target)) {
+          if (typeof target[k] !== 'number') continue;
+          const allValues = passes.map(p => p.data?.[fieldName]?.[k]).filter(v => typeof v === 'number');
+          if (allValues.length > 0) target[k] = this._median(allValues);
+        }
+        // Also pick up keys from other passes not in pass 1
+        for (let p = 1; p < passes.length; p++) {
+          const src = passes[p].data?.[fieldName];
+          if (!src) continue;
+          for (const [k, v] of Object.entries(src)) {
+            if (typeof v === 'number' && !(k in target)) {
+              const allValues = passes.map(pp => pp.data?.[fieldName]?.[k]).filter(vv => typeof vv === 'number');
+              target[k] = this._median(allValues);
             }
           }
         }
+      };
 
-        // Merge grand_totals for ZOOM_SCANNER
-        if (passData.grand_totals && mergedData.grand_totals) {
-          for (const [k, v] of Object.entries(passData.grand_totals)) {
-            if (typeof v === 'number') {
-              mergedData.grand_totals[k] = Math.max(mergedData.grand_totals[k] || 0, v);
-            }
+      // Merge totals using median
+      _mergeNumericMedian(mergedData.totals, 'totals');
+
+      // Merge grand_totals for ZOOM_SCANNER using median
+      _mergeNumericMedian(mergedData.grand_totals, 'grand_totals');
+
+      // Merge sheet-level totals using median
+      if (mergedData.sheets) {
+        for (let si = 0; si < mergedData.sheets.length; si++) {
+          const existing = mergedData.sheets[si];
+          if (!existing.totals) continue;
+          for (const k of Object.keys(existing.totals)) {
+            if (typeof existing.totals[k] !== 'number') continue;
+            const allValues = passes.map(p => {
+              const sheet = p.data?.sheets?.find(s => s.sheet_id === existing.sheet_id || s.sheet === existing.sheet);
+              return sheet?.totals?.[k];
+            }).filter(v => typeof v === 'number');
+            if (allValues.length > 0) existing.totals[k] = this._median(allValues);
           }
         }
-
-        // Merge sheet-level totals
-        if (passData.sheets && mergedData.sheets) {
-          // Merge per-sheet counts — take higher totals
-          for (const passSheet of passData.sheets) {
-            const matchIdx = mergedData.sheets.findIndex(s =>
-              s.sheet_id === passSheet.sheet_id || s.sheet === passSheet.sheet
-            );
-            if (matchIdx >= 0 && passSheet.totals) {
-              const existing = mergedData.sheets[matchIdx];
-              if (existing.totals) {
-                for (const [k, v] of Object.entries(passSheet.totals)) {
-                  if (typeof v === 'number') {
-                    existing.totals[k] = Math.max(existing.totals[k] || 0, v);
-                  }
-                }
-              }
-            }
-          }
-        }
+      }
 
         // Merge exclusions (union, not max)
         if (passData.exclusions && mergedData.exclusions) {
@@ -6769,9 +6780,8 @@ ${legendContext}
           }
         }
 
-        // Merge rooms (union for SHADOW_SCANNER)
+        // Merge rooms (union for SHADOW_SCANNER) — use median for device counts
         if (passData.rooms && mergedData.rooms) {
-          // Take max count per room
           for (const passRoom of passData.rooms) {
             const existingRoom = mergedData.rooms.find(r =>
               (r.room_name || r.name) === (passRoom.room_name || passRoom.name)
@@ -6780,7 +6790,12 @@ ${legendContext}
               for (const [k, v] of Object.entries(passRoom.devices || {})) {
                 if (typeof v === 'number') {
                   existingRoom.devices = existingRoom.devices || {};
-                  existingRoom.devices[k] = Math.max(existingRoom.devices[k] || 0, v);
+                  // Collect all pass values for this room's device type and take median
+                  const allRoomValues = passes.map(pp => {
+                    const rm = pp.data?.rooms?.find(r => (r.room_name || r.name) === (passRoom.room_name || passRoom.name));
+                    return rm?.devices?.[k];
+                  }).filter(vv => typeof vv === 'number');
+                  existingRoom.devices[k] = allRoomValues.length > 0 ? this._median(allRoomValues) : v;
                 }
               }
             } else if (!existingRoom) {

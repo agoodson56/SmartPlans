@@ -519,9 +519,10 @@ const FormulaEngine3D = {
             const matSupportSELL = this._round(matSupportCOS * (1 + markup));
             const shippingSELL = this._round(shippingCOS * (1 + markup));
 
-            // Tax on material at respective price levels (COS on cost, SELL on sell)
+            // Tax on material COST only — tax is a pass-through, not marked up
+            // AUDIT FIX C2: Was taxing the SELL (marked-up) price, overcharging $30-50K on $2M bids
             const taxCOS = this._round(matCOS * this.taxRate);
-            const taxSELL = this._round(matSELL * this.taxRate);
+            const taxSELL = taxCOS; // Tax is pass-through — same dollar amount at cost and sell
 
             const materialsPlusCOS = this._round(matCOS + taxCOS + matSupportCOS + shippingCOS);
             const materialsPlusSELL = this._round(matSELL + taxSELL + matSupportSELL + shippingSELL);

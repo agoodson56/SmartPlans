@@ -1293,12 +1293,18 @@ const SmartPlansExport = {
                         if (unitCost === 0 && extCost > 0 && qty > 0) unitCost = extCost / qty;
 
                         // Fallback: try parsing cells positionally if column mapping missed
+                        // AUDIT FIX H10: Context-aware classification — large numbers for
+                        // unit-based items (ft, LF, m, meters) are quantities, not costs
                         if (qty === 1 && unitCost === 0 && extCost === 0 && cells.length >= 3) {
+                            const unitHint = (cells[colMap.unit] || itemName || '').toLowerCase();
+                            const isLinearUnit = /\b(ft|lf|feet|foot|meter|m\b|cable|wire|conduit|duct|fiber)\b/i.test(unitHint);
                             for (let ci = 1; ci < cells.length; ci++) {
                                 const val = cells[ci].replace(/[,\s$]/g, '');
                                 const num = parseFloat(val);
                                 if (!isNaN(num)) {
-                                    if (qty === 1 && num === Math.floor(num) && num < 100000 && ci < cells.length - 1) { qty = num; }
+                                    // For linear units, treat large integers as quantity (e.g., 150000 ft of cable)
+                                    const qtyThreshold = isLinearUnit ? 10000000 : 100000;
+                                    if (qty === 1 && num === Math.floor(num) && num < qtyThreshold && ci < cells.length - 1) { qty = num; }
                                     else if (unitCost === 0 && num > 0) { unitCost = num; }
                                     else if (extCost === 0 && num > 0) { extCost = num; break; }
                                 }
@@ -1392,10 +1398,35 @@ const SmartPlansExport = {
 
             // ═══ CRITICAL FIX: Remove AI-generated summary/subtotal categories ═══
             // The AI sometimes creates a "Material Subtotals Table" that re-lists category
+            // AUDIT FIX H12: Merge duplicate category names — AI sometimes returns
+            // "Structured Cabling Materials" twice. Without merging, both sections
+            // are added as separate categories and items are double-counted.
+            const mergedCategories = [];
+            const catNameMap = new Map();
+            for (const cat of categories) {
+                const normName = (cat.name || '').trim().toLowerCase();
+                if (catNameMap.has(normName)) {
+                    const existing = catNameMap.get(normName);
+                    // Merge items, avoiding exact duplicates (same name + same qty + same cost)
+                    for (const item of cat.items) {
+                        const isDupe = existing.items.some(e =>
+                            (e.item || e.name || '') === (item.item || item.name || '') &&
+                            (e.qty || 0) === (item.qty || 0) &&
+                            Math.abs((e.extCost || 0) - (item.extCost || 0)) < 0.01
+                        );
+                        if (!isDupe) existing.items.push(item);
+                    }
+                    console.log(`[SmartPlans Export] MERGED duplicate category: "${cat.name}" (${cat.items.length} items) into existing "${existing.name}"`);
+                } else {
+                    catNameMap.set(normName, cat);
+                    mergedCategories.push(cat);
+                }
+            }
+
             // subtotals as if they were real line items (often at half price). This DOUBLE-COUNTS
             // hundreds of thousands of dollars. Filter them out BEFORE calculating totals.
             const summaryPatterns = /subtotal|summary|recap|rollup|total.*table/i;
-            const realCategories = categories.filter(cat => {
+            const realCategories = mergedCategories.filter(cat => {
                 if (summaryPatterns.test(cat.name)) {
                     console.warn(`[SmartPlans Export] REMOVED duplicate summary category: "${cat.name}" ($${cat.items.reduce((s, i) => s + (i.extCost || 0), 0).toFixed(2)}) — this was double-counting real items`);
                     return false;
@@ -1621,6 +1652,13 @@ const SmartPlansExport = {
 
         if (bom.categories.length === 0) {
             alert('No material data found in the AI analysis. Please run the analysis first.');
+            return;
+        }
+
+        // AUDIT FIX H14: Block $0 BOM exports — prevents submitting empty/broken bids
+        if (bom.grandTotal <= 0) {
+            alert('⚠️ BOM total is $0 — cannot export an empty bid. Please verify the analysis produced valid pricing data.');
+            console.error('[Export] Blocked $0 BOM export. Categories:', bom.categories.map(c => `${c.name}: $${c.subtotal}`));
             return;
         }
 
