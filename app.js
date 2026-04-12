@@ -6371,25 +6371,33 @@ function injectCalculatedCableQuantities(bom) {
 
   // ── CROSS-CATEGORY DEDUP: Remove MDF/IDF items that appear in Structured Cabling ──
   // The MDF/IDF brain and Material Pricer both generate racks, panels, cable managers.
-  // Collect MDF/IDF item descriptions, then remove matches from Structured Cabling.
+  // Collect MDF/IDF item part numbers AND descriptions, then remove matches from Structured Cabling.
+  const mdfPartNumbers = new Set();
   const mdfItemDescs = new Set();
+  // Infrastructure item types that should ONLY exist in MDF/IDF, never duplicated in Structured Cabling
+  const MDF_INFRA_REGEX = /rack|cabinet|patch\s*panel|cable\s*manager|vertical.*manager|horizontal.*manager|pdu|ups|smart-ups|fiber\s*enclosure|grounding|bonding|busbar|threaded\s*rod|beam\s*clamp|splice\s*plate|trapeze|rack.*runway|runway.*kit/i;
   (bom.categories || []).forEach(cat => {
     const cn = (cat.name || '').toLowerCase();
     if (/mdf|idf|telecomm|room.*cv/i.test(cn)) {
       (cat.items || []).forEach(item => {
         const d = (item.item || item.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
         if (d.length > 3) mdfItemDescs.add(d);
-        // Also match by key terms: rack, cabinet, patch panel, cable manager, PDU, UPS, fiber enclosure, grounding
-        if (/rack|cabinet|patch\s*panel|cable\s*manager|vertical.*manager|horizontal.*manager|pdu|ups|smart-ups|fiber\s*enclosure|grounding|bonding/i.test(d)) {
-          // Extract the generic type for cross-matching
-          const typeKey = d.replace(/^(chatsworth|panduit|apc|corning|leviton)\s*/i, '').trim();
+        // Collect part numbers for cross-matching (most reliable dedup)
+        const pn = (item.partNumber || item.part_number || item.pn || '').trim().toLowerCase();
+        if (pn.length > 2) mdfPartNumbers.add(pn);
+        // Also strip MFG prefix AND part numbers from description for fuzzy matching
+        if (MDF_INFRA_REGEX.test(d)) {
+          const typeKey = d.replace(/^(chatsworth|panduit|apc|corning|leviton|b-line|generic)\s*/i, '').trim();
+          // Also strip leading part numbers like "15000-703" or "30162-703"
+          const cleanKey = typeKey.replace(/^[\w-]+\s+/, '').trim();
           if (typeKey.length > 3) mdfItemDescs.add(typeKey);
+          if (cleanKey.length > 3 && cleanKey !== typeKey) mdfItemDescs.add(cleanKey);
         }
       });
     }
   });
-  if (mdfItemDescs.size > 0) {
-    console.log(`[CableInjection] MDF/IDF has ${mdfItemDescs.size} unique items — will remove duplicates from Structured Cabling`);
+  if (mdfItemDescs.size > 0 || mdfPartNumbers.size > 0) {
+    console.log(`[CableInjection] MDF/IDF has ${mdfItemDescs.size} descriptions + ${mdfPartNumbers.size} part numbers — will remove duplicates from Structured Cabling`);
   }
 
   // ── TEXT-LAYER BY-OTHERS: Remove entire categories that the plans say are not our scope ──
@@ -6497,14 +6505,21 @@ function injectCalculatedCableQuantities(bom) {
 
       // ── CROSS-CATEGORY DEDUP: Remove MDF/IDF duplicate items from Structured Cabling ──
       // Items like racks, patch panels, cable managers that already exist in the MDF section
-      // should NOT appear again in Structured Cabling — they're the same physical items
+      // should NOT appear again in Structured Cabling — they're the same physical items.
+      // FIX v5.112.1: Previous string matching failed because MDF descriptions included part numbers
+      // that Structured Cabling descriptions omitted. Now matches by: part number, stripped desc, OR infra type.
       const isStructuredCablingCat = /structured\s*cabling|^cabling\s*material/i.test(catName) && !/mdf|idf|telecomm|room.*cv/i.test(catName);
-      if (isStructuredCablingCat && mdfItemDescs.size > 0) {
+      if (isStructuredCablingCat && (mdfItemDescs.size > 0 || mdfPartNumbers.size > 0)) {
         const normalizedName = name.replace(/\s+/g, ' ').trim();
-        const strippedName = normalizedName.replace(/^(chatsworth|panduit|apc|corning|leviton)\s*/i, '').trim();
-        if (/rack|cabinet|patch\s*panel|cable\s*manager|vertical.*manager|horizontal.*manager|pdu|ups|smart-ups|fiber\s*enclosure|grounding|bonding/i.test(name)) {
-          if (mdfItemDescs.has(normalizedName) || mdfItemDescs.has(strippedName)) {
-            console.log(`[CableInjection] REMOVING MDF duplicate from Structured Cabling: "${item.item || item.name}"`);
+        const strippedName = normalizedName.replace(/^(chatsworth|panduit|apc|corning|leviton|b-line|generic)\s*/i, '').trim();
+        const itemPN = (item.partNumber || item.part_number || item.pn || '').trim().toLowerCase();
+        // Check if this is an infrastructure item type (rack, cabinet, UPS, PDU, etc.)
+        if (MDF_INFRA_REGEX.test(name)) {
+          // Match by: (1) exact description, (2) stripped description, or (3) part number
+          const descMatch = mdfItemDescs.has(normalizedName) || mdfItemDescs.has(strippedName);
+          const pnMatch = itemPN.length > 2 && mdfPartNumbers.has(itemPN);
+          if (descMatch || pnMatch) {
+            console.log(`[CableInjection] REMOVING MDF duplicate from Structured Cabling: "${item.item || item.name}" (${pnMatch ? 'PN match' : 'desc match'})`);
             return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true, _calculatedRun: true };
           }
         }
