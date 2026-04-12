@@ -6137,6 +6137,25 @@ function injectCalculatedCableQuantities(bom) {
     console.log(`[CableInjection] No zone data — using building avg: ${consensusCableDrops} drops × ${buildingAvgRun} ft avg = ${totalFt.toLocaleString()} ft (${bW}×${bD} ft building)`);
   }
 
+  // ── TEXT-LAYER CABLE FOOTAGE RECALCULATION ──
+  // If the text layer found more drops than the AI zones, recalculate cable footage
+  // using: text_drops × max(zone_avg_run, building_avg_run) × waste
+  // This ensures cable footage matches the deterministic drop count, not the AI's undercount
+  const textLayerDrops = pathway.textLayerCounts?.total_drops || 0;
+  if (textLayerDrops > 0 && calcByType['cat6a']) {
+    const calc = calcByType['cat6a'];
+    const currentAvgRun = calc.deviceCount > 0 ? Math.round(calc.totalFt / calc.deviceCount / WASTE) : buildingAvgRun;
+    const bestAvgRun = Math.max(currentAvgRun, buildingAvgRun);
+    const recalcFt = Math.round(textLayerDrops * bestAvgRun * WASTE);
+    if (recalcFt > calc.totalFt * 1.15 || recalcFt < calc.totalFt * 0.85) {
+      console.log(`[CableInjection] Text-layer cable recalc: ${calc.totalFt.toLocaleString()} ft → ${recalcFt.toLocaleString()} ft (${textLayerDrops} text drops × ${bestAvgRun} ft avg × ${WASTE} waste)`);
+      calc.totalFt = recalcFt;
+      calc.deviceCount = textLayerDrops;
+      calc.avgRunFt = bestAvgRun;
+      calc.mode = 'text-layer-recalc';
+    }
+  }
+
   // Add backbone fiber totals to the cable type lookup
   (pathway.backboneResults || []).forEach(b => {
     const key = _normalizeCableKey(b.type || '');
@@ -6226,9 +6245,24 @@ function injectCalculatedCableQuantities(bom) {
       return { ...cat, items: zeroedItems, subtotal: 0, _byOthersCategory: true };
     }
     if (camerasOFCI && /cctv|camera|video\s*surv/i.test(catName)) {
-      console.log(`[TextLayer] 🚫 REMOVING entire "${cat.name}" category — "SECURITY CAMERA PROVIDED BY OWNER" per plans (cabling only)`);
-      const zeroedItems = (cat.items || []).map(item => ({ ...item, qty: 0, extCost: 0, _byOthersRemoved: true }));
-      return { ...cat, items: zeroedItems, subtotal: 0, _byOthersCategory: true };
+      console.log(`[TextLayer] 🚫 REMOVING CCTV material — "SECURITY CAMERA PROVIDED BY OWNER" per plans. Adding install labor.`);
+      const cameraCount = pathway.textLayerCounts?.cameras || 0;
+      const installItems = [];
+      if (cameraCount > 0) {
+        // Owner furnishes cameras, we install them — separate labor line item
+        const installHrsPerCam = 4; // Mount, aim, patch, test
+        const installRate = 85; // $/hr field tech rate
+        const installCost = cameraCount * installHrsPerCam * installRate;
+        installItems.push({
+          item: `Camera Installation Labor (${cameraCount} OFCI cameras × ${installHrsPerCam} hrs)`,
+          name: `Camera Installation Labor (${cameraCount} OFCI cameras × ${installHrsPerCam} hrs)`,
+          mfg: '', partNumber: '',
+          qty: cameraCount, unit: 'ea', unitCost: installHrsPerCam * installRate,
+          extCost: installCost, _injected: true,
+        });
+        console.log(`[TextLayer] Added camera install labor: ${cameraCount} cameras × ${installHrsPerCam} hrs × $${installRate}/hr = $${installCost}`);
+      }
+      return { ...cat, items: installItems, subtotal: installItems.reduce((s, i) => s + (i.extCost || 0), 0), _byOthersCategory: true };
     }
 
     // Primary infrastructure categories — these are the ONLY ones that get missing items injected
@@ -6449,22 +6483,27 @@ function injectCalculatedCableQuantities(bom) {
       }
 
       if (totalDrops > 0) {
-        // Helper: correct qty for an item type, or inject if missing
+        // Helper: correct qty for ALL matching items (not just first) — prevents Estimate Corrector
+        // from overriding text layer counts by adding duplicate items with wrong quantities
         const _correctAccessoryQty = (regex, correctQty, defaultLabel, defaultUnit, defaultUnitCost) => {
-          const idx = updatedItems.findIndex(item => regex.test(item.name || item.item || ''));
-          if (idx >= 0) {
-            const item = updatedItems[idx];
-            const oldQty = item.qty || 0;
-            if (oldQty !== correctQty) {
-              const uc = item.unitCost || defaultUnitCost;
-              updatedItems[idx] = {
-                ...item, qty: correctQty, extCost: Math.round(correctQty * uc * 100) / 100,
-                _calculatedRun: true, _accessoryCorrected: true
-              };
-              console.log(`[CableInjection] ${defaultLabel} corrected: ${oldQty} → ${correctQty} (${totalDrops} consensus drops)`);
+          let found = false;
+          updatedItems.forEach((item, idx) => {
+            if (regex.test(item.name || item.item || '')) {
+              const oldQty = item.qty || 0;
+              if (oldQty !== correctQty) {
+                const uc = item.unitCost || defaultUnitCost;
+                updatedItems[idx] = {
+                  ...item, qty: correctQty, extCost: Math.round(correctQty * uc * 100) / 100,
+                  _calculatedRun: true, _accessoryCorrected: true
+                };
+                console.log(`[CableInjection] ${defaultLabel} corrected: ${oldQty} → ${correctQty} (${totalDrops} text-layer drops)`);
+              }
+              found = true;
             }
+          });
+          if (!found) {
+            console.log(`[CableInjection] ${defaultLabel} not found in BOM — skipping (no item matches regex)`);
           }
-          // Don't inject accessories — they have specific part numbers from AI material pricer
         };
 
         // Jacks / keystones: 1 per drop
@@ -6624,14 +6663,12 @@ function injectCalculatedCableQuantities(bom) {
         const existing = deduped[existingIdx];
         const oldQty = existing.qty || 0;
         const newItemQty = item.qty || 0;
-        // For 'ea' items (racks, panels, etc.), use MAX — they're the same physical items counted twice
-        // For 'ft'/'lf' items (cable), ADD — they may be from different zones
-        const isLinearUnit = /^(ft|lf|linear|feet|foot)$/i.test(existing.unit || '');
-        if (isLinearUnit) {
-          existing.qty = oldQty + newItemQty; // Cable: add zones together
-        } else {
-          existing.qty = Math.max(oldQty, newItemQty); // Equipment: keep larger (don't double-count)
-        }
+        // For ALL duplicate items (same part number or same description), use MAX — they're the
+        // same physical items counted twice by different AI brains. This prevents:
+        // - Racks/panels doubling (MDF + Structured Cabling both count them)
+        // - Cable doubling (Material Pricer outputs two identical cable lines)
+        // - J-hooks doubling (AI + code injection both create them)
+        existing.qty = Math.max(oldQty, newItemQty);
         existing.extCost = Math.round(existing.qty * (existing.unitCost || 0) * 100) / 100;
         // Keep the longer/better description
         const existingDesc = (existing.item || existing.name || '');
