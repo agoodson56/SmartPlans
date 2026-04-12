@@ -7135,7 +7135,7 @@ function injectCalculatedCableQuantities(bom) {
     // ── INJECT MISSING DEVICES: If text layer found devices but BOM has no matching line, add them ──
     const _missingDeviceInjections = [
       { count: textDeviceCounts.glass_break, regex: /glass\s*break|glassbreak/i, label: 'Acoustic Glass Break Sensor',
-        category: /intrusion|security|alarm/i, mfg: 'Honeywell', pn: 'FG-1625', unitCost: 60, unit: 'ea' },
+        category: /intrusion|security(?!\s*cam)/i, mfg: 'Honeywell', pn: 'FG-1625', unitCost: 60, unit: 'ea' },
     ];
     for (const inj of _missingDeviceInjections) {
       if (!inj.count || inj.count <= 0) continue;
@@ -7189,6 +7189,27 @@ function injectCalculatedCableQuantities(bom) {
             if (oldQty !== readerCount && oldQty < readerCount) {
               cat.items[i] = { ...item, qty: readerCount, extCost: Math.round(readerCount * (item.unitCost || 0) * 100) / 100, _textLayerCorrected: true };
               console.log(`[TextLayer] REX Sensor synced to card readers: ${oldQty} → ${readerCount}`);
+            }
+          }
+        }
+      }
+    }
+
+    // ── PATCH CORD CORRECTION (belt-and-suspenders): ensure patch cords match outlet drops ──
+    // The per-category correction sometimes fails to fire due to category processing order.
+    // This fallback catches any patch cords that weren't corrected.
+    const _correctPatchCordCount = textDeviceCounts.total_drops - (textDeviceCounts.wap_count || 0);
+    if (_correctPatchCordCount > 0) {
+      for (const cat of updatedCategories) {
+        for (let i = 0; i < (cat.items || []).length; i++) {
+          const item = cat.items[i];
+          const desc = (item.item || item.name || '').toLowerCase();
+          if (/patch\s*cord|patch\s*cable/i.test(desc) && /^ea$/i.test(item.unit || '')) {
+            const oldQty = item.qty || 0;
+            if (oldQty > _correctPatchCordCount * 1.1) { // Only correct if significantly over
+              const uc = item.unitCost || 0;
+              cat.items[i] = { ...item, qty: _correctPatchCordCount, extCost: Math.round(_correctPatchCordCount * uc * 100) / 100, _textLayerCorrected: true };
+              console.log(`[TextLayer] Patch cord corrected: ${oldQty} → ${_correctPatchCordCount} ("${item.item || item.name}", text layer ground truth)`);
             }
           }
         }
