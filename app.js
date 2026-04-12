@@ -6708,29 +6708,33 @@ function injectCalculatedCableQuantities(bom) {
       }
 
       // ── PATCH PANEL CROSS-CHECK: use rack elevation as drop count floor ──
-      // If the MDF/IDF rack elevations show N × 48-port patch panels, that implies at least
-      // N × 48 × 0.70 drops (engineers typically design for 70-80% fill). If consensus drops
-      // are still below this after outlet_breakdown correction, use the patch panel floor.
-      let ppTotalPorts = 0;
-      (bom.categories || []).forEach(cat => {
-        (cat.items || []).forEach(item => {
-          const desc = (item.item || item.name || '').toLowerCase();
-          // Match "patch panel", "48-port", "24-port" in Cat6/Cat6A context (catches MDF/IDF items too)
-          const isPatchPanel = /patch\s*panel/i.test(desc)
-            || (/(\d+)[\s-]*port/i.test(desc) && /cat\s*6|cat6/i.test(desc) && /^ea$/i.test(item.unit || ''));
-          if (isPatchPanel) {
-            const ppMatch = desc.match(/(\d+)[\s-]*port/);
-            const ports = ppMatch ? parseInt(ppMatch[1]) : 48;
-            ppTotalPorts += (item.qty || 0) * ports;
-          }
+      // ONLY when text layer is NOT available. When text layer provides ground truth drop count,
+      // the AI's patch panel quantities are WRONG (based on AI's inflated drop count) and must NOT
+      // override the deterministic text layer. Panels will be corrected TO match drops, not vice versa.
+      const _textLayerActive = pathway.textLayerCounts && pathway.textLayerCounts.total_drops > 0;
+      if (!_textLayerActive) {
+        let ppTotalPorts = 0;
+        (bom.categories || []).forEach(cat => {
+          (cat.items || []).forEach(item => {
+            const desc = (item.item || item.name || '').toLowerCase();
+            const isPatchPanel = /patch\s*panel/i.test(desc)
+              || (/(\d+)[\s-]*port/i.test(desc) && /cat\s*6|cat6/i.test(desc) && /^ea$/i.test(item.unit || ''));
+            if (isPatchPanel) {
+              const ppMatch = desc.match(/(\d+)[\s-]*port/);
+              const ports = ppMatch ? parseInt(ppMatch[1]) : 48;
+              ppTotalPorts += (item.qty || 0) * ports;
+            }
+          });
         });
-      });
-      if (ppTotalPorts > 0) {
-        const ppImpliedMinDrops = Math.round(ppTotalPorts * 0.70); // 70% fill — conservative design estimate
-        if (totalDrops < ppImpliedMinDrops && ppImpliedMinDrops > totalDrops * 1.3) {
-          console.warn(`[CableInjection] ⚠️ Total drops (${totalDrops}) << patch panel implied minimum (${ppImpliedMinDrops} = ${ppTotalPorts} ports × 70%). Using patch panel floor.`);
-          totalDrops = ppImpliedMinDrops;
+        if (ppTotalPorts > 0) {
+          const ppImpliedMinDrops = Math.round(ppTotalPorts * 0.70);
+          if (totalDrops < ppImpliedMinDrops && ppImpliedMinDrops > totalDrops * 1.3) {
+            console.warn(`[CableInjection] ⚠️ Total drops (${totalDrops}) << patch panel implied minimum (${ppImpliedMinDrops} = ${ppTotalPorts} ports × 70%). Using patch panel floor.`);
+            totalDrops = ppImpliedMinDrops;
+          }
         }
+      } else {
+        console.log(`[CableInjection] Patch panel cross-check SKIPPED — text layer is ground truth (${totalDrops} drops). Panels will be sized to match.`);
       }
 
       if (totalDrops > 0) {
