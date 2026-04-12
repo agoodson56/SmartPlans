@@ -5944,19 +5944,22 @@ function computePathwayDistances() {
   // ── TEXT-LAYER GROUND TRUTH: Override AI counts with deterministic PDF text extraction ──
   // This is the most reliable count source — it reads actual text labels from the PDF
   // (e.g., "2D", "4D", "WAP") that were placed by the CAD software. Same answer every time.
+  // FIX v5.111.6: Text layer ALWAYS wins when it has data. No threshold.
   const textCounts = getTextLayerDeviceCounts();
   if (textCounts && textCounts.total_drops > 0) {
     const textTotal = textCounts.total_drops;
-    if (textTotal > consensusCableDrops * 1.1) {
-      // Text layer found MORE drops than AI consensus — text wins
-      console.warn(`[TextLayer] ⚠️ PDF text layer (${textTotal} drops) > AI consensus (${consensusCableDrops} drops). Using text layer as ground truth.`);
+    if (textTotal < consensusCableDrops * 0.3) {
+      // Text layer found drastically fewer — extraction likely missed pages, keep AI count
+      console.warn(`[TextLayer] Text layer (${textTotal}) << AI (${consensusCableDrops}) — text likely incomplete, keeping AI count`);
+    } else {
+      // Text layer ALWAYS wins — it's deterministic, same answer every run
+      if (textTotal !== consensusCableDrops) {
+        console.log(`[TextLayer] ✅ PDF text layer (${textTotal} drops) overrides AI consensus (${consensusCableDrops} drops). Text layer is ground truth.`);
+      } else {
+        console.log(`[TextLayer] ✅ Text layer (${textTotal}) = AI consensus — perfect agreement`);
+      }
       consensusCableDrops = textTotal;
       consensusWAPCount = textCounts.wap_count || consensusWAPCount;
-    } else if (textTotal < consensusCableDrops * 0.5) {
-      // Text layer found WAY fewer — text extraction may have missed pages, keep AI count
-      console.log(`[TextLayer] Text layer (${textTotal}) much lower than AI (${consensusCableDrops}) — text may be incomplete, keeping AI count`);
-    } else {
-      console.log(`[TextLayer] Text layer (${textTotal}) ≈ AI consensus (${consensusCableDrops}) — counts agree ✓`);
     }
     // Always use text-layer outlet_breakdown if available (most accurate for faceplate sizing)
     if (textCounts.outlet_breakdown) {
@@ -6104,10 +6107,11 @@ function injectCalculatedCableQuantities(bom) {
   const buildingAvgHorizontal = Math.round(((bW / 4) + (bD / 4)) * _ROUTING_FACTOR);
   let buildingAvgRun = buildingAvgHorizontal + 30 + 16; // + stub-up/IDF-drop + slack
   // Medical/VA/government facilities have longer runs due to wider corridors, thicker walls,
-  // plenum routing requirements, and MDF typically in a corner. Floor at 185 ft minimum.
-  if (_isMedGov && buildingAvgRun < 185) {
-    console.log(`[CableInjection] Medical/Gov building avg run ${buildingAvgRun} ft below 185 ft minimum — using 185 ft`);
-    buildingAvgRun = 185;
+  // plenum routing requirements, and MDF typically in a corner. Floor at 250 ft minimum.
+  // FIX v5.111.6: Was 185 ft — too low. Real VA clinic runs average 220-260 ft per estimator feedback.
+  if (_isMedGov && buildingAvgRun < 250) {
+    console.log(`[CableInjection] Medical/Gov building avg run ${buildingAvgRun} ft below 250 ft minimum — using 250 ft`);
+    buildingAvgRun = 250;
   }
   const WASTE = 1.12;
 
@@ -6316,10 +6320,10 @@ function injectCalculatedCableQuantities(bom) {
       //      but KEEP ladder rack (inside telecom rooms — always our scope)
       if ((/cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(name)) && /^(ft|lf|linear\s*f\w*|feet|foot)$/i.test(item.unit || '')) {
         if (byOthersTray) {
-          // Protect ladder rack AND cable runway inside telecom rooms (MDF/IDF) — always our scope
-          // Only remove CORRIDOR basket tray / cable tray (EC scope)
-          const isTelecomRoomItem = isPrimaryInfraCat && /ladder\s*rack|cable\s*runway|runway/i.test(name);
-          if (!isTelecomRoomItem) {
+          // Protect ladder rack AND cable runway — ALWAYS our scope regardless of category
+          // FIX v5.111.6: Was only protecting in isPrimaryInfraCat categories, missing items in other cats
+          const isLadderRack = /ladder\s*rack|cable\s*runway|runway/i.test(name);
+          if (!isLadderRack) {
             console.log(`[CableInjection] REMOVING tray "${item.item || item.name}" — by others (electrical contractor)`);
             return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true, _calculatedRun: true };
           } else {
@@ -6855,6 +6859,92 @@ function injectCalculatedCableQuantities(bom) {
     const newSubtotal = deduped.reduce((s, i) => s + (i.extCost || 0), 0);
     return { ...cat, items: deduped, subtotal: Math.round(newSubtotal * 100) / 100, _dedupDone: true };
   });
+
+  // ── TEXT-LAYER DEVICE COUNT CORRECTION: Apply ground truth to ALL device categories ──
+  // The text layer reads card readers, glass breaks, speakers, displays, WAPs, door contacts
+  // directly from CAD labels. These are deterministic and override AI counts in ANY category.
+  const textDeviceCounts = pathway.textLayerCounts;
+  if (textDeviceCounts) {
+    const _deviceCorrections = [
+      { regex: /card\s*reader|iclass|prox\s*reader|hid.*reader|access.*reader/i, count: textDeviceCounts.card_readers, label: 'Card Reader' },
+      { regex: /glass\s*break|glassbreak|glass.*sensor/i, count: textDeviceCounts.glass_break, label: 'Glass Break Sensor' },
+      { regex: /speaker|ceiling\s*speak|coax.*speak|paging.*speak/i, count: textDeviceCounts.speakers, label: 'Speaker' },
+      { regex: /display|monitor|screen|tv\b|television/i, count: textDeviceCounts.displays, label: 'Display' },
+      { regex: /\bwap\b|wireless\s*access|access\s*point|wi-?fi/i, count: textDeviceCounts.wap_count, label: 'WAP' },
+      { regex: /door\s*contact|magnetic\s*contact|recessed.*contact/i, count: textDeviceCounts.door_contacts, label: 'Door Contact' },
+    ];
+
+    for (const corr of _deviceCorrections) {
+      if (!corr.count || corr.count <= 0) continue;
+      // Find the item across ALL categories and correct its qty
+      for (const cat of updatedCategories) {
+        if (cat._byOthersCategory) continue; // Skip zeroed categories
+        for (let i = 0; i < (cat.items || []).length; i++) {
+          const item = cat.items[i];
+          const desc = (item.item || item.name || '').toLowerCase();
+          if (corr.regex.test(desc) && !item._byOthersRemoved) {
+            const oldQty = item.qty || 0;
+            if (oldQty !== corr.count) {
+              const uc = item.unitCost || 0;
+              cat.items[i] = {
+                ...item, qty: corr.count, extCost: Math.round(corr.count * uc * 100) / 100,
+                _textLayerCorrected: true
+              };
+              console.log(`[TextLayer] ${corr.label} corrected: ${oldQty} → ${corr.count} (text layer ground truth)`);
+            }
+            break; // Only correct first match per device type per category
+          }
+        }
+      }
+    }
+
+    // Recalculate subtotals after text layer corrections
+    for (const cat of updatedCategories) {
+      if (cat.items && cat.items.some(i => i._textLayerCorrected)) {
+        cat.subtotal = Math.round(cat.items.reduce((s, i) => s + (i.extCost || 0), 0) * 100) / 100;
+      }
+    }
+  }
+
+  // ── CROSS-CATEGORY DEDUP: Remove J-hooks/basket tray that Estimate Corrector added in other categories ──
+  // FIX v5.111.6: The Estimate Corrector adds J-hooks in "General Requirements" even though
+  // the injection code already calculated them in Structured Cabling. Remove duplicates.
+  const _crossCatDedupTypes = [
+    { regex: /j[\s-]*hook/i, label: 'J-Hook' },
+    { regex: /basket\s*tray/i, label: 'Basket Tray' },
+    { regex: /emt\s*conduit|1"?\s*emt|4"?\s*emt/i, label: 'EMT Conduit' },
+  ];
+  for (const dedupType of _crossCatDedupTypes) {
+    // Find all categories that have this item type
+    const catsWithItem = [];
+    for (let ci = 0; ci < updatedCategories.length; ci++) {
+      const cat = updatedCategories[ci];
+      const matchIdx = (cat.items || []).findIndex(item =>
+        dedupType.regex.test(item.item || item.name || '') && (item.qty || 0) > 0
+      );
+      if (matchIdx >= 0) {
+        catsWithItem.push({ catIdx: ci, itemIdx: matchIdx, catName: cat.name || '' });
+      }
+    }
+    // If item exists in 2+ categories, keep only the one in primary infrastructure, zero others
+    if (catsWithItem.length > 1) {
+      const primaryIdx = catsWithItem.findIndex(c =>
+        /(structured\s*cabling|mdf|idf|telecomm)/i.test(c.catName)
+      );
+      const keepIdx = primaryIdx >= 0 ? primaryIdx : 0;
+      for (let i = 0; i < catsWithItem.length; i++) {
+        if (i === keepIdx) continue;
+        const { catIdx, itemIdx, catName } = catsWithItem[i];
+        const item = updatedCategories[catIdx].items[itemIdx];
+        console.log(`[CrossCatDedup] Removing duplicate ${dedupType.label} from "${catName}": ${item.qty} ${item.unit} ($${item.extCost}) — already in primary cabling category`);
+        updatedCategories[catIdx].items[itemIdx] = { ...item, qty: 0, extCost: 0, _crossCatDeduped: true };
+        // Recalculate subtotal
+        updatedCategories[catIdx].subtotal = Math.round(
+          updatedCategories[catIdx].items.reduce((s, it) => s + (it.extCost || 0), 0) * 100
+        ) / 100;
+      }
+    }
+  }
 
   // ── GLOBAL CLEANUP: Remove ghost items & dedup across ALL categories (including non-cabling) ──
   // The old injection bug left blank-description phantom items in CCTV, Access Control, etc.
