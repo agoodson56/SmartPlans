@@ -6088,7 +6088,13 @@ function injectCalculatedCableQuantities(bom) {
   const _isMedGov = /medical|hospital|healthcare|clinic|government|federal|dod|va\b|correctional|detention/i.test(_projType);
   const _ROUTING_FACTOR = _isMedGov ? 1.40 : 1.30;
   const buildingAvgHorizontal = Math.round(((bW / 4) + (bD / 4)) * _ROUTING_FACTOR);
-  const buildingAvgRun = buildingAvgHorizontal + 30 + 16; // + stub-up/IDF-drop + slack
+  let buildingAvgRun = buildingAvgHorizontal + 30 + 16; // + stub-up/IDF-drop + slack
+  // Medical/VA/government facilities have longer runs due to wider corridors, thicker walls,
+  // plenum routing requirements, and MDF typically in a corner. Floor at 185 ft minimum.
+  if (_isMedGov && buildingAvgRun < 185) {
+    console.log(`[CableInjection] Medical/Gov building avg run ${buildingAvgRun} ft below 185 ft minimum — using 185 ft`);
+    buildingAvgRun = 185;
+  }
   const WASTE = 1.12;
 
   if (consensusCableDrops > 0 && zoneDeviceTotal > 0 && zoneDeviceTotal < consensusCableDrops * 0.8) {
@@ -6488,7 +6494,8 @@ function injectCalculatedCableQuantities(bom) {
         const _correctAccessoryQty = (regex, correctQty, defaultLabel, defaultUnit, defaultUnitCost) => {
           let found = false;
           updatedItems.forEach((item, idx) => {
-            if (regex.test(item.name || item.item || '')) {
+            const itemDesc = item.name || item.item || item.description || '';
+            if (regex.test(itemDesc)) {
               const oldQty = item.qty || 0;
               if (oldQty !== correctQty) {
                 const uc = item.unitCost || defaultUnitCost;
@@ -6502,12 +6509,18 @@ function injectCalculatedCableQuantities(bom) {
             }
           });
           if (!found) {
-            console.log(`[CableInjection] ${defaultLabel} not found in BOM — skipping (no item matches regex)`);
+            console.log(`[CableInjection] ${defaultLabel} not found in BOM — INJECTING with qty=${correctQty}`);
+            updatedItems.push({
+              item: defaultLabel, name: defaultLabel, qty: correctQty,
+              unit: defaultUnit, unitCost: defaultUnitCost,
+              extCost: Math.round(correctQty * defaultUnitCost * 100) / 100,
+              _calculatedRun: true, _accessoryInjected: true
+            });
           }
         };
 
-        // Jacks / keystones: 1 per drop
-        _correctAccessoryQty(/keystone\s*jack|cat\s*6a?\s*jack|data\s*jack|rj.?45\s*jack/i, totalDrops, 'Keystone Jack', 'ea', 19.86);
+        // Jacks / keystones: 1 per drop — broad regex to catch all AI naming variants
+        _correctAccessoryQty(/keystone|cat\s*6a?\s*.*jack|data\s*jack|rj.?45\s*jack|modular\s*jack|network\s*jack/i, totalDrops, 'Cat 6A Keystone Jack', 'ea', 14);
 
         // Faceplates: use outlet_breakdown to generate correct port-size faceplates
         // WAPs mount directly to cable (no faceplate) — only count outlet drops
