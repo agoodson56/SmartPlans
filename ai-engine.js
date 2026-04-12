@@ -643,6 +643,11 @@ const SmartBrains = {
                   fileData._ocrScaleData = scaleData;
                   console.log(`[SmartBrains] OCR Scale: Found scale on ${scaleData.pagesWithScale}/${scaleData.totalPages} pages of ${entry.name}`);
                 }
+                // Store page texts for text-layer device counting (ground truth)
+                if (scaleData._pageTexts && typeof state !== 'undefined') {
+                  if (!state._ocrPageTexts) state._ocrPageTexts = {};
+                  Object.assign(state._ocrPageTexts, scaleData._pageTexts);
+                }
 
                 // Fallback: if OCR text extraction found no scale for some pages,
                 // use canvas-based scale bar detection results if available
@@ -957,6 +962,7 @@ const SmartBrains = {
         { name: 'ANSI C',  w: 22, h: 17, pdfW: 1584, pdfH: 1224 },
       ];
 
+      const pageTexts = {}; // Store full text for each page → used by getTextLayerDeviceCounts()
       for (let p = 1; p <= totalPages; p++) {
         try {
           const page = await pdf.getPage(p);
@@ -974,6 +980,7 @@ const SmartBrains = {
 
           // Combine all text for pattern matching
           const fullText = textItems.map(t => t.str).join(' ');
+          pageTexts[p] = fullText; // Store for device counting
 
           // Also look specifically at the title block area (bottom 20% of page, right 40%)
           const pageH = viewport.height;
@@ -1201,7 +1208,7 @@ const SmartBrains = {
       const found = pages.filter(p => p.ftPerInch > 0);
       console.log(`[OCR Scale] Extracted scale from ${found.length}/${totalPages} pages deterministically`);
 
-      return { pages, totalPages, pagesWithScale: found.length };
+      return { pages, totalPages, pagesWithScale: found.length, _pageTexts: pageTexts };
     } catch (err) {
       console.warn(`[OCR Scale] PDF scale extraction failed:`, err.message);
       return { pages: [], totalPages: 0, pagesWithScale: 0 };

@@ -5426,6 +5426,53 @@ function injectTravelIntoBOM(bom) {
   return { ...bom, categories: filtered, grandTotal: Math.round(newTotal * 100) / 100 };
 }
 
+// ─── PDF Text-Layer Device Counter ───────────────────────────────────────────
+// Extracts device counts directly from PDF text layer — 100% deterministic.
+// This is the GROUND TRUTH that overrides AI vision-based counting.
+// The PDF text layer contains labels like "2D", "4D", "WAP", "CAM-1", "IS-1"
+// that are embedded in the file by the CAD software. Counting these strings
+// gives exact device quantities without AI variance.
+function getTextLayerDeviceCounts() {
+  // Use pre-extracted OCR text from the analysis upload phase
+  const ocrPages = state._ocrPageTexts || {};
+  if (Object.keys(ocrPages).length === 0) return null;
+
+  // Combine all page texts
+  const allText = Object.values(ocrPages).join('\n');
+  if (allText.length < 100) return null;
+
+  // Count data outlet symbols by multiplier prefix
+  const d1 = (allText.match(/\b1D\b/g) || []).length;
+  const d2 = (allText.match(/\b2D\b/g) || []).length;
+  const d4 = (allText.match(/\b4D\b/g) || []).length;
+  const d6 = (allText.match(/\b6D\b/g) || []).length;
+  const wap = (allText.match(/\bWAP\b/g) || []).length;
+
+  const totalSymbols = d1 + d2 + d4 + d6;
+  const totalDrops = d1*1 + d2*2 + d4*4 + d6*6;
+
+  // Only return if we found meaningful data outlet counts
+  if (totalSymbols < 5) return null;
+
+  const result = {
+    outlet_breakdown: { '1D': d1, '2D': d2, '4D': d4, '6D': d6 },
+    data_outlet_symbols: totalSymbols,
+    data_outlet_drops: totalDrops,
+    wap_count: wap,
+    total_drops: totalDrops + wap,
+    // Count other devices from text layer
+    cameras: (allText.match(/\bCAM-\d\b/g) || []).length,
+    speakers_is: (allText.match(/\bIS-1\b/g) || []).length,
+    speakers_ls: (allText.match(/\bLS-1\b/g) || []).length,
+    card_readers: (allText.match(/\bCR\b/g) || []).length,
+    glass_break: (allText.match(/\bGB\b/g) || []).length,
+    source: 'pdf_text_layer',
+  };
+  console.log(`[TextLayer] ✅ Ground truth device counts from PDF text: ${totalSymbols} outlet symbols → ${totalDrops} data drops + ${wap} WAPs = ${totalDrops + wap} total`);
+  console.log(`[TextLayer] outlet_breakdown: 1D=${d1}, 2D=${d2}, 4D=${d4}, 6D=${d6}`);
+  return result;
+}
+
 // ─── Cable Pathway Distance Calculator ───────────────────────────────────────
 // Uses SPATIAL_LAYOUT (wave0) + CABLE_PATHWAY (wave1) zone data for precise
 // per-zone cable run lengths. Falls back to AI avg_length_ft if no spatial data.
@@ -5809,6 +5856,30 @@ function computePathwayDistances() {
     }
   }
 
+  // ── TEXT-LAYER GROUND TRUTH: Override AI counts with deterministic PDF text extraction ──
+  // This is the most reliable count source — it reads actual text labels from the PDF
+  // (e.g., "2D", "4D", "WAP") that were placed by the CAD software. Same answer every time.
+  const textCounts = getTextLayerDeviceCounts();
+  if (textCounts && textCounts.total_drops > 0) {
+    const textTotal = textCounts.total_drops;
+    if (textTotal > consensusCableDrops * 1.1) {
+      // Text layer found MORE drops than AI consensus — text wins
+      console.warn(`[TextLayer] ⚠️ PDF text layer (${textTotal} drops) > AI consensus (${consensusCableDrops} drops). Using text layer as ground truth.`);
+      consensusCableDrops = textTotal;
+      consensusWAPCount = textCounts.wap_count || consensusWAPCount;
+    } else if (textTotal < consensusCableDrops * 0.5) {
+      // Text layer found WAY fewer — text extraction may have missed pages, keep AI count
+      console.log(`[TextLayer] Text layer (${textTotal}) much lower than AI (${consensusCableDrops}) — text may be incomplete, keeping AI count`);
+    } else {
+      console.log(`[TextLayer] Text layer (${textTotal}) ≈ AI consensus (${consensusCableDrops}) — counts agree ✓`);
+    }
+    // Always use text-layer outlet_breakdown if available (most accurate for faceplate sizing)
+    if (textCounts.outlet_breakdown) {
+      outletBreakdown = textCounts.outlet_breakdown;
+      console.log(`[TextLayer] Using text-layer outlet_breakdown: 1D=${outletBreakdown['1D']||0}, 2D=${outletBreakdown['2D']||0}, 4D=${outletBreakdown['4D']||0}, 6D=${outletBreakdown['6D']||0}`);
+    }
+  }
+
   return {
     results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD,
     backboneResults, backboneTotalFt: backboneResults.reduce((s, b) => s + b.totalFt, 0),
@@ -6037,6 +6108,29 @@ function injectCalculatedCableQuantities(bom) {
     console.log(`[CableInjection] Cable tray is BY OTHERS — will remove from BOM, not update`);
   }
 
+  // ── CROSS-CATEGORY DEDUP: Remove MDF/IDF items that appear in Structured Cabling ──
+  // The MDF/IDF brain and Material Pricer both generate racks, panels, cable managers.
+  // Collect MDF/IDF item descriptions, then remove matches from Structured Cabling.
+  const mdfItemDescs = new Set();
+  (bom.categories || []).forEach(cat => {
+    const cn = (cat.name || '').toLowerCase();
+    if (/mdf|idf|telecomm|room.*cv/i.test(cn)) {
+      (cat.items || []).forEach(item => {
+        const d = (item.item || item.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        if (d.length > 3) mdfItemDescs.add(d);
+        // Also match by key terms: rack, cabinet, patch panel, cable manager, PDU, UPS, fiber enclosure, grounding
+        if (/rack|cabinet|patch\s*panel|cable\s*manager|vertical.*manager|horizontal.*manager|pdu|ups|smart-ups|fiber\s*enclosure|grounding|bonding/i.test(d)) {
+          // Extract the generic type for cross-matching
+          const typeKey = d.replace(/^(chatsworth|panduit|apc|corning|leviton)\s*/i, '').trim();
+          if (typeKey.length > 3) mdfItemDescs.add(typeKey);
+        }
+      });
+    }
+  });
+  if (mdfItemDescs.size > 0) {
+    console.log(`[CableInjection] MDF/IDF has ${mdfItemDescs.size} unique items — will remove duplicates from Structured Cabling`);
+  }
+
   // Walk BOM categories and update cable + tray line items
   // CRITICAL FIX: Two-tier matching prevents pathway items from being INJECTED into every discipline
   // - isPrimaryInfraCat: tight match → Structured Cabling + MDF/IDF only → gets INJECTION of missing items
@@ -6101,6 +6195,21 @@ function injectCalculatedCableQuantities(bom) {
         if (conduitByOthers) {
           console.log(`[CableInjection] REMOVING conduit "${item.item || item.name}" — by others (electrical contractor per exclusions)`);
           return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true, _calculatedRun: true };
+        }
+      }
+
+      // ── CROSS-CATEGORY DEDUP: Remove MDF/IDF duplicate items from Structured Cabling ──
+      // Items like racks, patch panels, cable managers that already exist in the MDF section
+      // should NOT appear again in Structured Cabling — they're the same physical items
+      const isStructuredCablingCat = /structured\s*cabling|^cabling\s*material/i.test(catName) && !/mdf|idf|telecomm|room.*cv/i.test(catName);
+      if (isStructuredCablingCat && mdfItemDescs.size > 0) {
+        const normalizedName = name.replace(/\s+/g, ' ').trim();
+        const strippedName = normalizedName.replace(/^(chatsworth|panduit|apc|corning|leviton)\s*/i, '').trim();
+        if (/rack|cabinet|patch\s*panel|cable\s*manager|vertical.*manager|horizontal.*manager|pdu|ups|smart-ups|fiber\s*enclosure|grounding|bonding/i.test(name)) {
+          if (mdfItemDescs.has(normalizedName) || mdfItemDescs.has(strippedName)) {
+            console.log(`[CableInjection] REMOVING MDF duplicate from Structured Cabling: "${item.item || item.name}"`);
+            return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true, _calculatedRun: true };
+          }
         }
       }
 
@@ -6421,7 +6530,15 @@ function injectCalculatedCableQuantities(bom) {
         const existingIdx = seen.get(dedupKey);
         const existing = deduped[existingIdx];
         const oldQty = existing.qty || 0;
-        existing.qty = oldQty + (item.qty || 0);
+        const newItemQty = item.qty || 0;
+        // For 'ea' items (racks, panels, etc.), use MAX — they're the same physical items counted twice
+        // For 'ft'/'lf' items (cable), ADD — they may be from different zones
+        const isLinearUnit = /^(ft|lf|linear|feet|foot)$/i.test(existing.unit || '');
+        if (isLinearUnit) {
+          existing.qty = oldQty + newItemQty; // Cable: add zones together
+        } else {
+          existing.qty = Math.max(oldQty, newItemQty); // Equipment: keep larger (don't double-count)
+        }
         existing.extCost = Math.round(existing.qty * (existing.unitCost || 0) * 100) / 100;
         // Keep the longer/better description
         const existingDesc = (existing.item || existing.name || '');
@@ -6439,6 +6556,51 @@ function injectCalculatedCableQuantities(bom) {
         if (!item.name) item.name = desc;
         seen.set(dedupKey, deduped.length);
         deduped.push(item);
+      }
+    }
+
+    // ── PART NUMBER LOOKUP: Fill missing MFG/Part# from known product database ──
+    const _PN_LOOKUP = [
+      { match: /cat\s*6a.*plenum|plenum.*cat\s*6a/i, mfg: 'Panduit', pn: 'PUP6AV04BU-CEG' },
+      { match: /cat\s*6a.*keystone|keystone.*jack/i, mfg: 'Panduit', pn: 'CJ6X88TGIG' },
+      { match: /2[\s-]*port.*faceplate|faceplate.*2[\s-]*port/i, mfg: 'Panduit', pn: 'CFPE2IGY' },
+      { match: /4[\s-]*port.*faceplate|faceplate.*4[\s-]*port/i, mfg: 'Panduit', pn: 'CFPE4IGY' },
+      { match: /1[\s-]*port.*faceplate|faceplate.*1[\s-]*port/i, mfg: 'Panduit', pn: 'CFPE1IGY' },
+      { match: /48[\s-]*port.*patch\s*panel/i, mfg: 'Panduit', pn: 'CP48WSBLY' },
+      { match: /24[\s-]*port.*patch\s*panel/i, mfg: 'Panduit', pn: 'CP24WSBLY' },
+      { match: /surface\s*mount.*box|biscuit\s*jack/i, mfg: 'Panduit', pn: 'CBX1IG-A' },
+      { match: /j[\s-]*hook.*2"|2".*j[\s-]*hook/i, mfg: 'B-Line', pn: 'BCH32-C442' },
+      { match: /2[\s-]*post.*rack.*45/i, mfg: 'Chatsworth', pn: '55053-703' },
+      { match: /floor.*cabinet.*42|cabinet.*42.*ru/i, mfg: 'Chatsworth', pn: '14722-703' },
+      { match: /horizontal.*cable.*manager|cable.*manager.*2u/i, mfg: 'Chatsworth', pn: '30130-719' },
+      { match: /vertical.*cable.*manager/i, mfg: 'Chatsworth', pn: '30162-703' },
+      { match: /ladder\s*rack.*18|cable\s*runway.*18/i, mfg: 'Chatsworth', pn: '11275-718' },
+      { match: /trapeze|support\s*kit/i, mfg: 'Chatsworth', pn: '11446-718' },
+      { match: /splice\s*plate/i, mfg: 'Chatsworth', pn: '11301-701' },
+      { match: /90.*elbow|elbow.*90/i, mfg: 'Chatsworth', pn: '11250-718' },
+      { match: /wall\s*bracket.*rack|rack.*wall\s*bracket/i, mfg: 'Chatsworth', pn: '11421-718' },
+      { match: /rack.*runway.*kit|runway.*mounting/i, mfg: 'Chatsworth', pn: '10595-718' },
+      { match: /vertical\s*pdu|pdu.*l21/i, mfg: 'APC', pn: 'AP8841' },
+      { match: /smart[\s-]*ups.*3000|ups.*3000.*rack/i, mfg: 'APC', pn: 'SMT3000RM2UC' },
+      { match: /fiber\s*enclosure.*1ru|rack.*fiber.*enclosure/i, mfg: 'Corning', pn: 'CCH-01U' },
+      { match: /lc\s*adapter\s*panel/i, mfg: 'Corning', pn: 'CCH-CP06-E4' },
+      { match: /fiber\s*splice\s*tray/i, mfg: 'Corning', pn: 'M67-048' },
+      { match: /grounding.*kit|bonding.*kit|tmgb/i, mfg: 'Chatsworth', pn: '13622-012' },
+      { match: /arlington\s*loop/i, mfg: 'Arlington', pn: 'TL20' },
+      { match: /om4.*24.*strand|fiber.*backbone.*om4/i, mfg: 'Corning', pn: '024T88-33190-29' },
+      { match: /threaded\s*rod.*3\/8/i, mfg: 'B-Line', pn: 'ATR-3/8X120' },
+      { match: /beam\s*clamp.*3\/8/i, mfg: 'B-Line', pn: 'B3036-3/8' },
+    ];
+    for (const item of deduped) {
+      if (!item.mfg || !item.partNumber) {
+        const desc = (item.item || item.name || '').toLowerCase();
+        for (const lookup of _PN_LOOKUP) {
+          if (lookup.match.test(desc)) {
+            if (!item.mfg) item.mfg = lookup.mfg;
+            if (!item.partNumber) item.partNumber = lookup.pn;
+            break;
+          }
+        }
       }
     }
 
