@@ -5454,22 +5454,93 @@ function getTextLayerDeviceCounts() {
   // Only return if we found meaningful data outlet counts
   if (totalSymbols < 5) return null;
 
+  // ── Count ALL device types from text layer ──
+  // Camera symbols: CAM-1 (flush dome), CAM-2 (surface), CAM-3 (exterior/pendant)
+  const cam1 = (allText.match(/\bCAM-1\b/g) || []).length;
+  const cam2 = (allText.match(/\bCAM-2\b/g) || []).length;
+  const cam3 = (allText.match(/\bCAM-3\b/g) || []).length;
+  const totalCameras = cam1 + cam2 + cam3;
+
+  // Speaker symbols: IS-1 (intercom/private), LS-1 (loudspeaker/public), IS-2, LS-2
+  const is1 = (allText.match(/\bIS-1\b/g) || []).length;
+  const is2 = (allText.match(/\bIS-2\b/g) || []).length;
+  const ls1 = (allText.match(/\bLS-1\b/g) || []).length;
+  const ls2 = (allText.match(/\bLS-2\b/g) || []).length;
+  const totalSpeakers = is1 + is2 + ls1 + ls2;
+
+  // Access control symbols
+  const cardReaders = (allText.match(/\bCR\b/g) || []).length;
+  const glassBreak = (allText.match(/\bGB\b/g) || []).length;
+
+  // AV symbols: AV-1, AV-2, VD-1, VD-2 (video displays)
+  const av1 = (allText.match(/\bAV-1\b/g) || []).length;
+  const av2 = (allText.match(/\bAV-2\b/g) || []).length;
+  const vd1 = (allText.match(/\bVD-1\b/g) || []).length;
+  const vd2 = (allText.match(/\bVD-2\b/g) || []).length;
+  const totalDisplays = vd1 + vd2;
+  const totalAVOutlets = av1 + av2;
+
+  // Door symbols from security plans: DC (door contact), RM (request monitor)
+  const doorContacts = (allText.match(/\bDC\b/g) || []).length;
+  const rexSensors = (allText.match(/\bRM\b/g) || []).length;
+
+  // ── By-Others / OFCI Text Detection ──
+  // Scan for plan notes that indicate scope exclusions — deterministic, no AI needed
+  const byOthersText = [];
+  if (/fire\s*alarm\s*(shall\s*be|is)\s*design[\s-]*build\s*by\s*(electrical|EC)/i.test(allText)) {
+    byOthersText.push('fire_alarm_by_ec');
+  }
+  if (/security\s*camera\s*(provided|furnished)\s*by\s*owner/i.test(allText)) {
+    byOthersText.push('cameras_ofci');
+  }
+  if (/camera\s*(provided|furnished)\s*by\s*owner/i.test(allText)) {
+    byOthersText.push('cameras_ofci');
+  }
+  if (/ec\s*to\s*provide\s*cat6\s*cabling\s*and\s*rough[\s-]*in/i.test(allText)) {
+    byOthersText.push('camera_cabling_by_ec');
+  }
+  if (/conduit.*ec\s*(furnish|install)|ec\s*(furnish|install).*conduit/i.test(allText)) {
+    byOthersText.push('conduit_by_ec');
+  }
+  if (/cable\s*tray.*ec\s*(furnish|install)|ec\s*(furnish|install).*cable\s*tray/i.test(allText)) {
+    byOthersText.push('cable_tray_by_ec');
+  }
+  if (/backboard.*gc\s*(furnish|install)|gc\s*(furnish|install).*backboard/i.test(allText)) {
+    byOthersText.push('backboards_by_gc');
+  }
+
   const result = {
     outlet_breakdown: { '1D': d1, '2D': d2, '4D': d4, '6D': d6 },
     data_outlet_symbols: totalSymbols,
     data_outlet_drops: totalDrops,
     wap_count: wap,
     total_drops: totalDrops + wap,
-    // Count other devices from text layer
-    cameras: (allText.match(/\bCAM-\d\b/g) || []).length,
-    speakers_is: (allText.match(/\bIS-1\b/g) || []).length,
-    speakers_ls: (allText.match(/\bLS-1\b/g) || []).length,
-    card_readers: (allText.match(/\bCR\b/g) || []).length,
-    glass_break: (allText.match(/\bGB\b/g) || []).length,
+    // Device counts from text layer
+    cameras: totalCameras,
+    cameras_by_type: { 'CAM-1': cam1, 'CAM-2': cam2, 'CAM-3': cam3 },
+    speakers: totalSpeakers,
+    speakers_by_type: { 'IS-1': is1, 'IS-2': is2, 'LS-1': ls1, 'LS-2': ls2 },
+    card_readers: cardReaders,
+    glass_break: glassBreak,
+    door_contacts: doorContacts,
+    rex_sensors: rexSensors,
+    displays: totalDisplays,
+    av_outlets: totalAVOutlets,
+    // Scope exclusions detected from plan text
+    by_others_detected: byOthersText,
     source: 'pdf_text_layer',
   };
-  console.log(`[TextLayer] ✅ Ground truth device counts from PDF text: ${totalSymbols} outlet symbols → ${totalDrops} data drops + ${wap} WAPs = ${totalDrops + wap} total`);
-  console.log(`[TextLayer] outlet_breakdown: 1D=${d1}, 2D=${d2}, 4D=${d4}, 6D=${d6}`);
+
+  console.log(`[TextLayer] ✅ Ground truth from PDF text:`);
+  console.log(`[TextLayer]   Data: ${totalSymbols} symbols → ${totalDrops} drops + ${wap} WAPs = ${totalDrops + wap} total`);
+  console.log(`[TextLayer]   outlet_breakdown: 1D=${d1}, 2D=${d2}, 4D=${d4}, 6D=${d6}`);
+  if (totalCameras > 0) console.log(`[TextLayer]   Cameras: ${totalCameras} (CAM-1=${cam1}, CAM-2=${cam2}, CAM-3=${cam3})`);
+  if (totalSpeakers > 0) console.log(`[TextLayer]   Speakers: ${totalSpeakers} (IS-1=${is1}, LS-1=${ls1})`);
+  if (cardReaders > 0) console.log(`[TextLayer]   Card Readers: ${cardReaders}`);
+  if (glassBreak > 0) console.log(`[TextLayer]   Glass Break: ${glassBreak}`);
+  if (doorContacts > 0) console.log(`[TextLayer]   Door Contacts: ${doorContacts}`);
+  if (totalDisplays > 0) console.log(`[TextLayer]   Displays: ${totalDisplays}`);
+  if (byOthersText.length > 0) console.log(`[TextLayer]   🚫 By-Others detected: ${byOthersText.join(', ')}`);
   return result;
 }
 
@@ -5885,6 +5956,7 @@ function computePathwayDistances() {
     backboneResults, backboneTotalFt: backboneResults.reduce((s, b) => s + b.totalFt, 0),
     backboneTotalCost: backboneResults.reduce((s, b) => s + b.cost, 0),
     cableTrayResults, trayTotalFt, trayTotalCost, calculatedTrayFt, byOthersPathways,
+    textLayerCounts: textCounts, // Ground truth device counts from PDF text layer
     consensusCableDrops, // Total data/voice/WAP drops from AI consensus (used for jack/faceplate correction)
     consensusWAPCount,   // WAP-only count — WAPs need jacks but NOT faceplates
     outletBreakdown,     // { "1D": N, "2D": N, "4D": N, "6D": N } — faceplate port sizing
@@ -6131,6 +6203,14 @@ function injectCalculatedCableQuantities(bom) {
     console.log(`[CableInjection] MDF/IDF has ${mdfItemDescs.size} unique items — will remove duplicates from Structured Cabling`);
   }
 
+  // ── TEXT-LAYER BY-OTHERS: Remove entire categories that the plans say are not our scope ──
+  const textByOthers = pathway.textLayerCounts?.by_others_detected || [];
+  if (textByOthers.length > 0) {
+    console.log(`[TextLayer] 🚫 By-others exclusions from plan text: ${textByOthers.join(', ')}`);
+  }
+  const fireAlarmByEC = textByOthers.includes('fire_alarm_by_ec');
+  const camerasOFCI = textByOthers.includes('cameras_ofci');
+
   // Walk BOM categories and update cable + tray line items
   // CRITICAL FIX: Two-tier matching prevents pathway items from being INJECTED into every discipline
   // - isPrimaryInfraCat: tight match → Structured Cabling + MDF/IDF only → gets INJECTION of missing items
@@ -6138,6 +6218,19 @@ function injectCalculatedCableQuantities(bom) {
   let alreadyInjectedPathway = false; // Ensure pathway items injected into at most ONE category
   const updatedCategories = (bom.categories || []).map(cat => {
     const catName = (cat.name || '').toLowerCase();
+
+    // ── TEXT-LAYER BY-OTHERS: Zero out entire categories that plans say are EC/Owner scope ──
+    if (fireAlarmByEC && /fire\s*alarm/i.test(catName)) {
+      console.log(`[TextLayer] 🚫 REMOVING entire "${cat.name}" category — "FIRE ALARM SHALL BE DESIGN-BUILD BY ELECTRICAL CONTRACTOR" per plans`);
+      const zeroedItems = (cat.items || []).map(item => ({ ...item, qty: 0, extCost: 0, _byOthersRemoved: true }));
+      return { ...cat, items: zeroedItems, subtotal: 0, _byOthersCategory: true };
+    }
+    if (camerasOFCI && /cctv|camera|video\s*surv/i.test(catName)) {
+      console.log(`[TextLayer] 🚫 REMOVING entire "${cat.name}" category — "SECURITY CAMERA PROVIDED BY OWNER" per plans (cabling only)`);
+      const zeroedItems = (cat.items || []).map(item => ({ ...item, qty: 0, extCost: 0, _byOthersRemoved: true }));
+      return { ...cat, items: zeroedItems, subtotal: 0, _byOthersCategory: true };
+    }
+
     // Primary infrastructure categories — these are the ONLY ones that get missing items injected
     const isPrimaryInfraCat = /(structured\s*cabling|^2\.\s*mdf|mdf.*idf.*tr|^cabling\s*material|^infrastructure|^pathway)/i.test(catName);
     // Broader match — any category that MIGHT contain cable line items to update (NOT inject)
