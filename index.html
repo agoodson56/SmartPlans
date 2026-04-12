@@ -128,13 +128,13 @@
         Sentry.init({
           dsn: "https://60b02e5d7804fc77476c97324b9039e5@o4511099720957952.ingest.us.sentry.io/4511099752284160",
           environment: location.hostname.includes('localhost') ? 'development' : 'production',
-          release: 'smartplans@5.111.0',
+          release: 'smartplans@5.112.0',
           integrations: [Sentry.browserTracingIntegration()],
           tracesSampleRate: 0.1,
           initialScope: { tags: { app: 'smartplans' } },
         });
         console.log('[SmartPlans] Sentry error tracking initialized');
-        console.log('[SmartPlans] Build: v5.111.6 — 2026-04-12');
+        console.log('[SmartPlans] Build: v5.112.0 — 2026-04-12');
       }
     </script>
     <script>

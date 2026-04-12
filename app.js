@@ -821,6 +821,7 @@ const state = {
   _pwMetro: "",               // National prevailing wage metro area selection
   workShift: "",
   priorEstimate: "",
+  salesperson: null,          // { firstName, lastName, title, phone, email, office } — selected salesperson
   isTransitRailroad: false,  // Explicit toggle — triggers higher markups, RWIC, RPL, etc.
   _travelAutoDetected: false, // Whether travel auto-detection has run (prevents re-triggering)
   _engine3DOpen: false,       // 3D engine card expanded state
@@ -956,6 +957,32 @@ const state = {
   _exclusionsLoaded: false, // true after first API load
   _exclusionsTab: 'exclusion', // active tab: 'exclusion', 'assumption', 'clarification'
 };
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SALESPERSON MANAGEMENT — localStorage persistence for salesperson list
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function _loadSalespeople() {
+  try { return JSON.parse(localStorage.getItem('sp_salespeople') || '[]'); } catch { return []; }
+}
+function _saveSalespeople(list) {
+  localStorage.setItem('sp_salespeople', JSON.stringify(list));
+}
+function _salespersonDisplayName(sp) {
+  return sp ? `${sp.firstName} ${sp.lastName}` : '';
+}
+/** Apply selected salesperson to ProposalGenerator.COMPANY so all proposals/RFIs use it */
+function _applySalesperson(sp) {
+  state.salesperson = sp;
+  if (!sp) return;
+  if (typeof ProposalGenerator !== 'undefined') {
+    ProposalGenerator.COMPANY.consultant = `${sp.firstName} ${sp.lastName}`;
+    ProposalGenerator.COMPANY.title = sp.title || 'Sales Consultant';
+    ProposalGenerator.COMPANY.email = sp.email || '';
+    ProposalGenerator.COMPANY.phone = sp.phone || '';
+  }
+  console.log(`[Salesperson] Active: ${sp.firstName} ${sp.lastName} (${sp.office || 'No office'})`);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SMART DEFAULTS ENGINE — Centralized cascade system for auto-applying settings
@@ -1409,6 +1436,7 @@ function startNewBid() {
   state.workShift = '';
   state.priorEstimate = '';
   state.isTransitRailroad = false;
+  // NOTE: salesperson is intentionally NOT reset — same person across bids
   SmartDefaults.reset(); // Clear manual override tracking for fresh bid
 
   // Reset files
@@ -3663,6 +3691,62 @@ function renderStep0(container) {
     </div>
 
     <div class="form-group">
+      <label class="form-label" for="salesperson-select">Salesperson / Estimator</label>
+      <p class="form-hint">Select who is preparing this bid. Their contact info appears on proposals, RFIs, and change orders.</p>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select class="form-select" id="salesperson-select" style="flex:1;">
+          <option value="">Select salesperson...</option>
+          ${_loadSalespeople().map((sp, i) => `<option value="${i}" ${state.salesperson && state.salesperson.email === sp.email && state.salesperson.firstName === sp.firstName ? 'selected' : ''}>${esc(_salespersonDisplayName(sp))} — ${esc(sp.office || 'No Office')}</option>`).join('')}
+        </select>
+        <button class="header-btn" id="btn-add-salesperson" type="button" style="white-space:nowrap;padding:8px 14px;" title="Add a new salesperson">
+          <i data-lucide="user-plus"></i> <span>Add New</span>
+        </button>
+      </div>
+      <div id="salesperson-form-container" style="display:none;margin-top:12px;padding:16px;background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.15);border-radius:12px;">
+        <div style="font-weight:600;font-size:14px;margin-bottom:12px;color:#6366F1;">New Salesperson</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">First Name *</label>
+            <input class="form-input" type="text" id="sp-first-name" placeholder="e.g., Justin">
+          </div>
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Last Name *</label>
+            <input class="form-input" type="text" id="sp-last-name" placeholder="e.g., Whitton">
+          </div>
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Title</label>
+            <input class="form-input" type="text" id="sp-title" placeholder="e.g., Senior Sales Consultant">
+          </div>
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Phone</label>
+            <input class="form-input" type="tel" id="sp-phone" placeholder="e.g., (916) 267-7319">
+          </div>
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Email *</label>
+            <input class="form-input" type="email" id="sp-email" placeholder="e.g., jwhitton@3dtsi.com">
+          </div>
+          <div>
+            <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Office Location</label>
+            <input class="form-input" type="text" id="sp-office" placeholder="e.g., Sacramento, CA">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
+          <button class="header-btn" id="btn-sp-cancel" type="button">Cancel</button>
+          <button class="header-btn header-btn--start" id="btn-sp-save" type="button"><i data-lucide="save"></i> Save Salesperson</button>
+        </div>
+      </div>
+      ${state.salesperson ? `
+      <div id="salesperson-preview" style="margin-top:8px;padding:10px 14px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:18px;">👤</span>
+        <div>
+          <div style="font-weight:600;color:#047857;">${esc(state.salesperson.firstName)} ${esc(state.salesperson.lastName)}</div>
+          <div style="color:var(--text-muted);">${esc(state.salesperson.title || '')}${state.salesperson.office ? ' — ' + esc(state.salesperson.office) : ''}</div>
+          <div style="color:var(--text-muted);">${esc(state.salesperson.email || '')}${state.salesperson.phone ? ' | ' + esc(state.salesperson.phone) : ''}</div>
+        </div>
+      </div>` : ''}
+    </div>
+
+    <div class="form-group">
       <label class="form-label" for="project-type">Project Type <span class="required">*</span></label>
       <p class="form-hint">This determines how I interpret existing vs. new work on the plans</p>
       <select class="form-select accuracy-critical" id="project-type">
@@ -4125,6 +4209,64 @@ function renderStep0(container) {
     state.preparedFor = preparedForInput.value;
     _autoDetectTransitFromProjectText();
   });
+
+  // ── Salesperson dropdown ──
+  const spSelect = document.getElementById("salesperson-select");
+  const spFormContainer = document.getElementById("salesperson-form-container");
+  const btnAddSp = document.getElementById("btn-add-salesperson");
+  if (spSelect) {
+    spSelect.addEventListener("change", () => {
+      const idx = spSelect.value;
+      if (idx === '') { _applySalesperson(null); renderStep0(container); return; }
+      const list = _loadSalespeople();
+      const sp = list[parseInt(idx)];
+      if (sp) { _applySalesperson(sp); renderStep0(container); }
+    });
+  }
+  if (btnAddSp) {
+    btnAddSp.addEventListener("click", () => {
+      if (spFormContainer) spFormContainer.style.display = spFormContainer.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+  const btnSpCancel = document.getElementById("btn-sp-cancel");
+  if (btnSpCancel) {
+    btnSpCancel.addEventListener("click", () => { if (spFormContainer) spFormContainer.style.display = 'none'; });
+  }
+  const btnSpSave = document.getElementById("btn-sp-save");
+  if (btnSpSave) {
+    btnSpSave.addEventListener("click", () => {
+      const firstName = (document.getElementById("sp-first-name")?.value || '').trim();
+      const lastName = (document.getElementById("sp-last-name")?.value || '').trim();
+      const email = (document.getElementById("sp-email")?.value || '').trim();
+      if (!firstName || !lastName || !email) {
+        alert('First name, last name, and email are required.');
+        return;
+      }
+      const newSp = {
+        firstName, lastName,
+        title: (document.getElementById("sp-title")?.value || '').trim() || 'Sales Consultant',
+        phone: (document.getElementById("sp-phone")?.value || '').trim(),
+        email,
+        office: (document.getElementById("sp-office")?.value || '').trim(),
+      };
+      const list = _loadSalespeople();
+      // Check for duplicate by email
+      const existIdx = list.findIndex(s => s.email.toLowerCase() === email.toLowerCase());
+      if (existIdx >= 0) {
+        list[existIdx] = newSp; // Update existing
+        console.log(`[Salesperson] Updated: ${firstName} ${lastName}`);
+      } else {
+        list.push(newSp);
+        console.log(`[Salesperson] Added: ${firstName} ${lastName}`);
+      }
+      _saveSalespeople(list);
+      _applySalesperson(newSp);
+      renderStep0(container);
+    });
+  }
+
+  // Re-initialize lucide icons for newly added elements
+  if (typeof lucide !== 'undefined') lucide.createIcons();
 
   const typeSelect = document.getElementById("project-type");
   typeSelect.value = state.projectType;
@@ -5574,7 +5716,9 @@ function computePathwayDistances() {
   // AUDIT FIX #11: Medical/government projects use 1.40 routing factor per BICSI TDMM
   // (longer pathways due to code requirements, fire-rated barriers, plenum restrictions)
   const projType = (state.projectType || state.buildingType || '').toLowerCase();
-  const isMedicalGov = /medical|hospital|healthcare|clinic|government|federal|dod|va\b|correctional|detention/i.test(projType);
+  const _projNameForRouting = (state.projectName || '').toLowerCase();
+  const _combinedRouting = `${projType} ${_projNameForRouting}`;
+  const isMedicalGov = /medical|hospital|healthcare|clinic|government|federal|dod|\bva\b|correctional|detention/i.test(_combinedRouting);
   const ROUTING_FACTOR = isMedicalGov ? 1.40 : 1.30; // BICSI TDMM pathway multiplier
   const WASTE    = 1.12; // 12% cable waste factor
 
@@ -6102,7 +6246,9 @@ function injectCalculatedCableQuantities(bom) {
   const bD = pathway.bldgD || 200;
   // AUDIT FIX C2: Use project-type-aware routing factor (1.40 for VA/medical) instead of hardcoded 1.30
   const _projType = (state.projectType || state.buildingType || '').toLowerCase();
-  const _isMedGov = /medical|hospital|healthcare|clinic|government|federal|dod|va\b|correctional|detention/i.test(_projType);
+  const _projNameForCable = (state.projectName || '').toLowerCase();
+  const _combinedCable = `${_projType} ${_projNameForCable}`;
+  const _isMedGov = /medical|hospital|healthcare|clinic|government|federal|dod|\bva\b|correctional|detention/i.test(_combinedCable);
   const _ROUTING_FACTOR = _isMedGov ? 1.40 : 1.30;
   const buildingAvgHorizontal = Math.round(((bW / 4) + (bD / 4)) * _ROUTING_FACTOR);
   let buildingAvgRun = buildingAvgHorizontal + 30 + 16; // + stub-up/IDF-drop + slack
@@ -11174,12 +11320,19 @@ function exportRFIs(format) {
   const refNum = `RFI-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
 
   // Use ProposalGenerator branding if available, otherwise define inline
-  const co = (typeof ProposalGenerator !== 'undefined' && ProposalGenerator.COMPANY) ? ProposalGenerator.COMPANY : {
+  // Salesperson override: if state.salesperson is set, use their info
+  const _baseCo = (typeof ProposalGenerator !== 'undefined' && ProposalGenerator.COMPANY) ? ProposalGenerator.COMPANY : {
     name: '3D Technology Services, Inc.', address: '11365 Sunrise Gold Circle',
     cityStateZip: 'Rancho Cordova, CA 95742', consultant: 'Justin Whitton',
     title: 'Senior Sales Consultant', email: 'jwhitton@3dtsi.com',
     phone: '(916) 267-7319', website: 'www.3Dtsi.com',
   };
+  const co = state.salesperson ? Object.assign({}, _baseCo, {
+    consultant: `${state.salesperson.firstName} ${state.salesperson.lastName}`,
+    title: state.salesperson.title || _baseCo.title,
+    email: state.salesperson.email || _baseCo.email,
+    phone: state.salesperson.phone || _baseCo.phone,
+  }) : _baseCo;
   const b = { gold: '#EBB328', teal: '#3B97A1', tealDark: '#2B828B', navy: '#1B2A4A', gray: '#4A5568', lightGray: '#F4F6F8', border: '#D1D5DB' };
 
   const _esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -11790,6 +11943,11 @@ function _restoreStateFromPayload(id, pkg, est) {
   state._pwMetro = pkg?.project?.pwMetro || '';
   state.workShift = pkg?.project?.workShift || '';
   state.isTransitRailroad = pkg?.project?.isTransitRailroad || false;
+  // Restore salesperson if saved with the estimate
+  if (pkg?.project?.salesperson) {
+    state.salesperson = pkg.project.salesperson;
+    _applySalesperson(state.salesperson);
+  }
   // Transit auto-detect is deferred until AFTER markup restore (line ~9329) to avoid
   // overwriting saved markups. See _restoreTransitAutoDetect() called below.
   state.floorPlateWidth = pkg?.project?.floorPlateWidth || 0;

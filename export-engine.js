@@ -93,6 +93,7 @@ const SmartPlansExport = {
                 planSheetSize: state.planSheetSize || '',
                 ceilingHeight: state.ceilingHeight || 10,
                 floorToFloorHeight: state.floorToFloorHeight || 14,
+                salesperson: state.salesperson || null,
             },
 
             documents: {
