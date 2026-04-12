@@ -5780,6 +5780,35 @@ function computePathwayDistances() {
     }
   }
 
+  // ── CODE-SIDE MULTIPLIER VERIFICATION ──
+  // The AI may report data_outlet = symbols (didn't multiply) or data_outlet = cables (multiplied).
+  // We verify using outlet_breakdown arithmetic: drops = (1D×1) + (2D×2) + (4D×4) + (6D×6).
+  // If the AI's consensus drops ≈ sum(outlet_breakdown locations) instead of the multiplied total,
+  // the AI counted symbols not cables. We fix it deterministically.
+  if (outletBreakdown && (outletBreakdown['2D'] || outletBreakdown['4D'] || outletBreakdown['6D'])) {
+    const obLocations = (outletBreakdown['1D']||0) + (outletBreakdown['2D']||0) + (outletBreakdown['4D']||0) + (outletBreakdown['6D']||0);
+    const obDrops = (outletBreakdown['1D']||0)*1 + (outletBreakdown['2D']||0)*2 + (outletBreakdown['4D']||0)*4 + (outletBreakdown['6D']||0)*6;
+    const waps = consensusWAPCount || 0;
+    const dropsExclWAP = consensusCableDrops - waps;
+
+    if (obLocations > 0 && obDrops > obLocations) {
+      // outlet_breakdown has multipliers (2D/4D exist) — verify consensus applied them
+      const ratio = dropsExclWAP / obLocations;
+      if (ratio > 0.7 && ratio < 1.3) {
+        // Consensus ≈ locations — AI counted SYMBOLS, not cables. Fix it.
+        const correctedDrops = obDrops + waps;
+        console.warn(`[Multiplier Fix] Consensus drops (${consensusCableDrops}) ≈ outlet locations (${obLocations}) — AI counted SYMBOLS not CABLES. Correcting: ${consensusCableDrops} → ${correctedDrops} (${obDrops} from breakdown + ${waps} WAPs)`);
+        consensusCableDrops = correctedDrops;
+      } else if (ratio > 1.5 && ratio < 2.5 && obDrops > 0 && Math.abs(dropsExclWAP - obDrops) > obDrops * 0.15) {
+        // Consensus is between locations and drops — partial multiplier applied. Use formula.
+        const correctedDrops = obDrops + waps;
+        console.warn(`[Multiplier Fix] Consensus drops (${consensusCableDrops}) partially multiplied (ratio ${ratio.toFixed(2)}). Using formula: ${correctedDrops}`);
+        consensusCableDrops = correctedDrops;
+      }
+      // If ratio ≈ obDrops/obLocations, consensus already multiplied correctly — no fix needed
+    }
+  }
+
   return {
     results, grandTotalFt, grandTotalCost, hasSpatialZones, tiaViolations, hasDimensions, bldgW, bldgD,
     backboneResults, backboneTotalFt: backboneResults.reduce((s, b) => s + b.totalFt, 0),

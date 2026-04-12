@@ -2785,10 +2785,19 @@ ${(context.disciplines || []).includes('Structured Cabling') ? `═══ CRITIC
   Many plans use a NUMERIC PREFIX on data outlet symbols to indicate HOW MANY CABLES go to that location.
   Examples: "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops, "1D" = 1 data drop, "6D" = 6 data drops.
   A triangle symbol labeled "2D" means TWO data cables at that location — NOT one symbol = one outlet.
-  Count each "2D" as 2 data_outlets, each "4D" as 4 data_outlets, etc.
-  Similarly "2V" = 2 voice drops, "1V" = 1 voice drop. The total data_outlet count = SUM of all multiplied values.
-  DO NOT count the number of symbols — count the number of CABLES indicated by each symbol label.
-  OUTLET BREAKDOWN (MANDATORY for faceplate sizing): In your response, include "outlet_breakdown" in the top-level JSON showing how many LOCATIONS use each multiplier: {"1D": count_of_1D_symbols, "2D": count_of_2D_symbols, "4D": count_of_4D_symbols, "6D": count_of_6D_symbols}. This determines faceplate port count (2D location → 2-port faceplate, 4D → 4-port faceplate). Count LOCATIONS (symbols), not drops.` : ''}
+
+  YOU MUST REPORT TWO SEPARATE COUNTS for data outlets:
+  1. "data_outlet_symbols" in totals = number of PHYSICAL SYMBOLS on the plans (e.g., 132 triangles)
+  2. "data_outlet" in totals = number of CABLES after multiplying (e.g., 118×2 + 14×4 = 292)
+  If ALL outlets are "2D", then data_outlet = data_outlet_symbols × 2.
+  If you see a mix, add them up: (count_of_1D × 1) + (count_of_2D × 2) + (count_of_4D × 4) + (count_of_6D × 6).
+
+  OUTLET BREAKDOWN (MANDATORY): Include "outlet_breakdown" in the top-level JSON:
+  {"1D": count_of_1D_symbols, "2D": count_of_2D_symbols, "4D": count_of_4D_symbols, "6D": count_of_6D_symbols}
+  These are LOCATIONS (physical symbols), not cable counts. This determines faceplate port sizing.
+
+${context.wave0?.LEGEND_DECODER?.multiplier_map ? `  LEGEND-CONFIRMED MULTIPLIERS: ${JSON.stringify(context.wave0.LEGEND_DECODER.multiplier_map)}
+  Use these EXACT multipliers from the legend when calculating data_outlet from data_outlet_symbols.` : ''}` : ''}
 ${(context.disciplines || []).includes('CCTV') ? '- CCTV: Fixed cameras, PTZ cameras, dome cameras, bullet cameras, multi-sensor cameras, NVRs, encoders' : ''}
 ${(context.disciplines || []).includes('Access Control') ? '- ACCESS (Div 28 + Div 08): Card readers, keypads, door contacts, REX devices, electric strikes, maglocks, intercoms, controllers, power transfer hinges, auto-operators, delayed egress devices, gate operators, barrier arms' : ''}
 ${(context.disciplines || []).includes('Fire Alarm') ? '- FIRE: Smoke detectors, heat detectors, pull stations, horn/strobes, duct detectors, modules, annunciators, NACs, SLCs' : ''}
@@ -2843,7 +2852,7 @@ Return ONLY valid JSON:
       ]
     }
   ],
-  "totals": { "camera": 48, "data_outlet": 200 },
+  "totals": { "camera": 48, "data_outlet": 200, "data_outlet_symbols": 105 },
   "outlet_breakdown": { "1D": 10, "2D": 80, "4D": 15, "6D": 0 },
   "device_inventory": [
     { "type": "camera", "subtype": "fixed_dome", "room": "Lobby", "floor": "1st Floor", "sheet": "E1.01", "qty": 3 },
@@ -4844,13 +4853,22 @@ Return ONLY valid JSON:
   "symbols": [
     { "symbol_id": "S1", "visual": "Solid circle with C inside", "discipline": "CCTV", "device_type": "fixed_dome_camera", "label_on_legend": "Camera - Fixed Dome", "similar_to": null, "confidence": 98 }
   ],
+  "multiplier_map": { "1D": 1, "2D": 2, "4D": 4, "6D": 6, "1V": 1, "2V": 2 },
   "legend_quality": "good",
   "ambiguous_symbols": [
     { "symbol_id": "S5", "reason": "Similar shape to smoke detector - differentiate by size", "could_be": ["smoke_detector", "heat_detector"] }
   ],
   "total_unique_symbols": 24,
   "disciplines_covered": ["Structured Cabling", "CCTV"]
-}`,
+}
+
+CRITICAL — multiplier_map: You MUST include a "multiplier_map" object showing EVERY numeric prefix symbol found on the legend. Examples:
+- If legend shows "2D" = 2 data drops: include "2D": 2
+- If legend shows "4D" = 4 data drops: include "4D": 4
+- If legend shows "1D" = 1 data drop: include "1D": 1
+- Also check for voice: "1V", "2V", "4V"
+- If NO multiplier symbols are found on the legend, return an empty object: {}
+This map is used by downstream code to VERIFY scanner counts — it is the ground truth for how many cables each symbol represents.`,
 
       // ── BRAIN 0.25: Plan Legend Scanner (Wave 0 — finds legends embedded in plan sheets) ──
       PLAN_LEGEND_SCANNER: () => `You are a CONSTRUCTION PLAN LEGEND HUNTER. Your job is to find SYMBOL LEGENDS, SYMBOL KEYS, ABBREVIATION TABLES, and DEVICE SCHEDULES that are embedded WITHIN construction plan sheets — NOT on a separate legend sheet.
@@ -5114,7 +5132,10 @@ CRITICAL: You have NOT seen the first count. You are a completely independent re
 Read and record ALL General Notes, Keynotes, and annotations on every sheet. Include them in your "notes" field. Notes contain critical scope info (conduit by others, cable types, mounting heights, etc.).
 
 ═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
-Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total data_outlet count = SUM of all multiplied values, NOT the number of symbols. Similarly "2V" = 2 voice drops.
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location.
+YOU MUST REPORT TWO COUNTS: "data_outlet_symbols" = physical symbols counted, "data_outlet" = cables after multiplying.
+Example: 80 symbols labeled "2D" + 15 symbols labeled "4D" → data_outlet_symbols=95, data_outlet=80×2+15×4=220.
+Also include "outlet_breakdown": {"1D": N, "2D": N, "4D": N, "6D": N} showing locations per prefix type.
 
 Return ONLY valid JSON (same schema as Symbol Scanner):
 {
@@ -5160,7 +5181,10 @@ INSTRUCTIONS:
 5. Report any devices that are partially hidden behind text or other symbols
 
 ═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
-Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total data_outlet count = SUM of multiplied values, NOT the number of symbols. Similarly "2V" = 2 voice drops.
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location.
+YOU MUST REPORT TWO COUNTS: "data_outlet_symbols" = physical symbols counted, "data_outlet" = cables after multiplying.
+Example: 80 symbols labeled "2D" + 15 labeled "4D" → data_outlet_symbols=95, data_outlet=80×2+15×4=220.
+Also include "outlet_breakdown": {"1D": N, "2D": N, "4D": N, "6D": N} showing locations per prefix type.
 
 Return ONLY valid JSON:
 {
@@ -5191,7 +5215,10 @@ For each sheet:
 WHY THIS WORKS: Devices at room boundaries, in ceiling spaces, or in areas without clear room labels are often missed by room-based counting. Zone-based counting catches them.
 
 ═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
-Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops, "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total = SUM of multiplied values, NOT number of symbols.
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location.
+YOU MUST REPORT TWO COUNTS: "data_outlet_symbols" = physical symbols counted, "data_outlet" = cables after multiplying.
+Example: 80 symbols labeled "2D" + 15 labeled "4D" → data_outlet_symbols=95, data_outlet=80×2+15×4=220.
+Also include "outlet_breakdown": {"1D": N, "2D": N, "4D": N, "6D": N} showing locations per prefix type.
 
 Return ONLY valid JSON:
 {
@@ -5269,13 +5296,26 @@ CONSENSUS RULES:
    - Glass break sensors: Often shown on enlarged interior elevation details, NOT on floor plans
    - If your total count seems LOW compared to the building size, it probably IS low — recount
 
-═══ CRITICAL: DATA DROP MULTIPLIER NOTATION ═══
-Many plans use a NUMERIC PREFIX on data outlet symbols to indicate HOW MANY CABLES go to that location.
-Examples: "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops, "1D" = 1 data drop, "6D" = 6 data drops.
-A triangle symbol labeled "2D" means TWO data cables — NOT one symbol = one outlet.
-When comparing reads, verify ALL scanners interpreted the multiplier correctly. If one read counts 30 symbols and another counts 80 data_outlets, the higher number likely correctly multiplied the prefix values.
-Total data_outlet count = SUM of all (prefix × symbol) values across the plan. Similarly "2V"/"4V" = voice drops.
-OUTLET BREAKDOWN: You MUST include "outlet_breakdown" in your response showing how many LOCATIONS (not drops) use each multiplier prefix. Example: if plans have 10 symbols labeled "1D", 80 labeled "2D", and 15 labeled "4D": outlet_breakdown = {"1D": 10, "2D": 80, "4D": 15, "6D": 0}. This is CRITICAL for faceplate sizing — a 2D location needs a 2-port faceplate, a 4D location needs a 4-port faceplate. If scanners report outlet_breakdown, use their data. If not, derive it from the consensus data_outlet count and the dominant outlet type.
+═══ CRITICAL: DATA DROP MULTIPLIER VERIFICATION ═══
+Each scanner now reports TWO separate counts:
+- "data_outlet_symbols" = physical outlet symbols counted on the plans
+- "data_outlet" = total cables after applying multipliers (2D×2, 4D×4, etc.)
+
+HOW TO VERIFY MULTIPLIER APPLICATION:
+1. Compare data_outlet_symbols vs data_outlet for EACH scanner read
+2. If data_outlet ≈ data_outlet_symbols (ratio ~1.0), that scanner DID NOT multiply — it counted symbols as cables
+3. If data_outlet ≈ data_outlet_symbols × 2 (ratio ~2.0), that scanner correctly applied 2D multiplier
+4. For your consensus, ALWAYS use the MULTIPLIED count (data_outlet), never the symbol count
+5. If scanners disagree on data_outlet but AGREE on data_outlet_symbols, the symbol count is reliable — multiply it yourself using the outlet_breakdown
+
+${context.wave0?.LEGEND_DECODER?.multiplier_map ? `LEGEND-CONFIRMED MULTIPLIERS: ${JSON.stringify(context.wave0.LEGEND_DECODER.multiplier_map)}
+Use these to VERIFY: if outlet_breakdown shows 118 "2D" locations and multiplier_map says "2D"=2, then data_outlet for those MUST be 236.` : ''}
+
+OUTLET BREAKDOWN (MANDATORY): Include "outlet_breakdown" in your response:
+{"1D": count, "2D": count, "4D": count, "6D": count} — these are LOCATIONS (physical symbols), not cable counts.
+Also include "data_outlet_symbols" in consensus_counts showing the verified physical symbol count.
+
+VERIFICATION FORMULA: data_outlet = (1D×1) + (2D×2) + (4D×4) + (6D×6). If your consensus data_outlet does NOT equal this formula applied to your consensus outlet_breakdown, FIX IT to match the formula. The formula is deterministic — the arithmetic cannot be wrong.
 
 ═══ CRITICAL: TYPICAL NOTE MULTIPLICATION ═══
 When an annotation says "TYP" or "TYPICAL" (e.g., "Card reader TYP at each secure door"):
@@ -6066,7 +6106,10 @@ METHOD — For EACH sheet, divide into 4 quadrants (top-left, top-right, bottom-
 - Don't double-count at quadrant boundaries
 
 ═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
-Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops, "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total = SUM of multiplied values, NOT number of symbols.
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location.
+YOU MUST REPORT TWO COUNTS: "data_outlet_symbols" = physical symbols counted, "data_outlet" = cables after multiplying.
+Example: 80 symbols labeled "2D" + 15 labeled "4D" → data_outlet_symbols=95, data_outlet=80×2+15×4=220.
+Also include "outlet_breakdown": {"1D": N, "2D": N, "4D": N, "6D": N} showing locations per prefix type.
 
 Return ONLY valid JSON:
 {
@@ -6110,7 +6153,10 @@ YOUR METHOD — FLOOR-BY-FLOOR ISOLATION:
 ANOMALY DETECTION: Flag any floor that deviates >20% from the average of similar floors. This often indicates missed symbols.
 
 ═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
-Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location. "2D" = 2 data drops, "4D" = 4 data drops. Count each "2D" as 2 data_outlets, each "4D" as 4, etc. Total = SUM of multiplied values, NOT number of symbols.
+Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location.
+YOU MUST REPORT TWO COUNTS: "data_outlet_symbols" = physical symbols counted, "data_outlet" = cables after multiplying.
+Example: 80 symbols labeled "2D" + 15 labeled "4D" → data_outlet_symbols=95, data_outlet=80×2+15×4=220.
+Also include "outlet_breakdown": {"1D": N, "2D": N, "4D": N, "6D": N} showing locations per prefix type.
 
 Return ONLY valid JSON:
 {
