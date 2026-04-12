@@ -1774,17 +1774,28 @@ const SmartPlansExport = {
                 bomData.push(["", "", "", "PRICING SUMMARY", "", "", "", ""]);
                 const rawCostRow = bomData.length;
                 bomData.push(["", "", "", `  Material/Equipment (raw cost)`, "", "", "", runningTotal]);
-                // Reference the material subtotal cell
+                // Reference the material subtotal cell — formula chains from BOM line items
                 formulaCells.push({ row: rawCostRow, col: 7, formula: `H${matSubtotalRow + 1}`, cached: runningTotal });
+                const matMarkupRow = bomData.length;
                 bomData.push(["", "", "", `  Material Markup (${matMarkupPct}%)`, "", "", "", matMarkupAmt]);
+                // Formula: Material Markup = Material Raw Cost × markup%
+                formulaCells.push({ row: matMarkupRow, col: 7, formula: `H${rawCostRow + 1}*${matMarkupPct/100}`, cached: matMarkupAmt });
+                const laborRow = bomData.length;
                 bomData.push(["", "", "", `  Labor (base cost)`, "", "", "", laborBaseAmt]);
+                const labMarkupRow = bomData.length;
                 bomData.push(["", "", "", `  Labor Markup (${labMarkupPct}%)`, "", "", "", labMarkupAmt]);
+                // Formula: Labor Markup = Labor Base × markup%
+                formulaCells.push({ row: labMarkupRow, col: 7, formula: `H${laborRow + 1}*${labMarkupPct/100}`, cached: labMarkupAmt });
                 if (travelAmt > 0) {
                     bomData.push(["", "", "", `  Travel & Per Diem`, "", "", "", travelAmt]);
                 }
+                const gaRow = bomData.length;
                 bomData.push(["", "", "", `  G&A Overhead, Bonds & Contingency`, "", "", "", gaOverheadAmt]);
                 bomData.push([]);
+                const grandTotalRow = bomData.length;
                 bomData.push(["", "", "", "BID PRICE (GRAND TOTAL)", "", "", "", bidTotal]);
+                // Formula: Grand Total = sum of all pricing summary lines (material raw + markup + labor + markup + G&A)
+                formulaCells.push({ row: grandTotalRow, col: 7, formula: `H${rawCostRow+1}+H${matMarkupRow+1}+H${laborRow+1}+H${labMarkupRow+1}+H${gaRow+1}`, cached: bidTotal });
             } else {
                 bomData.push(["", "", "", "GRAND TOTAL", "", "", "", runningTotal]);
                 // Reference the material subtotal
