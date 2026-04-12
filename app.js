@@ -10999,12 +10999,13 @@ function spToast(msg, type = 'success') {
 state.estimateId = null;
 
 // ─── localStorage Fallback for Offline Resilience ───
+// FIX: Was using sessionStorage (cleared on tab close) — switched to localStorage (persists)
 function saveToLocalStorage(payload) {
   try {
     const key = state.estimateId || `sp_draft_${Date.now()}`;
-    const saved = JSON.parse(sessionStorage.getItem('sp_offline_estimates') || '{}');
+    const saved = JSON.parse(localStorage.getItem('sp_offline_estimates') || '{}');
     saved[key] = { ...payload, _savedAt: new Date().toISOString(), _id: key };
-    sessionStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
+    localStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
     if (!state.estimateId) state.estimateId = key;
     return true;
   } catch (e) {
@@ -11015,7 +11016,7 @@ function saveToLocalStorage(payload) {
 
 function getLocalEstimates() {
   try {
-    return JSON.parse(sessionStorage.getItem('sp_offline_estimates') || '{}');
+    return JSON.parse(localStorage.getItem('sp_offline_estimates') || '{}');
   } catch { return {}; }
 }
 
@@ -11023,7 +11024,7 @@ function removeLocalEstimate(id) {
   try {
     const saved = getLocalEstimates();
     delete saved[id];
-    sessionStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
+    localStorage.setItem('sp_offline_estimates', JSON.stringify(saved));
   } catch { }
 }
 
