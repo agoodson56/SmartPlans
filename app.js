@@ -6367,6 +6367,87 @@ function injectCalculatedCableQuantities(bom) {
     // CRITICAL FIX: Previously this ran for EVERY category matching "material" — duplicated
     // fiber, tray, and J-hooks into CCTV, Access Control, Fire Alarm, AV, Paging, etc.
     // Now only injects into the FIRST primary cabling category, never into discipline sections.
+    // ── JACK / FACEPLATE / PATCH CORD CORRECTION ──
+    // CRITICAL FIX: This MUST run for ALL primary infrastructure categories (Structured Cabling + MDF/IDF),
+    // NOT just the first one. The alreadyInjectedPathway flag was blocking this for Structured Cabling,
+    // causing jacks to stay at AI's wrong count (227) instead of text-layer truth (299/321).
+    if (isPrimaryInfraCat) {
+      let totalDrops = pathway.consensusCableDrops || 0;
+
+      // ── OUTLET BREAKDOWN OVERRIDE ──
+      const ob = pathway.outletBreakdown;
+      if (ob && (ob['1D'] || ob['2D'] || ob['4D'] || ob['6D'])) {
+        const breakdownDrops = (ob['1D']||0)*1 + (ob['2D']||0)*2 + (ob['4D']||0)*4 + (ob['6D']||0)*6;
+        const breakdownLocations = (ob['1D']||0) + (ob['2D']||0) + (ob['4D']||0) + (ob['6D']||0);
+        const wapCount = pathway.consensusWAPCount || 0;
+        if (breakdownDrops > 0) {
+          if (totalDrops > 0 && Math.abs(totalDrops - wapCount - breakdownLocations) < breakdownLocations * 0.20) {
+            totalDrops = breakdownDrops + wapCount;
+          } else if (breakdownDrops + wapCount > totalDrops * 1.3) {
+            totalDrops = breakdownDrops + wapCount;
+          }
+        }
+      }
+
+      if (totalDrops > 0) {
+        // Helper: correct qty for matching items in THIS category
+        const _correctQty = (regex, correctQty, label) => {
+          updatedItems.forEach((item, idx) => {
+            const itemDesc = item.name || item.item || item.description || '';
+            if (regex.test(itemDesc)) {
+              const oldQty = item.qty || 0;
+              if (oldQty !== correctQty) {
+                const uc = item.unitCost || 14;
+                updatedItems[idx] = {
+                  ...item, qty: correctQty, extCost: Math.round(correctQty * uc * 100) / 100,
+                  _calculatedRun: true, _accessoryCorrected: true
+                };
+                console.log(`[CableInjection] ${label} corrected: ${oldQty} → ${correctQty} (${totalDrops} text-layer drops)`);
+              }
+            }
+          });
+        };
+
+        // Jacks: 1 per drop
+        _correctQty(/keystone|cat\s*6a?\s*.*jack|data\s*jack|rj.?45\s*jack|modular\s*jack|network\s*jack/i, totalDrops, 'Cat 6A Keystone Jack');
+
+        // Faceplates: use outlet_breakdown for per-size correction
+        const wapCount = pathway.consensusWAPCount || 0;
+        const outletDrops = totalDrops - wapCount;
+        const fpOb = pathway.outletBreakdown;
+        if (fpOb && (fpOb['1D'] || fpOb['2D'] || fpOb['4D'] || fpOb['6D'])) {
+          const sizes = [
+            { key: '2D', ports: 2, regex: /2[\s-]*port/i },
+            { key: '4D', ports: 4, regex: /4[\s-]*port/i },
+            { key: '1D', ports: 1, regex: /1[\s-]*port/i },
+            { key: '6D', ports: 6, regex: /6[\s-]*port/i },
+          ];
+          for (const sz of sizes) {
+            const correctQty = fpOb[sz.key] || 0;
+            if (correctQty > 0) {
+              updatedItems.forEach((item, idx) => {
+                const desc = item.name || item.item || '';
+                if (/faceplate|face\s*plate|wall\s*plate/i.test(desc) && sz.regex.test(desc)) {
+                  const oldQty = item.qty || 0;
+                  if (oldQty !== correctQty) {
+                    updatedItems[idx] = {
+                      ...item, qty: correctQty, extCost: Math.round(correctQty * (item.unitCost || 5) * 100) / 100,
+                      _calculatedRun: true, _accessoryCorrected: true
+                    };
+                    console.log(`[CableInjection] Faceplate ${sz.ports}-port corrected: ${oldQty} → ${correctQty}`);
+                  }
+                }
+              });
+            }
+          }
+        }
+
+        // Patch panels: ceil(totalDrops / 48)
+        const correctPanels = Math.ceil(totalDrops / 48);
+        _correctQty(/48[\s-]*port.*patch\s*panel|patch\s*panel.*48/i, correctPanels, '48-Port Patch Panel');
+      }
+    }
+
     if (isPrimaryInfraCat && !alreadyInjectedPathway) {
       alreadyInjectedPathway = true; // Only inject once across all categories
 
