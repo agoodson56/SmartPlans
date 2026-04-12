@@ -2972,6 +2972,13 @@ FOR EACH ROOM, DETERMINE:
 5. Environmental: dedicated HVAC, fire suppression
 6. Power: dedicated circuits, UPS sizing, generator backup
 
+CRITICAL: EVERY equipment item MUST include the manufacturer name AND part number in the "item" field.
+Format: "Manufacturer PartNumber Description" — e.g., "Chatsworth 55053-703 7ft 45RU Open Frame Rack"
+DEFAULT MANUFACTURER for racks, cable management, ladder rack, and MDF/IDF infrastructure: CPI (Chatsworth Products Inc.)
+Use CPI/Chatsworth part numbers for: open frame racks, floor-mount cabinets, horizontal/vertical cable managers, ladder rack, trapeze kits, splice plates, elbows, wall brackets, rack-to-runway kits.
+Use Corning for fiber enclosures, adapter panels, splice-on connectors. Use Harger for grounding (TMGB, TGB, bus bars).
+If you don't know the exact part number, use the manufacturer's standard catalog number.
+
 Return ONLY valid JSON:
 {
   "rooms": [
@@ -2982,22 +2989,22 @@ Return ONLY valid JSON:
       "room_number": "101",
       "building": "Main",
       "equipment": [
-        { "item": "7ft Floor-Mount Cabinet (84\"H)", "qty": 2, "unit": "ea", "notes": "Full-height telecom cabinet" },
-        { "item": "Chatsworth Ladder Rack / Cable Runway 12\"", "qty": 100, "unit": "lf", "notes": "Overhead from rack to corridor pathway — measure FULL route" },
-        { "item": "Chatsworth Ladder Rack Trapeze/Support Kit", "qty": 20, "unit": "ea", "notes": "1 every 5 ft of run (100 LF ÷ 5)" },
-        { "item": "Threaded Rod 3/8\" x 48\"", "qty": 40, "unit": "ea", "notes": "2 per support (20 supports × 2)" },
-        { "item": "Beam Clamp 3/8\"", "qty": 40, "unit": "ea", "notes": "2 per support (20 supports × 2)" },
-        { "item": "Chatsworth Ladder Rack Splice Plate", "qty": 5, "unit": "ea", "notes": "1 per joint where 10-12 ft sections connect" },
-        { "item": "Chatsworth Ladder Rack 90° Elbow", "qty": 6, "unit": "ea", "notes": "Count every turn in the routing path" },
-        { "item": "Chatsworth Ladder Rack Wall Bracket", "qty": 4, "unit": "ea", "notes": "2 per wall penetration" },
-        { "item": "Chatsworth Rack-to-Runway Kit", "qty": 3, "unit": "ea", "notes": "1 per rack (transition from runway to rack top)" },
-        { "item": "Ladder Rack Ground Lug", "qty": 10, "unit": "ea", "notes": "1 per 10ft section for bonding per TIA-607" },
-        { "item": "Corning Rack-Mount Fiber Enclosure 1RU (CCH-01U)", "qty": 1, "unit": "ea", "notes": "MDF end — MUST have enclosure at BOTH ends" },
-        { "item": "Corning LC Adapter Panel 6-Pack (CCH-CP06-E4)", "qty": 4, "unit": "ea", "notes": "24-strand ÷ 6 per pack = 4 panels (MDF end)" },
-        { "item": "Corning LC Fiber Splice-On Connector SM", "qty": 24, "unit": "ea", "notes": "1 per strand at MDF end (24-strand × 1)" },
-        { "item": "Fiber Splice Tray", "qty": 2, "unit": "ea", "notes": "Holds 12 splices each (24 strands ÷ 12)" },
-        { "item": "Horizontal Cable Manager 2U", "qty": 4, "unit": "ea", "notes": "Between patch panels" },
-        { "item": "Vertical Cable Manager", "qty": 2, "unit": "ea", "notes": "Side-mount, 42U" }
+        { "item": "Chatsworth 55053-703 7ft 45RU Open Frame Rack", "qty": 2, "unit": "ea", "notes": "Full-height 2-post rack" },
+        { "item": "Chatsworth 10250-712 Ladder Rack 12\" Cable Runway", "qty": 100, "unit": "lf", "notes": "Overhead from rack to corridor pathway — measure FULL route" },
+        { "item": "Chatsworth 12250-712 Ladder Rack Trapeze/Support Kit", "qty": 20, "unit": "ea", "notes": "1 every 5 ft of run (100 LF ÷ 5)" },
+        { "item": "Hilti 387517 Threaded Rod 3/8\" x 48\"", "qty": 40, "unit": "ea", "notes": "2 per support (20 supports × 2)" },
+        { "item": "B-Line B2010 Beam Clamp 3/8\"", "qty": 40, "unit": "ea", "notes": "2 per support (20 supports × 2)" },
+        { "item": "Chatsworth 11301-712 Ladder Rack Splice Plate", "qty": 5, "unit": "ea", "notes": "1 per joint where 10-12 ft sections connect" },
+        { "item": "Chatsworth 11451-712 Ladder Rack 90° Elbow", "qty": 6, "unit": "ea", "notes": "Count every turn in the routing path" },
+        { "item": "Chatsworth 12301-712 Ladder Rack Wall Bracket", "qty": 4, "unit": "ea", "notes": "2 per wall penetration" },
+        { "item": "Chatsworth 13250-712 Rack-to-Runway Kit", "qty": 3, "unit": "ea", "notes": "1 per rack (transition from runway to rack top)" },
+        { "item": "Harger 3/0 Ground Lug", "qty": 10, "unit": "ea", "notes": "1 per 10ft section for bonding per TIA-607" },
+        { "item": "Corning CCH-01U Rack-Mount Fiber Enclosure 1RU", "qty": 1, "unit": "ea", "notes": "MDF end — MUST have enclosure at BOTH ends" },
+        { "item": "Corning CCH-CP06-E4 LC Adapter Panel 6-Pack", "qty": 4, "unit": "ea", "notes": "24-strand ÷ 6 per pack = 4 panels (MDF end)" },
+        { "item": "Corning 95-200-99 LC Fiber Splice-On Connector SM", "qty": 24, "unit": "ea", "notes": "1 per strand at MDF end (24-strand × 1)" },
+        { "item": "Corning FT-SPLY-12 Fiber Splice Tray", "qty": 2, "unit": "ea", "notes": "Holds 12 splices each (24 strands ÷ 12)" },
+        { "item": "Chatsworth 40250-719 Horizontal Cable Manager 2U", "qty": 4, "unit": "ea", "notes": "Between patch panels" },
+        { "item": "Chatsworth 30130-719 Vertical Cable Manager 40U", "qty": 2, "unit": "ea", "notes": "Side-mount" }
       ],
       "grounding": { "tmgb": true, "tgb": true, "tbb_length_ft": 50 },
       "power": { "dedicated_circuits": 2, "ups_kva": 3, "generator": false },

@@ -1603,18 +1603,18 @@ const SmartPlansExport = {
                                 const desc = item.item_name || '';
                                 let mfg = '', partNumber = '', cleanDesc = desc;
                                 // Known MFG prefixes in telecom/infrastructure
-                                const mfgPatterns = /\b(Chatsworth|Panduit|APC|Corning|CommScope|Leviton|B-Line|Cablofil|Hubbell|Ortronics|Belden|Legrand|Allied|Eaton|Harger|STI|Hilti|Fluke|Brady|Avigilon|Mercury|HID|Bosch|Notifier|System Sensor|Rauland|Aiphone|Honeywell|Atlas IED|QSC|Chief|LG|Extron|Bogen|Jeron|HES|Schlage|Altronix|West Penn|Genesis|Windy City)\b/i;
+                                const mfgPatterns = /\b(Chatsworth|CPI|Panduit|APC|Corning|CommScope|Leviton|B-Line|Cablofil|Hubbell|Ortronics|Belden|Legrand|Allied|Eaton|Harger|STI|Hilti|Fluke|Brady|Avigilon|Mercury|HID|Bosch|Notifier|System Sensor|Rauland|Aiphone|Honeywell|Atlas IED|QSC|Chief|LG|Extron|Bogen|Jeron|HES|Schlage|Altronix|West Penn|Genesis|Windy City|Great Lakes|Middle Atlantic|Tripp Lite|ICC|Siemon|Oberon|Falcon|Wiremold)\b/i;
                                 const mfgMatch = desc.match(mfgPatterns);
                                 if (mfgMatch) {
                                     mfg = mfgMatch[1];
                                     const afterMfg = desc.substring(desc.indexOf(mfg) + mfg.length).trim();
-                                    // Try parenthetical part number first: "Chatsworth 7ft Rack (55053-703)"
-                                    const parenPN = desc.match(/\(([A-Z0-9][\w-]{2,}[\w])\)\s*$/i);
+                                    // Strategy 1: Parenthetical PN anywhere: "Chatsworth 7ft Rack (55053-703)"
+                                    const parenPN = desc.match(/\(([A-Z0-9][\w-]{2,})\)/i);
                                     if (parenPN) {
                                         partNumber = parenPN[1];
                                         cleanDesc = desc.replace(mfgMatch[0], '').replace(parenPN[0], '').trim();
                                     } else {
-                                        // Fallback: next token after MFG is part number
+                                        // Strategy 2: next token after MFG is part number
                                         const pnMatch = afterMfg.match(/^([\w][\w-]{2,}[\w])\s+(.+)/);
                                         if (pnMatch) {
                                             partNumber = pnMatch[1];
@@ -1622,6 +1622,12 @@ const SmartPlansExport = {
                                         } else {
                                             cleanDesc = afterMfg;
                                         }
+                                    }
+                                    // Strategy 3: Common PN formats anywhere: "55053-703", "40250-719"
+                                    if (!partNumber) {
+                                        const pnAny = desc.match(/\b(\d{3,6}[-]\d{2,4})\b/) ||
+                                            desc.match(/\b([A-Z]{1,4}[-]\d{2,5}[-]\d{2,4})\b/i);
+                                        if (pnAny) partNumber = pnAny[1];
                                     }
                                 }
                                 return {
@@ -1731,20 +1737,26 @@ const SmartPlansExport = {
                     let _mfg = item.mfg || '';
                     let _pn = item.partNumber || '';
                     if (!_mfg || !_pn) {
-                        const _mfgRx = /\b(Chatsworth|Panduit|APC|Corning|CommScope|Leviton|B-Line|Cablofil|Hubbell|Ortronics|Belden|Legrand|Allied|Eaton|Harger|STI|Hilti|Fluke|Brady|Avigilon|Mercury|HID|Bosch|Notifier|System Sensor|Rauland|Aiphone|Honeywell|Atlas IED|QSC|Chief|LG|Extron|Bogen|Jeron|HES|Schlage|Altronix|West Penn|Genesis|Windy City)\b/i;
+                        const _mfgRx = /\b(Chatsworth|CPI|Panduit|APC|Corning|CommScope|Leviton|B-Line|Cablofil|Hubbell|Ortronics|Belden|Legrand|Allied|Eaton|Harger|STI|Hilti|Fluke|Brady|Avigilon|Mercury|HID|Bosch|Notifier|System Sensor|Rauland|Aiphone|Honeywell|Atlas IED|QSC|Chief|LG|Extron|Bogen|Jeron|HES|Schlage|Altronix|West Penn|Genesis|Windy City|Great Lakes|Middle Atlantic|Tripp Lite|ICC|Siemon|Oberon|Falcon|Wiremold)\b/i;
                         const _mm = itemDesc.match(_mfgRx);
                         if (_mm && !_mfg) _mfg = _mm[1];
                         // Try parenthetical PN: "Chatsworth 7ft Rack (55053-703)"
                         if (!_pn) {
-                            const _ppn = itemDesc.match(/\(([A-Z0-9][\w-]{2,})\)\s*$/i);
+                            // Strategy 1: Parenthetical PN anywhere: "Rack (55053-703)" or "(CPI-40250-719)"
+                            const _ppn = itemDesc.match(/\(([A-Z0-9][\w-]{2,})\)/i);
                             if (_ppn) { _pn = _ppn[1]; }
-                            else {
-                                // Try "MFG PartNum Description" format
-                                if (_mm) {
-                                    const _after = itemDesc.substring(itemDesc.indexOf(_mm[1]) + _mm[1].length).trim();
-                                    const _tk = _after.match(/^([A-Z0-9][\w-]{2,}[\w])\s/i);
-                                    if (_tk) _pn = _tk[1];
-                                }
+                            // Strategy 2: "MFG PartNum Description" — PN is token after manufacturer
+                            else if (_mm) {
+                                const _after = itemDesc.substring(itemDesc.indexOf(_mm[1]) + _mm[1].length).trim();
+                                const _tk = _after.match(/^([A-Z0-9][\w-]{2,}[\w])\b/i);
+                                if (_tk) _pn = _tk[1];
+                            }
+                            // Strategy 3: Common PN formats anywhere in string: "55053-703", "40250-719", "CS-48-150"
+                            if (!_pn) {
+                                const _pnAny = itemDesc.match(/\b(\d{3,6}[-]\d{2,4})\b/) ||  // 55053-703
+                                    itemDesc.match(/\b([A-Z]{1,4}[-]\d{2,5}[-]\d{2,4})\b/i) ||  // CS-48-150
+                                    itemDesc.match(/\b([A-Z]{2,5}\d{3,6})\b/i);  // CPI40250
+                                if (_pnAny) _pn = _pnAny[1];
                             }
                         }
                     }
