@@ -6074,10 +6074,16 @@ function injectCalculatedCableQuantities(bom) {
       // FIX: If tray is "by others" (electrical contractor furnishes), REMOVE basket tray from our BOM
       //      but KEEP ladder rack (inside telecom rooms — always our scope)
       if ((/cable\s*tray|basket\s*tray|ladder\s*rack|cable\s*runway/i.test(name)) && /^(ft|lf|linear\s*f\w*|feet|foot)$/i.test(item.unit || '')) {
-        if (byOthersTray && !/ladder\s*rack/i.test(name)) {
-          // Remove basket tray / cable tray / cable runway (EC scope), but NOT ladder rack (our telecom room equipment)
-          console.log(`[CableInjection] REMOVING tray "${item.item || item.name}" — by others (electrical contractor)`);
-          return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true, _calculatedRun: true };
+        if (byOthersTray) {
+          // Protect ladder rack AND cable runway inside telecom rooms (MDF/IDF) — always our scope
+          // Only remove CORRIDOR basket tray / cable tray (EC scope)
+          const isTelecomRoomItem = isPrimaryInfraCat && /ladder\s*rack|cable\s*runway|runway/i.test(name);
+          if (!isTelecomRoomItem) {
+            console.log(`[CableInjection] REMOVING tray "${item.item || item.name}" — by others (electrical contractor)`);
+            return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true, _calculatedRun: true };
+          } else {
+            console.log(`[CableInjection] KEEPING "${item.item || item.name}" — telecom room equipment (our scope)`);
+          }
         }
         const bestTrayFt = pathway.calculatedTrayFt || pathway.trayTotalFt || 0;
         if (bestTrayFt > 0) {
