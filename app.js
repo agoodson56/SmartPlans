@@ -5639,6 +5639,57 @@ function getTextLayerDeviceCounts() {
   const doorContacts = (allText.match(/\bDC\b/g) || []).length;
   const rexSensors = (allText.match(/\bRM\b/g) || []).length;
 
+  // ── MDF/IDF EQUIPMENT COUNTS from rack elevation pages ──
+  // Parse per-page: identify MDF/IDF/TR elevation pages, count rack equipment
+  // This gives deterministic counts for cabinets, patch panels, UPS, PDU, etc.
+  const mdfEquipment = { cabinets: 0, open_racks: 0, patch_panels_48: 0, patch_panels_24: 0,
+    ups: 0, pdus: 0, horiz_managers: 0, vert_managers: 0, fiber_enclosures: 0, _pages: [] };
+  const pageKeys = Object.keys(ocrPages);
+  for (const pageKey of pageKeys) {
+    const pageText = ocrPages[pageKey];
+    if (!pageText || pageText.length < 50) continue;
+    // Identify MDF/IDF/TR pages by content — look for rack elevation indicators
+    const isMdfPage = /\b(MDF|IDF|TR|TELECOM|COMM)\b/i.test(pageText) &&
+      (/RACK\s*ELEVATION|EQUIPMENT\s*(SCHEDULE|LAYOUT|RACK)|CABINET\s*ELEVATION|RACK\s*LAYOUT|PATCH\s*PANEL/i.test(pageText)
+      || /42RU|45RU|48RU|RACK\s*UNIT|RU\b/i.test(pageText));
+    if (!isMdfPage) continue;
+    mdfEquipment._pages.push(pageKey);
+    // Count cabinets (enclosed racks): "42RU CABINET", "FLOOR-MOUNT CABINET", "42U CABINET"
+    const cabinetMatches = pageText.match(/\b(\d+)\s*(?:RU|U)\s*(?:FLOOR[\s-]*MOUNT\s*)?CABINET/gi) || [];
+    const cabinetAltMatches = pageText.match(/CABINET\s*\d+\s*(?:RU|U)/gi) || [];
+    mdfEquipment.cabinets += cabinetMatches.length + cabinetAltMatches.length;
+    // Count open frame racks: "OPEN FRAME RACK", "2-POST RACK", "4-POST RACK"
+    const rackMatches = pageText.match(/OPEN\s*FRAME\s*RACK|[24][\s-]*POST\s*RACK/gi) || [];
+    mdfEquipment.open_racks += rackMatches.length;
+    // Count patch panels by port count
+    const pp48 = pageText.match(/48[\s-]*PORT\s*(?:CAT|PATCH)/gi) || [];
+    const pp24 = pageText.match(/24[\s-]*PORT\s*(?:CAT|PATCH)/gi) || [];
+    // Also match "PATCH PANEL" generically on rack elevations
+    const ppGeneric = pageText.match(/PATCH\s*PANEL/gi) || [];
+    mdfEquipment.patch_panels_48 += pp48.length;
+    mdfEquipment.patch_panels_24 += pp24.length;
+    // If generic patch panels found but no port-specific ones, assume 48-port
+    if (ppGeneric.length > pp48.length + pp24.length) {
+      mdfEquipment.patch_panels_48 += ppGeneric.length - pp48.length - pp24.length;
+    }
+    // Count UPS units
+    const upsMatches = pageText.match(/\bUPS\b|SMART[\s-]*UPS|UNINTERRUPTIBLE/gi) || [];
+    mdfEquipment.ups += upsMatches.length;
+    // Count PDUs
+    const pduMatches = pageText.match(/\bPDU\b|POWER\s*DISTRIBUTION|POWER\s*STRIP/gi) || [];
+    mdfEquipment.pdus += pduMatches.length;
+    // Count cable managers
+    const horizMgr = pageText.match(/HORIZONTAL\s*(?:CABLE\s*)?MANAGER|1RU\s*MANAGER|CABLE\s*MANAGER\s*1RU/gi) || [];
+    const vertMgr = pageText.match(/VERTICAL\s*(?:CABLE\s*)?MANAGER/gi) || [];
+    mdfEquipment.horiz_managers += horizMgr.length;
+    mdfEquipment.vert_managers += vertMgr.length;
+    // Count fiber enclosures
+    const fiberEnc = pageText.match(/FIBER\s*(?:OPTIC\s*)?(?:ENCLOSURE|PANEL|SHELF|TRAY)/gi) || [];
+    mdfEquipment.fiber_enclosures += fiberEnc.length;
+  }
+  const hasMdfData = mdfEquipment._pages.length > 0 &&
+    (mdfEquipment.cabinets + mdfEquipment.open_racks + mdfEquipment.patch_panels_48 + mdfEquipment.patch_panels_24 + mdfEquipment.ups + mdfEquipment.pdus) > 0;
+
   // ── By-Others / OFCI Text Detection ──
   // Scan for plan notes that indicate scope exclusions — deterministic, no AI needed
   const byOthersText = [];
@@ -5681,6 +5732,8 @@ function getTextLayerDeviceCounts() {
     rex_sensors: rexSensors,
     displays: totalDisplays,
     av_outlets: totalAVOutlets,
+    // MDF/IDF rack equipment from elevation pages
+    mdf_equipment: hasMdfData ? mdfEquipment : null,
     // Scope exclusions detected from plan text
     by_others_detected: byOthersText,
     source: 'pdf_text_layer',
@@ -5695,6 +5748,18 @@ function getTextLayerDeviceCounts() {
   if (glassBreak > 0) console.log(`[TextLayer]   Glass Break: ${glassBreak}`);
   if (doorContacts > 0) console.log(`[TextLayer]   Door Contacts: ${doorContacts}`);
   if (totalDisplays > 0) console.log(`[TextLayer]   Displays: ${totalDisplays}`);
+  if (hasMdfData) {
+    console.log(`[TextLayer]   🏗️ MDF/IDF Equipment (from pages: ${mdfEquipment._pages.join(', ')}):`);
+    if (mdfEquipment.cabinets > 0) console.log(`[TextLayer]     Cabinets: ${mdfEquipment.cabinets}`);
+    if (mdfEquipment.open_racks > 0) console.log(`[TextLayer]     Open Frame Racks: ${mdfEquipment.open_racks}`);
+    if (mdfEquipment.patch_panels_48 > 0) console.log(`[TextLayer]     48-Port Patch Panels: ${mdfEquipment.patch_panels_48}`);
+    if (mdfEquipment.patch_panels_24 > 0) console.log(`[TextLayer]     24-Port Patch Panels: ${mdfEquipment.patch_panels_24}`);
+    if (mdfEquipment.ups > 0) console.log(`[TextLayer]     UPS Units: ${mdfEquipment.ups}`);
+    if (mdfEquipment.pdus > 0) console.log(`[TextLayer]     PDUs: ${mdfEquipment.pdus}`);
+    if (mdfEquipment.horiz_managers > 0) console.log(`[TextLayer]     Horizontal Cable Managers: ${mdfEquipment.horiz_managers}`);
+    if (mdfEquipment.vert_managers > 0) console.log(`[TextLayer]     Vertical Cable Managers: ${mdfEquipment.vert_managers}`);
+    if (mdfEquipment.fiber_enclosures > 0) console.log(`[TextLayer]     Fiber Enclosures: ${mdfEquipment.fiber_enclosures}`);
+  }
   if (byOthersText.length > 0) console.log(`[TextLayer]   🚫 By-Others detected: ${byOthersText.join(', ')}`);
   return result;
 }
@@ -7058,6 +7123,46 @@ function injectCalculatedCableQuantities(bom) {
               console.log(`[TextLayer] ${corr.label} corrected: ${oldQty} → ${corr.count} (text layer ground truth)`);
             }
             break; // Only correct first match per device type per category
+          }
+        }
+      }
+    }
+
+    // ── MDF/IDF EQUIPMENT CORRECTION: Apply text-layer rack equipment counts ──
+    // When MDF/IDF elevation pages have deterministic text (CAD labels), override AI quantities
+    // for cabinets, patch panels, UPS, PDUs in MDF/IDF categories.
+    const mdfEq = textDeviceCounts.mdf_equipment;
+    if (mdfEq) {
+      const _mdfCorrections = [
+        { regex: /cabinet|floor[\s-]*mount.*rack|enclosed\s*rack/i, count: mdfEq.cabinets, label: 'Cabinet/Enclosed Rack' },
+        { regex: /open\s*frame|[24][\s-]*post\s*rack/i, count: mdfEq.open_racks, label: 'Open Frame Rack' },
+        { regex: /\bups\b|smart[\s-]*ups|uninterruptible/i, count: mdfEq.ups, label: 'UPS' },
+        { regex: /\bpdu\b|power\s*distribution/i, count: mdfEq.pdus, label: 'PDU' },
+        { regex: /horizontal.*manager|manager.*1ru|1ru.*manager/i, count: mdfEq.horiz_managers, label: 'Horizontal Cable Manager' },
+        { regex: /vertical.*manager/i, count: mdfEq.vert_managers, label: 'Vertical Cable Manager' },
+        { regex: /fiber.*enclosure|fiber.*shelf|fiber.*panel|rack.*fiber/i, count: mdfEq.fiber_enclosures, label: 'Fiber Enclosure' },
+      ];
+      for (const corr of _mdfCorrections) {
+        if (!corr.count || corr.count <= 0) continue;
+        // Apply to MDF/IDF categories ONLY
+        for (const cat of updatedCategories) {
+          const cn = (cat.name || '').toLowerCase();
+          if (!/mdf|idf|telecomm|room.*cv|tr\s*material/i.test(cn)) continue;
+          for (let i = 0; i < (cat.items || []).length; i++) {
+            const item = cat.items[i];
+            const desc = (item.item || item.name || '').toLowerCase();
+            if (corr.regex.test(desc) && !item._byOthersRemoved) {
+              const oldQty = item.qty || 0;
+              if (oldQty !== corr.count) {
+                const uc = item.unitCost || 0;
+                cat.items[i] = {
+                  ...item, qty: corr.count, extCost: Math.round(corr.count * uc * 100) / 100,
+                  _textLayerCorrected: true
+                };
+                console.log(`[TextLayer] MDF ${corr.label} corrected: ${oldQty} → ${corr.count} (rack elevation ground truth)`);
+              }
+              break;
+            }
           }
         }
       }
