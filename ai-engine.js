@@ -2781,20 +2781,28 @@ YOUR MISSION: Scan EVERY sheet and count EVERY device symbol for the selected di
 
 WHAT TO COUNT BY DISCIPLINE:
 ${(context.disciplines || []).includes('Structured Cabling') ? '- CABLING: Data outlets, voice outlets, WAPs, fiber outlets, combo outlets, patch panels, cable trays' : ''}
-${(context.disciplines || []).includes('Structured Cabling') ? `═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
-  Many plans use a NUMERIC PREFIX on data outlet symbols to indicate HOW MANY CABLES go to that location.
-  Examples: "2D" = 2 data drops (2 Cat6 cables), "4D" = 4 data drops, "1D" = 1 data drop, "6D" = 6 data drops.
-  A triangle symbol labeled "2D" means TWO data cables at that location — NOT one symbol = one outlet.
+${(context.disciplines || []).includes('Structured Cabling') ? `═══ CRITICAL — DATA OUTLET COUNTING (READ THIS CAREFULLY) ═══
+  Data outlets on construction plans appear as SMALL TRIANGLES (▲) with a label like "2D", "4D", or just a plain triangle.
+  The number before the "D" tells you HOW MANY CABLES run to that location:
+  - A triangle labeled "2D" = 2 Cat6 cables = 2 keystone jacks = needs a 2-port faceplate
+  - A triangle labeled "4D" = 4 Cat6 cables = 4 keystone jacks = needs a 4-port faceplate
+  - A plain triangle or "1D" = 1 cable = 1 jack = 1-port faceplate
+  - WAP symbols (wireless access points) are separate — usually a circle or "WAP" label, NOT a triangle
 
-  YOU MUST REPORT TWO SEPARATE COUNTS for data outlets:
-  1. "data_outlet_symbols" in totals = number of PHYSICAL SYMBOLS on the plans (e.g., 132 triangles)
-  2. "data_outlet" in totals = number of CABLES after multiplying (e.g., 118×2 + 14×4 = 292)
-  If ALL outlets are "2D", then data_outlet = data_outlet_symbols × 2.
-  If you see a mix, add them up: (count_of_1D × 1) + (count_of_2D × 2) + (count_of_4D × 4) + (count_of_6D × 6).
+  HOW TO COUNT:
+  1. Scan EVERY room on the floor plan — check patient rooms, corridors, lobbies, offices, nurse stations, break rooms, conference rooms, storage, restrooms (some have data)
+  2. Count EVERY triangle symbol — they are often small and densely packed near walls
+  3. Look BEHIND text labels and room names — triangles often hide behind room name text
+  4. Check BOTH SIDES of corridor walls — outlets serve rooms on both sides
+  5. Look at the ENLARGED PLANS if available — they show the same outlets at higher detail
+  6. In medical/VA projects, EVERY patient care room typically has 2-4 data outlets
+
+  YOU MUST REPORT TWO SEPARATE COUNTS:
+  1. "data_outlet_symbols" in totals = number of PHYSICAL TRIANGLE SYMBOLS on the plans
+  2. "data_outlet" in totals = total CABLES: (count_of_2D × 2) + (count_of_4D × 4) + (count_of_1D × 1)
 
   OUTLET BREAKDOWN (MANDATORY): Include "outlet_breakdown" in the top-level JSON:
   {"1D": count_of_1D_symbols, "2D": count_of_2D_symbols, "4D": count_of_4D_symbols, "6D": count_of_6D_symbols}
-  These are LOCATIONS (physical symbols), not cable counts. This determines faceplate port sizing.
 
 ${context.wave0?.LEGEND_DECODER?.multiplier_map ? `  LEGEND-CONFIRMED MULTIPLIERS: ${JSON.stringify(context.wave0.LEGEND_DECODER.multiplier_map)}
   Use these EXACT multipliers from the legend when calculating data_outlet from data_outlet_symbols.` : ''}` : ''}
@@ -4845,8 +4853,16 @@ INSTRUCTIONS:
 4. Note any symbols that are ambiguous or could be confused with others
 5. Rate overall legend quality (excellent/good/fair/poor)
 
-═══ CRITICAL — DATA DROP MULTIPLIER SYMBOLS ═══
-Look for symbols with NUMERIC PREFIXES like "2D", "4D", "1D", "6D" — these indicate the number of data cables at each drop location. Example: a triangle labeled "2D" = 2 data drops (2 Cat6 cables). Similarly "2V" = 2 voice drops. These multipliers are ESSENTIAL for accurate cable counting. Record the multiplier in the symbol definition so downstream counters know "2D" = qty 2, not qty 1.
+═══ CRITICAL — DATA DROP MULTIPLIER SYMBOLS (MUST FIND) ═══
+LOOK FOR TRIANGLE SYMBOLS with labels "1D", "2D", "4D", "6D" on the legend. These are DATA OUTLETS.
+- Triangle with "2D" next to it = 2 data cables go to that wall location
+- Triangle with "4D" = 4 data cables
+- Plain triangle or "1D" = 1 data cable
+- Also look for "1V", "2V" = voice drops (same concept)
+The legend page typically shows a section called "DATA OUTLET DIAGRAM" or "OUTLET DESIGNATIONS" with these.
+You MUST include a "multiplier_map" object in your response showing each prefix and its cable count.
+If the legend shows 2D and 4D symbols, return: "multiplier_map": {"1D": 1, "2D": 2, "4D": 4}
+If you don't find any multiplier symbols, return: "multiplier_map": {}
 
 Return ONLY valid JSON:
 {
