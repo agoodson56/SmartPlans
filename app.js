@@ -7451,6 +7451,45 @@ function injectCalculatedCableQuantities(bom) {
     }
   }
 
+  // ── PHANTOM ROOM REMOVAL: Remove AI-invented duplicate MDF/IDF rooms ──
+  // The AI sometimes creates a phantom "IDF (NEW)" room that's an exact copy of MDF equipment.
+  // Also remove MDF equipment items that got duplicated into Structured Cabling.
+  const _mdfEquipRegex = /cabinet|rack.*\d+ru|\d+ru.*rack|patch\s*panel|cable\s*manager|horizontal.*manager|vertical.*manager|\bpdu\b|power\s*distribut|\bups\b|smart[\s-]*ups|uninterruptible|grounding|bonding|busbar|fiber\s*enclosure/i;
+  // Step 1: Find the primary MDF category (first one with "MDF" or "Room:" + telecom)
+  const primaryMdfIdx = cleanedCategories.findIndex(c => /mdf|main\s*(equipment|telecomm)/i.test(c.name || ''));
+  if (primaryMdfIdx >= 0) {
+    // Step 2: Remove phantom IDF rooms that duplicate MDF
+    for (let ci = cleanedCategories.length - 1; ci >= 0; ci--) {
+      if (ci === primaryMdfIdx) continue;
+      const cn = (cleanedCategories[ci].name || '').toLowerCase();
+      // Detect phantom: "IDF (NEW", "Added for TIA", or any Room: that's not the primary MDF
+      const isPhantomIDF = (/idf.*new|added\s*for|tia[\s-]*568\s*compliance/i.test(cn)) ||
+        (/^room:/i.test(cn) && ci !== primaryMdfIdx && /idf/i.test(cn));
+      if (isPhantomIDF) {
+        console.log(`[BOM Cleanup] REMOVING phantom IDF room: "${cleanedCategories[ci].name}" ($${cleanedCategories[ci].subtotal}) — duplicate of MDF`);
+        cleanedCategories.splice(ci, 1);
+      }
+    }
+    // Step 3: Remove MDF equipment items from Structured Cabling (they belong in MDF only)
+    for (const cat of cleanedCategories) {
+      const cn = (cat.name || '').toLowerCase();
+      if (!/structured\s*cabling|^cabling/i.test(cn)) continue;
+      let removed = false;
+      cat.items = (cat.items || []).filter(item => {
+        const desc = (item.item || item.name || '').toLowerCase();
+        if (_mdfEquipRegex.test(desc) && !/cable|wire|cord|fiber.*cable/i.test(desc)) {
+          console.log(`[BOM Cleanup] REMOVING MDF duplicate from Structured Cabling: "${item.item || item.name}"`);
+          removed = true;
+          return false; // Remove from array
+        }
+        return true;
+      });
+      if (removed) {
+        cat.subtotal = Math.round(cat.items.reduce((s, i) => s + (i.extCost || 0), 0) * 100) / 100;
+      }
+    }
+  }
+
   // ── RECOMMENDED ADDITIONS: Items needed for complete working systems ──
   // These are items the plans require but the AI may not have included.
   // Each item is flagged with a reason so the client can deduct if desired.
