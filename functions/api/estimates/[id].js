@@ -21,8 +21,11 @@ export async function onRequestGet(context) {
 
     try {
         const est = await env.DB.prepare(
-            `SELECT e.*, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
-             FROM estimates e LEFT JOIN user_accounts u ON u.id = e.created_by
+            `SELECT e.*, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name,
+                    COALESCE(e.modified_by_name, m.name) AS modified_by_name
+             FROM estimates e
+             LEFT JOIN user_accounts u ON u.id = e.created_by
+             LEFT JOIN user_accounts m ON m.id = e.modified_by
              WHERE e.id = ?`
         ).bind(params.id).first();
         if (!est) return Response.json({ error: 'Estimate not found' }, { status: 404 });
@@ -66,6 +69,11 @@ export async function onRequestPut(context) {
         if (current && user && !user.is_admin && current.created_by && user.id !== current.created_by) {
             return Response.json({ error: 'Access denied' }, { status: 403 });
         }
+        // Track who is making this modification
+        const modifiedBy = user?.id || null;
+        const modifiedByName = user?.name || null;
+        const isCreator = !current?.created_by || (user?.id === current.created_by);
+
         if (current && current.export_data) {
             try {
                 const revMax = await env.DB.prepare(
@@ -80,9 +88,10 @@ export async function onRequestPut(context) {
                     contractValue = parsed?.pricing?.totalContract || parsed?.pricing?.grandTotal || parsed?.summary?.contractValue || 0;
                 } catch { }
 
+                // Save revision with who triggered the change
                 await env.DB.prepare(`
-                    INSERT INTO estimate_revisions (id, estimate_id, revision_number, project_name, disciplines, contract_value, analysis_summary, export_data)
-                    VALUES (?, ?, (SELECT COALESCE(MAX(revision_number), 0) + 1 FROM estimate_revisions WHERE estimate_id = ?), ?, ?, ?, ?, ?)
+                    INSERT INTO estimate_revisions (id, estimate_id, revision_number, project_name, disciplines, contract_value, analysis_summary, export_data, modified_by, modified_by_name)
+                    VALUES (?, ?, (SELECT COALESCE(MAX(revision_number), 0) + 1 FROM estimate_revisions WHERE estimate_id = ?), ?, ?, ?, ?, ?, ?, ?)
                 `).bind(
                     crypto.randomUUID().replace(/-/g, ''),
                     id,
@@ -91,7 +100,9 @@ export async function onRequestPut(context) {
                     current.disciplines,
                     contractValue,
                     (current.export_data || '').substring(0, 500),
-                    current.export_data
+                    current.export_data,
+                    modifiedBy,
+                    modifiedByName
                 ).run();
             } catch (revErr) {
                 // Log but don't block the update if revision save fails
@@ -137,6 +148,11 @@ export async function onRequestPut(context) {
 
         if (sets.length === 0) return Response.json({ error: 'No fields to update' }, { status: 400 });
 
+        // Always track who made this modification
+        sets.push('modified_by = ?');
+        vals.push(modifiedBy);
+        sets.push('modified_by_name = ?');
+        vals.push(modifiedByName);
         sets.push("updated_at = datetime('now')");
         vals.push(params.id);
 
@@ -144,7 +160,7 @@ export async function onRequestPut(context) {
             `UPDATE estimates SET ${sets.join(', ')} WHERE id = ?`
         ).bind(...vals).run();
 
-        return Response.json({ success: true });
+        return Response.json({ success: true, modified_by_creator: isCreator });
     } catch (err) {
         console.error('Failed to update estimate:', err.message);
         return Response.json({ error: 'Failed to update estimate' }, { status: 500 });

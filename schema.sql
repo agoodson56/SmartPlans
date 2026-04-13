@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS estimates (
     status TEXT DEFAULT 'draft', -- draft, analyzed, exported
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
+    created_by TEXT,
+    created_by_name TEXT,
+    modified_by TEXT,            -- User ID of last modifier (NULL = original estimator)
+    modified_by_name TEXT,       -- Cached name of last modifier
     export_data TEXT             -- Full JSON export package (saved after analysis)
 );
 
@@ -34,6 +38,8 @@ CREATE TABLE IF NOT EXISTS estimate_revisions (
     contract_value REAL DEFAULT 0,
     analysis_summary TEXT,
     export_data TEXT,
+    modified_by TEXT,            -- Who triggered this revision (user ID)
+    modified_by_name TEXT,       -- Cached name of who made the change
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(estimate_id, revision_number)
 );
@@ -204,6 +210,28 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires_at);
+
+-- ═══════════════════════════════════════════════════════════════
+-- Salespeople — Persistent salesperson/estimator directory
+-- Follows the program (D1), not the PC (no localStorage).
+-- Only admins can delete; any authenticated user can add/view.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS salespeople (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    title TEXT DEFAULT 'Sales Consultant',
+    phone TEXT,
+    email TEXT NOT NULL,
+    office TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_salespeople_email ON salespeople(email);
+CREATE INDEX IF NOT EXISTS idx_salespeople_name ON salespeople(last_name, first_name);
 
 -- Performance indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);

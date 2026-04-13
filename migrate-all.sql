@@ -169,6 +169,52 @@ CREATE TABLE IF NOT EXISTS pm_settings (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- v5.115: Edit audit trail — track who modified a bid so original estimator is notified
+ALTER TABLE estimates ADD COLUMN modified_by TEXT;
+ALTER TABLE estimates ADD COLUMN modified_by_name TEXT;
+ALTER TABLE estimate_revisions ADD COLUMN modified_by TEXT;
+ALTER TABLE estimate_revisions ADD COLUMN modified_by_name TEXT;
+
+-- v5.115: Salespeople table — persistent salesperson directory (D1, not localStorage)
+CREATE TABLE IF NOT EXISTS salespeople (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    title TEXT DEFAULT 'Sales Consultant',
+    phone TEXT,
+    email TEXT NOT NULL,
+    office TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_salespeople_email ON salespeople(email);
+CREATE INDEX IF NOT EXISTS idx_salespeople_name ON salespeople(last_name, first_name);
+
+-- User accounts table (for auth system)
+CREATE TABLE IF NOT EXISTS user_accounts (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT,
+    password_hash TEXT NOT NULL,
+    password_salt TEXT NOT NULL,
+    role TEXT DEFAULT 'estimator',
+    is_admin INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_login TEXT
+);
+
+-- User sessions
+CREATE TABLE IF NOT EXISTS user_sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON user_sessions(expires_at);
+
 -- Performance indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_revisions_created ON estimate_revisions(created_at DESC);

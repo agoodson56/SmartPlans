@@ -30,18 +30,22 @@ export async function onRequestGet(context) {
             // Admins see all estimates
             query = `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
                     e.pricing_tier, e.status, e.created_at, e.updated_at,
-                    e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
+                    e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name,
+                    e.modified_by, COALESCE(e.modified_by_name, m.name) AS modified_by_name
              FROM estimates e
              LEFT JOIN user_accounts u ON u.id = e.created_by
+             LEFT JOIN user_accounts m ON m.id = e.modified_by
              ORDER BY e.updated_at DESC LIMIT 100`;
             binds = [];
         } else if (user) {
             // Non-admin users see only their own estimates
             query = `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
                     e.pricing_tier, e.status, e.created_at, e.updated_at,
-                    e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
+                    e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name,
+                    e.modified_by, COALESCE(e.modified_by_name, m.name) AS modified_by_name
              FROM estimates e
              LEFT JOIN user_accounts u ON u.id = e.created_by
+             LEFT JOIN user_accounts m ON m.id = e.modified_by
              WHERE e.created_by = ?
              ORDER BY e.updated_at DESC LIMIT 100`;
             binds = [user.id];
@@ -50,9 +54,11 @@ export async function onRequestGet(context) {
             // The app token was already validated above, so this is authenticated
             query = `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
                     e.pricing_tier, e.status, e.created_at, e.updated_at,
-                    e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name
+                    e.created_by, COALESCE(e.created_by_name, u.name, 'Unknown') AS created_by_name,
+                    e.modified_by, COALESCE(e.modified_by_name, m.name) AS modified_by_name
              FROM estimates e
              LEFT JOIN user_accounts u ON u.id = e.created_by
+             LEFT JOIN user_accounts m ON m.id = e.modified_by
              ORDER BY e.updated_at DESC LIMIT 100`;
             binds = [];
         }

@@ -822,6 +822,10 @@ const state = {
   workShift: "",
   priorEstimate: "",
   salesperson: null,          // { firstName, lastName, title, phone, email, office } — selected salesperson
+  _estimateCreatedBy: null,   // User ID of original creator (for bid lock / edit tracking)
+  _estimateCreatedByName: null, // Name of original creator
+  _estimateModifiedBy: null,  // User ID of last modifier (null = original creator)
+  _estimateModifiedByName: null, // Name of last modifier
   isTransitRailroad: false,  // Explicit toggle — triggers higher markups, RWIC, RPL, etc.
   _travelAutoDetected: false, // Whether travel auto-detection has run (prevents re-triggering)
   _engine3DOpen: false,       // 3D engine card expanded state
@@ -959,14 +963,95 @@ const state = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SALESPERSON MANAGEMENT — localStorage persistence for salesperson list
+// SALESPERSON MANAGEMENT — D1 backend persistence (follows the program, not the PC)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function _loadSalespeople() {
-  try { return JSON.parse(localStorage.getItem('sp_salespeople') || '[]'); } catch { return []; }
+/** In-memory cache — loaded from D1 on app init and after every save/delete */
+let _salespeopleCache = [];
+let _salespeopleLoaded = false;
+
+/** Load salespeople from D1 backend (async). Falls back to localStorage for offline. */
+async function _loadSalespeopleFromServer() {
+  try {
+    const res = await fetch('/api/salespeople', {
+      headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    _salespeopleCache = (data.salespeople || []).map(sp => ({
+      id: sp.id,
+      firstName: sp.first_name,
+      lastName: sp.last_name,
+      title: sp.title || 'Sales Consultant',
+      phone: sp.phone || '',
+      email: sp.email,
+      office: sp.office || '',
+    }));
+    _salespeopleLoaded = true;
+    // Mirror to localStorage for offline fallback
+    localStorage.setItem('sp_salespeople', JSON.stringify(_salespeopleCache));
+    console.log(`[Salesperson] Loaded ${_salespeopleCache.length} from server`);
+  } catch (err) {
+    console.warn('[Salesperson] Server load failed, using localStorage fallback:', err.message);
+    try { _salespeopleCache = JSON.parse(localStorage.getItem('sp_salespeople') || '[]'); } catch { _salespeopleCache = []; }
+    _salespeopleLoaded = true;
+  }
+  return _salespeopleCache;
 }
-function _saveSalespeople(list) {
-  localStorage.setItem('sp_salespeople', JSON.stringify(list));
+
+/** Synchronous getter — returns cached list (call _loadSalespeopleFromServer first) */
+function _loadSalespeople() {
+  return _salespeopleCache;
+}
+
+/** Save a salesperson to D1 backend (async). Updates cache on success. */
+async function _saveSalespersonToServer(sp) {
+  try {
+    const res = await fetch('/api/salespeople', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
+      body: JSON.stringify(sp),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    // Refresh cache from server to get the assigned ID
+    await _loadSalespeopleFromServer();
+    // Update the sp object with the server-assigned ID
+    if (data.id) sp.id = data.id;
+    console.log(`[Salesperson] ${data.updated ? 'Updated' : 'Created'} on server: ${sp.firstName} ${sp.lastName}`);
+    return true;
+  } catch (err) {
+    console.error('[Salesperson] Server save failed:', err.message);
+    // Fallback: save to localStorage so data isn't lost
+    const list = _loadSalespeople();
+    const existIdx = list.findIndex(s => s.email.toLowerCase() === sp.email.toLowerCase());
+    if (existIdx >= 0) { list[existIdx] = { ...list[existIdx], ...sp }; } else { list.push(sp); }
+    _salespeopleCache = list;
+    localStorage.setItem('sp_salespeople', JSON.stringify(list));
+    return false;
+  }
+}
+
+/** Delete a salesperson from D1 backend (admin only). */
+async function _deleteSalespersonFromServer(id) {
+  try {
+    const res = await fetch(`/api/salespeople?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 403) { alert(data.error || 'Admin access required to delete salespeople.'); return false; }
+      throw new Error(`HTTP ${res.status}`);
+    }
+    await _loadSalespeopleFromServer();
+    console.log(`[Salesperson] Deleted from server: ${id}`);
+    return true;
+  } catch (err) {
+    console.error('[Salesperson] Server delete failed:', err.message);
+    alert('Failed to delete salesperson. Check your connection.');
+    return false;
+  }
 }
 function _salespersonDisplayName(sp) {
   return sp ? `${sp.firstName} ${sp.lastName}` : '';
@@ -3640,6 +3725,14 @@ function renderFooter() {
         spToast('Analysis already in progress — please wait', 'warning');
         return;
       }
+      // BID LOCK: If bid was already analyzed, require human confirmation before re-running
+      if (state.analysisComplete && state.aiAnalysis) {
+        const creator = state._estimateCreatedByName || 'the original estimator';
+        if (!confirm(`This bid has already been analyzed by ${creator}.\n\nRe-running analysis will create a new version and overwrite the current results.\n\nAre you sure you want to re-analyze?`)) {
+          return;
+        }
+        console.log(`[BidLock] Re-analysis authorized by user (${_currentUser?.name || 'unknown'})`);
+      }
       state.analyzing = true;
       AnalysisTimer.start();
       render();
@@ -3724,6 +3817,17 @@ function renderStep0(container) {
           <i data-lucide="user-plus"></i> <span>Add New</span>
         </button>
       </div>
+      ${_currentUser?.is_admin && _loadSalespeople().length > 0 ? `
+      <div id="salesperson-admin-list" style="margin-top:8px;border:1px solid rgba(239,68,68,0.15);border-radius:8px;overflow:hidden;">
+        <div style="padding:6px 12px;background:rgba(239,68,68,0.05);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#EF4444;">Admin — Manage Salespeople</div>
+        ${_loadSalespeople().map(sp => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px;border-top:1px solid rgba(0,0,0,0.05);font-size:13px;" data-sp-id="${esc(sp.id || '')}">
+          <span>${esc(_salespersonDisplayName(sp))} <span style="color:var(--text-muted);font-size:11px;">${esc(sp.email)}</span></span>
+          <button class="header-btn btn-delete-sp" data-sp-delete-id="${esc(sp.id || '')}" type="button" style="padding:3px 8px;font-size:11px;color:#EF4444;border-color:rgba(239,68,68,0.3);" title="Delete ${esc(_salespersonDisplayName(sp))}">
+            <i data-lucide="trash-2" style="width:12px;height:12px;"></i> Delete
+          </button>
+        </div>`).join('')}
+      </div>` : ''}
       <div id="salesperson-form-container" style="display:none;margin-top:12px;padding:16px;background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.15);border-radius:12px;">
         <div style="font-weight:600;font-size:14px;margin-bottom:12px;color:#6366F1;">New Salesperson</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
@@ -4256,7 +4360,7 @@ function renderStep0(container) {
   }
   const btnSpSave = document.getElementById("btn-sp-save");
   if (btnSpSave) {
-    btnSpSave.addEventListener("click", () => {
+    btnSpSave.addEventListener("click", async () => {
       const firstName = (document.getElementById("sp-first-name")?.value || '').trim();
       const lastName = (document.getElementById("sp-last-name")?.value || '').trim();
       const email = (document.getElementById("sp-email")?.value || '').trim();
@@ -4271,21 +4375,30 @@ function renderStep0(container) {
         email,
         office: (document.getElementById("sp-office")?.value || '').trim(),
       };
-      const list = _loadSalespeople();
-      // Check for duplicate by email
-      const existIdx = list.findIndex(s => s.email.toLowerCase() === email.toLowerCase());
-      if (existIdx >= 0) {
-        list[existIdx] = newSp; // Update existing
-        console.log(`[Salesperson] Updated: ${firstName} ${lastName}`);
-      } else {
-        list.push(newSp);
-        console.log(`[Salesperson] Added: ${firstName} ${lastName}`);
-      }
-      _saveSalespeople(list);
+      // Save to D1 backend (falls back to localStorage if offline)
+      await _saveSalespersonToServer(newSp);
       _applySalesperson(newSp);
       renderStep0(container);
     });
   }
+
+  // ── Admin delete salesperson buttons ──
+  container.querySelectorAll('.btn-delete-sp').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const spId = btn.getAttribute('data-sp-delete-id');
+      if (!spId) return;
+      const spName = btn.closest('[data-sp-id]')?.querySelector('span')?.textContent?.trim() || 'this salesperson';
+      if (!confirm(`Delete ${spName}? This cannot be undone.`)) return;
+      const ok = await _deleteSalespersonFromServer(spId);
+      if (ok) {
+        // If the deleted person was selected, clear selection
+        if (state.salesperson?.id === spId || state.salesperson?.email === btn.closest('[data-sp-id]')?.querySelector('span:last-child')?.textContent?.trim()) {
+          _applySalesperson(null);
+        }
+        renderStep0(container);
+      }
+    });
+  });
 
   // Re-initialize lucide icons for newly added elements
   if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -12201,14 +12314,14 @@ function formatAIResponse(text, tocItems) {
 // SAVED ESTIMATES — Cloud Persistence via D1
 // ═══════════════════════════════════════════════════════════════
 
-function spToast(msg, type = 'success') {
+function spToast(msg, type = 'success', durationMs = 3200) {
   const existing = document.querySelector('.sp-toast');
   if (existing) existing.remove();
   const t = document.createElement('div');
   t.className = `sp-toast sp-toast--${type}`;
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 3200);
+  setTimeout(() => t.remove(), durationMs);
 }
 
 // Store the current estimate's DB id
@@ -12386,6 +12499,22 @@ async function loadEstimate(id) {
     closeSavedPanel();
     render();
     spToast(`Loaded: ${state.projectName || 'Untitled'}`, 'info');
+
+    // Edit notification: warn original estimator if someone else modified their bid
+    if (state._estimateModifiedBy && state._estimateCreatedBy) {
+      const modifierIsCreator = state._estimateModifiedBy === state._estimateCreatedBy;
+      const currentUserIsCreator = _currentUser?.id === state._estimateCreatedBy;
+      if (!modifierIsCreator && currentUserIsCreator) {
+        // Original estimator is loading a bid that someone else modified
+        const modName = state._estimateModifiedByName || 'Another user';
+        spToast(`⚠️ ${modName} has edited this bid since your last save`, 'warning', 8000);
+      } else if (!modifierIsCreator && !currentUserIsCreator) {
+        // Third party loading a bid modified by someone other than creator
+        const modName = state._estimateModifiedByName || 'Another user';
+        const creatorName = state._estimateCreatedByName || 'the original estimator';
+        spToast(`⚠️ Last modified by ${modName} (created by ${creatorName})`, 'info', 6000);
+      }
+    }
   } catch (err) {
     console.error('[SmartPlans] Load error:', err);
     // Roll back state to prevent half-loaded data from corrupting the session
@@ -12402,6 +12531,11 @@ async function loadEstimate(id) {
 function _restoreStateFromPayload(id, pkg, est) {
   _invalidateBomCache(); // Clear cached BOM when loading saved estimate
   state.estimateId = id;
+  // Track ownership and edit history
+  state._estimateCreatedBy = est?.created_by || null;
+  state._estimateCreatedByName = est?.created_by_name || null;
+  state._estimateModifiedBy = est?.modified_by || null;
+  state._estimateModifiedByName = est?.modified_by_name || null;
   state.projectName = pkg?.project?.name || est?.project_name || '';
   state.projectType = pkg?.project?.type || est?.project_type || '';
   state.projectLocation = pkg?.project?.location || est?.project_location || '';
@@ -12771,6 +12905,7 @@ async function showSavedEstimates() {
         ${discArr.length ? '<span>' + esc(discArr.join(', ')) + '</span> · ' : ''}
         ${est.project_location ? '<span>📍 ' + esc(est.project_location) + '</span> · ' : ''}
         <span>${dateStr}</span>
+        ${est.modified_by && est.modified_by !== est.created_by ? `<span style="color:#F59E0B;font-weight:600;"> · ✏️ Edited by ${esc(est.modified_by_name || 'unknown')}</span>` : ''}
       </div>
       <div class="est-card-actions">
         <button class="est-card-btn est-card-btn--load" data-action="load" data-est-id="${esc(est.id)}">📂 Load</button>
@@ -15853,7 +15988,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   const hasSession = await Auth.init();
 
   if (hasSession) {
-    // User is logged in — start the app
+    // User is logged in — load salespeople from server before rendering
+    await _loadSalespeopleFromServer();
+    // Migrate any localStorage-only salespeople to the server (one-time)
+    try {
+      const localOnly = JSON.parse(localStorage.getItem('sp_salespeople_migrated') ? '[]' : localStorage.getItem('sp_salespeople') || '[]');
+      if (localOnly.length > 0 && !localStorage.getItem('sp_salespeople_migrated')) {
+        for (const sp of localOnly) {
+          const alreadyOnServer = _salespeopleCache.some(s => s.email.toLowerCase() === (sp.email || '').toLowerCase());
+          if (!alreadyOnServer && sp.firstName && sp.lastName && sp.email) {
+            await _saveSalespersonToServer(sp);
+          }
+        }
+        localStorage.setItem('sp_salespeople_migrated', '1');
+        console.log('[Salesperson] Migrated localStorage salespeople to server');
+      }
+    } catch (e) { console.warn('[Salesperson] Migration skipped:', e.message); }
+    // Start the app
     Auth._updateHeader();
     render();
     QuotaMonitor.start();
@@ -15941,6 +16092,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         case 'start-analysis':
           // Jump to analysis step and begin
           if (!state.analyzing && state.planFiles.length > 0) {
+            // BID LOCK: If bid was already analyzed, require human confirmation
+            if (state.analysisComplete && state.aiAnalysis) {
+              const creator = state._estimateCreatedByName || 'the original estimator';
+              if (!confirm(`This bid has already been analyzed by ${creator}.\n\nRe-running analysis will create a new version and overwrite the current results.\n\nAre you sure you want to re-analyze?`)) {
+                break;
+              }
+              console.log(`[BidLock] Re-analysis authorized by user (${_currentUser?.name || 'unknown'})`);
+            }
             state.currentStep = 5;
             state.completedSteps.add('upload');
             state.completedSteps.add('specs');

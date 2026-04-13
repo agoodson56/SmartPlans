@@ -31,7 +31,7 @@ export async function onRequestGet(context) {
 
     try {
         const res = await env.DB.prepare(
-            `SELECT id, revision_number, project_name, contract_value, created_at
+            `SELECT id, revision_number, project_name, contract_value, modified_by, modified_by_name, created_at
              FROM estimate_revisions
              WHERE estimate_id = ?
              ORDER BY revision_number DESC`

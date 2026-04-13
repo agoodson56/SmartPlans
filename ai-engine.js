@@ -2036,9 +2036,9 @@ const SmartBrains = {
       const activeParts = cleanFileParts;
       const hasFileData = activeParts.some(p => p.fileData);
       const parts = [{ text: promptText }, ...activeParts];
-      // Low temperature for deterministic construction analysis
+      // Zero temperature for critical counting brains — same input MUST produce same output every run
       const genConfig = {
-        temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
+        temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.0 : 0.05,
         maxOutputTokens: brainDef.maxTokens,
       };
       if (useJsonMode) {
@@ -2368,7 +2368,7 @@ const SmartBrains = {
       try {
         // FIX: Keep fileData refs — brains analyzing images NEED them. Only strip if no upload key.
         const fbParts = [{ text: promptText }, ...cleanFileParts];
-        const fbGenConfig = { temperature: 0.2, maxOutputTokens: 16384 };
+        const fbGenConfig = { temperature: 0.1, maxOutputTokens: 16384 };
         if (brainDef.jsonMode || useJsonMode) fbGenConfig.responseMimeType = 'application/json';
         const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: Math.floor(brainDef.id) % 18 };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
@@ -2443,7 +2443,7 @@ const SmartBrains = {
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts];
         const fbGenConfig = {
-          temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.05 : 0.1,
+          temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.0 : 0.05,
           maxOutputTokens: brainDef.maxTokens,
         };
         if (useJsonMode) {
