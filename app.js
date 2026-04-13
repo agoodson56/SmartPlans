@@ -6510,23 +6510,17 @@ function injectCalculatedCableQuantities(bom) {
       return { ...cat, items: installItems, subtotal: installItems.reduce((s, i) => s + (i.extCost || 0), 0), _byOthersCategory: true };
     }
 
-    // ── VA/FEDERAL IT EQUIPMENT: Remove network switches, NVR, VMS (owner-furnished) ──
+    // ── VA/FEDERAL IT EQUIPMENT: Mark network switches, NVR, VMS for removal (owner-furnished) ──
+    // CRITICAL: Do NOT return early — must continue to cable/jack/panel corrections below
     if (isVAOrFederal) {
       const _itEquipRegex = /network\s*switch|poe[+\s]*switch|\d+[\s-]*port\s*(managed\s*)?switch|managed\s*switch|layer\s*[23]\s*switch|\bnvr\b|video\s*management|vms\s*server|network\s*video\s*recorder/i;
-      let hadITRemoval = false;
-      const filteredItems = (cat.items || []).map(item => {
+      (cat.items || []).forEach((item, idx) => {
         const desc = (item.item || item.name || '');
         if (_itEquipRegex.test(desc) && !item._byOthersRemoved) {
           console.log(`[TextLayer] 🚫 REMOVING "${desc}" — VA/federal: IT equipment is owner-furnished (VA OIT)`);
-          hadITRemoval = true;
-          return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true };
+          cat.items[idx] = { ...item, qty: 0, extCost: 0, _byOthersRemoved: true };
         }
-        return item;
       });
-      if (hadITRemoval) {
-        const newSub = filteredItems.reduce((s, i) => s + (i.extCost || 0), 0);
-        return { ...cat, items: filteredItems, subtotal: Math.round(newSub * 100) / 100 };
-      }
     }
 
     // Primary infrastructure categories — these are the ONLY ones that get missing items injected
