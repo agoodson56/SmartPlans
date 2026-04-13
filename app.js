@@ -6861,7 +6861,7 @@ function injectCalculatedCableQuantities(bom) {
           if (!found && isPrimaryInfraCat && !/mdf|idf|tr\b/i.test(catName)) {
             // Only inject into Structured Cabling category, never MDF/IDF
             // Check if the item exists in ANY other category before injecting
-            const existsElsewhere = cleanedCategories.some(c => (c.items || []).some(i => regex.test(i.name || i.item || i.description || '')));
+            const existsElsewhere = (bom.categories || []).some(c => (c.items || []).some(i => regex.test(i.name || i.item || i.description || '')));
             if (!existsElsewhere) {
               console.log(`[CableInjection] ${defaultLabel} not found in ANY BOM category — INJECTING with qty=${correctQty}`);
               updatedItems.push({
