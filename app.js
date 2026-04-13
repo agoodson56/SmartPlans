@@ -7412,25 +7412,31 @@ function injectCalculatedCableQuantities(bom) {
   });
 
   // ── CATEGORY SPLITTING: Separate merged disciplines into proper categories ──
-  // AI sometimes puts Nurse Call + DAS + AV/Paging into one giant category
+  // AI sometimes puts Nurse Call + DAS + AV/Paging into one giant category.
+  // Only split categories that contain items from 2+ DIFFERENT disciplines.
   const _splitKeywords = [
-    { regex: /nurse\s*call|patient\s*station|staff\s*station|pillow\s*speak|pull\s*cord\s*station|dome\s*light|code\s*blue/i, name: 'Nurse Call Systems Materials' },
-    { regex: /\bdas\b|distributed\s*antenna|bi[\s-]*directional|bda|donor\s*antenna|errcs|coax.*cable.*plenum/i, name: 'Distributed Antenna Systems (DAS) Materials' },
+    { regex: /nurse\s*call|patient\s*station|staff\s*station|pillow\s*speak|pull\s*cord\s*station|dome\s*light|code\s*blue/i, name: 'Nurse Call Systems Materials', catTest: /nurse\s*call/i },
+    { regex: /\bdas\b|distributed\s*antenna|bi[\s-]*directional|bda|donor\s*antenna|errcs/i, name: 'Distributed Antenna Systems (DAS) Materials', catTest: /das|distributed\s*antenna/i },
   ];
-  for (let ci = 0; ci < cleanedCategories.length; ci++) {
+  const _origCatCount = cleanedCategories.length; // Don't process newly added categories
+  for (let ci = 0; ci < _origCatCount; ci++) {
     const cat = cleanedCategories[ci];
     const cn = (cat.name || '').toLowerCase();
-    // Only split categories that look merged (AV + Nurse Call, AV + DAS, etc.)
-    const hasMixed = _splitKeywords.filter(sk => (cat.items || []).some(item => sk.regex.test(item.item || item.name || ''))).length;
-    if (hasMixed < 1 || (cat.items || []).length < 3) continue;
-    // Check if items belong to different disciplines
+    // Skip categories that are ALREADY a pure discipline (e.g., "Nurse Call Systems Materials")
+    if (_splitKeywords.some(sk => sk.catTest.test(cn))) continue;
+    // Only split if this category has items from 2+ different split-keyword groups
+    const matchedGroups = _splitKeywords.filter(sk => (cat.items || []).some(item => sk.regex.test(item.item || item.name || '')));
+    if (matchedGroups.length < 1) continue;
+    // Also need items that DON'T match any split keyword (the AV/remaining items)
+    const nonMatchCount = (cat.items || []).filter(item => !_splitKeywords.some(sk => sk.regex.test(item.item || item.name || ''))).length;
+    if (nonMatchCount === 0 && matchedGroups.length <= 1) continue; // All items are one discipline — already correct
+    // Split items out
     const remainingItems = [];
     for (const item of (cat.items || [])) {
       const desc = item.item || item.name || '';
       let moved = false;
-      for (const sk of _splitKeywords) {
+      for (const sk of matchedGroups) {
         if (sk.regex.test(desc)) {
-          // Find or create the target category
           let target = cleanedCategories.find(c => c.name === sk.name);
           if (!target) {
             target = { name: sk.name, items: [], subtotal: 0 };
@@ -7439,7 +7445,7 @@ function injectCalculatedCableQuantities(bom) {
           }
           target.items.push(item);
           target.subtotal = Math.round(target.items.reduce((s, i) => s + (i.extCost || 0), 0) * 100) / 100;
-          console.log(`[CategorySplit] Moved "${desc}" from "${cat.name}" → "${sk.name}"`);
+          console.log(`[CategorySplit] Moved "${desc}" → "${sk.name}"`);
           moved = true;
           break;
         }
