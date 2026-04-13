@@ -5650,16 +5650,17 @@ function getTextLayerDeviceCounts() {
     if (!pageText || pageText.length < 50) continue;
     // Identify MDF/IDF/TR pages by content — look for rack elevation indicators
     const isMdfPage = /\b(MDF|IDF|TR|TELECOM|COMM)\b/i.test(pageText) &&
-      (/RACK\s*ELEVATION|EQUIPMENT\s*(SCHEDULE|LAYOUT|RACK)|CABINET\s*ELEVATION|RACK\s*LAYOUT|PATCH\s*PANEL/i.test(pageText)
-      || /42RU|45RU|48RU|RACK\s*UNIT|RU\b/i.test(pageText));
+      (/RACK\s*ELEVATION|EQUIPMENT\s*(SCHEDULE|LAYOUT|RACK)|CABINET\s*ELEVATION|RACK\s*LAYOUT|PATCH\s*PANEL|ENCLOSED\s*RACK|FLOOR[\s-]*MOUNT|EQUIPMENT\s*ROOM|RISER\s*DIAGRAM|RACK\s*DETAIL/i.test(pageText)
+      || /\d+\s*(?:RU|U)\b/i.test(pageText));
     if (!isMdfPage) continue;
     mdfEquipment._pages.push(pageKey);
-    // Count cabinets (enclosed racks): "42RU CABINET", "FLOOR-MOUNT CABINET", "42U CABINET"
+    // Count cabinets (enclosed racks) — broadened to catch all CAD label variants
     const cabinetMatches = pageText.match(/\b(\d+)\s*(?:RU|U)\s*(?:FLOOR[\s-]*MOUNT\s*)?CABINET/gi) || [];
     const cabinetAltMatches = pageText.match(/CABINET\s*\d+\s*(?:RU|U)/gi) || [];
-    mdfEquipment.cabinets += cabinetMatches.length + cabinetAltMatches.length;
-    // Count open frame racks: "OPEN FRAME RACK", "2-POST RACK", "4-POST RACK"
-    const rackMatches = pageText.match(/OPEN\s*FRAME\s*RACK|[24][\s-]*POST\s*RACK/gi) || [];
+    const cabinetStandalone = pageText.match(/\bENCLOSED\s*(?:EQUIPMENT\s*)?RACK\b|\bFLOOR[\s-]*MOUNT(?:ED)?\s*CABINET\b|\bSERVER\s*CABINET\b|\b4[\s-]*POST\s*ENCLOSED\b/gi) || [];
+    mdfEquipment.cabinets += cabinetMatches.length + cabinetAltMatches.length + cabinetStandalone.length;
+    // Count open frame racks — broadened to catch relay racks
+    const rackMatches = pageText.match(/OPEN\s*FRAME\s*RACK|[24][\s-]*POST\s*RACK|RELAY\s*RACK|OPEN\s*RACK|\d+\s*(?:RU|U)\s*OPEN/gi) || [];
     mdfEquipment.open_racks += rackMatches.length;
     // Count patch panels by port count
     const pp48 = pageText.match(/48[\s-]*PORT\s*(?:CAT|PATCH)/gi) || [];
@@ -6473,11 +6474,12 @@ function injectCalculatedCableQuantities(bom) {
   const fireAlarmByEC = textByOthers.includes('fire_alarm_by_ec');
   const camerasOFCI = textByOthers.includes('cameras_ofci');
 
+  // ── VA/FEDERAL IT EQUIPMENT FLAG: Network switches, NVR, VMS are owner-furnished ──
+  const _combinedProjText = `${state.projectName || ''} ${state.projectType || ''} ${state.preparedFor || ''}`.toLowerCase();
+  const isVAOrFederal = /\bva\b|veteran|vamc|federal|government|dod\b|army|navy|air\s*force/i.test(_combinedProjText);
+
   // Walk BOM categories and update cable + tray line items
-  // CRITICAL FIX: Two-tier matching prevents pathway items from being INJECTED into every discipline
-  // - isPrimaryInfraCat: tight match → Structured Cabling + MDF/IDF only → gets INJECTION of missing items
-  // - isCablingRelated: broader match → any category with cable items → only UPDATES existing line items
-  let alreadyInjectedPathway = false; // Ensure pathway items injected into at most ONE category
+  let alreadyInjectedPathway = false;
   const updatedCategories = (bom.categories || []).map(cat => {
     const catName = (cat.name || '').toLowerCase();
 
@@ -6506,6 +6508,25 @@ function injectCalculatedCableQuantities(bom) {
         console.log(`[TextLayer] Added camera install labor: ${cameraCount} cameras × ${installHrsPerCam} hrs × $${installRate}/hr = $${installCost}`);
       }
       return { ...cat, items: installItems, subtotal: installItems.reduce((s, i) => s + (i.extCost || 0), 0), _byOthersCategory: true };
+    }
+
+    // ── VA/FEDERAL IT EQUIPMENT: Remove network switches, NVR, VMS (owner-furnished) ──
+    if (isVAOrFederal) {
+      const _itEquipRegex = /network\s*switch|poe[+\s]*switch|\d+[\s-]*port\s*(managed\s*)?switch|managed\s*switch|layer\s*[23]\s*switch|\bnvr\b|video\s*management|vms\s*server|network\s*video\s*recorder/i;
+      let hadITRemoval = false;
+      const filteredItems = (cat.items || []).map(item => {
+        const desc = (item.item || item.name || '');
+        if (_itEquipRegex.test(desc) && !item._byOthersRemoved) {
+          console.log(`[TextLayer] 🚫 REMOVING "${desc}" — VA/federal: IT equipment is owner-furnished (VA OIT)`);
+          hadITRemoval = true;
+          return { ...item, qty: 0, extCost: 0, _byOthersRemoved: true };
+        }
+        return item;
+      });
+      if (hadITRemoval) {
+        const newSub = filteredItems.reduce((s, i) => s + (i.extCost || 0), 0);
+        return { ...cat, items: filteredItems, subtotal: Math.round(newSub * 100) / 100 };
+      }
     }
 
     // Primary infrastructure categories — these are the ONLY ones that get missing items injected
@@ -6973,9 +6994,11 @@ function injectCalculatedCableQuantities(bom) {
           const ppName = (ppItem.name || ppItem.item || '').toLowerCase();
           const ppPortsMatch = ppName.match(/(\d+)[\s-]*port/);
           const portsPerPanel = ppPortsMatch ? parseInt(ppPortsMatch[1]) : 48; // Default 48-port
-          // Add ~20% growth/spare capacity — standard BICSI practice for patch panel sizing
-          // This also matches typical rack elevation designs (e.g., 310 drops → 8 × 48-port = 384 ports)
-          const correctPpQty = Math.ceil((totalDrops * 1.2) / portsPerPanel);
+          // Text layer override: if rack elevation pages show exact patch panel count, use it
+          const _tlPP = pathway.textLayerCounts?.mdf_equipment;
+          const _tlPPCount = (_tlPP?.patch_panels_48 || 0) + (_tlPP?.patch_panels_24 || 0);
+          const correctPpQty = _tlPPCount > 0 ? _tlPPCount
+            : Math.ceil((totalDrops * 1.2) / portsPerPanel);
           const oldPpQty = ppItem.qty || 0;
           if (oldPpQty !== correctPpQty) {
             const uc = ppItem.unitCost || 70.00;
@@ -6997,9 +7020,12 @@ function injectCalculatedCableQuantities(bom) {
     const seen = new Map(); // key → index in deduped[]
     for (const item of updatedItems) {
       const desc = (item.item || item.name || '').trim();
-      // Skip blank/ghost items (no description)
-      if (!desc || desc.length < 2) {
-        console.log(`[CableInjection] Removing ghost item: qty=${item.qty} unit=${item.unit} cost=${item.unitCost}`);
+      // Skip blank/ghost items and table header text parsed as data
+      const _isJunk = !desc || desc.length < 2
+        || /^(description|item|qty|quantity|unit|unit\s*cost|ext|extended|total|mfg|manufacturer|part\s*#?|model|remarks?)$/i.test(desc)
+        || /\|\s*(description|part\s*#?|mfg)\s*\|/i.test(item.item || item.name || '');
+      if (_isJunk) {
+        console.log(`[CableInjection] Removing ghost/junk item: "${desc}" qty=${item.qty} unit=${item.unit} cost=${item.unitCost}`);
         continue;
       }
       // Skip items marked as "by others" (zeroed out above — don't show $0 line in BOM)
@@ -7136,6 +7162,11 @@ function injectCalculatedCableQuantities(bom) {
     const _missingDeviceInjections = [
       { count: textDeviceCounts.glass_break, regex: /glass\s*break|glassbreak/i, label: 'Acoustic Glass Break Sensor',
         category: /intrusion|security(?!\s*cam)/i, mfg: 'Honeywell', pn: 'FG-1625', unitCost: 60, unit: 'ea' },
+      // Door hardware: each card reader needs 1 strike + 1 REX — inject if missing
+      { count: textDeviceCounts.card_readers, regex: /electrified.*strike|electric.*strike|door\s*strike/i, label: 'Electrified Door Strike',
+        category: /access|door\s*hardware|security(?!\s*cam)/i, mfg: 'HES', pn: '9600-12/24-630', unitCost: 350, unit: 'ea' },
+      { count: textDeviceCounts.card_readers, regex: /rex|request.to.exit|exit.*sensor|pir.*exit/i, label: 'REX Motion Sensor (PIR)',
+        category: /access|door\s*hardware|security(?!\s*cam)/i, mfg: 'Bosch', pn: 'DS160', unitCost: 65, unit: 'ea' },
     ];
     for (const inj of _missingDeviceInjections) {
       if (!inj.count || inj.count <= 0) continue;
@@ -7151,6 +7182,13 @@ function injectCalculatedCableQuantities(bom) {
         // Find the target category and inject
         let targetCat = updatedCategories.find(c => inj.category.test(c.name || ''));
         if (!targetCat) targetCat = updatedCategories.find(c => /general|misc|other/i.test(c.name || ''));
+        // If still no target, create the appropriate category
+        if (!targetCat) {
+          const catName = /strike|rex|door/i.test(inj.label) ? 'Door Hardware / Electrified Hardware' : inj.label.split(' ')[0] + ' Materials';
+          targetCat = { name: catName, items: [], subtotal: 0 };
+          updatedCategories.push(targetCat);
+          console.log(`[TextLayer] Created new category: "${catName}"`);
+        }
         if (targetCat) {
           targetCat.items.push({
             item: inj.label, name: inj.label, mfg: inj.mfg, partNumber: inj.pn,
@@ -7259,6 +7297,29 @@ function injectCalculatedCableQuantities(bom) {
       }
     }
 
+    // ── MDF PRICE FLOORS: Ensure rack equipment prices aren't below market minimums ──
+    const _mdfPriceFloors = [
+      { regex: /cabinet|floor[\s-]*mount.*rack|enclosed\s*rack/i, minPrice: 1400 },
+      { regex: /open\s*frame|[24][\s-]*post\s*rack|relay\s*rack/i, minPrice: 480 },
+      { regex: /\bups\b|smart[\s-]*ups|uninterruptible/i, minPrice: 800 },
+    ];
+    for (const pf of _mdfPriceFloors) {
+      for (const cat of updatedCategories) {
+        const cn = (cat.name || '').toLowerCase();
+        if (!/mdf|idf|telecomm|room|tr\s*material/i.test(cn)) continue;
+        for (let i = 0; i < (cat.items || []).length; i++) {
+          const item = cat.items[i];
+          if (item._byOthersRemoved) continue;
+          const desc = (item.item || item.name || '').toLowerCase();
+          if (pf.regex.test(desc) && (item.unitCost || 0) > 0 && (item.unitCost || 0) < pf.minPrice) {
+            const oldUC = item.unitCost;
+            cat.items[i] = { ...item, unitCost: pf.minPrice, extCost: Math.round((item.qty || 0) * pf.minPrice * 100) / 100, _priceFloored: true };
+            console.log(`[TextLayer] MDF price floor: "${item.item || item.name}" $${oldUC} → $${pf.minPrice} (market minimum)`);
+          }
+        }
+      }
+    }
+
     // Recalculate subtotals after text layer corrections
     for (const cat of updatedCategories) {
       if (cat.items && cat.items.some(i => i._textLayerCorrected)) {
@@ -7318,8 +7379,11 @@ function injectCalculatedCableQuantities(bom) {
     const seenGlobal = new Map();
     for (const item of (cat.items || [])) {
       const desc = (item.item || item.name || '').trim();
-      if (!desc || desc.length < 2) {
-        console.log(`[BOM Cleanup] Removing ghost item from "${cat.name}": qty=${item.qty} unit=${item.unit} cost=$${item.unitCost}`);
+      const _isJunkG = !desc || desc.length < 2
+        || /^(description|item|qty|quantity|unit|unit\s*cost|ext|extended|total|mfg|manufacturer|part\s*#?|model|remarks?)$/i.test(desc)
+        || /\|\s*(description|part\s*#?|mfg)\s*\|/i.test(item.item || item.name || '');
+      if (_isJunkG) {
+        console.log(`[BOM Cleanup] Removing ghost/junk item from "${cat.name}": "${desc}" qty=${item.qty}`);
         continue;
       }
       const partNo = (item.partNumber || '').trim();
@@ -7346,6 +7410,46 @@ function injectCalculatedCableQuantities(bom) {
     }
     return cat;
   });
+
+  // ── CATEGORY SPLITTING: Separate merged disciplines into proper categories ──
+  // AI sometimes puts Nurse Call + DAS + AV/Paging into one giant category
+  const _splitKeywords = [
+    { regex: /nurse\s*call|patient\s*station|staff\s*station|pillow\s*speak|pull\s*cord\s*station|dome\s*light|code\s*blue/i, name: 'Nurse Call Systems Materials' },
+    { regex: /\bdas\b|distributed\s*antenna|bi[\s-]*directional|bda|donor\s*antenna|errcs|coax.*cable.*plenum/i, name: 'Distributed Antenna Systems (DAS) Materials' },
+  ];
+  for (let ci = 0; ci < cleanedCategories.length; ci++) {
+    const cat = cleanedCategories[ci];
+    const cn = (cat.name || '').toLowerCase();
+    // Only split categories that look merged (AV + Nurse Call, AV + DAS, etc.)
+    const hasMixed = _splitKeywords.filter(sk => (cat.items || []).some(item => sk.regex.test(item.item || item.name || ''))).length;
+    if (hasMixed < 1 || (cat.items || []).length < 3) continue;
+    // Check if items belong to different disciplines
+    const remainingItems = [];
+    for (const item of (cat.items || [])) {
+      const desc = item.item || item.name || '';
+      let moved = false;
+      for (const sk of _splitKeywords) {
+        if (sk.regex.test(desc)) {
+          // Find or create the target category
+          let target = cleanedCategories.find(c => c.name === sk.name);
+          if (!target) {
+            target = { name: sk.name, items: [], subtotal: 0 };
+            cleanedCategories.push(target);
+            console.log(`[CategorySplit] Created new category: "${sk.name}"`);
+          }
+          target.items.push(item);
+          target.subtotal = Math.round(target.items.reduce((s, i) => s + (i.extCost || 0), 0) * 100) / 100;
+          console.log(`[CategorySplit] Moved "${desc}" from "${cat.name}" → "${sk.name}"`);
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) remainingItems.push(item);
+    }
+    if (remainingItems.length < (cat.items || []).length) {
+      cleanedCategories[ci] = { ...cat, items: remainingItems, subtotal: Math.round(remainingItems.reduce((s, i) => s + (i.extCost || 0), 0) * 100) / 100 };
+    }
+  }
 
   // ── RECOMMENDED ADDITIONS: Items needed for complete working systems ──
   // These are items the plans require but the AI may not have included.
