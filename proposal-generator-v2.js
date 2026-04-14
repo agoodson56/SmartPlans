@@ -232,33 +232,85 @@
         },
 
         // Generic Gemini call wrapper — reuses the existing AI engine's API key + endpoint
+        /**
+         * Call Gemini via the /api/ai/invoke SSE proxy (the ONLY working endpoint).
+         * v5.125.1: previous version called /api/gemini which does not exist (404/405).
+         * This matches the exact pattern used by export-engine.js and ai-engine.js.
+         */
         async _callProposalBrain(prompt, label, maxTokens = 8192) {
-            // Prefer the existing SmartBrains pipeline if available
-            if (typeof SmartBrains !== 'undefined' && typeof SmartBrains._callGemini === 'function') {
-                try {
-                    const resp = await SmartBrains._callGemini(prompt, { maxTokens, useProModel: true, brainLabel: label });
-                    return resp || '';
-                } catch (e) {
-                    console.warn(`[ProposalGen v2] SmartBrains call failed for ${label}:`, e.message);
-                }
-            }
-            // Fallback: direct fetch to /api/gemini (same endpoint legacy proposal uses)
+            const requestBody = {
+                contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
+                generationConfig: {
+                    temperature: 0.55,
+                    maxOutputTokens: maxTokens,
+                    topP: 0.95,
+                    topK: 40,
+                },
+                _model: 'gemini-2.5-pro',
+                _brainSlot: Math.floor(Math.random() * 18),
+            };
+
             try {
-                const requestBody = {
-                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.55, maxOutputTokens: maxTokens, topP: 0.95, topK: 40 },
-                };
-                const r = await fetch('/api/gemini', {
+                const controller = new AbortController();
+                const timeoutMs = 180000; // 3 min per section — proposals are shorter than Wave 1 brains
+                const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+                const response = await fetch('/api/ai/invoke', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Gemini-Model': 'gemini-2.5-pro' },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(requestBody),
+                    signal: controller.signal,
                 });
-                if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                const data = await r.json();
-                const parts = data?.candidates?.[0]?.content?.parts || [];
-                return parts.filter(p => p.text && !p.thought).map(p => p.text).join('\n') || '';
+
+                if (!response.ok) {
+                    clearTimeout(timeout);
+                    const errText = await response.text().catch(() => '');
+                    throw new Error(`HTTP ${response.status} ${response.statusText}: ${errText.substring(0, 200)}`);
+                }
+
+                // Parse SSE stream — same pattern as export-engine.js:3004+
+                let fullText = '';
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                // Idle guard: abort if no data for 60 seconds
+                let idleTimer = setTimeout(() => controller.abort(), 60000);
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    clearTimeout(idleTimer);
+                    if (done) break;
+                    idleTimer = setTimeout(() => controller.abort(), 60000);
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // keep last (possibly incomplete) line
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        try {
+                            const parsed = JSON.parse(line.substring(6));
+                            if (parsed._proxyError) {
+                                throw new Error('Proxy error: ' + (parsed.message || 'unknown'));
+                            }
+                            const parts = parsed?.candidates?.[0]?.content?.parts || [];
+                            for (const p of parts) {
+                                if (p.text && !p.thought) fullText += p.text;
+                            }
+                        } catch (e) {
+                            // skip unparseable SSE lines (keepalives, blanks)
+                        }
+                    }
+                }
+                clearTimeout(timeout);
+
+                if (!fullText || fullText.length < 50) {
+                    console.warn(`[ProposalGen v2] ${label}: empty response from Gemini (length=${fullText.length})`);
+                    return '';
+                }
+                return fullText;
             } catch (e) {
-                console.error(`[ProposalGen v2] Direct call failed for ${label}:`, e.message);
+                console.error(`[ProposalGen v2] ${label} call failed:`, e.message);
                 return '';
             }
         },

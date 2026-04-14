@@ -4833,9 +4833,39 @@ function renderStep1(container) {
 function renderStep2(container) {
   const discList = state.disciplines.length > 0 ? state.disciplines.join(", ") : "all disciplines";
 
+  // v5.125.1: Show a banner when the user got here via the "Fix Missing Sheets" button
+  const fixBanner = state._fixMissingSheetsBanner;
+  const fixBannerHtml = (fixBanner && Array.isArray(fixBanner.hints) && fixBanner.hints.length > 0) ? `
+    <div class="info-card" style="border-left:4px solid #EBB328;background:linear-gradient(135deg,rgba(235,179,40,0.10),rgba(235,179,40,0.02));margin-bottom:18px;">
+      <div style="padding:18px 22px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+          <span style="font-size:28px;">⚡</span>
+          <div>
+            <div style="font-size:16px;font-weight:800;color:#0F2942;">Fix Missing Sheets Before Re-Running</div>
+            <div style="font-size:12px;color:rgba(0,0,0,0.60);margin-top:2px;">Your last analysis found zero devices for ${fixBanner.disciplines.length} discipline${fixBanner.disciplines.length === 1 ? '' : 's'}. Upload the missing sheet${fixBanner.disciplines.length === 1 ? '' : 's'} below, then click Start Analysis.</div>
+          </div>
+        </div>
+        <div style="background:#ffffff;border:1px solid #E5E7EB;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#C99518;font-weight:800;margin-bottom:8px;">Likely sheet${fixBanner.disciplines.length === 1 ? '' : 's'} to look for</div>
+          ${fixBanner.hints.map(h => `
+            <div style="display:flex;gap:12px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.05);font-size:12px;">
+              <div style="min-width:180px;font-weight:700;color:#237078;">${esc(h.discipline)}</div>
+              <div style="color:rgba(0,0,0,0.70);">${esc(h.hint)}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:rgba(0,0,0,0.55);">
+          ℹ&nbsp; You do not need to re-upload sheets that already counted correctly — SmartPlans will merge the new sheet(s) into the existing scan.
+        </div>
+      </div>
+    </div>
+  ` : '';
+
   container.innerHTML = `
     <h2 class="step-heading">Upload Floor Plans</h2>
     <p class="step-subheading">Upload your drawing sheets. For best results, each sheet should be a separate file or a separate page in a multi-page PDF.</p>
+
+    ${fixBannerHtml}
 
     <div class="info-card info-card--sky">
       <div class="info-card-title">Upload Tips for Best Accuracy</div>
@@ -9212,8 +9242,10 @@ function renderStep7(container) {
   async function loadSupplierQuotes() {
     if (!state.estimateId) return;
     try {
+      // v5.125.1: use authHeaders() so BOTH session token and app token are sent.
+      // Previously only X-App-Token was sent, so session-authenticated users got 401.
       const resp = await fetch(`/api/estimates/${state.estimateId}/supplier-quotes`, {
-        headers: { "X-App-Token": _appToken },
+        headers: authHeaders(),
       });
       if (resp.ok) {
         const data = await resp.json();
@@ -11963,10 +11995,10 @@ async function runGeminiAnalysis(updateProgress) {
               <p style="margin:0 0 20px;color:#e2e8f0;font-size:14px;line-height:1.5;">The AI found ${highPriority.length} ambiguit${highPriority.length === 1 ? 'y' : 'ies'} that could affect accuracy. Your input helps SmartPlans get closer to 100%.</p>
               ${highPriority.map((q, i) => `
                 <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;margin-bottom:14px;">
-                  <div style="font-size:11px;color:#38bdf8;margin-bottom:8px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">${q.category || 'Question'}</div>
-                  <div style="color:#ffffff;font-size:15px;line-height:1.55;margin-bottom:14px;font-weight:500;">${q.question || ''}</div>
+                  <div style="font-size:11px;color:#38bdf8;margin-bottom:8px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">${esc(q.category || 'Question')}</div>
+                  <div style="color:#ffffff;font-size:15px;line-height:1.55;margin-bottom:14px;font-weight:500;">${esc(q.question || '')}</div>
                   <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                    ${(q.options || []).map((opt) => `<button class="clarify-option" data-qid="${q.id}" data-val="${String(opt).replace(/"/g, '&quot;')}" style="padding:10px 16px;border-radius:8px;border:2px solid #475569;background:#0f172a;color:#ffffff;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.15s;">${opt}</button>`).join('')}
+                    ${(q.options || []).map((opt) => `<button class="clarify-option" data-qid="${esc(q.id || '')}" data-val="${esc(String(opt || ''))}" style="padding:10px 16px;border-radius:8px;border:2px solid #475569;background:#0f172a;color:#ffffff;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.15s;">${esc(String(opt || ''))}</button>`).join('')}
                   </div>
                 </div>
               `).join('')}
@@ -12037,6 +12069,9 @@ async function runGeminiAnalysis(updateProgress) {
     state._confidenceScoring = result.confidenceScoring || null;
     state._quantitiesUnverified = result.quantitiesUnverified || false;
     state._quantitiesUnverifiedReason = result.quantitiesUnverifiedReason || '';
+    // v5.125.1: per-discipline coverage
+    state._disciplineCoverageGaps = result.disciplineCoverageGaps || [];
+    state._disciplineCoverageDetail = result.disciplineCoverageDetail || {};
     // v5.124.5: new brain state hydration
     state._prevailingWageDetection = result.prevailingWageDetection || null;
     state._prevailingWageRequired = result.prevailingWageRequired || false;
@@ -13488,6 +13523,76 @@ async function generateCompleteBidPackage() {
   }
 }
 
+/**
+ * v5.125.1: Fix Missing Sheets escape hatch.
+ * When the per-discipline coverage guard fires, this jumps the estimator
+ * back to the plans-upload step with a banner showing which disciplines
+ * came back empty so they know exactly what sheets to upload.
+ */
+function fixMissingSheets() {
+  const gaps = Array.isArray(state._disciplineCoverageGaps) ? state._disciplineCoverageGaps : [];
+  if (gaps.length === 0) {
+    spToast('No coverage gaps to fix', 'info');
+    return;
+  }
+
+  // Map discipline names to expected sheet-prefix hints
+  const SHEET_HINTS = {
+    'Fire Alarm': 'FA-1.0, FA-2.0, FA-1.1 (fire alarm floor plans + riser)',
+    'Nurse Call Systems': 'NC-1.0 or nurse call annotations on architectural A-1.x sheets',
+    'Distributed Antenna Systems (DAS)': 'DAS-1.0 or DAS coverage plan (often on telecom T-1.x sheets)',
+    'CCTV': 'T-1.x, ES-1.x, or security floor plans',
+    'Access Control': 'T-1.x, ES-1.x, or A-6xx door schedule + door hardware spec 08 71 00',
+    'Structured Cabling': 'T-1.x telecom floor plans',
+    'Audio Visual': 'AV-1.0 or AV symbols on architectural sheets',
+    'Paging / Intercom': 'PA-1.0 or paging symbols on telecom/architectural sheets',
+    'Intrusion Detection': 'IN-1.0 or intrusion symbols on security sheets',
+    'Door Hardware / Electrified Hardware': 'A-6xx door schedule',
+  };
+
+  // Store the gap list + hints so the upload step can render a banner
+  state._fixMissingSheetsBanner = {
+    disciplines: gaps,
+    hints: gaps.map(g => ({ discipline: g, hint: SHEET_HINTS[g] || 'plans for this discipline' })),
+    createdAt: Date.now(),
+  };
+
+  // Jump to Step 2 (Plans Upload) without wiping existing uploads
+  state.currentStep = 2;
+  render();
+
+  // Scroll to top and flash the banner
+  setTimeout(() => {
+    const main = document.getElementById('step-content');
+    if (main) main.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    spToast(`Jumped to upload step — drop the missing ${gaps.join(', ')} sheet(s) and click Start Analysis again`, 'info');
+  }, 50);
+}
+
+/**
+ * v5.125.1: Remove zero-coverage disciplines from scope escape hatch.
+ * Alternative path — if Fire Alarm genuinely isn't in scope, strip it
+ * from state.disciplines and re-render the Results page. Does NOT
+ * trigger a new analysis run (the existing BOM just hides those
+ * line items).
+ */
+function removeZeroDisciplines() {
+  const gaps = Array.isArray(state._disciplineCoverageGaps) ? state._disciplineCoverageGaps : [];
+  if (gaps.length === 0) return;
+
+  const msg = `Remove ${gaps.join(', ')} from this bid's scope?\n\nThis will NOT re-run the analysis — it just hides those disciplines from the BOM and proposal. If you later realize they ARE in scope, you'll need to re-run.`;
+  if (!confirm(msg)) return;
+
+  state.disciplines = (state.disciplines || []).filter(d => !gaps.includes(d));
+  state._disciplineCoverageGaps = [];
+  // Also clear the detail so the card goes away
+  if (state._disciplineCoverageDetail) {
+    for (const g of gaps) delete state._disciplineCoverageDetail[g];
+  }
+  spToast(`Removed ${gaps.length} discipline${gaps.length === 1 ? '' : 's'} from scope`, 'success');
+  render();
+}
+
 async function showSavedEstimates() {
   closeSavedPanel();
 
@@ -14167,7 +14272,8 @@ async function _loadBenchmarks() {
   var now = Date.now();
   if (_benchmarkCache && (now - _benchmarkCacheTime) < BENCHMARK_CACHE_TTL) return _benchmarkCache;
   try {
-    var res = await fetchWithRetry('/api/benchmarks', { _timeout: 30000 }, 2);
+    // v5.125.1: include authHeaders so session-authenticated users don't get 401
+    var res = await fetchWithRetry('/api/benchmarks', { headers: authHeaders(), _timeout: 30000 }, 2);
     var data = await res.json();
     if (!data.error && data.benchmarks) {
       _benchmarkCache = {};
@@ -16132,6 +16238,58 @@ function buildMathAuditorCard(st) {
 // Aggregates every flag, gap, anomaly, dispute, and low-confidence item into a single
 // prioritized action list. This is the "last 10%" — the things only a human can verify.
 function buildEstimatorChecklistCard(st) {
+  // ═══ BLOCKING ROOT-CAUSE CARD #2 (v5.125.1): Per-Discipline Coverage Gap ═══
+  // One or more selected disciplines came back with zero device counts.
+  // Most common cause: the estimator uploaded T/E sheets but forgot FA-1.0
+  // (or equivalent for their missing discipline). Without this warning the
+  // BOM silently shows $0 for that trade and the estimator submits a bid
+  // missing an entire discipline.
+  const gaps = Array.isArray(st._disciplineCoverageGaps) ? st._disciplineCoverageGaps : [];
+  if (gaps.length > 0 && !st._quantitiesUnverified) {
+    const detail = st._disciplineCoverageDetail || {};
+    const coveredDisciplines = Object.keys(detail).filter(d => (detail[d]?.count || 0) > 0);
+    return `
+      <div class="card" style="margin-top:16px;border:2px solid #ef4444;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(239,68,68,0.02));">
+        <div style="padding:20px;">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+            <span style="font-size:32px;">⛔</span>
+            <div>
+              <div style="font-size:18px;font-weight:800;color:#ef4444;">${gaps.length} Discipline${gaps.length === 1 ? '' : 's'} Came Back Empty — Fix Before Submitting</div>
+              <div style="font-size:13px;color:rgba(0,0,0,0.65);margin-top:2px;">Material and labor for ${gaps.length === 1 ? 'this trade' : 'these trades'} will show as $0 in the BOM until you fix this.</div>
+            </div>
+          </div>
+          <div style="padding:12px 14px;background:rgba(239,68,68,0.06);border-left:3px solid #ef4444;border-radius:6px;margin-bottom:14px;font-size:13px;line-height:1.5;color:rgba(0,0,0,0.80);">
+            <div style="font-weight:700;margin-bottom:6px;">Zero-count disciplines:</div>
+            <ul style="margin:0;padding-left:20px;">
+              ${gaps.map(d => `<li><strong>${esc(d)}</strong> — 0 devices found</li>`).join('')}
+            </ul>
+          </div>
+          ${coveredDisciplines.length > 0 ? `
+          <div style="padding:10px 12px;background:rgba(16,185,129,0.06);border-left:3px solid #10b981;border-radius:6px;margin-bottom:14px;font-size:12px;color:rgba(0,0,0,0.70);">
+            <strong>Disciplines that DID produce counts:</strong> ${coveredDisciplines.map(d => `${esc(d)} (${detail[d].count})`).join(', ')}
+          </div>` : ''}
+          <div style="font-size:13px;font-weight:700;color:rgba(0,0,0,0.80);margin-bottom:8px;">Most likely cause:</div>
+          <ol style="margin:0 0 12px 18px;padding:0;font-size:13px;line-height:1.7;color:rgba(0,0,0,0.75);">
+            <li>The plan sheet for ${gaps.length === 1 ? 'this discipline' : 'these disciplines'} was <strong>not uploaded</strong>. Examples: Fire Alarm → FA-1.0; Nurse Call → NC-1.0 or on architectural sheets; DAS → on telecom sheets.</li>
+            <li>Symbols on the uploaded sheets were <strong>not recognized</strong> by the legend decoder — check the legend sheet for missing symbol definitions.</li>
+            <li>The discipline is actually <strong>out of scope</strong> — remove it from your discipline list before re-running.</li>
+          </ol>
+          <div style="padding:10px 12px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:6px;font-size:12px;color:rgba(0,0,0,0.70);margin-bottom:14px;">
+            <strong>How to fix:</strong> Click the button below — SmartPlans will jump you to Step 2 and pre-filter the upload drop zone to accept ONLY the missing sheets. Drop the new PDF(s) and click Re-Run. You will not have to re-upload the sheets that already counted correctly — SmartPlans will merge the new sheets with your existing scan and update just the zero-count disciplines.
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button data-action="fix-missing-sheets" style="padding:10px 20px;border:none;border-radius:8px;background:linear-gradient(135deg,#EBB328,#C99518);color:#0F2942;font-weight:800;font-size:13px;letter-spacing:0.5px;cursor:pointer;box-shadow:0 4px 12px rgba(235,179,40,0.3);">
+              ⚡ Fix Missing Sheets & Re-Run
+            </button>
+            <button data-action="remove-zero-disciplines" style="padding:10px 20px;border:1px solid #64748b;background:#ffffff;color:#475569;font-weight:700;font-size:13px;cursor:pointer;border-radius:8px;">
+              Remove ${gaps.length === 1 ? 'This Discipline' : 'These Disciplines'} from Scope
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   // ═══ BLOCKING ROOT-CAUSE CARD ═══
   // When the Symbol Scanner never saw real device data, every downstream finding
   // is built on guessed quantities. Show a single red card explaining what to do
@@ -18085,6 +18243,12 @@ document.addEventListener("DOMContentLoaded", async () => {
           break;
         case 'generate-complete-bid-package':
           generateCompleteBidPackage();
+          break;
+        case 'fix-missing-sheets':
+          fixMissingSheets();
+          break;
+        case 'remove-zero-disciplines':
+          removeZeroDisciplines();
           break;
       }
     });

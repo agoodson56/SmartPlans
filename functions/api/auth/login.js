@@ -8,12 +8,19 @@ import { isAllowedOrigin, timingSafeCompare } from '../../_shared/cors.js';
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_SEC = 300;
 
-// ─── Always-Admin List ──────────────────────────────────────────
+// ─── Admin Recovery List (v5.125.1) ─────────────────────────────
 // Emails in this list are auto-promoted to admin + activated on
-// every successful login, regardless of their current DB flag.
-// This is the permanent recovery path for the SmartPlans owner.
-// Entries are lowercased and compared case-insensitively.
-const ALWAYS_ADMIN_EMAILS = new Set([
+// successful login — BUT ONLY when env.ADMIN_RECOVERY_MODE === 'true'.
+//
+// Default state: gate is CLOSED. Auto-promotion is INERT.
+// To use: set ADMIN_RECOVERY_MODE=true in Cloudflare Pages → Variables
+//         and Secrets, log in once, then clear the variable.
+//
+// Security rationale: a hardcoded list without a kill switch is a
+// one-footgun-waiting-to-fire if a 3dtsi.com email is ever compromised.
+// Gating behind an env var gives the owner a manual shutoff they control
+// entirely from the Cloudflare dashboard — no code push needed to disable.
+const ADMIN_RECOVERY_EMAILS = new Set([
     'agoodson@3dtsi.com',
 ]);
 
@@ -100,23 +107,28 @@ export async function onRequestPost(context) {
         // Clear rate limit on success
         try { await env.DB.prepare("DELETE FROM rate_limits WHERE key = ?").bind(`login_fail:${ip}`).run(); } catch {}
 
-        // ─── Always-Admin auto-promotion (v5.125.1) ─────────────
-        // If this email is in the ALWAYS_ADMIN_EMAILS list, force
-        // is_admin=1 and is_active=1 in the DB, then reflect that
-        // in the in-memory user row so the response returns admin.
-        if (ALWAYS_ADMIN_EMAILS.has(email)) {
+        // ─── Admin Recovery Auto-Promotion (v5.125.1) ────────────
+        // Only fires when BOTH conditions are met:
+        //   (1) ADMIN_RECOVERY_MODE === 'true' in Cloudflare env
+        //   (2) Email is in the hardcoded ADMIN_RECOVERY_EMAILS set
+        // The env var is the kill switch — when clear, this block is inert.
+        const recoveryModeOn = env.ADMIN_RECOVERY_MODE === 'true';
+        if (recoveryModeOn && ADMIN_RECOVERY_EMAILS.has(email)) {
             if (!user.is_admin || !user.is_active) {
                 try {
                     await env.DB.prepare(
                         "UPDATE user_accounts SET is_admin = 1, is_active = 1 WHERE id = ?"
                     ).bind(user.id).run();
-                    console.log(`[Auth] Auto-promoted ${email} to admin via ALWAYS_ADMIN_EMAILS`);
+                    console.log(`[Auth] 🔓 Admin recovery: promoted ${email} (ADMIN_RECOVERY_MODE=true)`);
                 } catch (e) {
-                    console.warn('[Auth] Auto-promote DB update failed:', e.message);
+                    console.warn('[Auth] Recovery auto-promote DB update failed:', e.message);
                 }
             }
             user.is_admin = 1;
             user.is_active = 1;
+        } else if (!recoveryModeOn && ADMIN_RECOVERY_EMAILS.has(email)) {
+            // Log (but do not act) so the owner can verify the gate is holding
+            console.log(`[Auth] Admin recovery list matched ${email} but ADMIN_RECOVERY_MODE is OFF — no action`);
         }
 
         // Update last_login

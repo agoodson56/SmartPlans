@@ -3714,6 +3714,45 @@ Each item MUST have ALL of these fields:
 
         const bp = context._buildingProfile || {};
 
+        // ─── v5.125.1 PHASE 0.2: Discipline Zero-Count Gap Block ───
+        // The Per-Discipline Coverage Guard runs after Wave 1 and populates
+        // context._disciplineCoverageGaps with disciplines that have zero
+        // device counts. Material Pricer MUST see this BEFORE generating
+        // any line items so it doesn't hallucinate design-build allowances.
+        const zeroGaps = Array.isArray(context._disciplineCoverageGaps) ? context._disciplineCoverageGaps : [];
+        const zeroBlock = zeroGaps.length > 0 ? `
+
+═══ 🚨 ZERO-COUNT DISCIPLINE GAPS (v5.125.1 — HIGHEST PRIORITY) 🚨 ═══
+The Per-Discipline Coverage Guard detected that the following selected disciplines have ZERO device counts from Symbol Scanner:
+
+${zeroGaps.map(d => `  ⛔ ${d}`).join('\n')}
+
+ROOT CAUSE: The estimator most likely did not upload the plan sheet for that discipline (e.g., FA-1.0 for Fire Alarm, NC-1.0 for Nurse Call, DAS-1.0 for DAS). The symbols may also have been unrecognized if the legend didn't match them.
+
+YOUR HARD RULES FOR THESE DISCIPLINES:
+1. DO NOT create ANY line items for these disciplines. Not a single one.
+2. DO NOT output a "design-build allowance", "headend allowance", "lump sum", "system allowance", or any placeholder. These look legitimate in the BOM and hide the failure.
+3. DO NOT use unit="ls" or unit="lot" with qty=1 and a non-zero cost for these disciplines. That is the exact pattern that produced the $15,000 Nurse Call and $25,000 DAS bugs in v5.124.5. It is FORBIDDEN.
+4. Instead, add EXACTLY ONE honest warning item per zero-count discipline with this structure:
+   {
+     "item": "[${zeroGaps.length === 1 ? zeroGaps[0] : 'Discipline'}] — NO DEVICE COUNT — Upload missing plan sheet and re-run",
+     "qty": 0,
+     "unit": "ea",
+     "unit_cost": 0,
+     "ext_cost": 0,
+     "category": "<discipline name>",
+     "_zero_count_warning": true,
+     "notes": "Symbol Scanner returned zero devices for this discipline. Estimator must upload the missing plan sheet before submitting the bid."
+   }
+5. Add a top-level field "zero_count_disciplines" to your JSON output that lists every discipline you treated this way:
+   "zero_count_disciplines": ${JSON.stringify(zeroGaps)}
+
+WHY THIS MATTERS: An honest $0 warning line is infinitely better than a plausible-looking $15,000 allowance. The estimator can SEE the gap and upload the missing sheet. The plausible allowance ships a $100k-light bid to the client.
+
+FAILURE TO FOLLOW THESE RULES WILL BE DETECTED BY THE POST-PRICER VALIDATOR AND THE ENTIRE BID WILL BE REJECTED.
+
+` : '';
+
         // v5.124.5: Pull scope delineations so the Pricer removes OFOI material cost
         const ofoi = Array.isArray(context._ofoiDeviceTypes) ? context._ofoiDeviceTypes : [];
         const nic = Array.isArray(context._nicDeviceTypes) ? context._nicDeviceTypes : [];
@@ -4487,6 +4526,29 @@ This is the HIGHEST PRIORITY rule in this entire prompt. It overrides everything
    use those EXACT products in your BOM — do NOT substitute generic or default products.
    The architect specified these products for a reason (compatibility, VA standards, spec compliance).
 
+═══ ZERO-COUNT HONESTY RULE (v5.125.1 — CRITICAL) ═══
+If the Symbol Scanner returns 0 device counts for a discipline that IS in the selected discipline list (shown above), you have TWO options — and ONLY two:
+
+OPTION A — The discipline is genuinely out of scope:
+  Emit ZERO line items for that discipline. Do not create any placeholder, allowance, or lump-sum items.
+
+OPTION B — The Symbol Scanner failed to count devices that actually exist:
+  Emit EXACTLY ONE line item with this EXACT format:
+    {
+      "item": "[DISCIPLINE NAME] — NO DEVICE COUNT AVAILABLE — Upload missing sheet and re-run",
+      "qty": 0,
+      "unit": "ea",
+      "unit_cost": 0,
+      "ext_cost": 0,
+      "category": "<discipline>",
+      "_zero_count_warning": true,
+      "notes": "Symbol Scanner returned 0 devices for this discipline. Likely the plan sheet was not uploaded. Fix before submitting bid."
+    }
+
+FORBIDDEN: Do NOT output design-build allowances, lump-sum placeholders, or "Headend & Devices Allowance" fallbacks for selected disciplines with zero counts. These allowances LOOK legitimate in the BOM and HIDE the fact that SmartPlans has no real data. The estimator will submit a bid with a $15,000 nurse call allowance when the actual scope is $80,000 — and lose money.
+
+The ONLY acceptable allowance is one the estimator explicitly requested. If you are tempted to emit an allowance, STOP and use Option B instead.
+
 ═══ WASTE FACTOR, SPARE PARTS & CONSUMABLES ═══
 You MUST add these to your output — they are REAL costs that every project incurs:
 1. CABLE WASTE FACTOR: Add 12% to all cable quantities. Cable gets cut, pulled wrong, rejected, damaged. Price the waste.
@@ -4664,8 +4726,11 @@ CRITICAL RULES:
 2. If Material Pricer has 24 cameras, your labor must cover EXACTLY 24 cameras
 3. If Material Pricer has 21 card readers, your labor must cover EXACTLY 21 doors
 4. ONLY include labor for categories that the Material Pricer actually priced
-5. If a discipline is ABSENT from the Material Pricer output (because scope exclusions removed it), do NOT add labor for it
-6. If consensus shows 0 fire alarm devices, do NOT add fire alarm labor
+5. If a discipline is ABSENT from the Material Pricer output (because scope exclusions EXPLICITLY removed it — e.g., spec says "fire alarm by electrical contractor"), do NOT add labor for it
+6. NUANCED ZERO-COUNT RULE (v5.125.1 update):
+   - If consensus shows 0 devices for a discipline AND the discipline is NOT in the estimator's selected discipline list → do not add labor (it is genuinely out of scope)
+   - If consensus shows 0 devices for a discipline that IS in the selected discipline list → STILL do not add labor, BUT output a top-level warning field "suspicious_zero_disciplines": ["Fire Alarm"] so the downstream Estimator Checklist can alert the user that the counts are missing, not that the scope is excluded
+   - The selected discipline list for THIS bid is: ${JSON.stringify(context.disciplines || [])}
 7. You MUST include conduit installation labor if Special Conditions or Cable Pathway shows conduit runs
 8. Apply shift differential if work shift is not Standard
 9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
@@ -8849,6 +8914,121 @@ ${legendContext}
       console.warn('[SmartBrains] Quantities-verified guard errored (non-fatal):', e.message);
     }
 
+    // ═══ POST-WAVE 1 (v5.125.1): Per-Discipline Coverage Guard ═══
+    // The global quantities-verified guard above catches "scanner processed
+    // zero sheets" and "scanner found zero devices overall." It does NOT
+    // catch the subtler failure where some selected disciplines have real
+    // counts but one discipline (e.g., Fire Alarm) has zero — which happens
+    // when the user forgot to upload the FA-1.0 sheet but uploaded T/E sheets.
+    //
+    // Without this guard the Material Pricer silently emits $0 line items
+    // and the Labor Calculator's "If consensus shows 0 fire alarm devices,
+    // do NOT add fire alarm labor" rule zeroes out the labor for that
+    // discipline too — producing a bid that is missing an entire trade
+    // with no warning to the estimator.
+    //
+    // This guard runs per-discipline, tallies device counts by matching
+    // symbol-scanner totals against discipline keyword sets, and flags any
+    // selected discipline that came back empty.
+    try {
+      const selectedDisciplines = Array.isArray(state.disciplines) ? state.disciplines : [];
+      if (selectedDisciplines.length > 0 && !context._quantitiesUnverified) {
+        const totals = wave1Results.SYMBOL_SCANNER?.totals || {};
+        const outletBreakdown = wave1Results.SYMBOL_SCANNER?.outlet_breakdown || {};
+
+        // Map each selected discipline to keyword regex patterns that match
+        // device-type keys the scanner might return. These are intentionally
+        // generous — we would rather over-match (and accept a real discipline
+        // as "covered") than under-match (and false-alarm the estimator).
+        //
+        // NOTE on cross-matches: some keys match multiple disciplines (e.g.
+        // door_contact matches both Access Control and Intrusion Detection).
+        // That is INTENTIONAL — we want any discipline that has related
+        // devices to count as "covered", not false-alarm.
+        const DISCIPLINE_KEYS = {
+          'Structured Cabling':    /data|outlet|cat6|cat\s*6|jack|keystone|patch|faceplate|\bdrop\b|wap|wireless|fiber|backbone/i,
+          'CCTV':                  /camera|cctv|surveillance|ptz|dome\s*cam|bullet\s*cam|nvr|vms/i,
+          'Access Control':        /reader|card_reader|\bcr\b|\brex\b|request_to_exit|electric_strike|mag_lock|maglock|door_contact|\bdps\b|ac_controller|access_control|intercom.*door/i,
+          'Audio Visual':          /display|projector|av_wall|hdmi|av_outlet|crestron|extron|biamp|tv_mount|signage|boardroom|digital_signage/i,
+          'Paging / Intercom':     /ceiling_speaker|\bspeaker\b|amplifier|paging|intercom|pa_system|pa_amplifier|mass_notif/i,
+          'Fire Alarm':            /smoke|heat_detect|heat_det|pull_station|\bfacp\b|\bfa_|fire_alarm|horn_strobe|\bstrobe\b|duct_det|notification_appliance|\bnac\b|\bslc\b|annunciator|signaling|mini_horn|bell\b/i,
+          'Nurse Call Systems':    /nurse_call|nurse|patient_station|dome_light|pull_cord|bathroom_pull|code_blue|master_station|staff_call|\bnc_|pillow_speaker|corridor_light|staff_station/i,
+          'Distributed Antenna Systems (DAS)': /\bdas_|\bdas\b|antenna|\bbda\b|donor|radiator|\bddf\b|coax.*rf|remote_unit|dr_unit|\bnode\b|splitter/i,
+          'Intrusion Detection':   /motion_detect|pir_detect|glass_break|glassbreak|keypad|siren|intrusion|burglar|door_contact|window_contact|panic_button/i,
+          'Door Hardware / Electrified Hardware': /electric_strike|mag_lock|maglock|door_position|\bdps\b|\brex\b|auto_operator|delayed_egress|hold_open/i,
+          'General Requirements / Conditions': /.+/,  // always matches — this discipline is metadata, not devices
+        };
+
+        // Tally device counts per discipline
+        const disciplineCounts = {};
+        const zeroDisciplines = [];
+
+        for (const disc of selectedDisciplines) {
+          const pattern = DISCIPLINE_KEYS[disc];
+          if (!pattern) {
+            disciplineCounts[disc] = { count: 0, checked: false, reason: 'no keyword pattern' };
+            continue;
+          }
+
+          let count = 0;
+          const matchedKeys = [];
+          for (const [key, val] of Object.entries(totals)) {
+            if (pattern.test(key)) {
+              const n = typeof val === 'object' ? (val.consensus || val.count || val.total || 0) : (parseInt(val) || 0);
+              if (n > 0) {
+                count += n;
+                matchedKeys.push(`${key}=${n}`);
+              }
+            }
+          }
+          for (const [key, val] of Object.entries(outletBreakdown)) {
+            if (pattern.test(key)) {
+              const n = typeof val === 'object' ? (val.consensus || val.count || val.total || 0) : (parseInt(val) || 0);
+              if (n > 0) {
+                count += n;
+                matchedKeys.push(`breakdown.${key}=${n}`);
+              }
+            }
+          }
+
+          disciplineCounts[disc] = { count, checked: true, matchedKeys };
+
+          if (count === 0) {
+            zeroDisciplines.push(disc);
+          }
+        }
+
+        if (zeroDisciplines.length > 0) {
+          console.warn(`[SmartBrains] ⚠️  PER-DISCIPLINE COVERAGE WARNING: ${zeroDisciplines.length} of ${selectedDisciplines.length} selected disciplines have ZERO device counts`);
+          for (const d of zeroDisciplines) {
+            console.warn(`[SmartBrains]    → ${d}: 0 devices — likely cause: the ${d} plan sheet was not uploaded, OR legend symbols were not recognized`);
+          }
+
+          context._disciplineCoverageGaps = zeroDisciplines;
+          context._disciplineCoverageDetail = disciplineCounts;
+          state._disciplineCoverageGaps = zeroDisciplines;
+          state._disciplineCoverageDetail = disciplineCounts;
+
+          context._brainInsights = context._brainInsights || [];
+          for (const d of zeroDisciplines) {
+            context._brainInsights.push({
+              source: 'PER_DISCIPLINE_COVERAGE_GUARD',
+              type: 'zero_coverage',
+              detail: `${d} selected as a discipline but Symbol Scanner returned 0 devices. Material and labor for this discipline will be $0 unless the missing sheet is uploaded and the bid is re-run.`,
+            });
+          }
+        } else {
+          console.log(`[SmartBrains] ✅ Per-Discipline Coverage: all ${selectedDisciplines.length} selected disciplines have device counts`);
+          context._disciplineCoverageGaps = [];
+          state._disciplineCoverageGaps = [];
+          context._disciplineCoverageDetail = disciplineCounts;
+          state._disciplineCoverageDetail = disciplineCounts;
+        }
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Per-discipline coverage guard errored (non-fatal):', e.message);
+    }
+
     // ═══ POST-WAVE 1: Log scope exclusion findings for estimator visibility ═══
     const scopeResults = wave1Results.SCOPE_EXCLUSION_SCANNER;
     if (scopeResults && !scopeResults._failed) {
@@ -9762,6 +9942,94 @@ ${legendContext}
     context.wave2_25 = wave225Results;
     console.log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
 
+    // ─── v5.125.1 PHASE 0.5: Davis-Bacon Enforcement Validator ───
+    // The Labor Calculator AI brain is told in the prompt to multiply base
+    // rates by the prevailing-wage multiplier, but AI models are unreliable
+    // at following multi-step math instructions. In the Gardnerville run,
+    // DB was detected but the AI produced open-shop labor rates anyway.
+    //
+    // This validator runs AFTER the brain returns and computes the actual
+    // average $/hr from the output. If DB was required and the avg rate is
+    // below the expected threshold, it applies a deterministic scale-up
+    // factor in CODE (not prompt) and logs loudly.
+    try {
+      if (context._prevailingWageRequired === true) {
+        const labor = wave225Results.LABOR_CALCULATOR;
+        const expectedMultiplier = parseFloat(context._prevailingWageMultiplier) || 2.0;
+
+        if (labor && !labor._failed && !labor._parseFailed) {
+          // Sum up hours and cost across phases
+          let totalHours = 0, totalCost = 0;
+          const phases = Array.isArray(labor.phases) ? labor.phases : [];
+          for (const p of phases) {
+            const items = Array.isArray(p.labor) ? p.labor : (Array.isArray(p.items) ? p.items : []);
+            for (const item of items) {
+              totalHours += parseFloat(item.hours || item.total_hours || 0) || 0;
+              totalCost  += parseFloat(item.cost  || item.total_cost  || 0) || 0;
+            }
+            // Some phases have phase-level totals instead of items
+            if (items.length === 0) {
+              totalHours += parseFloat(p.total_hours || p.hours || 0) || 0;
+              totalCost  += parseFloat(p.phase_cost  || p.cost  || 0) || 0;
+            }
+          }
+
+          const avgLoadedRate = totalHours > 0 ? (totalCost / totalHours) : 0;
+          const dbApplied = labor.prevailing_wage_applied === true;
+          const reportedMultiplier = parseFloat(labor.prevailing_wage_multiplier) || null;
+
+          // Expected loaded rate for Davis-Bacon on ELV/low-voltage work:
+          //   Base PW wage ~$50-60/hr + fringes ~$25-35/hr = $75-95/hr hourly
+          //   × 35% burden = ~$100-130/hr loaded
+          // If avg loaded rate is < $90/hr, DB was NOT applied.
+          const DB_FLOOR = 90;
+
+          if (avgLoadedRate > 0 && avgLoadedRate < DB_FLOOR) {
+            // AI produced open-shop labor despite DB detection. Scale up in code.
+            const scaleFactor = expectedMultiplier;
+            console.warn(`[SmartBrains] ⛔ DAVIS-BACON VALIDATOR: Labor Calculator returned avg $${avgLoadedRate.toFixed(2)}/hr — below DB floor of $${DB_FLOOR}/hr`);
+            console.warn(`[SmartBrains]    AI reported prevailing_wage_applied=${dbApplied}, multiplier=${reportedMultiplier}`);
+            console.warn(`[SmartBrains]    Applying deterministic scale-up of ${scaleFactor}x to all labor costs`);
+
+            // Scale every phase's costs by the factor
+            let corrected = 0;
+            for (const p of phases) {
+              const items = Array.isArray(p.labor) ? p.labor : (Array.isArray(p.items) ? p.items : []);
+              for (const item of items) {
+                if (item.cost != null) { item.cost = (parseFloat(item.cost) || 0) * scaleFactor; corrected++; }
+                if (item.total_cost != null) { item.total_cost = (parseFloat(item.total_cost) || 0) * scaleFactor; corrected++; }
+                if (item.rate != null) { item.rate = (parseFloat(item.rate) || 0) * scaleFactor; }
+                if (item.hourly_rate != null) { item.hourly_rate = (parseFloat(item.hourly_rate) || 0) * scaleFactor; }
+              }
+              if (p.phase_cost != null) { p.phase_cost = (parseFloat(p.phase_cost) || 0) * scaleFactor; corrected++; }
+              if (p.total_cost != null) { p.total_cost = (parseFloat(p.total_cost) || 0) * scaleFactor; corrected++; }
+            }
+            if (labor.total_labor_cost != null) labor.total_labor_cost = (parseFloat(labor.total_labor_cost) || 0) * scaleFactor;
+            if (labor.grand_total != null)      labor.grand_total      = (parseFloat(labor.grand_total) || 0) * scaleFactor;
+
+            // Flag the correction so downstream and UI can see it
+            labor._deterministic_db_correction = {
+              applied: true,
+              original_avg_rate: avgLoadedRate,
+              scale_factor: scaleFactor,
+              corrected_items: corrected,
+              reason: 'AI brain did not honor Davis-Bacon multiplier from prompt; applied in code.',
+            };
+            context._brainInsights = context._brainInsights || [];
+            context._brainInsights.push({
+              source: 'DAVIS_BACON_VALIDATOR',
+              type: 'labor_correction',
+              detail: `Labor Calculator produced open-shop rates ($${avgLoadedRate.toFixed(2)}/hr) despite DB detection. Corrected by ${scaleFactor}x in code. Estimator should verify.`,
+            });
+          } else if (avgLoadedRate > 0) {
+            console.log(`[SmartBrains] ✅ Davis-Bacon validator: Labor avg $${avgLoadedRate.toFixed(2)}/hr is at or above DB floor ($${DB_FLOOR}/hr) — no correction needed`);
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.warn('[SmartBrains] Davis-Bacon validator errored (non-fatal):', dbErr.message);
+    }
+
     // ═══ WAVE 2.5: Financial Engine (runs AFTER both to sum their outputs) ═══
     progressCallback(68, '📊 Wave 2.5: Financial Engine — building SOV…', this._brainStatus);
     const wave25FinResults = await this._runWave(2.5, ['FINANCIAL_ENGINE'], filteredEncodedFiles, state, context, progressCallback);
@@ -9848,8 +10116,39 @@ ${legendContext}
         if (corrector.total_adjustment) {
           console.log(`[SmartBrains]   📊 Total adjustment: ${corrector.total_adjustment >= 0 ? '+' : ''}$${corrector.total_adjustment?.toLocaleString()}`);
         }
-        // Inject corrected data so Report Writer uses it
-        context._correctedPricer = corrector;
+
+        // ─── v5.125.1 PHASE 0.6: Estimate Corrector Sanity Guard ───
+        // The Estimate Corrector AI can produce wildly wrong corrected_grand_total
+        // values (e.g., $42k on a $425k clinic — 1/10th of the actual bid). Those
+        // numbers then leak into the Master Report PDF as "Corrected Total" and
+        // confuse/mislead clients. Reject any correction that drifts more than
+        // 40% from the original — deterministic safety net.
+        const origTotal = parseFloat(corrector.original_grand_total) || 0;
+        const corrTotal = parseFloat(corrector.corrected_grand_total) || 0;
+        if (origTotal > 1000 && corrTotal > 0) {
+          const driftPct = Math.abs(corrTotal - origTotal) / origTotal;
+          if (driftPct > 0.40) {
+            console.warn(`[SmartBrains] ⛔ ESTIMATE CORRECTOR SANITY GUARD: corrected_grand_total $${corrTotal.toLocaleString()} drifts ${(driftPct * 100).toFixed(1)}% from original $${origTotal.toLocaleString()} — REJECTING correction`);
+            console.warn(`[SmartBrains]    The AI brain produced an implausible "correction". Falling back to original Material Pricer output.`);
+            corrector._sanityRejected = true;
+            corrector._sanityRejectedReason = `Corrected grand total ($${corrTotal.toLocaleString()}) drifts ${(driftPct * 100).toFixed(1)}% from original ($${origTotal.toLocaleString()}). Limit is 40%.`;
+            // Blank out the corrected totals so downstream report writers fall back
+            corrector.corrected_grand_total = origTotal;
+            corrector.total_adjustment = 0;
+            corrector.corrected_categories = null;
+            context._brainInsights = context._brainInsights || [];
+            context._brainInsights.push({
+              source: 'ESTIMATE_CORRECTOR_SANITY',
+              type: 'correction_rejected',
+              detail: `Estimate Corrector tried to change grand total by ${(driftPct * 100).toFixed(1)}% — rejected by deterministic sanity guard. Original Material Pricer totals retained.`,
+            });
+          } else {
+            // Inject corrected data so Report Writer uses it
+            context._correctedPricer = corrector;
+          }
+        } else {
+          context._correctedPricer = corrector;
+        }
       } else {
         console.warn('[SmartBrains] Estimate Corrector returned no corrections — Report Writer will use original pricer data');
       }
@@ -10145,6 +10444,9 @@ ${legendContext}
       confidenceScoring: context._confidenceScoring || null,
       quantitiesUnverified: context._quantitiesUnverified || false,
       quantitiesUnverifiedReason: context._quantitiesUnverifiedReason || '',
+      // v5.125.1: per-discipline coverage
+      disciplineCoverageGaps: context._disciplineCoverageGaps || [],
+      disciplineCoverageDetail: context._disciplineCoverageDetail || {},
       // v5.124.5: New brain outputs surfaced to the app
       prevailingWageDetection: context.wave0_3?.PREVAILING_WAGE_DETECTOR || null,
       prevailingWageRequired: context._prevailingWageRequired || false,
