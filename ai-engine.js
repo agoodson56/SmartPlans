@@ -4005,6 +4005,92 @@ CRITICAL RULES:
     - If your symbol count is MORE than 20% different from the schedule, USE THE SCHEDULE and flag the discrepancy
     - Common counting errors: missing devices on detail sheets, missing devices in reflected ceiling plans, missing devices shown only in enlarged plans
 
+═══ QUANTITY CALIBRATION RULES (PREVENTS OVER/UNDER-COUNTING) ═══
+These formulas correct the #1 source of BOM errors: inflated infrastructure quantities.
+
+J-HOOKS / CABLE SUPPORTS:
+- Formula: Total cable route feet ÷ 5ft spacing = J-hook count
+- For a typical clinic/office: (total data drops × avg run length) ÷ 5, then ÷ 3 (shared pathway factor — multiple cables share the same J-hook route)
+- EXAMPLE: 469 drops × 200ft avg ÷ 5ft spacing ÷ 3 sharing = ~6,250 J-hooks on route, but ACTUAL hooks needed = ~1,000-1,500 because most cable routes overlap and share hooks
+- MAXIMUM: 2× the number of cable drops for ANY project. If you have 469 drops, cap J-hooks at 938
+- If CABLE_PATHWAY data gives specific route lengths, use: total_route_ft ÷ 5 (do NOT multiply by number of cables)
+
+PATCH PANELS:
+- Formula: CEIL(total_data_jacks ÷ ports_per_panel)
+- For 48-port panels: CEIL(469 ÷ 48) = 10 panels
+- DOUBLE-PATCHING (both switch & patch side): multiply result × 2 ONLY if the project specs or standards call for it
+- DEFAULT: Single-patched (one panel per 48 drops) unless specs state otherwise
+- NEVER exceed 1.5× the mathematically required count
+
+CABLE FOOTAGE:
+- Formula: total_jacks × average_run_length × 1.10 (10% waste/slack factor)
+- Average run by building type:
+  * Small office (<10,000 SF): 120-150ft avg
+  * Medium commercial (10K-30K SF): 150-200ft avg
+  * Large commercial/VA clinic (30K-80K SF): 175-225ft avg
+  * Hospital/campus (>80K SF or multi-floor): 200-250ft avg
+- SANITY CHECK: If your cable total ÷ jack count > 280ft average, your runs are too long — recalculate
+- Use CABLE_PATHWAY brain data when available (it has per-zone measured averages)
+
+PATCH CORDS:
+- Formula: total_data_jacks × 1.15 (15% spares) — round UP to nearest box of 25
+- Include BOTH 3ft (switch side) and 5ft (workstation side) = 2× total rounded qty
+- Do NOT add extras beyond the 15% — procurement handles bulk spares
+
+═══ SYSTEM COMPLETENESS RULES (PREVENTS MISSING SUB-COMPONENTS) ═══
+For each system, the following sub-components are MANDATORY unless explicitly excluded:
+
+CCTV COMPLETENESS:
+- Every camera needs: mount/bracket, cable (Cat6 or coax), VMS license
+- If VMS licenses > 0, you MUST include server/NVR hardware to RUN the VMS (Milestone/Genetec cannot run without a server)
+  * Formula: 1 server per 32-48 cameras (enterprise NVR or rack server with RAID storage)
+  * Include: server hardware + RAID storage + UPS for server
+- EXTERIOR CAMERAS: If the building has any exterior entrances, parking lots, or loading docks, include outdoor cameras
+  * Minimum: 4 exterior cameras for a small building, 8-12 for a clinic/VA facility, 16+ for a campus
+  * Outdoor cameras need: weatherproof mount, outdoor-rated cable or conduit, possibly pole mount
+  * Check site plans for parking lot camera poles — if shown, price them
+- PoE BUDGET: If not using PoE switches (OFCI), verify camera power delivery method
+
+FIRE ALARM COMPLETENESS (Healthcare/VA):
+- FACP + annunciator (at main entrance)
+- Smoke detectors (all habitable spaces, corridors, storage)
+- DUCT DETECTORS: MANDATORY in HVAC systems — 1 per AHU/RTU supply AND return duct. Typical clinic: 4-8 duct detectors
+- HEAT DETECTORS: MANDATORY in mechanical rooms, kitchens, janitor closets, elevator machine rooms. Typical clinic: 8-15 heat detectors
+- Pull stations at every exit (count exits on floor plan — typically 10-16 for a clinic, NOT 20+)
+- Horn/strobes per ADA spacing requirements
+- MONITOR MODULES: 1 per duct detector + 1 per elevator recall + 1 per HVAC shutdown + 1 per sprinkler flow/tamper. Typical clinic: 8-15 modules
+- RELAY MODULES: 1 per fan shutdown + 1 per door holder + 1 per elevator. Typical clinic: 4-8 modules
+- NAC POWER EXTENDERS: If horn/strobe count > 15-20 per NAC circuit, add NAC extenders
+
+NURSE CALL COMPLETENESS (Healthcare — CRITICAL):
+- Master station (1 per nursing unit)
+- Patient stations (1 per patient room/exam room)
+- BATHROOM PULL CORDS: MANDATORY in every patient/exam room bathroom. Formula: 1 per bathroom = ~same count as patient stations
+- CORRIDOR DOME LIGHTS: 1 per patient room (corridor side)
+- STAFF STATIONS: 1 per nursing sub-station, med room, treatment room. Typical: 4-8 per unit
+- CODE BLUE BUTTON: 1 per crash cart location + 1 per treatment room. Typical: 3-6 per clinic
+- DUTY STATION: 1 at main nurses station
+- PILLOW SPEAKERS: Only if specified (usually hospital, not outpatient clinic)
+
+ACCESS CONTROL COMPLETENESS:
+- Every controlled door needs: reader + lock/strike + REX + door contact + power
+- POWER SUPPLIES: 1 Altronix/LifeSafety per 4-8 doors (NOT per controller — per power circuit)
+  * Formula: CEIL(door_count ÷ 6) power supplies
+- CONTROLLER capacity: Each 2-door controller handles 2 readers. Formula: CEIL(reader_count ÷ 2) controllers
+
+DAS COMPLETENESS:
+- BDA (bi-directional amplifier) — 1 per building (or per wing if >50K SF)
+- Indoor antennas: 1 per 5,000-8,000 SF of coverage area
+- Donor antenna (outdoor): 1 per BDA
+- Coax cable: LMR-400 plenum from BDA to each antenna
+- Splitters/couplers: based on antenna count (2-way, 3-way, 4-way as needed)
+
+AUDIO VISUAL COMPLETENESS:
+- Every display needs: mount + media player/content source + HDMI extender (if wall-plate input)
+- MEDIA PLAYERS: If displays are for digital signage, include 1 media player per display (BrightSign, Crestron, etc.)
+- Conference rooms: codec/soundbar + display + camera (if video conferencing)
+- Check for AV control systems (Crestron, Extron) if specified
+
 ═══ UPS, INVERTERS & POWER EQUIPMENT (MANDATORY) ═══
 You MUST check ALL sources (schedules, plans, specs) for power equipment and price them:
 - UPS units — price based on kVA rating and form factor (rack-mount, tower)
@@ -4322,11 +4408,13 @@ If NO Responsibility Matrix was found, fall back to pricing all selected discipl
   ⚠️ COMMON ERROR: Missing RF survey = system may not meet coverage requirements
 
 🔌 STRUCTURED CABLING — J-hooks and pathway:
-  □ J-Hooks — 1 every 4-5 ft of horizontal cable run (total horizontal ft ÷ 4.5)
+  □ J-Hooks — count CABLE ROUTES not individual cables. Multiple cables share the same J-hook pathway.
+    Formula: Estimate total unique route-feet (building perimeter corridors + branch runs to rooms), then ÷ 5ft spacing.
+    TYPICAL: A 40,000 SF clinic has ~2,000 LF of cable routes = ~400 J-hooks. Cap at 2× total data drops.
   □ Cable Tray / Basket Tray (if shown on plans — measure LF from routing)
   □ Ladder Rack in telecom rooms (see MDF/IDF above)
   □ Firestop Penetrations (every floor/wall penetration)
-  ⚠️ COMMON ERROR: 90,000 ft cable ÷ 4.5 = 20,000 J-hooks, NOT 1,500
+  ⚠️ COMMON ERROR: Using total CABLE feet (90,000) instead of total ROUTE feet (2,000) = 20,000 J-hooks instead of 400. J-hooks support BUNDLES of cables on a shared route, NOT individual cables.
 
 ═══ SCOPE EXCLUSIONS ALWAYS WIN — FINAL OVERRIDE ═══
 This is the HIGHEST PRIORITY rule in this entire prompt. It overrides everything above including the completeness checklist:
@@ -4424,15 +4512,33 @@ ${(() => {
   return result;
 })()}
 
+═══ LABOR-TO-MATERIAL RATIO SANITY CHECK (CRITICAL) ═══
+Before finalizing your labor estimate, verify against these industry benchmarks:
+- Low-voltage construction: labor = 35-55% of material cost (before markups)
+- Healthcare/VA projects: labor = 45-60% of material cost (higher complexity, infection control, phased access)
+- Transit/railroad: labor = 55-75% of material cost (restricted access, compliance overhead)
+
+EXAMPLE: If Material Pricer output shows $250,000 raw material, your base labor MUST be $87,500-$150,000.
+If your calculated labor is below 35% of material, you are SEVERELY UNDER-ESTIMATING and will lose money.
+Common causes of low labor: forgetting conduit labor, missing programming/commissioning, no PM hours, no coordination time.
+
 NECA LABOR UNIT GUIDELINES (use when no rate library match):
-- Cat6A drop (install+terminate+test): 0.45-0.55 hrs/drop
-- Camera install (mount+wire+aim): 2.0-3.5 hrs/camera
-- Card reader (mount+wire+program): 2.5-4.0 hrs/door
-- Fire alarm device: 0.5-1.5 hrs/device depending on type
-- Rack build-out: 8-16 hrs/rack
+- Cat6 drop (run cable + terminate both ends + test + label): 0.55-0.75 hrs/drop (NOT 0.45 — that is pull-only)
+  * Includes: pull from rack to outlet, terminate jack, terminate patch panel port, dress cable, test, label
+  * Add 0.15 hrs/drop if above-ceiling access is restricted (hard lid, limited plenum)
+- Camera install (mount+bracket+wire+aim+configure): 2.5-4.0 hrs/camera
+  * Indoor dome: 2.5 hrs | Outdoor bullet: 3.0 hrs | PTZ: 4.0 hrs | Pole-mount: 5.0 hrs
+- Card reader + door hardware (mount reader + install strike/maglock + wire + REX + door contact + program): 4.0-6.0 hrs/door
+  * Includes ALL door components, not just the reader. A controlled door = reader + lock + REX + contact + power + program
+- Fire alarm device: 0.75-2.0 hrs/device
+  * Smoke detector: 0.75 hrs | Pull station: 1.0 hrs | Horn/strobe: 1.25 hrs | Duct detector: 2.0 hrs | Monitor module: 1.0 hrs
+- Nurse call station: 1.5-2.5 hrs/station (patient station + dome light + bathroom pull)
+- Rack build-out: 12-20 hrs/rack (assemble, install panels, cable mgmt, UPS, label, ground, test)
 - Cable tray: 0.15-0.25 hrs/ft
-- AV display mounting: 1.5-3.0 hrs/display
-- Speaker install: 0.5-1.0 hrs/speaker
+- AV display mounting + extender: 2.0-3.5 hrs/display (mount + run cable + terminate + configure)
+- Speaker install (ceiling): 0.75-1.25 hrs/speaker (cut tile, mount, wire, aim)
+- DAS antenna install: 1.5-2.5 hrs/antenna (mount + run coax + connect + test)
+- Intrusion panel + devices: 1.0-1.5 hrs/device + 4-6 hrs for panel programming
 
 CONDUIT LABOR UNITS (do NOT skip conduit labor — it is a major cost driver):
 - EMT conduit 3/4": 0.08-0.12 hrs/ft (measure, cut, bend, strap, pull wire)
@@ -4450,6 +4556,17 @@ SHIFT DIFFERENTIALS (apply if work shift is not Standard):
 - Overtime (>8 hrs/day or >40 hrs/wk): 1.5× rate
 - Double-time (holidays, 7th day): 2.0× rate
 - Railroad/transit restricted windows: add 20-30% for productivity loss
+
+═══ HEALTHCARE / VA PROJECT LABOR ADDITIONS ═══
+${context.projectType?.toLowerCase().includes('healthcare') || context.projectType?.toLowerCase().includes('medical') || context.projectType?.toLowerCase().includes('clinic') || context.projectType?.toLowerCase().includes('hospital') || context.projectName?.toLowerCase().includes('va ') || context.projectName?.toLowerCase().includes('clinic') || context.projectName?.toLowerCase().includes('hospital') || context.projectName?.toLowerCase().includes('medical') ? `
+THIS IS A HEALTHCARE PROJECT — the following labor adjustments are MANDATORY:
+- ICRA compliance: Add 10-15% to all labor hours (barrier setup/teardown, restricted access, clean work protocols)
+- Phased work: Add 5-10% for working in occupied patient areas (noise restrictions, schedule windows)
+- Background checks & badging: 2-4 hrs per crew member for VA/hospital credentialing
+- Infection control training: 2 hrs per crew member
+- Equipment decontamination: 0.5 hrs/day per crew for cleaning tools entering patient areas
+- After-hours premium: If any work must be done after hours to avoid patient disruption, budget 15-25% premium on those hours
+` : 'Not a healthcare project — standard labor rates apply.'}
 
 SPECIAL CONDITIONS DATA (use for conduit quantities and site-specific labor):
 ${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 4000)}
