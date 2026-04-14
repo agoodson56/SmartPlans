@@ -8690,6 +8690,28 @@ function renderStep7(container) {
 
     ${failedBrainsBanner}
     ${sheetFilterBanner}
+    ${(() => {
+      const ss = state._scopeSummary;
+      if (!ss || (ss.inScope.length === 0 && ss.outScope.length === 0)) return '';
+      const inHtml = ss.inScope.map(d => `<span style="display:inline-block;padding:3px 10px;margin:2px;border-radius:4px;background:rgba(16,185,129,0.15);color:#10b981;font-size:12px;font-weight:600;">✅ ${esc(d)}</span>`).join('');
+      const outHtml = ss.outScope.map(d => `<span style="display:inline-block;padding:3px 10px;margin:2px;border-radius:4px;background:rgba(239,68,68,0.12);color:#ef4444;font-size:12px;font-weight:600;">🚫 ${esc(d.discipline)} → ${esc(d.assignedTo)}</span>`).join('');
+      return `
+      <div class="info-card" style="margin-bottom:12px; border-left:4px solid #8b5cf6; background:rgba(139,92,246,0.08);">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;">
+          <span style="font-size:18px;">🎯</span>
+          <div>
+            <span style="color:#8b5cf6;font-weight:600;">Scope Filter Applied</span>
+            <span style="color:rgba(255,255,255,0.6);font-size:13px;margin-left:8px;">
+              Responsibility Matrix detected — pricing only TC-scope items
+            </span>
+          </div>
+        </div>
+        <div style="padding:4px 14px 10px;line-height:2;">
+          ${inHtml}${outHtml}
+          ${ss.exclusionCount > 0 ? `<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px;">+ ${ss.exclusionCount} individual OFCI/OFOI/NIC exclusion(s)</div>` : ''}
+        </div>
+      </div>`;
+    })()}
     ${aiSection}
 
     ${bomTableHtml}

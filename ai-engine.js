@@ -7449,6 +7449,30 @@ ${legendContext}
     const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR', 'SCOPE_EXCLUSION_SCANNER'];
     const wave1Results = await this._runWave(1, wave1Keys, filteredEncodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
+
+    // ═══ POST-WAVE 1: Log scope exclusion findings for estimator visibility ═══
+    const scopeResults = wave1Results.SCOPE_EXCLUSION_SCANNER;
+    if (scopeResults && !scopeResults._failed) {
+      const respMatrix = scopeResults.responsibility_matrix || [];
+      const exclusions = scopeResults.exclusions || [];
+      const inScope = respMatrix.filter(r => r.our_scope);
+      const outScope = respMatrix.filter(r => !r.our_scope);
+      if (respMatrix.length > 0) {
+        console.log(`[SmartBrains] 🚫 Scope Exclusion Scanner — Responsibility Matrix found:`);
+        for (const r of inScope) console.log(`[SmartBrains]   ✅ ${r.discipline}: ${r.responsible_party} — IN SCOPE`);
+        for (const r of outScope) console.log(`[SmartBrains]   🚫 ${r.discipline}: ${r.responsible_party} — EXCLUDED`);
+      }
+      if (exclusions.length > 0) {
+        console.log(`[SmartBrains] 🚫 ${exclusions.length} individual exclusion(s) found (OFCI/OFOI/NIC/By Others)`);
+      }
+      // Store scope summary on state for UI display
+      state._scopeSummary = {
+        inScope: inScope.map(r => r.discipline),
+        outScope: outScope.map(r => ({ discipline: r.discipline, assignedTo: r.responsible_party })),
+        exclusionCount: exclusions.length,
+      };
+    }
+
     console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
 
     // ═══ WAVE 1.5: Second Read — Independent Verification (5 parallel brains, Pro model) ═══
