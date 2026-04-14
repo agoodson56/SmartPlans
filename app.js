@@ -7318,6 +7318,88 @@ function injectCalculatedCableQuantities(bom) {
       }
     }
 
+    // ── CABLE PRICE CEILING: Prevent AI from inflating Cat6A plenum cable price ──
+    // The Estimate Corrector sometimes raises cable from $0.29 to $0.55 ("market rate adjustment").
+    // Panduit PUP6AV04BU-CEG Cat6A plenum is $0.29-0.35/ft. Anything above $0.40 is AI overreach.
+    const _cablePriceCeilings = [
+      { regex: /cat\s*6a.*cable|cat6a.*plenum|pup6a/i, maxPrice: 0.38, unit: 'ft' },
+    ];
+    for (const pc of _cablePriceCeilings) {
+      for (const cat of updatedCategories) {
+        for (let i = 0; i < (cat.items || []).length; i++) {
+          const item = cat.items[i];
+          if (item._byOthersRemoved) continue;
+          const desc = (item.item || item.name || '').toLowerCase();
+          if (pc.regex.test(desc) && /^(ft|lf|linear|feet)$/i.test(item.unit || '') && (item.unitCost || 0) > pc.maxPrice) {
+            const oldUC = item.unitCost;
+            const newUC = 0.29; // Panduit list price
+            cat.items[i] = { ...item, unitCost: newUC, extCost: Math.round((item.qty || 0) * newUC * 100) / 100, _priceCeiled: true };
+            console.log(`[TextLayer] Cable price ceiling: "${item.item || item.name}" $${oldUC}/ft → $${newUC}/ft (AI overcorrection fixed)`);
+          }
+        }
+      }
+    }
+
+    // ── WAP OFCI REMOVAL: WAPs are owner-furnished on most projects ──
+    // Similar to cameras — owner buys WAPs, we install them. Material should be $0.
+    // WAP installation labor is already in Recommended Additions.
+    for (const cat of updatedCategories) {
+      for (let i = 0; i < (cat.items || []).length; i++) {
+        const item = cat.items[i];
+        if (item._byOthersRemoved) continue;
+        const desc = (item.item || item.name || '').toLowerCase();
+        if (/wireless\s*access\s*point|cisco.*wap|cisco.*access\s*point|wi-?fi\s*\d|aruba.*ap\b|meraki.*ap\b|c9120|c9130|air-ap/i.test(desc) && /^ea$/i.test(item.unit || '')) {
+          console.log(`[TextLayer] 🚫 REMOVING WAP material "${item.item || item.name}" — WAPs are typically OFCI (install labor in Recommended Additions)`);
+          cat.items[i] = { ...item, qty: 0, extCost: 0, _byOthersRemoved: true };
+        }
+        // Also remove WAP brackets/mounts that go with OFCI WAPs
+        if (/wap.*bracket|wap.*mount|ceiling.*mount.*bracket.*wap|air-ap-bracket/i.test(desc) && /^ea$/i.test(item.unit || '')) {
+          console.log(`[TextLayer] 🚫 REMOVING WAP bracket "${item.item || item.name}" — goes with OFCI WAPs`);
+          cat.items[i] = { ...item, qty: 0, extCost: 0, _byOthersRemoved: true };
+        }
+      }
+    }
+
+    // ── DUAL READER CONTROLLER FORMULA: 1 controller per 8 readers (2 readers per module, 4 modules per panel) ──
+    if (textDeviceCounts.card_readers > 0) {
+      const readerCount = textDeviceCounts.card_readers;
+      const correctControllers = Math.ceil(readerCount / 8); // Each controller handles ~8 readers
+      for (const cat of updatedCategories) {
+        for (let i = 0; i < (cat.items || []).length; i++) {
+          const item = cat.items[i];
+          const desc = (item.item || item.name || '').toLowerCase();
+          if (/dual\s*reader\s*controller|door\s*controller|intelligent.*controller|lnl-\d|mercury.*ep/i.test(desc) && /^ea$/i.test(item.unit || '')) {
+            const oldQty = item.qty || 0;
+            if (oldQty > correctControllers) {
+              cat.items[i] = { ...item, qty: correctControllers, extCost: Math.round(correctControllers * (item.unitCost || 0) * 100) / 100, _textLayerCorrected: true };
+              console.log(`[TextLayer] Dual Reader Controller corrected: ${oldQty} → ${correctControllers} (${readerCount} readers ÷ 8 per controller)`);
+            }
+          }
+        }
+      }
+    }
+
+    // ── LADDER RACK DEDUP: Remove ladder rack from Structured Cabling if it exists in MDF ──
+    const _mdfIdx = updatedCategories.findIndex(c => /mdf|main\s*(equipment|telecomm)|^room:/i.test(c.name || ''));
+    if (_mdfIdx >= 0) {
+      const mdfHasLadderRack = (updatedCategories[_mdfIdx]?.items || []).some(item =>
+        /ladder\s*rack|cable\s*runway/i.test(item.item || item.name || '') && (item.qty || 0) > 0);
+      if (mdfHasLadderRack) {
+        for (const cat of updatedCategories) {
+          const cn = (cat.name || '').toLowerCase();
+          if (!/structured\s*cabling/i.test(cn)) continue;
+          for (let i = 0; i < (cat.items || []).length; i++) {
+            const item = cat.items[i];
+            const desc = (item.item || item.name || '').toLowerCase();
+            if (/ladder\s*rack|cable\s*runway/i.test(desc) && !item._byOthersRemoved) {
+              console.log(`[BOM Cleanup] REMOVING duplicate ladder rack from Structured Cabling: "${item.item || item.name}" (already in MDF)`);
+              cat.items[i] = { ...item, qty: 0, extCost: 0, _byOthersRemoved: true };
+            }
+          }
+        }
+      }
+    }
+
     // Recalculate subtotals after text layer corrections
     for (const cat of updatedCategories) {
       if (cat.items && cat.items.some(i => i._textLayerCorrected)) {
