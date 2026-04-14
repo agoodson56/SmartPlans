@@ -2320,6 +2320,134 @@ function authHeaders(extra = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// v5.125.2 — Generic Collapsible Card Enhancer
+// Walks the rendered Results page and auto-wires collapse behavior on
+// every .info-card / .card so they all behave like the Change Orders
+// card. Called at the end of Step 7 event-binding. Idempotent — safe
+// to call multiple times. Skips cards that:
+//   (1) already have inline cursor:pointer on their header (already wired)
+//   (2) have data-collapsible="false" attribute (opt-out)
+//   (3) are one of the NEVER_COLLAPSE IDs (hero cards, CTAs, blockers)
+// ═══════════════════════════════════════════════════════════════
+function _enhanceCardsCollapsible(options = {}) {
+  try {
+    const NEVER_COLLAPSE_IDS = new Set([
+      'auto-proposal-cta',       // Big gold "Generate Complete Bid Package" banner
+      'results-hero',            // Confidence ring + accuracy stats
+      'bid-compare-card',        // Has its own toggle already (bid-compare-toggle)
+    ]);
+    // Red blocking cards (quantities unverified, per-discipline gaps) should
+    // stay open by default — the estimator must see them immediately.
+    const BLOCKING_CARD_MARKERS = [
+      'Quantities Not Verified',
+      'Came Back Empty',
+    ];
+
+    const root = options.root || document.getElementById('step-content') || document.body;
+    const cards = root.querySelectorAll('.info-card, .card');
+
+    for (const card of cards) {
+      // Skip if already wired
+      if (card.dataset.collapsibleWired === 'true') continue;
+
+      // Skip opt-outs
+      if (card.dataset.collapsible === 'false') continue;
+      if (card.id && NEVER_COLLAPSE_IDS.has(card.id)) continue;
+
+      // Detect blocking cards by textual markers (conservative — only the two we know about)
+      const cardText = card.textContent || '';
+      if (BLOCKING_CARD_MARKERS.some(marker => cardText.includes(marker))) continue;
+
+      // Find the clickable header — first .info-card-title, h2, h3, or h4
+      const header =
+        card.querySelector(':scope > .info-card-title') ||
+        card.querySelector(':scope > div > .info-card-title') ||
+        card.querySelector(':scope > h2') ||
+        card.querySelector(':scope > h3') ||
+        card.querySelector(':scope > h4') ||
+        card.querySelector(':scope > div > h3') ||
+        card.querySelector(':scope > div > h2');
+
+      if (!header) continue;
+
+      // If the header's row-parent already has cursor:pointer, assume it's pre-wired
+      const headerRow = header.closest('[style*="cursor:pointer"], [style*="cursor: pointer"]');
+      if (headerRow) {
+        card.dataset.collapsibleWired = 'true';
+        continue;
+      }
+
+      // Find the body — everything inside the card EXCEPT the header's immediate parent div
+      // Use two strategies:
+      //   (a) .info-card-body class
+      //   (b) Wrap all non-header children into a container
+      let body = card.querySelector(':scope > .info-card-body');
+      if (!body) {
+        // Wrap everything after the first child (which contains the header) into a container
+        const firstChild = card.firstElementChild;
+        if (!firstChild) continue;
+        // Create a wrapper div for all siblings after firstChild
+        const wrapper = document.createElement('div');
+        wrapper.className = 'auto-collapsible-body';
+        let next = firstChild.nextElementSibling;
+        while (next) {
+          const toMove = next;
+          next = next.nextElementSibling;
+          wrapper.appendChild(toMove);
+        }
+        if (wrapper.children.length === 0) continue; // nothing to collapse
+        card.appendChild(wrapper);
+        body = wrapper;
+      }
+
+      // Mark as wired + set initial state
+      card.dataset.collapsibleWired = 'true';
+      body.style.display = 'none';
+      header.style.cursor = 'pointer';
+      header.style.userSelect = 'none';
+
+      // Add chevron if not already present
+      let chevron = header.querySelector('.auto-collapsible-chevron');
+      if (!chevron) {
+        chevron = document.createElement('span');
+        chevron.className = 'auto-collapsible-chevron';
+        chevron.textContent = '▼';
+        chevron.style.cssText = 'float:right;font-size:11px;color:rgba(0,0,0,0.35);margin-left:8px;transition:transform 0.2s;';
+        chevron.setAttribute('aria-hidden', 'true');
+        header.appendChild(chevron);
+      }
+
+      // Bind the toggle
+      header.addEventListener('click', (e) => {
+        // Don't interfere with clicks on interactive children (buttons, inputs, links)
+        const target = e.target;
+        if (target && target !== header && (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'A' || target.closest('button, input, a, [data-action]'))) return;
+        // Check STRICT 'none' — empty string means visible, not hidden.
+        // (Earlier version used `!body.style.display` which incorrectly
+        //  treated empty string as hidden because !'' === true.)
+        const isHidden = body.style.display === 'none';
+        body.style.display = isHidden ? '' : 'none';
+        chevron.textContent = isHidden ? '▲' : '▼';
+        card.setAttribute('aria-expanded', String(isHidden));
+      });
+
+      // A11y
+      header.setAttribute('role', 'button');
+      header.setAttribute('aria-expanded', 'false');
+      header.setAttribute('tabindex', '0');
+      header.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          header.click();
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('[CollapsibleEnhancer] Non-fatal error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════════════════════
 
@@ -9453,6 +9581,16 @@ function renderStep7(container) {
       if (b) b.style.display = (b.style.display === 'none' || !b.style.display) ? 'block' : 'none';
     });
   });
+
+  // ── v5.125.2 Generic Collapsible Enhancer ───────────────────
+  // Walks every .info-card / .card on the Results page and auto-wires
+  // collapse behavior to match the Change Orders pattern: clickable
+  // header, chevron indicator, body hidden by default. Skips cards
+  // that already have their own toggle wiring (detected via inline
+  // cursor:pointer on the header), cards explicitly marked with
+  // data-collapsible="false", and critical banners (CTAs, blockers,
+  // hero sections) that must always be visible.
+  _enhanceCardsCollapsible();
 
   // ── Bid Compare file upload ──
   const bcFile = document.getElementById('competitor-file');
