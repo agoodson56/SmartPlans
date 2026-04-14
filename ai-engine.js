@@ -115,6 +115,8 @@ const SmartBrains = {
     LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 65536, useProModel: true },
     PLAN_LEGEND_SCANNER: { id: 0.25, name: 'Plan Legend Scanner', wave: 0, emoji: '🗺️', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
+    // ── Wave 0.75: RFP Criteria Parsing (reads specs for evaluation scoring) ──
+    RFP_CRITERIA_PARSER: { id: 30, name: 'RFP Criteria Parser', wave: 0.75, emoji: '🏅', needsFiles: ['specs'], maxTokens: 32768, useProModel: true },
     // ── Wave 1: First Read — Document Intelligence ──
     SYMBOL_SCANNER: { id: 1, name: 'Symbol Scanner', wave: 1, emoji: '🔍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     CODE_COMPLIANCE: { id: 2, name: 'Code Compliance', wave: 1, emoji: '📋', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
@@ -5361,6 +5363,69 @@ RULES:
 - The "building_dimensions" is the OVERALL envelope (largest extents across all sheets)
 - If a zone spans multiple sheets at different scales, use the sheet where its centroid falls`,
 
+      // ── BRAIN 30: RFP Criteria Parser (Wave 0.75) ──────────────
+      RFP_CRITERIA_PARSER: () => `You are an RFP/BID EVALUATION CRITERIA ANALYST. Your job is to extract the SCORING CRITERIA, EVALUATION MATRIX, and SELECTION FACTORS from project specifications, RFP documents, and invitation-to-bid documents.
+
+PROJECT: ${context.projectName || 'Unknown'}
+TYPE: ${context.projectType || 'Unknown'}
+
+═══ WHAT TO SEARCH FOR ═══
+1. EVALUATION CRITERIA / SCORING MATRIX — Look for sections titled:
+   - "Evaluation Criteria", "Selection Criteria", "Scoring Matrix", "Basis of Award"
+   - "Proposal Evaluation", "Best Value", "Qualifications-Based Selection"
+   - Tables showing criteria with percentages or point values
+
+2. BID STRATEGY FACTORS — Look for:
+   - "Lowest Responsible Bidder" (means price is EVERYTHING — sharpen aggressively)
+   - "Best Value" (means quality/experience matter — invest in proposal narrative)
+   - MWBE/DBE requirements (subcontracting goals, mentor-protégé)
+   - Local preference points (percentage advantages for local bidders)
+   - Bonding requirements (bid bond, performance bond, payment bond percentages)
+
+3. SUBMISSION REQUIREMENTS — Look for:
+   - Required forms, certifications, references
+   - Page limits on technical proposals
+   - Mandatory pre-bid meetings or site visits
+   - Alternates or deductive alternates requested
+
+4. KEY DATES — Look for:
+   - Bid due date/time, pre-bid conference, site visit, Q&A deadline
+   - Post-award milestones, substantial completion date, liquidated damages
+
+5. SPECIAL SELECTION FACTORS:
+   - Past performance weight, safety record requirements
+   - Key personnel qualifications, project manager experience requirements
+   - Financial statements or bonding capacity requirements
+
+Return ONLY valid JSON:
+{
+  "award_method": "best_value|lowest_bid|qualifications_based|negotiated",
+  "scoring_criteria": [
+    { "category": "Price/Cost", "weight_pct": 40, "max_points": 40, "notes": "Based on total bid price" },
+    { "category": "Technical Approach", "weight_pct": 30, "max_points": 30, "notes": "Methodology and schedule" },
+    { "category": "Experience/Past Performance", "weight_pct": 20, "max_points": 20, "notes": "3 similar projects" },
+    { "category": "Safety Record", "weight_pct": 10, "max_points": 10, "notes": "EMR below 1.0 required" }
+  ],
+  "bid_strategy_recommendations": [
+    "Price is 40% — sharpen material pricing but maintain quality language",
+    "Experience section is 20% — highlight 3 similar ELV projects with references"
+  ],
+  "mwbe_requirements": { "goal_pct": 15, "type": "DBE", "notes": "Good faith effort required" },
+  "bonding": { "bid_bond_pct": 5, "performance_bond_pct": 100, "payment_bond_pct": 100 },
+  "key_dates": [
+    { "event": "Pre-Bid Conference", "date": "2024-03-15", "mandatory": true },
+    { "event": "Bid Due", "date": "2024-04-01", "time": "2:00 PM PST" }
+  ],
+  "local_preference": { "exists": false, "advantage_pct": 0 },
+  "alternates_requested": [],
+  "submission_requirements": [],
+  "confidence": 85,
+  "source_sections": ["Section 00100 - Instructions to Bidders", "Section 00200 - Evaluation Criteria"]
+}
+
+If NO evaluation criteria or RFP language is found in the specs (e.g., plans-only project), return:
+{ "award_method": "unknown", "scoring_criteria": [], "bid_strategy_recommendations": ["No RFP evaluation criteria found — assume lowest responsible bidder"], "confidence": 10 }`,
+
       // ── BRAIN 6: Shadow Scanner (Wave 1.5 — Second Read) ──────
       SHADOW_SCANNER: () => `You are an INDEPENDENT VERIFICATION SCANNER performing a SECOND COUNT of all ELV device symbols. You must use a COMPLETELY DIFFERENT methodology than a standard left-to-right scan.
 
@@ -6505,7 +6570,48 @@ Return ONLY valid JSON:
 
     };
 
-    return prompts[brainKey] ? prompts[brainKey]() : '';
+    let prompt = prompts[brainKey] ? prompts[brainKey]() : '';
+
+    // ═══ SESSION MEMORY INJECTION — Append accumulated insights from earlier waves ═══
+    // Only inject for brains in Wave 1.5+ (they benefit from Wave 0/1 learnings)
+    const brain = this.BRAINS[brainKey];
+    if (prompt && brain && brain.wave >= 1.5 && (context._brainInsights || []).length > 0) {
+      const insights = context._brainInsights;
+      const relevantInsights = insights.slice(0, 15); // Cap to prevent prompt bloat
+      if (relevantInsights.length > 0) {
+        prompt += `\n\n═══ SESSION MEMORY — Observations from earlier analysis passes ═══
+Earlier brains discovered the following. Use these to improve your accuracy:
+${relevantInsights.map(i => `• [${i.source}/${i.type}] ${i.detail}`).join('\n')}
+═══ END SESSION MEMORY ═══\n`;
+      }
+    }
+
+    // ═══ CLARIFICATION ANSWERS INJECTION — Estimator-resolved ambiguities ═══
+    if (prompt && brain && brain.wave >= 1.5 && context._clarificationAnswers) {
+      const answers = context._clarificationAnswers;
+      const answerLines = Object.entries(answers).map(([id, answer]) => `• ${id}: ${answer}`);
+      if (answerLines.length > 0) {
+        prompt += `\n\n═══ ESTIMATOR CLARIFICATIONS — These ambiguities have been RESOLVED ═══
+The estimator reviewed these questions and provided authoritative answers. Use these as ground truth:
+${answerLines.join('\n')}
+═══ END CLARIFICATIONS ═══\n`;
+      }
+    }
+
+    // ═══ RFP CRITERIA INJECTION — Guide bid strategy for Wave 2+ brains ═══
+    if (prompt && brain && brain.wave >= 2 && context._rfpCriteria) {
+      const rfp = context._rfpCriteria;
+      if (rfp.award_method !== 'unknown' && (rfp.scoring_criteria || []).length > 0) {
+        prompt += `\n\n═══ RFP EVALUATION CRITERIA — Adjust pricing strategy accordingly ═══
+Award method: ${rfp.award_method.toUpperCase()}
+${(rfp.scoring_criteria || []).map(sc => `• ${sc.category}: ${sc.weight_pct}% weight${sc.notes ? ` — ${sc.notes}` : ''}`).join('\n')}
+${(rfp.bid_strategy_recommendations || []).slice(0, 3).map(r => `💡 ${r}`).join('\n')}
+${rfp.mwbe_requirements?.goal_pct > 0 ? `⚠️ ${rfp.mwbe_requirements.type} goal: ${rfp.mwbe_requirements.goal_pct}%` : ''}
+═══ END RFP CRITERIA ═══\n`;
+      }
+    }
+
+    return prompt;
   },
 
   // ═══════════════════════════════════════════════════════════
@@ -7230,11 +7336,11 @@ ${legendContext}
   },
 
   async _runWave(waveNum, brainKeys, encodedFiles, state, context, progressCallback) {
-    const waveStart = { 0: 5, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 3.85: 88, 4: 92 };
-    const waveEnd = { 0: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 80, 3.5: 84, 3.75: 88, 3.85: 92, 4: 98 };
+    const waveStart = { 0: 5, 0.75: 10, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 3.85: 88, 4: 92 };
+    const waveEnd = { 0: 10, 0.75: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 80, 3.5: 84, 3.75: 88, 3.85: 92, 4: 98 };
     const baseProgress = waveStart[waveNum] ?? 0;
     const endProgress = waveEnd[waveNum] ?? 100;
-    const waveNames = { 0: 'Legend Pre-Processing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Material Pricing', 2.25: 'Labor Calculation', 2.5: 'Financial Engine', 2.75: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 3.85: 'Estimate Correction', 4: 'Report Synthesis' };
+    const waveNames = { 0: 'Legend Pre-Processing', 0.75: 'RFP Criteria Parsing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Material Pricing', 2.25: 'Labor Calculation', 2.5: 'Financial Engine', 2.75: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 3.85: 'Estimate Correction', 4: 'Report Synthesis' };
 
     const results = {};
     let completed = 0;
@@ -7586,6 +7692,37 @@ ${legendContext}
 
     context.wave0 = wave0Results;
 
+    // ═══ SESSION MEMORY — Shared insight accumulator across all waves ═══
+    // Each brain can output an "insights" array of observations that later brains will see.
+    // This gives SmartPlans adaptive reasoning — early brains teach later brains.
+    context._brainInsights = [];
+
+    // ═══ WAVE 0.75: RFP Criteria Parsing (reads specs for evaluation scoring) ═══
+    if ((encodedFiles.specs || []).length > 0) {
+      try {
+        progressCallback(10, '🏅 Wave 0.75: Parsing RFP evaluation criteria…', this._brainStatus);
+        const wave075Results = await this._runWave(0.75, ['RFP_CRITERIA_PARSER'], encodedFiles, state, context, progressCallback);
+        context.wave0_75 = wave075Results;
+        const rfpData = wave075Results.RFP_CRITERIA_PARSER;
+        if (rfpData && !rfpData._failed && rfpData.award_method && rfpData.award_method !== 'unknown') {
+          context._rfpCriteria = rfpData;
+          console.log(`[SmartBrains] 🏅 RFP Criteria: ${rfpData.award_method} award — ${(rfpData.scoring_criteria || []).length} scoring categories found`);
+          for (const sc of (rfpData.scoring_criteria || [])) {
+            console.log(`[SmartBrains]   📊 ${sc.category}: ${sc.weight_pct}%`);
+          }
+          if (rfpData.bid_strategy_recommendations?.length > 0) {
+            console.log(`[SmartBrains]   💡 Strategy: ${rfpData.bid_strategy_recommendations[0]}`);
+          }
+          // Store for UI display
+          state._rfpCriteria = rfpData;
+        } else {
+          console.log('[SmartBrains] 🏅 RFP Criteria: No evaluation criteria found in specs — proceeding with standard bid approach');
+        }
+      } catch (e) {
+        console.warn('[SmartBrains] Wave 0.75 RFP parsing failed (non-fatal):', e.message);
+      }
+    }
+
     // ═══ SMART SHEET FILTER — Skip pages irrelevant to selected disciplines ═══
     // Uses Wave 0 spatial data + AEC sheet naming conventions to classify sheets.
     // Skips structural, mechanical, plumbing, civil sheets when not needed.
@@ -7665,6 +7802,147 @@ ${legendContext}
     }
 
     console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
+
+    // ═══ SESSION MEMORY: Extract Wave 1 insights for downstream brains ═══
+    try {
+      const insightSources = [
+        { brain: 'SYMBOL_SCANNER', data: wave1Results.SYMBOL_SCANNER },
+        { brain: 'ANNOTATION_READER', data: wave1Results.ANNOTATION_READER },
+        { brain: 'SCOPE_EXCLUSION_SCANNER', data: wave1Results.SCOPE_EXCLUSION_SCANNER },
+        { brain: 'SPECIAL_CONDITIONS', data: wave1Results.SPECIAL_CONDITIONS },
+        { brain: 'SPEC_CROSS_REF', data: wave1Results.SPEC_CROSS_REF },
+      ];
+      for (const { brain, data } of insightSources) {
+        if (!data || data._failed) continue;
+        // Extract problem areas, ambiguous symbols, schedule contradictions, notes
+        if (data.problem_areas) {
+          for (const pa of data.problem_areas.slice(0, 5)) {
+            context._brainInsights.push({ source: brain, type: 'problem_area', detail: `${pa.sheet || 'Unknown sheet'}: ${pa.issue || pa.area || JSON.stringify(pa)}` });
+          }
+        }
+        if (data.ambiguous_symbols) {
+          for (const as of data.ambiguous_symbols.slice(0, 5)) {
+            context._brainInsights.push({ source: brain, type: 'ambiguity', detail: `Symbol ${as.symbol_id}: ${as.reason} — could be: ${(as.could_be || []).join(' or ')}` });
+          }
+        }
+        if (data.notes && typeof data.notes === 'string' && data.notes.length > 10) {
+          context._brainInsights.push({ source: brain, type: 'observation', detail: data.notes.substring(0, 300) });
+        }
+        // Architect naming conventions, non-standard symbols
+        if (data.non_standard_symbols) {
+          for (const ns of (Array.isArray(data.non_standard_symbols) ? data.non_standard_symbols : []).slice(0, 3)) {
+            context._brainInsights.push({ source: brain, type: 'non_standard', detail: JSON.stringify(ns).substring(0, 200) });
+          }
+        }
+        // Schedule vs plan contradictions
+        if (data.schedule_plan_conflicts || data.contradictions) {
+          const conflicts = data.schedule_plan_conflicts || data.contradictions || [];
+          for (const c of (Array.isArray(conflicts) ? conflicts : []).slice(0, 5)) {
+            context._brainInsights.push({ source: brain, type: 'contradiction', detail: typeof c === 'string' ? c : JSON.stringify(c).substring(0, 200) });
+          }
+        }
+      }
+      if (context._brainInsights.length > 0) {
+        console.log(`[SmartBrains] 🧠 Session Memory: ${context._brainInsights.length} insight(s) accumulated from Wave 1 — downstream brains will see these`);
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Session Memory extraction failed (non-fatal):', e.message);
+    }
+
+    // ═══ INTERACTIVE CLARIFICATION: Collect ambiguities for estimator review ═══
+    // After Wave 1, check if there are significant ambiguities that the estimator should resolve
+    // before counting continues. If a clarification callback is provided, pause and ask.
+    const clarificationQuestions = [];
+    try {
+      // Source 1: Ambiguous symbols from legend decoder
+      const legendAmbig = context.wave0?.LEGEND_DECODER?.ambiguous_symbols || [];
+      for (const a of legendAmbig) {
+        clarificationQuestions.push({
+          id: `legend-${a.symbol_id}`,
+          category: 'Symbol Identification',
+          question: `Symbol "${a.symbol_id}" is ambiguous: ${a.reason}. It could be: ${(a.could_be || []).join(' or ')}. Which is correct?`,
+          options: a.could_be || [],
+          severity: 'high',
+          source: 'LEGEND_DECODER',
+        });
+      }
+
+      // Source 2: Schedule vs plan count conflicts
+      const scheduleData = wave1Results.ANNOTATION_READER?.schedule_data || {};
+      const symbolCounts = wave1Results.SYMBOL_SCANNER?.totals || {};
+      for (const [deviceType, schedQty] of Object.entries(scheduleData)) {
+        const symbolQty = symbolCounts[deviceType] || 0;
+        if (schedQty > 0 && symbolQty > 0 && Math.abs(schedQty - symbolQty) / Math.max(schedQty, symbolQty) > 0.3) {
+          clarificationQuestions.push({
+            id: `schedule-${deviceType}`,
+            category: 'Count Conflict',
+            question: `The equipment schedule shows ${schedQty} ${deviceType}(s) but plan symbols show ${symbolQty}. The schedule is typically authoritative — should we use the schedule count (${schedQty})?`,
+            options: [`Use schedule count (${schedQty})`, `Use symbol count (${symbolQty})`, 'Investigate further'],
+            severity: symbolQty === 0 ? 'critical' : 'medium',
+            source: 'ANNOTATION_READER vs SYMBOL_SCANNER',
+          });
+        }
+      }
+
+      // Source 3: Spec vs plan manufacturer conflicts
+      const specCrossRef = wave1Results.SPEC_CROSS_REF;
+      if (specCrossRef && !specCrossRef._failed) {
+        const conflicts = specCrossRef.conflicts || specCrossRef.discrepancies || [];
+        for (const c of (Array.isArray(conflicts) ? conflicts : []).slice(0, 5)) {
+          const desc = typeof c === 'string' ? c : (c.description || c.issue || JSON.stringify(c));
+          clarificationQuestions.push({
+            id: `spec-conflict-${clarificationQuestions.length}`,
+            category: 'Spec Conflict',
+            question: desc.substring(0, 300),
+            options: ['Use spec requirement', 'Use plan annotation', 'Flag as RFI'],
+            severity: 'medium',
+            source: 'SPEC_CROSS_REF',
+          });
+        }
+      }
+
+      // Source 4: Addenda changes detected
+      if (context._hasAddenda && wave1Results.SYMBOL_SCANNER?.addenda_changes) {
+        const changes = wave1Results.SYMBOL_SCANNER.addenda_changes;
+        if (Array.isArray(changes) && changes.length > 0) {
+          clarificationQuestions.push({
+            id: 'addenda-confirm',
+            category: 'Addenda Changes',
+            question: `Addenda detected ${changes.length} change(s): ${changes.slice(0, 3).map(c => c.description || c.change || JSON.stringify(c)).join('; ')}. Should we proceed with the addenda-revised counts?`,
+            options: ['Yes, use addenda counts', 'No, use original counts', 'Review each change'],
+            severity: 'high',
+            source: 'SYMBOL_SCANNER',
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Clarification question collection failed (non-fatal):', e.message);
+    }
+
+    // Store clarification questions for the UI to display
+    context._clarificationQuestions = clarificationQuestions;
+    state._clarificationQuestions = clarificationQuestions;
+
+    // If a clarification callback is provided AND there are significant questions, pause for estimator input
+    if (clarificationQuestions.length > 0 && state._clarificationCallback) {
+      const highSeverity = clarificationQuestions.filter(q => q.severity === 'high' || q.severity === 'critical');
+      if (highSeverity.length > 0) {
+        console.log(`[SmartBrains] ❓ ${highSeverity.length} high-severity clarification question(s) — pausing for estimator input`);
+        progressCallback(34, `❓ ${highSeverity.length} question(s) need your input before continuing…`, this._brainStatus);
+        try {
+          const answers = await state._clarificationCallback(clarificationQuestions);
+          if (answers && typeof answers === 'object') {
+            context._clarificationAnswers = answers;
+            state._clarificationAnswers = answers;
+            console.log(`[SmartBrains] ✅ Estimator provided ${Object.keys(answers).length} clarification answer(s) — resuming analysis`);
+          }
+        } catch (e) {
+          console.warn('[SmartBrains] Clarification callback failed — continuing without answers:', e.message);
+        }
+      }
+    } else if (clarificationQuestions.length > 0) {
+      console.log(`[SmartBrains] ❓ ${clarificationQuestions.length} clarification question(s) collected (no callback — auto-proceeding with best guesses)`);
+    }
 
     // ═══ WAVE 1.5: Second Read — Independent Verification (5 parallel brains, Pro model) ═══
     progressCallback(35, '👁️ Wave 1.5: Second Read — 5 independent verifiers…', this._brainStatus);
@@ -8075,15 +8353,98 @@ ${legendContext}
       }
     }
 
+    // ═══ ADDENDA DELTA REPORT — Quantify what changed and what it costs ═══
+    let addendaDelta = null;
+    if (context._hasAddenda) {
+      try {
+        const addendaChanges = wave1Results.SYMBOL_SCANNER?.addenda_changes || [];
+        const pricer = wave2Results.MATERIAL_PRICER;
+        const categories = pricer?.categories || pricer?.material_categories || [];
+
+        // Build cost lookup from pricer data
+        const costLookup = {};
+        for (const cat of categories) {
+          for (const item of (cat.items || [])) {
+            const key = (item.device_type || item.item || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+            costLookup[key] = { unitCost: item.unit_cost || item.unitCost || 0, laborHrs: item.labor_hours || 0, laborRate: 85 };
+          }
+        }
+
+        const deltaItems = [];
+        let totalMaterialImpact = 0;
+        let totalLaborImpact = 0;
+
+        for (const change of addendaChanges) {
+          const deviceKey = (change.device_type || change.type || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+          const qty = change.quantity || change.count || 1;
+          const action = (change.action || change.change_type || 'modified').toLowerCase();
+          const pricing = costLookup[deviceKey] || { unitCost: 0, laborHrs: 0, laborRate: 85 };
+          const materialCost = qty * pricing.unitCost;
+          const laborCost = qty * pricing.laborHrs * pricing.laborRate;
+          const sign = action.includes('remov') || action.includes('delet') ? -1 : 1;
+
+          deltaItems.push({
+            description: change.description || `${action} ${qty}x ${change.device_type || 'device'}`,
+            action: action.includes('add') ? 'added' : action.includes('remov') ? 'removed' : action.includes('relocat') ? 'relocated' : 'modified',
+            device_type: change.device_type || 'unknown',
+            quantity: qty,
+            sheet: change.sheet || change.sheet_id || 'N/A',
+            material_impact: sign * materialCost,
+            labor_impact: sign * laborCost,
+            total_impact: sign * (materialCost + laborCost),
+          });
+
+          totalMaterialImpact += sign * materialCost;
+          totalLaborImpact += sign * laborCost;
+        }
+
+        addendaDelta = {
+          has_changes: deltaItems.length > 0,
+          changes: deltaItems,
+          summary: {
+            total_changes: deltaItems.length,
+            added: deltaItems.filter(d => d.action === 'added').length,
+            removed: deltaItems.filter(d => d.action === 'removed').length,
+            modified: deltaItems.filter(d => d.action === 'modified' || d.action === 'relocated').length,
+            net_material_impact: totalMaterialImpact,
+            net_labor_impact: totalLaborImpact,
+            net_total_impact: totalMaterialImpact + totalLaborImpact,
+          },
+          addenda_sheets: context._addendaSheets || [],
+        };
+
+        if (deltaItems.length > 0) {
+          console.log(`[SmartBrains] 📋 Addenda Delta: ${deltaItems.length} change(s) — Net impact: $${(totalMaterialImpact + totalLaborImpact).toLocaleString()}`);
+          validationAppendix += `\n\n## 📋 ADDENDA CHANGE IMPACT REPORT\n`;
+          validationAppendix += `**Total Changes**: ${deltaItems.length} | **Added**: ${addendaDelta.summary.added} | **Removed**: ${addendaDelta.summary.removed} | **Modified**: ${addendaDelta.summary.modified}\n`;
+          validationAppendix += `**Net Material Impact**: $${totalMaterialImpact.toLocaleString()}\n`;
+          validationAppendix += `**Net Labor Impact**: $${totalLaborImpact.toLocaleString()}\n`;
+          validationAppendix += `**Net Total Impact**: $${(totalMaterialImpact + totalLaborImpact).toLocaleString()}\n\n`;
+          validationAppendix += `| Change | Device | Qty | Sheet | Material | Labor | Total |\n`;
+          validationAppendix += `|--------|--------|-----|-------|----------|-------|-------|\n`;
+          for (const d of deltaItems.slice(0, 20)) {
+            validationAppendix += `| ${d.action} | ${d.device_type} | ${d.quantity} | ${d.sheet} | $${d.material_impact.toLocaleString()} | $${d.labor_impact.toLocaleString()} | $${d.total_impact.toLocaleString()} |\n`;
+          }
+        }
+      } catch (e) {
+        console.warn('[SmartBrains] Addenda Delta Report failed (non-fatal):', e.message);
+      }
+    }
+
     const finalReport = (typeof report === 'string' ? report : JSON.stringify(report, null, 2)) + validationAppendix;
 
-    progressCallback(100, '🎯 Analysis complete — 27 brains finished!', this._brainStatus);
+    progressCallback(100, '🎯 Analysis complete — 28 brains finished!', this._brainStatus);
 
     return {
       report: finalReport,
       _ocrScaleData: ocrScalePages.length > 0 ? ocrScalePages : undefined,
+      addendaDelta: addendaDelta,
+      rfpCriteria: context._rfpCriteria || null,
+      clarificationQuestions: context._clarificationQuestions || [],
+      sessionInsights: context._brainInsights || [],
       brainResults: {
-        wave0: wave0Results, wave1: wave1Results, wave1_5: wave15Results,
+        wave0: wave0Results, wave0_75: context.wave0_75 || null,
+        wave1: wave1Results, wave1_5: wave15Results,
         wave1_75: wave175Results, wave2: wave2Results, wave2_25: wave225Results,
         wave2_5_fin: wave25FinResults, wave2_75: wave275Results,
         wave3: wave3Results, wave3_5: context.wave3_5, wave3_75: context.wave3_75,
@@ -8100,6 +8461,9 @@ ${legendContext}
         reverseVerificationScore: reverseV?.verification_score || null,
         sheetFilter: context._sheetFilterStats || null,
         skippedSheets: context._skippedSheets || [],
+        rfpCriteria: context._rfpCriteria ? { award_method: context._rfpCriteria.award_method, criteria_count: (context._rfpCriteria.scoring_criteria || []).length } : null,
+        sessionInsightsCount: (context._brainInsights || []).length,
+        clarificationQuestionsCount: (context._clarificationQuestions || []).length,
       },
     };
   },

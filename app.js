@@ -8893,6 +8893,10 @@ function renderStep7(container) {
 
     ${buildChangeOrderCard(state)}
 
+    ${buildRFPCriteriaCard(state)}
+
+    ${buildAddendaDeltaCard(state)}
+
     ${buildSymbolInventoryCard(state)}
 
     <div class="info-card" id="bid-compare-card" style="border-left:3px solid #0D9488;">
@@ -9241,6 +9245,20 @@ function renderStep7(container) {
   bindBidPhasesEvents(container);
   bindChangeOrderEvents(container);
   bindSymbolInventoryEvents(container);
+
+  // ── RFP Criteria toggle ──
+  const rfpToggle = document.getElementById('rfp-criteria-toggle');
+  if (rfpToggle) rfpToggle.addEventListener('click', () => {
+    state._rfpCriteriaOpen = !state._rfpCriteriaOpen;
+    render();
+  });
+
+  // ── Addenda Delta toggle ──
+  const adToggle = document.getElementById('addenda-delta-toggle');
+  if (adToggle) adToggle.addEventListener('click', () => {
+    state._addendaDeltaOpen = !state._addendaDeltaOpen;
+    render();
+  });
 
   // ── Bid Compare toggle ──
   const bcToggle = document.getElementById('bid-compare-toggle');
@@ -11665,6 +11683,11 @@ function renderAnalysis(container) {
         ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 0).map(([key, brain]) =>
     `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
   ).join('')}
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 0.75).length > 0 ? `
+        <div class="brain-wave-header">WAVE 0.75 — RFP Intelligence</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 0.75).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}` : ''}
         <div class="brain-wave-header">WAVE 1 — First Read</div>
         ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 1).map(([key, brain]) =>
     `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
@@ -11765,6 +11788,63 @@ async function runGeminiAnalysis(updateProgress) {
       console.warn('[SmartPlans] Could not compute office distance:', e.message);
     }
 
+    // ═══ INTERACTIVE CLARIFICATION CALLBACK ═══
+    // When the analysis engine encounters ambiguities after Wave 1, this callback
+    // pauses the analysis and shows questions to the estimator via a modal dialog.
+    state._clarificationCallback = (questions) => {
+      return new Promise((resolve) => {
+        const highPriority = questions.filter(q => q.severity === 'high' || q.severity === 'critical');
+        if (highPriority.length === 0) { resolve({}); return; }
+
+        // Build modal HTML
+        const modalHtml = `
+          <div id="clarification-modal" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;padding:20px;">
+            <div style="background:var(--bg-card,#1a1a2e);border:1px solid var(--border,#333);border-radius:12px;max-width:640px;width:100%;max-height:80vh;overflow-y:auto;padding:24px;">
+              <h3 style="margin:0 0 8px;color:var(--text-primary,#fff);">❓ Clarification Needed</h3>
+              <p style="margin:0 0 16px;color:var(--text-secondary,#aaa);font-size:14px;">The AI found ${highPriority.length} ambiguit${highPriority.length === 1 ? 'y' : 'ies'} that could affect accuracy. Your input helps SmartPlans get closer to 100%.</p>
+              ${highPriority.map((q, i) => `
+                <div style="background:var(--bg-secondary,#222);border-radius:8px;padding:12px;margin-bottom:12px;">
+                  <div style="font-size:12px;color:var(--accent-sky,#38bdf8);margin-bottom:4px;font-weight:600;">${q.category}</div>
+                  <div style="color:var(--text-primary,#fff);font-size:14px;margin-bottom:8px;">${q.question}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    ${(q.options || []).map((opt, j) => `<button class="clarify-option" data-qid="${q.id}" data-val="${opt}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border,#444);background:var(--bg-card,#1a1a2e);color:var(--text-primary,#fff);cursor:pointer;font-size:13px;transition:all 0.15s;">${opt}</button>`).join('')}
+                  </div>
+                </div>
+              `).join('')}
+              <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+                <button id="clarify-skip" style="padding:8px 16px;border-radius:8px;border:1px solid var(--border,#444);background:transparent;color:var(--text-secondary,#aaa);cursor:pointer;">Skip — Use AI best guess</button>
+                <button id="clarify-submit" style="padding:8px 16px;border-radius:8px;border:none;background:var(--accent-sky,#38bdf8);color:#000;cursor:pointer;font-weight:600;">Continue with answers</button>
+              </div>
+            </div>
+          </div>`;
+
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = modalHtml;
+        document.body.appendChild(wrapper.firstElementChild);
+
+        const answers = {};
+        const modal = document.getElementById('clarification-modal');
+
+        // Handle option clicks
+        modal.addEventListener('click', (e) => {
+          const btn = e.target.closest('.clarify-option');
+          if (!btn) return;
+          const qid = btn.dataset.qid;
+          const val = btn.dataset.val;
+          answers[qid] = val;
+          // Highlight selected, deselect siblings
+          const siblings = btn.parentElement.querySelectorAll('.clarify-option');
+          siblings.forEach(s => { s.style.background = 'var(--bg-card,#1a1a2e)'; s.style.borderColor = 'var(--border,#444)'; });
+          btn.style.background = 'var(--accent-sky,#38bdf8)';
+          btn.style.color = '#000';
+          btn.style.borderColor = 'var(--accent-sky,#38bdf8)';
+        });
+
+        document.getElementById('clarify-skip')?.addEventListener('click', () => { modal.remove(); resolve({}); });
+        document.getElementById('clarify-submit')?.addEventListener('click', () => { modal.remove(); resolve(answers); });
+      });
+    };
+
     // ═══ USE MULTI-BRAIN ENGINE ═══
     const result = await SmartBrains.runFullAnalysis(state, updateProgress);
 
@@ -11782,6 +11862,12 @@ async function runGeminiAnalysis(updateProgress) {
     state.brainResults = result.brainResults;
     _invalidateBomCache(); // CRITICAL: Force fresh BOM computation with new analysis data
     state.brainStats = result.stats;
+
+    // Store new intelligence data from v5.121
+    state._addendaDelta = result.addendaDelta || null;
+    state._rfpCriteria = result.rfpCriteria || state._rfpCriteria || null;
+    state._sessionInsights = result.sessionInsights || [];
+    state._clarificationQuestions = result.clarificationQuestions || [];
 
     // ─── Local Math Validation (belt and suspenders) ───
     updateProgress(99, "Running local math validation…", result.brainStatus);
@@ -15482,6 +15568,110 @@ function extractPotentialChangeOrders(st) {
   cos.sort((a, b) => (sevOrder[a.severity] || 3) - (sevOrder[b.severity] || 3) || (b.estimatedCost - a.estimatedCost));
 
   return cos;
+}
+
+// ═══ RFP CRITERIA CARD — Shows evaluation scoring from specs ═══
+function buildRFPCriteriaCard(st) {
+  const rfp = st._rfpCriteria;
+  if (!rfp || rfp.award_method === 'unknown' || !(rfp.scoring_criteria || []).length) return '';
+
+  const isOpen = st._rfpCriteriaOpen || false;
+  const criteria = rfp.scoring_criteria || [];
+  const recs = rfp.bid_strategy_recommendations || [];
+
+  return `
+    <div class="info-card" style="border-left:3px solid #f59e0b;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="rfp-criteria-toggle">
+        <h3 class="info-card-title" style="margin:0;">🏅 RFP Evaluation Criteria</h3>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;color:var(--text-secondary);">${rfp.award_method.replace('_', ' ').toUpperCase()} — ${criteria.length} categories</span>
+          <span style="transform:rotate(${isOpen ? '180' : '0'}deg);transition:transform 0.2s;">▼</span>
+        </div>
+      </div>
+      ${isOpen ? `
+        <div style="margin-top:12px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            ${criteria.map(c => `
+              <div style="background:var(--bg-secondary);border-radius:8px;padding:10px 14px;flex:1;min-width:120px;text-align:center;">
+                <div style="font-size:22px;font-weight:700;color:#f59e0b;">${c.weight_pct}%</div>
+                <div style="font-size:12px;color:var(--text-secondary);">${c.category}</div>
+              </div>
+            `).join('')}
+          </div>
+          ${recs.length > 0 ? `
+            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:12px;margin-bottom:8px;">
+              <div style="font-size:12px;font-weight:600;color:#f59e0b;margin-bottom:6px;">💡 Bid Strategy Recommendations</div>
+              ${recs.map(r => `<div style="font-size:13px;color:var(--text-primary);margin-bottom:4px;">• ${r}</div>`).join('')}
+            </div>
+          ` : ''}
+          ${rfp.mwbe_requirements?.goal_pct > 0 ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">⚠️ ${rfp.mwbe_requirements.type} Goal: ${rfp.mwbe_requirements.goal_pct}% — ${rfp.mwbe_requirements.notes || ''}</div>` : ''}
+          ${rfp.key_dates?.length > 0 ? `<div style="margin-top:8px;">${rfp.key_dates.map(d => `<span style="display:inline-block;background:var(--bg-secondary);border-radius:4px;padding:4px 8px;margin:2px;font-size:12px;color:var(--text-secondary);">📅 ${d.event}: ${d.date}${d.mandatory ? ' (MANDATORY)' : ''}</span>`).join('')}</div>` : ''}
+        </div>
+      ` : ''}
+    </div>`;
+}
+
+// ═══ ADDENDA DELTA CARD — Shows what changed and cost impact ═══
+function buildAddendaDeltaCard(st) {
+  const delta = st._addendaDelta;
+  if (!delta || !delta.has_changes) return '';
+
+  const isOpen = st._addendaDeltaOpen || false;
+  const s = delta.summary;
+  const netSign = s.net_total_impact >= 0 ? '+' : '';
+
+  return `
+    <div class="info-card" style="border-left:3px solid #8b5cf6;">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="addenda-delta-toggle">
+        <h3 class="info-card-title" style="margin:0;">📋 Addenda Change Impact</h3>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;padding:2px 8px;border-radius:4px;background:${s.net_total_impact >= 0 ? 'rgba(239,68,68,0.15);color:#ef4444' : 'rgba(34,197,94,0.15);color:#22c55e'};">${netSign}$${Math.abs(s.net_total_impact).toLocaleString()}</span>
+          <span style="font-size:12px;color:var(--text-secondary);">${s.total_changes} change(s)</span>
+          <span style="transform:rotate(${isOpen ? '180' : '0'}deg);transition:transform 0.2s;">▼</span>
+        </div>
+      </div>
+      ${isOpen ? `
+        <div style="margin-top:12px;">
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <div style="background:rgba(34,197,94,0.1);border-radius:8px;padding:8px 14px;text-align:center;flex:1;">
+              <div style="font-size:18px;font-weight:700;color:#22c55e;">+${s.added}</div>
+              <div style="font-size:11px;color:var(--text-secondary);">Added</div>
+            </div>
+            <div style="background:rgba(239,68,68,0.1);border-radius:8px;padding:8px 14px;text-align:center;flex:1;">
+              <div style="font-size:18px;font-weight:700;color:#ef4444;">-${s.removed}</div>
+              <div style="font-size:11px;color:var(--text-secondary);">Removed</div>
+            </div>
+            <div style="background:rgba(139,92,246,0.1);border-radius:8px;padding:8px 14px;text-align:center;flex:1;">
+              <div style="font-size:18px;font-weight:700;color:#8b5cf6;">${s.modified}</div>
+              <div style="font-size:11px;color:var(--text-secondary);">Modified</div>
+            </div>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="border-bottom:1px solid var(--border);">
+              <th style="text-align:left;padding:6px;color:var(--text-secondary);">Change</th>
+              <th style="text-align:left;padding:6px;color:var(--text-secondary);">Device</th>
+              <th style="text-align:center;padding:6px;color:var(--text-secondary);">Qty</th>
+              <th style="text-align:right;padding:6px;color:var(--text-secondary);">Impact</th>
+            </tr></thead>
+            <tbody>
+              ${delta.changes.slice(0, 15).map(d => `
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                  <td style="padding:6px;"><span style="padding:2px 6px;border-radius:4px;font-size:11px;background:${d.action === 'added' ? 'rgba(34,197,94,0.15);color:#22c55e' : d.action === 'removed' ? 'rgba(239,68,68,0.15);color:#ef4444' : 'rgba(139,92,246,0.15);color:#8b5cf6'};">${d.action}</span></td>
+                  <td style="padding:6px;color:var(--text-primary);">${d.device_type}</td>
+                  <td style="padding:6px;text-align:center;color:var(--text-primary);">${d.quantity}</td>
+                  <td style="padding:6px;text-align:right;color:${d.total_impact >= 0 ? '#ef4444' : '#22c55e'};">${d.total_impact >= 0 ? '+' : ''}$${Math.abs(d.total_impact).toLocaleString()}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div style="display:flex;justify-content:space-between;margin-top:12px;padding:8px;background:var(--bg-secondary);border-radius:8px;">
+            <div style="font-size:12px;color:var(--text-secondary);">Materials: ${netSign}$${Math.abs(s.net_material_impact).toLocaleString()}</div>
+            <div style="font-size:12px;color:var(--text-secondary);">Labor: ${netSign}$${Math.abs(s.net_labor_impact).toLocaleString()}</div>
+            <div style="font-size:13px;font-weight:600;color:${s.net_total_impact >= 0 ? '#ef4444' : '#22c55e'};">Net: ${netSign}$${Math.abs(s.net_total_impact).toLocaleString()}</div>
+          </div>
+        </div>
+      ` : ''}
+    </div>`;
 }
 
 function buildChangeOrderCard(st) {
