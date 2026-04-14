@@ -8897,6 +8897,8 @@ function renderStep7(container) {
       </div>
     </div>
 
+    ${buildEstimatorChecklistCard(state)}
+
     ${buildProjectFitnessCard(state)}
 
     ${buildMathAuditorCard(state)}
@@ -9291,6 +9293,35 @@ function renderStep7(container) {
     state._addendaDeltaOpen = !state._addendaDeltaOpen;
     render();
   });
+
+  // ── Estimator Checklist interactive checkboxes ──
+  const checklistItems = document.querySelectorAll('.checklist-action-item');
+  checklistItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const actionId = item.getAttribute('data-action-id');
+      if (!actionId) return;
+      if (!state._checklistChecked) state._checklistChecked = {};
+      state._checklistChecked[actionId] = !state._checklistChecked[actionId];
+      // Persist to localStorage so checks survive page refresh
+      try {
+        const key = `sp_checklist_${state.projectName || 'default'}`;
+        localStorage.setItem(key, JSON.stringify(state._checklistChecked));
+      } catch (e) { /* localStorage full — non-fatal */ }
+      render();
+    });
+  });
+
+  // ── Restore checklist state from localStorage (once per session) ──
+  if (!state._checklistChecked && !state._checklistRestored) {
+    state._checklistRestored = true;
+    try {
+      const key = `sp_checklist_${state.projectName || 'default'}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        state._checklistChecked = JSON.parse(saved);
+      }
+    } catch (e) { /* parse fail — non-fatal */ }
+  }
 
   // ── Building Profile toggle ──
   const bpToggle = document.getElementById('building-profile-toggle');
@@ -13034,6 +13065,7 @@ function _restoreStateFromPayload(id, pkg, est) {
   if (pkg?.quantityAnomalies) state._quantityAnomalies = pkg.quantityAnomalies;
   if (pkg?.costPerSF) state._costPerSF = pkg.costPerSF;
   if (pkg?.confidenceScoring) state._confidenceScoring = pkg.confidenceScoring;
+  if (pkg?.checklistChecked) state._checklistChecked = pkg.checklistChecked;
 
   // ── Restore 3D Engine reference result (was saved but never restored) ──
   if (pkg?.engine3D) state._engine3DResult = pkg.engine3D;
@@ -15800,6 +15832,262 @@ function buildMathAuditorCard(st) {
           </div>
         `).join('')}
       </div>
+    </div>`;
+}
+
+// ═══ ESTIMATOR ACTION CHECKLIST — The ONE card that tells humans what to verify ═══
+// Aggregates every flag, gap, anomaly, dispute, and low-confidence item into a single
+// prioritized action list. This is the "last 10%" — the things only a human can verify.
+function buildEstimatorChecklistCard(st) {
+  const actions = [];
+  const checked = st._checklistChecked || {};
+
+  // ── Source 1: Spec Compliance gaps (missing spec requirements) ──
+  const specGaps = (st._specCompliance?.gaps || []).filter(g => g.status === 'missing');
+  for (const g of specGaps) {
+    const cost = g.estimated_cost_if_missing || 0;
+    actions.push({
+      id: `spec-${g.spec_section}-${(g.requirement || '').substring(0, 20)}`,
+      priority: g.severity === 'critical' ? 1 : 2,
+      icon: g.severity === 'critical' ? '🔴' : '🟡',
+      category: 'Spec Gap',
+      catColor: '#ef4444',
+      text: `${g.requirement || 'Unknown requirement'}`,
+      detail: `Section ${g.spec_section || '?'} — not found in BOM${cost > 0 ? ` (~$${cost.toLocaleString()})` : ''}`,
+      why: g.severity === 'critical' ? 'Required by spec — missing this loses the bid or creates a change order' : 'Spec requirement not matched to a BOM line item',
+    });
+  }
+
+  // ── Source 2: Quantity anomalies ──
+  for (const a of (st._quantityAnomalies || [])) {
+    actions.push({
+      id: `anom-${a.type}-${(a.item || '').substring(0, 20)}`,
+      priority: a.severity === 'warning' ? 2 : 3,
+      icon: a.severity === 'warning' ? '⚠️' : 'ℹ️',
+      category: 'Qty Anomaly',
+      catColor: '#f59e0b',
+      text: `Verify: ${a.item}`,
+      detail: a.detail,
+      why: a.suggestion,
+    });
+  }
+
+  // ── Source 3: Low-confidence BOM items (grade C and D) ──
+  const cs = st._confidenceScoring;
+  if (cs && st.parsedBOM) {
+    const allItems = (st.parsedBOM.categories || []).flatMap(c => (c.items || []));
+    const lowConf = allItems.filter(i => i._confidence && (i._confidence.grade === 'C' || i._confidence.grade === 'D'));
+    for (const item of lowConf.slice(0, 10)) {
+      actions.push({
+        id: `conf-${(item.item || item.device_type || '').substring(0, 20)}`,
+        priority: item._confidence.grade === 'D' ? 1 : 3,
+        icon: item._confidence.grade === 'D' ? '🔴' : '🟡',
+        category: item._confidence.grade === 'D' ? 'Low Confidence' : 'Review',
+        catColor: item._confidence.grade === 'D' ? '#ef4444' : '#f59e0b',
+        text: `${item.item || item.device_type || 'Unknown'} — Grade ${item._confidence.grade} (${item._confidence.score}/100)`,
+        detail: `Qty: ${item.qty || 0} | $${(item.extCost || item.ext_cost || 0).toLocaleString()}`,
+        why: 'Multiple verification flags — cross-check quantity and pricing against plans',
+      });
+    }
+  }
+
+  // ── Source 4: Devil's Advocate challenges ──
+  const devil = st.brainResults?.wave3?.DEVILS_ADVOCATE;
+  if (devil && !devil._failed && devil.challenges) {
+    for (const c of (devil.challenges || []).filter(c => c.severity === 'critical' || c.severity === 'warning').slice(0, 5)) {
+      actions.push({
+        id: `devil-${(c.category || '').substring(0, 15)}-${(c.description || '').substring(0, 15)}`,
+        priority: c.severity === 'critical' ? 1 : 2,
+        icon: c.severity === 'critical' ? '😈' : '🤔',
+        category: 'Risk Flag',
+        catColor: '#8b5cf6',
+        text: `${c.category || 'Risk'}: ${c.description || ''}`,
+        detail: c.estimated_impact ? `Potential impact: ${c.estimated_impact}` : '',
+        why: 'Devil\'s Advocate challenged this — verify it\'s accounted for',
+      });
+    }
+  }
+
+  // ── Source 5: Cross Validator issues ──
+  const validator = st.brainResults?.wave3?.CROSS_VALIDATOR;
+  if (validator && !validator._failed && validator.issues) {
+    for (const issue of (validator.issues || []).filter(i => i.severity === 'critical' || i.severity === 'warning').slice(0, 5)) {
+      actions.push({
+        id: `xval-${(issue.category || '').substring(0, 15)}-${(issue.description || '').substring(0, 15)}`,
+        priority: issue.severity === 'critical' ? 1 : 2,
+        icon: '⚠️',
+        category: 'Verification',
+        catColor: '#0ea5e9',
+        text: `${issue.category || 'Issue'}: ${issue.description || ''}`,
+        detail: issue.correction ? `Suggested fix: ${issue.correction}` : '',
+        why: 'Cross-validator found a discrepancy between brain outputs',
+      });
+    }
+  }
+
+  // ── Source 6: Cost-per-SF out of range ──
+  const cpf = st._costPerSF;
+  if (cpf && (cpf.rating === 'suspiciously_low' || cpf.rating === 'suspiciously_high' || cpf.rating === 'below_range' || cpf.rating === 'above_range')) {
+    actions.push({
+      id: 'cost-sf-range',
+      priority: cpf.rating.includes('suspiciously') ? 1 : 2,
+      icon: cpf.rating.includes('suspiciously') ? '🔴' : '🟡',
+      category: '$/SF Check',
+      catColor: '#14b8a6',
+      text: `Bid is $${cpf.cost_per_sf.toFixed(2)}/SF — ${cpf.rating.replace(/_/g, ' ')} for ${cpf.building_type}`,
+      detail: `Industry range: $${cpf.benchmark_low}-$${cpf.benchmark_high}/SF`,
+      why: cpf.analysis,
+    });
+  }
+
+  // ── Source 7: Clarification questions that weren't answered ──
+  const questions = (st._clarificationQuestions || []).filter(q => !st._clarificationAnswers?.[q.id]);
+  for (const q of questions.filter(q => q.severity === 'high' || q.severity === 'critical').slice(0, 5)) {
+    actions.push({
+      id: `clarify-${q.id}`,
+      priority: q.severity === 'critical' ? 1 : 2,
+      icon: '❓',
+      category: 'Ambiguity',
+      catColor: '#6366f1',
+      text: q.question || 'Unresolved ambiguity',
+      detail: q.options ? `Options: ${q.options.join(' | ')}` : '',
+      why: 'SmartPlans found an ambiguity it couldn\'t resolve — your judgment needed',
+    });
+  }
+
+  // ── Source 8: Room walkthrough missing devices ──
+  const perFloor = st.brainResults?.wave1_5?.PER_FLOOR_ANALYZER;
+  if (perFloor && !perFloor._failed && perFloor.room_summary) {
+    const missing = perFloor.room_summary.critical_missing || [];
+    for (const m of (Array.isArray(missing) ? missing : []).slice(0, 5)) {
+      const txt = typeof m === 'string' ? m : (m.description || m.room || JSON.stringify(m));
+      actions.push({
+        id: `room-${txt.substring(0, 20)}`,
+        priority: 2,
+        icon: '🏠',
+        category: 'Room Gap',
+        catColor: '#f97316',
+        text: txt.length > 80 ? txt.substring(0, 80) + '…' : txt,
+        detail: '',
+        why: 'Room-by-room walkthrough found a room missing expected devices',
+      });
+    }
+  }
+
+  // ── Source 9: Testing/training/submittal requirements from spec checker ──
+  const specData = st._specCompliance;
+  if (specData) {
+    const testReqs = (specData.testing_requirements || []).filter(t => !t.in_bom);
+    const trainReqs = (specData.training_requirements || []).filter(t => !t.in_bom);
+    const submitReqs = (specData.submittal_requirements || []).filter(t => !t.in_bom);
+    for (const t of testReqs.slice(0, 3)) {
+      actions.push({
+        id: `test-${(t.requirement || '').substring(0, 20)}`,
+        priority: 2,
+        icon: '🧪',
+        category: 'Testing',
+        catColor: '#0ea5e9',
+        text: `Testing: ${t.requirement || 'Required testing'}`,
+        detail: `Est. ${t.labor_hours_estimate || '?'} labor hours — not in BOM`,
+        why: 'Spec requires testing that isn\'t accounted for in labor hours',
+      });
+    }
+    for (const t of trainReqs.slice(0, 2)) {
+      actions.push({
+        id: `train-${(t.description || '').substring(0, 20)}`,
+        priority: 3,
+        icon: '📚',
+        category: 'Training',
+        catColor: '#8b5cf6',
+        text: `Training: ${t.description || 'Required training'}`,
+        detail: `Est. ${t.labor_hours || '?'} hours — not in BOM`,
+        why: 'Spec requires training that isn\'t accounted for in labor',
+      });
+    }
+    for (const t of submitReqs.slice(0, 2)) {
+      actions.push({
+        id: `submit-${(t.item || '').substring(0, 20)}`,
+        priority: 3,
+        icon: '📋',
+        category: 'Submittal',
+        catColor: '#6366f1',
+        text: `Submittal: ${t.item || 'Required submittal'}`,
+        detail: `Est. ${t.engineering_hours || '?'} engineering hours`,
+        why: 'Spec requires submittals — add engineering time to labor',
+      });
+    }
+  }
+
+  // Sort by priority (1=critical first, then 2=warning, then 3=info)
+  actions.sort((a, b) => a.priority - b.priority);
+
+  // If nothing to show, return a "clean bill of health" card
+  if (actions.length === 0) {
+    return `
+      <div class="info-card" style="border-left:3px solid #22c55e;background:linear-gradient(135deg,rgba(34,197,94,0.06),rgba(16,185,129,0.02));">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:28px;">✅</span>
+          <div>
+            <h3 class="info-card-title" style="margin:0;">ESTIMATOR REVIEW — All Clear</h3>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">SmartPlans found no critical items requiring manual verification. Standard review recommended.</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  const checkedCount = actions.filter(a => checked[a.id]).length;
+  const totalCount = actions.length;
+  const pctDone = Math.round(checkedCount / totalCount * 100);
+  const criticalCount = actions.filter(a => a.priority === 1).length;
+  const uncheckedCritical = actions.filter(a => a.priority === 1 && !checked[a.id]).length;
+
+  return `
+    <div class="info-card" style="border-left:3px solid ${uncheckedCritical > 0 ? '#ef4444' : pctDone === 100 ? '#22c55e' : '#f59e0b'};background:linear-gradient(135deg,rgba(239,68,68,0.03),rgba(245,158,11,0.02));">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:24px;">${pctDone === 100 ? '✅' : '📋'}</span>
+          <div>
+            <h3 class="info-card-title" style="margin:0;">ESTIMATOR REVIEW CHECKLIST</h3>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">
+              ${totalCount} item${totalCount !== 1 ? 's' : ''} need your review to complete this bid
+              ${criticalCount > 0 ? ` — <span style="color:#ef4444;font-weight:700;">${criticalCount} critical</span>` : ''}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:80px;height:8px;background:rgba(0,0,0,0.08);border-radius:4px;overflow:hidden;">
+            <div style="width:${pctDone}%;height:100%;background:${pctDone === 100 ? '#22c55e' : '#f59e0b'};border-radius:4px;transition:width 0.3s;"></div>
+          </div>
+          <span style="font-size:12px;font-weight:700;color:${pctDone === 100 ? '#22c55e' : 'var(--text-secondary)'};">${checkedCount}/${totalCount}</span>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;padding:8px 12px;background:rgba(99,102,241,0.04);border-radius:8px;border-left:2px solid #6366f1;">
+        💡 <strong>These are the items SmartPlans couldn't verify with 100% confidence.</strong> Check each one off as you verify it. Your expertise on these items is what takes this bid from 90% → 100%.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;" id="estimator-checklist-items">
+        ${actions.map((a, idx) => `
+          <div class="checklist-action-item" data-action-id="${esc(a.id)}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:8px;background:${checked[a.id] ? 'rgba(34,197,94,0.04)' : a.priority === 1 ? 'rgba(239,68,68,0.04)' : 'rgba(0,0,0,0.02)'};border-left:3px solid ${checked[a.id] ? '#22c55e' : a.catColor};cursor:pointer;transition:all 0.15s;${checked[a.id] ? 'opacity:0.6;' : ''}">
+            <div style="flex-shrink:0;width:20px;height:20px;border:2px solid ${checked[a.id] ? '#22c55e' : 'rgba(0,0,0,0.2)'};border-radius:4px;display:flex;align-items:center;justify-content:center;margin-top:1px;background:${checked[a.id] ? '#22c55e' : 'transparent'};">
+              ${checked[a.id] ? '<span style="color:white;font-size:12px;font-weight:900;">✓</span>' : ''}
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                <span style="font-size:13px;">${a.icon}</span>
+                <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${a.catColor}18;color:${a.catColor};font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">${esc(a.category)}</span>
+              </div>
+              <div style="font-size:12.5px;color:var(--text-primary);font-weight:${checked[a.id] ? '400' : '600'};line-height:1.4;${checked[a.id] ? 'text-decoration:line-through;' : ''}">${esc(a.text)}</div>
+              ${a.detail ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${esc(a.detail)}</div>` : ''}
+              <div style="font-size:11px;color:${a.catColor};margin-top:3px;font-style:italic;">↳ ${esc(a.why)}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      ${pctDone === 100 ? `
+        <div style="margin-top:16px;padding:12px;background:rgba(34,197,94,0.08);border-radius:8px;text-align:center;">
+          <span style="font-size:20px;">🎉</span>
+          <div style="font-size:14px;font-weight:700;color:#22c55e;margin-top:4px;">All items reviewed — this bid is ready to submit!</div>
+        </div>
+      ` : ''}
     </div>`;
 }
 

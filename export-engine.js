@@ -227,6 +227,9 @@ const SmartPlansExport = {
             // Per-Item Confidence Scoring — Grade distribution
             confidenceScoring: state._confidenceScoring || null,
 
+            // Estimator Review Checklist — checked items (so reopened bids remember progress)
+            checklistChecked: state._checklistChecked || {},
+
             // 3D Formula Engine breakdown — deterministic bid using 3D Technology Services formulas
             engine3D: (typeof FormulaEngine3D !== 'undefined' && state._engine3DResult)
                 ? {
