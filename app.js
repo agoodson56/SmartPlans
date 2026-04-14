@@ -11998,6 +11998,8 @@ async function runGeminiAnalysis(updateProgress) {
     state._quantityAnomalies = result.quantityAnomalies || null;
     state._costPerSF = result.costPerSF || null;
     state._confidenceScoring = result.confidenceScoring || null;
+    state._quantitiesUnverified = result.quantitiesUnverified || false;
+    state._quantitiesUnverifiedReason = result.quantitiesUnverifiedReason || '';
 
     // ─── Local Math Validation (belt and suspenders) ───
     updateProgress(99, "Running local math validation…", result.brainStatus);
@@ -15845,6 +15847,41 @@ function buildMathAuditorCard(st) {
 // Aggregates every flag, gap, anomaly, dispute, and low-confidence item into a single
 // prioritized action list. This is the "last 10%" — the things only a human can verify.
 function buildEstimatorChecklistCard(st) {
+  // ═══ BLOCKING ROOT-CAUSE CARD ═══
+  // When the Symbol Scanner never saw real device data, every downstream finding
+  // is built on guessed quantities. Show a single red card explaining what to do
+  // — suppress the noisy aggregated list until plans are uploaded and re-run.
+  if (st._quantitiesUnverified) {
+    const reason = st._quantitiesUnverifiedReason
+      || 'Symbol Scanner could not verify device counts from the uploaded documents.';
+    return `
+      <div class="card" style="margin-top:16px;border:2px solid #ef4444;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(239,68,68,0.02));">
+        <div style="padding:20px;">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+            <span style="font-size:32px;">⛔</span>
+            <div>
+              <div style="font-size:18px;font-weight:800;color:#ef4444;">Quantities Not Verified — Fix This First</div>
+              <div style="font-size:13px;color:rgba(0,0,0,0.65);margin-top:2px;">Everything below this card is based on guessed device counts and will be wrong.</div>
+            </div>
+          </div>
+          <div style="padding:12px 14px;background:rgba(239,68,68,0.06);border-left:3px solid #ef4444;border-radius:6px;margin-bottom:14px;font-size:13px;line-height:1.5;color:rgba(0,0,0,0.80);">
+            ${String(reason).replace(/</g, '&lt;')}
+          </div>
+          <div style="font-size:13px;font-weight:700;color:rgba(0,0,0,0.80);margin-bottom:8px;">How to fix:</div>
+          <ol style="margin:0 0 12px 18px;padding:0;font-size:13px;line-height:1.7;color:rgba(0,0,0,0.75);">
+            <li>Upload the <strong>actual floor plan sheets</strong> (E-1.x, T-1.x, FA-1.x, etc.) — not just the legend/cover sheet.</li>
+            <li>Verify your selected disciplines match the sheets you uploaded.</li>
+            <li>Resolve any ambiguous symbol dialogs that appear during the re-run.</li>
+            <li>Re-run the AI analysis. Pricing, labor, $/SF, and confidence grades will then be based on real counts.</li>
+          </ol>
+          <div style="padding:10px 12px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:6px;font-size:12px;color:rgba(0,0,0,0.70);">
+            <strong>Why the other findings are hidden:</strong> the quantity anomaly, cost-per-SF, confidence, and room-walkthrough checks all depend on verified device counts. Running them on guessed data produces false alarms that bury the real issue (this one). They'll re-appear after a clean re-run.
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   const actions = [];
   const checked = st._checklistChecked || {};
 
@@ -16316,6 +16353,7 @@ function buildBuildingProfileCard(st) {
 
 // ═══ COST-PER-SF BENCHMARK CARD — Industry $/SF comparison ═══
 function buildCostPerSFCard(st) {
+  if (st._quantitiesUnverified) return ''; // Suppressed — see blocking root-cause card
   const data = st._costPerSF;
   if (!data) return '';
 
@@ -16356,6 +16394,7 @@ function buildCostPerSFCard(st) {
 
 // ═══ QUANTITY ANOMALY CARD — Statistical outlier detection ═══
 function buildQuantityAnomalyCard(st) {
+  if (st._quantitiesUnverified) return ''; // Suppressed — see blocking root-cause card
   const anomalies = st._quantityAnomalies || [];
   if (anomalies.length === 0) return '';
   const isOpen = st._anomaliesOpen || false;
@@ -16464,6 +16503,7 @@ function buildSpecComplianceCard(st) {
 
 // ═══ CONFIDENCE SCORING CARD — Per-item grade distribution ═══
 function buildConfidenceScoringCard(st) {
+  if (st._quantitiesUnverified) return ''; // Suppressed — see blocking root-cause card
   const cs = st._confidenceScoring;
   if (!cs) return '';
 

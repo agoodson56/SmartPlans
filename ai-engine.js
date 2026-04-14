@@ -8265,6 +8265,44 @@ ${legendContext}
     const wave1Results = await this._runWave(1, wave1Keys, filteredEncodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
 
+    // ═══ POST-WAVE 1: Quantities-Verified Guard ═══
+    // If Symbol Scanner processed zero sheets OR found zero devices, downstream
+    // quantities are phantom — flag it so the noisy deterministic checks suppress
+    // themselves and the UI can render a single blocking root-cause card instead
+    // of 27 false-positive findings built on guessed data.
+    try {
+      const ss = wave1Results.SYMBOL_SCANNER || {};
+      const sheets = Array.isArray(ss.sheets) ? ss.sheets : [];
+      const sheetsProcessed = sheets.length;
+      const totalDevices = sheets.reduce((sum, sheet) => {
+        const syms = Array.isArray(sheet.symbols) ? sheet.symbols : [];
+        return sum + syms.reduce((s, sym) => s + (parseInt(sym.count || sym.qty || 0) || 0), 0);
+      }, 0);
+      const totalsSum = ss.totals && typeof ss.totals === 'object'
+        ? Object.values(ss.totals).reduce((s, v) => s + (parseInt(v) || 0), 0)
+        : 0;
+      const effectiveDeviceCount = Math.max(totalDevices, totalsSum);
+
+      // Unverified if: no sheets processed, OR scanner returned 0 devices despite being run
+      const unverified = sheetsProcessed === 0 || effectiveDeviceCount === 0;
+      if (unverified) {
+        context._quantitiesUnverified = true;
+        state._quantitiesUnverified = true;
+        context._quantitiesUnverifiedReason = sheetsProcessed === 0
+          ? 'Symbol Scanner processed 0 sheets — no floor plans were uploaded or none matched selected disciplines.'
+          : `Symbol Scanner processed ${sheetsProcessed} sheet(s) but found 0 countable devices — only a legend/cover sheet may have been provided, or symbols were not recognized.`;
+        state._quantitiesUnverifiedReason = context._quantitiesUnverifiedReason;
+        console.warn(`[SmartBrains] ⛔ QUANTITIES UNVERIFIED: ${context._quantitiesUnverifiedReason}`);
+        console.warn('[SmartBrains]    Downstream anomaly/benchmark/confidence checks will be suppressed to avoid false alarms on guessed data.');
+      } else {
+        context._quantitiesUnverified = false;
+        state._quantitiesUnverified = false;
+        console.log(`[SmartBrains] ✅ Quantities verified: ${sheetsProcessed} sheet(s), ${effectiveDeviceCount} device(s) counted`);
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Quantities-verified guard errored (non-fatal):', e.message);
+    }
+
     // ═══ POST-WAVE 1: Log scope exclusion findings for estimator visibility ═══
     const scopeResults = wave1Results.SCOPE_EXCLUSION_SCANNER;
     if (scopeResults && !scopeResults._failed) {
@@ -8895,50 +8933,86 @@ ${legendContext}
     console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
 
     // ═══ QUANTITY ANOMALY DETECTOR — Deterministic statistical outlier detection (ZERO AI cost) ═══
-    // Flags items with qty >50× median, cost >40% of category, or unit cost anomalies.
-    if (_pricer && (_pricer.categories || _pricer.material_categories)) {
+    // Flags items with qty outliers, cost concentration, or unit cost anomalies.
+    //
+    // IMPORTANT: Medians are computed WITHIN (category, unit) buckets, not across the
+    // whole BOM. Previously, cable footage (29,750 ft) was compared against the global
+    // device-count median (10 ea), which produced "2975× the median" false positives
+    // on every cable line. Grouping by unit makes footage-vs-footage and ea-vs-ea the
+    // only valid comparisons.
+    //
+    // Also: suppressed entirely when Symbol Scanner never saw real floor plans — running
+    // statistical anomaly detection on guessed quantities produces garbage findings.
+    if (context._quantitiesUnverified) {
+      console.log('[SmartBrains] ⏭  Quantity Anomaly Detector SKIPPED — quantities unverified (Symbol Scanner saw no devices)');
+    } else if (_pricer && (_pricer.categories || _pricer.material_categories)) {
       const _anomCats = _pricer.categories || _pricer.material_categories || [];
       const _anomalies = [];
       const allItems = _anomCats.flatMap(c => (c.items || []).map(i => ({ ...i, category: c.name || c.category || 'Other' })));
 
       if (allItems.length > 2) {
-        // Calculate median qty across all items
-        const qtys = allItems.map(i => i.qty || 0).filter(q => q > 0).sort((a, b) => a - b);
-        const medianQty = qtys.length > 0 ? qtys[Math.floor(qtys.length / 2)] : 1;
+        // ── Build (category, unit) buckets for comparable medians ──
+        // Normalize unit so 'ea'/'each'/'pc' etc all bucket together
+        const _normUnit = (u) => {
+          const s = String(u || 'ea').toLowerCase().trim();
+          if (/^(ft|lf|feet|foot|ln\.?\s*ft)$/.test(s)) return 'ft';
+          if (/^(ea|each|pc|piece|pcs|unit)$/.test(s)) return 'ea';
+          if (/^(lot|ls|lump)$/.test(s)) return 'lot';
+          if (/^(box|bx|rl|roll|spool)$/.test(s)) return 'box';
+          return s;
+        };
 
-        // Calculate total BOM cost
-        const totalBOMCost = allItems.reduce((s, i) => s + (i.ext_cost || i.extCost || 0), 0);
+        // Bucket items: key = `${category}|${unit}`
+        const buckets = new Map();
+        for (const it of allItems) {
+          const key = `${it.category}|${_normUnit(it.unit)}`;
+          if (!buckets.has(key)) buckets.set(key, []);
+          buckets.get(key).push(it);
+        }
+
+        // Precompute median qty and median unit-cost per bucket
+        const bucketStats = new Map();
+        for (const [key, items] of buckets.entries()) {
+          const qtys = items.map(i => i.qty || 0).filter(q => q > 0).sort((a, b) => a - b);
+          const ucs = items.map(i => i.unit_cost || i.unitCost || 0).filter(u => u > 0).sort((a, b) => a - b);
+          bucketStats.set(key, {
+            medianQty: qtys.length > 0 ? qtys[Math.floor(qtys.length / 2)] : 0,
+            medianUC: ucs.length > 0 ? ucs[Math.floor(ucs.length / 2)] : 0,
+            count: items.length,
+          });
+        }
 
         for (const item of allItems) {
           const qty = item.qty || 0;
           const extCost = item.ext_cost || item.extCost || 0;
           const unitCost = item.unit_cost || item.unitCost || 0;
           const name = item.item || item.device_type || item.name || 'Unknown';
+          const unitNorm = _normUnit(item.unit);
+          const bucketKey = `${item.category}|${unitNorm}`;
+          const stats = bucketStats.get(bucketKey) || { medianQty: 0, medianUC: 0, count: 0 };
 
-          // Rule 1: Qty >50× the median qty → statistical outlier
-          if (qty > 0 && medianQty > 0 && qty > medianQty * 50) {
-            _anomalies.push({ item: name, category: item.category, type: 'qty_outlier', severity: 'warning', detail: `Qty ${qty} is ${Math.round(qty / medianQty)}× the median (${medianQty})`, qty, medianQty, suggestion: 'Verify this quantity — it may be double-counted or use wrong units' });
+          // Rule 1: Qty >50× the bucket median (only if bucket has ≥3 items — needs signal)
+          // AND skip unit types where large quantities are inherent (ft, box, roll)
+          if (stats.count >= 3 && stats.medianQty > 0 && qty > stats.medianQty * 50 && unitNorm === 'ea') {
+            _anomalies.push({ item: name, category: item.category, type: 'qty_outlier', severity: 'warning', detail: `Qty ${qty} is ${Math.round(qty / stats.medianQty)}× the category median (${stats.medianQty} ${unitNorm})`, qty, medianQty: stats.medianQty, suggestion: 'Verify this quantity — it may be double-counted or use wrong units' });
           }
 
           // Rule 2: Single item >40% of its category subtotal → cost concentration
           const catItems = allItems.filter(i => i.category === item.category);
           const catTotal = catItems.reduce((s, i) => s + (i.ext_cost || i.extCost || 0), 0);
-          if (catTotal > 0 && extCost > catTotal * 0.4 && catItems.length > 2) {
+          if (catTotal > 0 && extCost > catTotal * 0.4 && catItems.length > 3) {
             _anomalies.push({ item: name, category: item.category, type: 'cost_concentration', severity: 'info', detail: `$${extCost.toLocaleString()} is ${Math.round(extCost / catTotal * 100)}% of ${item.category} ($${catTotal.toLocaleString()})`, extCost, catTotal, suggestion: 'Verify pricing — one item dominates this category' });
           }
 
-          // Rule 3: Unit cost outlier — compare against same-category items
-          const catUnitCosts = catItems.map(i => i.unit_cost || i.unitCost || 0).filter(u => u > 0).sort((a, b) => a - b);
-          if (catUnitCosts.length >= 3 && unitCost > 0) {
-            const catMedianUC = catUnitCosts[Math.floor(catUnitCosts.length / 2)];
-            if (unitCost > catMedianUC * 20 && catMedianUC > 0) {
-              _anomalies.push({ item: name, category: item.category, type: 'unit_cost_outlier', severity: 'warning', detail: `Unit cost $${unitCost.toFixed(2)} is ${Math.round(unitCost / catMedianUC)}× the category median ($${catMedianUC.toFixed(2)})`, unitCost, catMedianUC, suggestion: 'Check if unit cost is per-unit or per-lot' });
-            }
+          // Rule 3: Unit cost outlier — compare within same (category, unit) bucket only
+          if (stats.count >= 3 && stats.medianUC > 0 && unitCost > stats.medianUC * 20) {
+            _anomalies.push({ item: name, category: item.category, type: 'unit_cost_outlier', severity: 'warning', detail: `Unit cost $${unitCost.toFixed(2)} is ${Math.round(unitCost / stats.medianUC)}× the median for ${unitNorm} items in ${item.category} ($${stats.medianUC.toFixed(2)})`, unitCost, catMedianUC: stats.medianUC, suggestion: 'Check if unit cost is per-unit or per-lot' });
           }
 
           // Rule 4: Qty is exactly 1 for items that typically come in multiples
-          const typicalMultiples = /cable|wire|conduit|j-hook|box|connector|bracket|plate|ring|strap|clip|tie/i;
-          if (qty === 1 && typicalMultiples.test(name) && extCost > 500) {
+          // Only trip on 'ea'-ish units — 'lot' legitimately uses qty=1 for lump sums
+          const typicalMultiples = /cable|wire|conduit|j-hook|connector|bracket|plate|ring|strap|clip|tie/i;
+          if (qty === 1 && unitNorm === 'ea' && typicalMultiples.test(name) && extCost > 500) {
             _anomalies.push({ item: name, category: item.category, type: 'suspicious_qty_one', severity: 'info', detail: `Qty=1 for "${name}" at $${extCost.toLocaleString()} — this item usually has qty > 1`, qty, extCost, suggestion: 'Verify quantity — may be per-lot pricing instead of per-unit' });
           }
         }
@@ -8946,17 +9020,24 @@ ${legendContext}
         if (_anomalies.length > 0) {
           context._quantityAnomalies = _anomalies;
           state._quantityAnomalies = _anomalies;
-          console.log(`[SmartBrains] ═══ QUANTITY ANOMALY DETECTOR: ${_anomalies.length} anomaly/anomalies flagged ═══`);
+          console.log(`[SmartBrains] ═══ QUANTITY ANOMALY DETECTOR: ${_anomalies.length} anomaly/anomalies flagged (unit-bucketed) ═══`);
           for (const a of _anomalies.slice(0, 5)) {
             console.log(`[AnomalyDetector] ⚠️ ${a.type}: ${a.item} — ${a.detail}`);
           }
+        } else {
+          console.log('[SmartBrains] ═══ QUANTITY ANOMALY DETECTOR: 0 anomalies (bucketed medians clean) ═══');
         }
       }
     }
 
     // ═══ COST-PER-SF BENCHMARK — Industry $/SF comparison (ZERO AI cost) ═══
     // Compares total bid against industry benchmarks by building type.
-    if (_pricer && context._buildingProfile) {
+    // Suppressed when quantities are unverified — a $/SF check on phantom device counts
+    // produces a misleading "suspiciously low" finding that's an artifact of bad inputs,
+    // not a real pricing problem.
+    if (context._quantitiesUnverified) {
+      console.log('[SmartBrains] ⏭  Cost-Per-SF Benchmark SKIPPED — quantities unverified');
+    } else if (_pricer && context._buildingProfile) {
       const bp = context._buildingProfile;
       const totalSF = bp.total_gross_sf || 0;
       const grandTotal = _pricer.grand_total || 0;
@@ -9320,7 +9401,11 @@ ${legendContext}
 
     // ═══ PER-ITEM CONFIDENCE SCORING — Grade every BOM line item A/B/C/D (ZERO AI cost) ═══
     // Uses consensus agreement, verification findings, spec compliance, and anomaly flags.
-    if (_pricer && (_pricer.categories || _pricer.material_categories)) {
+    // Suppressed when quantities are unverified — scoring phantom items against findings
+    // derived from those same phantom items is circular and produces no real signal.
+    if (context._quantitiesUnverified) {
+      console.log('[SmartBrains] ⏭  Per-Item Confidence Scoring SKIPPED — quantities unverified');
+    } else if (_pricer && (_pricer.categories || _pricer.material_categories)) {
       const _scoreCats = _pricer.categories || _pricer.material_categories || [];
       const consensusCounts = consensus?.consensus_counts || {};
       const verifierIssues = (validator?.issues || []).map(i => (i.item || i.description || '').toLowerCase());
@@ -9392,6 +9477,8 @@ ${legendContext}
       quantityAnomalies: context._quantityAnomalies || null,
       costPerSF: context._costPerSF || null,
       confidenceScoring: context._confidenceScoring || null,
+      quantitiesUnverified: context._quantitiesUnverified || false,
+      quantitiesUnverifiedReason: context._quantitiesUnverifiedReason || '',
       brainResults: {
         wave0: wave0Results, wave0_35: context.wave0_35 || null, wave0_75: context.wave0_75 || null,
         wave1: wave1Results, wave1_5: wave15Results,
