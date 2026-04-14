@@ -629,7 +629,7 @@ const SmartBrains = {
               try {
                 const text = await extractPDFText(entry.rawFile);
                 if (text && text.length > 100) {
-                  fileData.extractedText = text.substring(0, 15000);
+                  fileData.extractedText = text.substring(0, 100000); // 100KB — specs need full text for scope, products, and requirements
                 }
               } catch (e) { console.warn(`[SmartBrains] PDF text extraction failed for ${entry.name}:`, e.message); }
             }
@@ -3853,7 +3853,32 @@ ${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 16000
 SPATIAL LAYOUT (scale per sheet, building dimensions — use for cable run verification):
 ${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 6000)}
 
-PRICING DATABASE (use these exact prices):
+═══ RATE LIBRARY — KNOWN-GOOD PRICES FROM PAST PROJECTS (HIGHEST PRIORITY) ═══
+${(() => {
+  const rates = context.rateLibrary || [];
+  if (rates.length === 0) return 'No rate library entries — use pricing database below.';
+  let result = 'These are REAL prices from completed projects — verified by the estimator. Use these INSTEAD of the generic pricing database when a match exists.\n\n';
+  const byCategory = {};
+  for (const r of rates) {
+    const cat = r.category || 'Uncategorized';
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(r);
+  }
+  for (const [cat, items] of Object.entries(byCategory)) {
+    result += cat + ':\n';
+    for (const r of items.slice(0, 30)) {
+      result += '  - ' + r.item_name + ': $' + r.unit_cost + '/' + (r.unit || 'ea');
+      if (r.labor_hours) result += ' (labor: ' + r.labor_hours + ' hrs)';
+      if (r.supplier) result += ' [' + r.supplier + ']';
+      if (r.notes) result += ' — ' + r.notes;
+      result += '\n';
+    }
+  }
+  result += '\nRULE: If a rate library entry matches an item you are pricing, use the rate library price. It is more accurate than the generic database.';
+  return result;
+})()}
+
+PRICING DATABASE (use these prices when no rate library match exists):
 ${context.pricingContext || 'Use industry standard pricing'}
 
 ═══ PRICING GUARDRAILS (HARD LIMITS — violations will be rejected) ═══
@@ -3975,6 +4000,18 @@ ${JSON.stringify(context.wave1?.SPEC_CROSS_REF?.power_equipment_found || [], nul
 
 SCHEDULE DATA (may include manufacturer and model):
 ${JSON.stringify(context.wave1?.ANNOTATION_READER?.schedule_data || [], null, 2).substring(0, 3000)}
+
+═══ RAW SPECIFICATION TEXT (extracted from uploaded spec PDFs — search for products, requirements, scope) ═══
+${(() => {
+  const specTexts = context._specTexts || [];
+  if (specTexts.length === 0) return 'No spec PDFs uploaded — rely on Spec Cross-Reference brain data above.';
+  let combined = '';
+  for (const st of specTexts) {
+    combined += '--- ' + st.name + ' ---\n' + st.text + '\n\n';
+    if (combined.length > 30000) break; // Cap total spec text at 30KB in pricer prompt
+  }
+  return combined.substring(0, 30000) + (combined.length > 30000 ? '\n[...truncated...]' : '');
+})()}
 
 RULES FOR MANUFACTURERS & PART NUMBERS (MANDATORY — items without these are REJECTED):
 - PRIORITY 1 (ABSOLUTE): If the SPECIFIED PRODUCTS list above contains a manufacturer for an item type, you MUST use that EXACT manufacturer — using ANY different brand is a FATAL COMPLIANCE ERROR that will be rejected
@@ -4312,7 +4349,21 @@ ${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
 MATERIAL PRICER OUTPUT (actual priced quantities — match your labor to THESE):
 ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000)}
 
-NECA LABOR UNIT GUIDELINES:
+═══ RATE LIBRARY — KNOWN LABOR HOURS FROM PAST PROJECTS ═══
+${(() => {
+  const rates = context.rateLibrary || [];
+  const withLabor = rates.filter(r => r.labor_hours && r.labor_hours > 0);
+  if (withLabor.length === 0) return 'No rate library labor data — use NECA guidelines below.';
+  let result = 'These are VERIFIED labor hours from completed projects. Use these instead of NECA defaults when a match exists:\n';
+  for (const r of withLabor.slice(0, 40)) {
+    result += '  - ' + r.item_name + ': ' + r.labor_hours + ' hrs/' + (r.unit || 'ea');
+    if (r.notes) result += ' — ' + r.notes;
+    result += '\n';
+  }
+  return result;
+})()}
+
+NECA LABOR UNIT GUIDELINES (use when no rate library match):
 - Cat6A drop (install+terminate+test): 0.45-0.55 hrs/drop
 - Camera install (mount+wire+aim): 2.0-3.5 hrs/camera
 - Card reader (mount+wire+program): 2.5-4.0 hrs/door
@@ -6545,7 +6596,9 @@ Return ONLY valid JSON:
             pageChunks.push(f);
           } else if (f.extractedText) {
             // Non-chunk files with text (specs, etc.) — include as context
-            contextTextParts.push({ text: `\n[CONTEXT: ${f.name}]\n${f.extractedText.substring(0, 2000)}` });
+            // SCOPE_EXCLUSION_SCANNER needs more spec text to find responsibility matrices and scope definitions
+            const textLimit = (key === 'SCOPE_EXCLUSION_SCANNER') ? 15000 : 2000;
+            contextTextParts.push({ text: `\n[CONTEXT: ${f.name}]\n${f.extractedText.substring(0, textLimit)}` });
           }
         }
       }
@@ -7194,6 +7247,19 @@ ${legendContext}
       wave3: null, wave3_5: null, wave3_75: null,
     };
 
+    // ═══ PRE-WAVE: Collect spec text for direct injection into Material Pricer ═══
+    const specTexts = [];
+    for (const specFile of encodedFiles.specs || []) {
+      if (specFile.extractedText && specFile.extractedText.length > 100) {
+        specTexts.push({ name: specFile.name, text: specFile.extractedText });
+      }
+    }
+    if (specTexts.length > 0) {
+      context._specTexts = specTexts;
+      const totalChars = specTexts.reduce((s, t) => s + t.text.length, 0);
+      console.log(`[SmartBrains] 📑 Spec text: ${specTexts.length} file(s), ${Math.round(totalChars / 1024)}KB total — will be injected into Material Pricer`);
+    }
+
     // ═══ PRE-WAVE: Collect OCR scale data extracted during file encoding ═══
     const ocrScalePages = [];
     for (const planFile of encodedFiles.plans || []) {
@@ -7474,16 +7540,39 @@ ${legendContext}
       progressCallback(55, `⚡ Auto-detected disciplines: ${disciplinesAdded.join(', ')}`, this._brainStatus);
     }
 
+    // ═══ PRE-WAVE 2: Load Rate Library (known-good prices from past projects) ═══
+    try {
+      const rlResp = await fetch('/api/rate-library', {
+        headers: this._authHeaders(),
+      });
+      if (rlResp.ok) {
+        const rlData = await rlResp.json();
+        const rates = rlData.rates || [];
+        if (rates.length > 0) {
+          context.rateLibrary = rates;
+          console.log(`[SmartBrains] 📚 Rate Library: loaded ${rates.length} known-good prices from past projects`);
+        }
+      }
+    } catch (rlErr) {
+      console.warn('[SmartBrains] Rate Library unavailable:', rlErr.message);
+    }
+
     // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
     progressCallback(56, '💰 Wave 2: Material Pricer — computing material costs…', this._brainStatus);
     const wave2Results = await this._runWave(2, ['MATERIAL_PRICER'], filteredEncodedFiles, state, context, progressCallback);
     context.wave2 = wave2Results;
 
-    // ── Post-Pricer Discipline Coverage Check ──
-    // Verify Material Pricer didn't silently drop entire disciplines
+    // ── Post-Pricer Discipline Coverage Check (scope-aware) ──
+    // Verify Material Pricer didn't silently drop IN-SCOPE disciplines
+    // Disciplines excluded by the Responsibility Matrix are EXPECTED to be missing
     const pricerCategories = (wave2Results.MATERIAL_PRICER?.categories || []).map(c => (c.name || '').toLowerCase());
     const selectedDisciplines = state.disciplines || [];
+    const scopeExclusions = context.wave1?.SCOPE_EXCLUSION_SCANNER?.responsibility_matrix || [];
+    const excludedDisciplines = new Set(
+      scopeExclusions.filter(r => !r.our_scope).map(r => (r.discipline || '').toLowerCase())
+    );
     const missingDisciplines = [];
+    const correctlyExcludedDisciplines = [];
     for (const disc of selectedDisciplines) {
       const dl = disc.toLowerCase();
       const found = pricerCategories.some(cat => {
@@ -7495,10 +7584,30 @@ ${legendContext}
         if (dl.includes('intrusion') && (cat.includes('intrusion') || cat.includes('detection') || cat.includes('burglar'))) return true;
         return false;
       });
-      if (!found) missingDisciplines.push(disc);
+      if (!found) {
+        // Check if this discipline was excluded by scope — that's CORRECT behavior
+        const isExcludedByScope = [...excludedDisciplines].some(exd =>
+          dl.includes(exd) || exd.includes(dl) ||
+          (dl.includes('cctv') && exd.includes('cctv')) ||
+          (dl.includes('access') && exd.includes('access')) ||
+          (dl.includes('fire') && exd.includes('fire')) ||
+          (dl.includes('nurse') && exd.includes('nurse')) ||
+          (dl.includes('intrusion') && exd.includes('intrusion')) ||
+          (dl.includes('paging') && exd.includes('paging')) ||
+          (dl.includes('audio') && (exd.includes('audio') || exd.includes('av')))
+        );
+        if (isExcludedByScope) {
+          correctlyExcludedDisciplines.push(disc);
+        } else {
+          missingDisciplines.push(disc);
+        }
+      }
+    }
+    if (correctlyExcludedDisciplines.length > 0) {
+      console.log(`[SmartBrains] ✅ Scope exclusions correctly removed ${correctlyExcludedDisciplines.length} out-of-scope discipline(s): ${correctlyExcludedDisciplines.join(', ')}`);
     }
     if (missingDisciplines.length > 0) {
-      console.warn(`[SmartBrains] ⚠️ Material Pricer DROPPED ${missingDisciplines.length} discipline(s): ${missingDisciplines.join(', ')}`);
+      console.warn(`[SmartBrains] ⚠️ Material Pricer DROPPED ${missingDisciplines.length} IN-SCOPE discipline(s): ${missingDisciplines.join(', ')}`);
       console.warn('[SmartBrains] Report Writer will be instructed to add missing scope');
       context._missingDisciplines = missingDisciplines;
     }

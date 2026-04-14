@@ -10151,7 +10151,7 @@ async function extractPDFText(file) {
   try {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const maxPages = Math.min(pdf.numPages, 30); // Cap at 30 pages
+    const maxPages = Math.min(pdf.numPages, 100); // Process up to 100 pages for spec books
     let fullText = '';
 
     for (let i = 1; i <= maxPages; i++) {
@@ -10161,8 +10161,8 @@ async function extractPDFText(file) {
       if (pageText.trim()) {
         fullText += `\n--- PAGE ${i} ---\n${pageText}\n`;
       }
-      // Safety: don't accumulate more than 50KB of text
-      if (fullText.length > 50000) break;
+      // Safety: don't accumulate more than 200KB of text (enough for full spec books)
+      if (fullText.length > 200000) break;
     }
 
     return fullText.trim();
