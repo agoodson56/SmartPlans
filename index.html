@@ -120,21 +120,25 @@
         }, 5000);
     </script>
     <script
-      src="https://browser.sentry-cdn.com/8.48.0/bundle.tracing.min.js"
+      src="https://browser.sentry-cdn.com/9.12.0/bundle.tracing.min.js"
       crossorigin="anonymous"
     ></script>
     <script>
-      if (typeof Sentry !== 'undefined' && typeof Sentry.init === 'function') {
-        Sentry.init({
-          dsn: "https://60b02e5d7804fc77476c97324b9039e5@o4511099720957952.ingest.us.sentry.io/4511099752284160",
-          environment: location.hostname.includes('localhost') ? 'development' : 'production',
-          release: 'smartplans@5.112.0',
-          integrations: [Sentry.browserTracingIntegration()],
-          tracesSampleRate: 0.1,
-          initialScope: { tags: { app: 'smartplans' } },
-        });
-        console.log('[SmartPlans] Sentry error tracking initialized');
-        console.log('[SmartPlans] Build: v5.114.8 — 2026-04-13');
+      try {
+        if (typeof Sentry !== 'undefined' && typeof Sentry.init === 'function') {
+          Sentry.init({
+            dsn: "https://60b02e5d7804fc77476c97324b9039e5@o4511099720957952.ingest.us.sentry.io/4511099752284160",
+            environment: location.hostname.includes('localhost') ? 'development' : 'production',
+            release: 'smartplans@5.120.0',
+            integrations: [Sentry.browserTracingIntegration()],
+            tracesSampleRate: 0.1,
+            initialScope: { tags: { app: 'smartplans' } },
+          });
+          console.log('[SmartPlans] Sentry error tracking initialized');
+          console.log('[SmartPlans] Build: v5.120.0 — 2026-04-14');
+        }
+      } catch (e) {
+        console.warn('[SmartPlans] Sentry init failed (non-fatal):', e.message);
       }
     </script>
     <script>
