@@ -3689,8 +3689,13 @@ PROJECT: ${context.projectName}
 PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}× multiplier)
 MATERIAL MARKUP: ${context.markup?.material || 50}%
 
-═══ SELECTED DISCIPLINES (you MUST price ALL of these) ═══
+═══ SELECTED DISCIPLINES ═══
 ${disciplineChecklist}
+
+⚠️ IMPORTANT: The disciplines above are the USER-SELECTED disciplines. However, NOT ALL of them may be in YOUR scope.
+Check the SCOPE EXCLUSION SCANNER RESULTS below. If the Responsibility Matrix says a discipline is "NOT OUR SCOPE"
+(assigned to another trade like SEC, AV, EC, Owner, GC, NC), you MUST SKIP that discipline entirely — create ZERO line items for it.
+Only price disciplines where the Responsibility Matrix confirms they are IN OUR SCOPE (assigned to TC / Telecom Contractor).
 
 ═══ VERIFIED DEVICE COUNTS (from Triple-Read Consensus — USE THESE EXACT QUANTITIES) ═══
 ${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
@@ -3728,7 +3733,15 @@ RULES FOR SCHEDULE vs. SYMBOL CONFLICTS:
 - If the schedule specifies model numbers or type codes (C-FD, C-ML, C-FE, C-DL, etc.), map each code to the correct product category and price each type separately
 - EVERY row in the schedule must appear as a line item in your BOM — if the camera schedule has 4 camera types, your BOM must have 4 camera line items
 - If the schedule has a "Card Reader" count of 15 and an "Electric Strike" count of 15, your Access Control section MUST have 15 readers AND 15 strikes
-- SPARE EQUIPMENT: If the schedule or keynotes say "provide spare cameras", "spare card readers", etc., ADD those as separate BOM line items`;
+- SPARE EQUIPMENT: If the schedule or keynotes say "provide spare cameras", "spare card readers", etc., ADD those as separate BOM line items
+
+MANUFACTURER / MODEL MATCHING (CRITICAL FOR BID ACCURACY):
+- If the schedule, specs, or keynotes specify an EXACT manufacturer and model (e.g., "Axis P3265-LVE", "HID iCLASS SE R40", "Corning 760109046"),
+  use THAT EXACT product in your BOM — set "mfg" and "partNumber" to match the specified product
+- Do NOT substitute generic products (e.g., "Generic 4MP Dome") when the plans specify exact models
+- If a "basis of design" product is listed with "or approved equal", use the basis of design product as your primary line item
+- Price the SPECIFIED product, not a cheaper/different alternative — the bid must match the spec
+- If you cannot identify the exact price for a specified product, use the pricing tier for that category but keep the correct mfg/partNumber`;
   }
   return 'No equipment schedule found — use consensus counts above as primary source.';
 })()}
@@ -3791,11 +3804,25 @@ ${(() => {
   }
 
   if (respMatrix.length > 0) {
-    result += `RESPONSIBILITY MATRIX (disciplines assigned to other trades are NOT our scope):\n`;
-    for (const r of respMatrix) {
-      result += `- ${r.discipline}: ${r.responsible_party} — ${r.our_scope ? 'IN OUR SCOPE' : '⚠️ NOT OUR SCOPE — EXCLUDE ENTIRELY'}\n`;
+    result += `\n🚨 RESPONSIBILITY MATRIX — THIS IS THE AUTHORITY ON WHAT YOU PRICE 🚨\n`;
+    result += `The following was extracted from the project's Responsibility Matrix (typically sheet T-0.0).\n`;
+    result += `This is the ARCHITECT'S DEFINITIVE scope assignment. It OVERRIDES the completeness checklist.\n\n`;
+    const inScope = respMatrix.filter(r => r.our_scope);
+    const outScope = respMatrix.filter(r => !r.our_scope);
+    if (inScope.length > 0) {
+      result += `✅ IN OUR SCOPE (price these fully with completeness checklist):\n`;
+      for (const r of inScope) {
+        result += `  ✅ ${r.discipline}: ${r.responsible_party} — PRICE THIS\n`;
+      }
+      result += '\n';
     }
-    result += '\n';
+    if (outScope.length > 0) {
+      result += `🚫 NOT OUR SCOPE (create ZERO line items for these — NO EXCEPTIONS):\n`;
+      for (const r of outScope) {
+        result += `  🚫 ${r.discipline}: ${r.responsible_party} — DO NOT PRICE, DO NOT INCLUDE\n`;
+      }
+      result += '\n';
+    }
   }
 
   if (scopeBounds.length > 0) {
@@ -4071,15 +4098,20 @@ When plans show underground conduit runs, outdoor cable pathways, or exterior ro
 
 ═══ MANDATORY SELF-CHECK (do this before returning) ═══
 Before responding, verify:
-1. Your output includes a category for EACH selected discipline listed above
+1. Your output includes a category for EACH selected discipline that IS IN YOUR SCOPE per the Responsibility Matrix above.
+   ⚠️ Disciplines marked "NOT OUR SCOPE" in the Responsibility Matrix MUST be ABSENT from your output — including them is a FATAL ERROR that inflates the bid.
 2. EVERY item has a non-empty "mfg" field (manufacturer name)
 3. EVERY item has a non-empty "partNumber" field (model or part number)
 If ANY item is missing mfg or partNumber, FIX IT NOW before returning.
-If ANY selected discipline is missing from your categories array, ADD IT NOW with all required materials.
-Missing an entire discipline is a FATAL ERROR that will cause catastrophic underestimation.
+If ANY IN-SCOPE discipline is missing from your categories array, ADD IT NOW with all required materials.
+Missing an IN-SCOPE discipline is a FATAL ERROR that will cause catastrophic underestimation.
+Including a NOT-IN-SCOPE discipline is equally a FATAL ERROR that will cause catastrophic overestimation and lose the bid.
 
-═══ SYSTEM COMPLETENESS CHECKLIST (MANDATORY — every system must be FUNCTIONAL) ═══
-A system with missing components DOES NOT WORK. For each discipline, you MUST include ALL of these:
+═══ SYSTEM COMPLETENESS CHECKLIST (apply ONLY to IN-SCOPE disciplines) ═══
+A system with missing components DOES NOT WORK. For each IN-SCOPE discipline, you MUST include ALL of these.
+⚠️ CRITICAL SCOPE FILTER: ONLY apply the checklist below for disciplines the Responsibility Matrix confirmed as IN OUR SCOPE (TC / Telecom Contractor).
+For any discipline marked NOT OUR SCOPE (assigned to SEC, AV, EC, Owner, GC/DH, NC, or any other trade), SKIP that entire checklist section — do NOT create line items for it.
+If NO Responsibility Matrix was found, fall back to pricing all selected disciplines.
 
 🔒 ACCESS CONTROL — Every controlled door needs ALL of these:
   □ Card Reader (1 per door, or 2 if in+out) — match schedule/consensus count
@@ -4198,6 +4230,17 @@ A system with missing components DOES NOT WORK. For each discipline, you MUST in
   □ Firestop Penetrations (every floor/wall penetration)
   ⚠️ COMMON ERROR: 90,000 ft cable ÷ 4.5 = 20,000 J-hooks, NOT 1,500
 
+═══ SCOPE EXCLUSIONS ALWAYS WIN — FINAL OVERRIDE ═══
+This is the HIGHEST PRIORITY rule in this entire prompt. It overrides everything above including the completeness checklist:
+1. If the Responsibility Matrix says a discipline is NOT assigned to TC (Telecom Contractor), DO NOT price it — period.
+2. Even if the completeness checklist above lists items for that discipline, SKIP them entirely.
+3. Even if the user selected that discipline, the plans define the actual scope — the Responsibility Matrix is the authority.
+4. Only create line items for disciplines where our_scope = true OR where NO Responsibility Matrix was found.
+5. If you include ANY line item for a NOT-IN-SCOPE discipline, the entire bid is INVALID and will be rejected.
+6. When equipment schedules specify exact manufacturer/model numbers (e.g., "Axis P3265-LVE", "HID iCLASS SE R40"),
+   use those EXACT products in your BOM — do NOT substitute generic or default products.
+   The architect specified these products for a reason (compatibility, VA standards, spec compliance).
+
 ═══ WASTE FACTOR, SPARE PARTS & CONSUMABLES ═══
 You MUST add these to your output — they are REAL costs that every project incurs:
 1. CABLE WASTE FACTOR: Add 12% to all cable quantities. Cable gets cut, pulled wrong, rejected, damaged. Price the waste.
@@ -4300,11 +4343,11 @@ SPECIAL CONDITIONS DATA (use for conduit quantities and site-specific labor):
 ${JSON.stringify(context.wave1?.SPECIAL_CONDITIONS || {}, null, 2).substring(0, 4000)}
 
 CRITICAL RULES:
-1. Your device quantities MUST EXACTLY MATCH the consensus counts and Material Pricer
+1. Your device quantities MUST EXACTLY MATCH the Material Pricer output — it is your source of truth for what to price
 2. If Material Pricer has 24 cameras, your labor must cover EXACTLY 24 cameras
 3. If Material Pricer has 21 card readers, your labor must cover EXACTLY 21 doors
-4. If consensus has AV devices, you MUST include AV installation labor
-5. ONLY include labor for categories that exist in the consensus counts
+4. ONLY include labor for categories that the Material Pricer actually priced
+5. If a discipline is ABSENT from the Material Pricer output (because scope exclusions removed it), do NOT add labor for it
 6. If consensus shows 0 fire alarm devices, do NOT add fire alarm labor
 7. You MUST include conduit installation labor if Special Conditions or Cable Pathway shows conduit runs
 8. Apply shift differential if work shift is not Standard
@@ -5893,6 +5936,19 @@ YOUR MISSION: On THIS PAGE, find EVERY annotation, note, schedule entry, keynote
    - Column headers like "By EC", "By Low Voltage", "By Owner", "By GC"
    - If fire alarm is assigned to Division 26 or "electrical contractor" → it's NOT our scope
    - If grounding/bonding is assigned to "EC" or "electrical contractor" → NOT our scope
+
+   VA / FEDERAL PROJECT RESPONSIBILITY MATRICES:
+   VA projects use a "Technology Systems Responsibility Matrix" (usually on sheet T-0.0) with abbreviations:
+   - TC = Telecom Contractor (THIS IS US — our scope)
+   - SEC = Security Contractor (NOT us unless we are also the security sub)
+   - AV = Audio Visual Contractor (NOT us)
+   - EC = Electrical Contractor (NOT us)
+   - NC = Nurse Call Contractor (NOT us unless specified)
+   - GC/DH = General Contractor / Door Hardware (NOT us)
+   - Owner = Government/VA (NOT us)
+
+   For EACH discipline row in the matrix, output a responsibility_matrix entry with our_scope = true ONLY if TC is the responsible party.
+   If a discipline shows "SEC" or "AV" or "EC" or "NC" or "Owner" or "GC" as the responsible party, set our_scope = false.
 
 8. DRAWING SHEET SCOPE NOTES
    Title blocks or general notes that say things like:
