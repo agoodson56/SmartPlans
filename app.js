@@ -709,6 +709,62 @@ async function _autoPopulateRateLibrary() {
   }
 }
 
+// ── AUTO-TRACK BID DECISIONS — capture estimator price adjustments for future bid intelligence ──
+async function _autoTrackBidDecisions(estimateId) {
+  try {
+    if (!state.aiAnalysis || !state._originalPricing) return;
+    const original = state._originalPricing;
+    const current = state.aiAnalysis;
+    const decisions = [];
+
+    // Compare original AI-generated prices against what the estimator actually exported
+    // Look at markup adjustments, category-level changes, etc.
+    const origCategories = original.categories || original.material_categories || [];
+    const currCategories = current.categories || current.material_categories || [];
+
+    for (const origCat of origCategories) {
+      const catName = (origCat.name || origCat.category || '').toLowerCase();
+      const currCat = currCategories.find(c => (c.name || c.category || '').toLowerCase() === catName);
+      if (!currCat) continue;
+
+      const origTotal = origCat.subtotal || origCat.total || 0;
+      const currTotal = currCat.subtotal || currCat.total || 0;
+      if (origTotal === 0 || currTotal === origTotal) continue;
+
+      const adjPct = ((currTotal - origTotal) / origTotal * 100);
+      if (Math.abs(adjPct) < 1) continue; // Ignore tiny changes
+
+      decisions.push({
+        estimate_id: estimateId || state.currentEstimateId,
+        project_name: state.projectName || 'Unknown',
+        project_type: state.projectType || 'Low Voltage',
+        category: origCat.name || origCat.category || 'unknown',
+        original_value: origTotal,
+        adjusted_value: currTotal,
+        adjustment_pct: Math.round(adjPct * 10) / 10,
+        reason: 'Estimator bid-day adjustment',
+        decided_by: state._currentUser?.name || 'unknown',
+      });
+    }
+
+    if (decisions.length === 0) return;
+
+    const headers = { 'Content-Type': 'application/json' };
+    const token = sessionStorage.getItem('sp_session_token');
+    if (token) headers['X-Session-Token'] = token;
+    else if (window._smartplansToken) headers['X-App-Token'] = window._smartplansToken;
+
+    await fetch('/api/bid-decisions', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ items: decisions }),
+    });
+    console.log(`[BidDecisions] Tracked ${decisions.length} bid-day adjustment(s)`);
+  } catch (err) {
+    console.warn('[BidDecisions] Auto-track failed:', err.message);
+  }
+}
+
 function _autoPopulateExclusions(brainResults) {
   if (!state.exclusions) state.exclusions = [];
   if (state.exclusions.length > 0) return; // User already has items — don't override
@@ -11898,6 +11954,15 @@ async function runGeminiAnalysis(updateProgress) {
       // benefit from known-good prices. Does NOT overwrite existing rates.
       _autoPopulateRateLibrary();
 
+      // ── SNAPSHOT ORIGINAL PRICING — for bid decision tracking ──
+      // Store the AI-generated pricing so we can detect estimator adjustments at export time
+      try {
+        const pricer = state.brainResults?.wave2?.MATERIAL_PRICER;
+        if (pricer) {
+          state._originalPricing = JSON.parse(JSON.stringify(pricer));
+        }
+      } catch (e) { /* non-fatal */ }
+
       state.currentStep = 6; // Go to Travel & Costs stage
       render();
       scrollContentTop();
@@ -12496,6 +12561,11 @@ async function saveEstimate(showToast = true) {
     // Previous code truncated strings >5000 chars, destroying BOM data on reload.
     // The full AI analysis (typically 20-40KB) is well within D1 TEXT column limits.
     // Structured financials.categories is ALSO saved as a backup for corrupted loads.
+    // Track bid-day adjustments if this is an analyzed estimate with original pricing data
+    if (state._originalPricing && state.aiAnalysis && state.estimateId) {
+      _autoTrackBidDecisions(state.estimateId).catch(() => {});
+    }
+
     const jsonBody = JSON.stringify(payload);
     const sizeKB = (jsonBody.length / 1024).toFixed(0);
     console.log(`[SmartPlans] Saving estimate (${sizeKB}KB) via ${method} ${url}`);

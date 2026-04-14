@@ -264,6 +264,68 @@ CREATE INDEX IF NOT EXISTS idx_dist_prices_item ON distributor_prices(item_name)
 CREATE INDEX IF NOT EXISTS idx_dist_prices_part ON distributor_prices(part_number);
 CREATE INDEX IF NOT EXISTS idx_dist_prices_distributor ON distributor_prices(distributor);
 
+-- ═══════════════════════════════════════════════════════════════
+-- Winning Proposals — Past proposal excerpts for tone/strategy learning
+-- Stores key sections from winning bids so Report Writer can match
+-- the company's voice and winning approach.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS winning_proposals (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    project_name TEXT NOT NULL,
+    project_type TEXT,
+    contract_value REAL,
+    win_margin_pct REAL,
+    executive_summary TEXT,
+    scope_narrative TEXT,
+    value_propositions TEXT,
+    exclusions_text TEXT,
+    strategy_notes TEXT,
+    outcome TEXT DEFAULT 'won',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposals_type ON winning_proposals(project_type);
+
+-- ═══════════════════════════════════════════════════════════════
+-- Company Strengths — Competitive positioning data
+-- What makes this company win: capabilities, certifications,
+-- equipment, relationships, regional strengths, win rates.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS company_strengths (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    category TEXT NOT NULL,
+    strength TEXT NOT NULL,
+    detail TEXT,
+    win_impact TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- ═══════════════════════════════════════════════════════════════
+-- Bid Decisions — Estimator adjustment patterns
+-- Records bid-day tweaks: where estimators sharpen/pad numbers,
+-- which categories get adjusted, and why. Trains bid strategy AI.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS bid_decisions (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    estimate_id TEXT,
+    project_name TEXT,
+    project_type TEXT,
+    category TEXT NOT NULL,
+    original_value REAL,
+    adjusted_value REAL,
+    adjustment_pct REAL,
+    reason TEXT,
+    outcome TEXT,
+    decided_by TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_decisions_category ON bid_decisions(category);
+CREATE INDEX IF NOT EXISTS idx_bid_decisions_type ON bid_decisions(project_type);
+
 -- Performance indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_revisions_created ON estimate_revisions(created_at DESC);

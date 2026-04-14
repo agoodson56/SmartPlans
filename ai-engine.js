@@ -136,7 +136,7 @@ const SmartBrains = {
     CONSENSUS_ARBITRATOR: { id: 9, name: 'Consensus Arbitrator', wave: 1.75, emoji: '⚖️', needsFiles: [], maxTokens: 65536, useProModel: true },
     TARGETED_RESCANNER: { id: 10, name: 'Targeted Re-Scanner', wave: 1.75, emoji: '🔬', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 2: Material Pricing (must run BEFORE labor so labor can use material qtys) ──
-    MATERIAL_PRICER: { id: 11, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: [], maxTokens: 65536, useProModel: true },
+    MATERIAL_PRICER: { id: 11, name: 'Material Pricer', wave: 2, emoji: '💰', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 2.25: Labor Calculator (runs AFTER Material Pricer to use its quantities) ──
     LABOR_CALCULATOR: { id: 12, name: 'Labor Calculator', wave: 2.25, emoji: '👷', needsFiles: [], maxTokens: 65536, useProModel: true },
     // ── Wave 2.5: Financial Engine (runs AFTER both Pricer & Labor to sum their outputs) ──
@@ -2795,6 +2795,14 @@ DISCIPLINES: ${(context.disciplines || []).join(', ')}
 NOTE: Documents have been pre-filtered to only include sheets/specs matching the selected disciplines above. Only count devices belonging to these disciplines — ignore any symbols from other trades that may appear on shared sheets.
 
 YOUR MISSION: Scan EVERY sheet and count EVERY device symbol for the selected disciplines. Be exhaustive.
+${context._hasAddenda ? `
+═══ ADDENDA ALERT — Revised sheets are included in this set ═══
+This plan set includes ADDENDA (revised sheets). Addenda sheets have "ADDENDUM" or revision clouds/deltas in their names or on the drawing.
+- If an addenda sheet replaces a base plan sheet (same sheet number), use the ADDENDA version counts
+- Look for revision clouds (dashed ovals/rectangles) on addenda sheets — these highlight WHAT CHANGED
+- Track any devices that were ADDED, REMOVED, or RELOCATED by addenda
+- Include an "addenda_changes" array in your response listing changes you detected
+` : ''}
 
 WHAT TO COUNT BY DISCIPLINE:
 ${(context.disciplines || []).includes('Structured Cabling') ? '- CABLING: Data outlets, voice outlets, WAPs, fiber outlets, combo outlets, patch panels, cable trays' : ''}
@@ -3875,6 +3883,29 @@ ${(() => {
     }
   }
   result += '\nRULE: If a rate library entry matches an item you are pricing, use the rate library price. It is more accurate than the generic database.';
+  return result;
+})()}
+
+═══ COST BENCHMARKS — Historical averages from completed projects (feedback loop) ═══
+${(() => {
+  const bm = context.costBenchmarks || [];
+  if (bm.length === 0) return 'No historical benchmarks yet — enter project actuals after completion to build this database.';
+  let result = 'These are AGGREGATED costs from completed projects. Use as a SANITY CHECK — if your price is 2x the benchmark, verify.\n\n';
+  const byCategory = {};
+  for (const b of bm) {
+    const cat = b.category || 'General';
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(b);
+  }
+  for (const [cat, items] of Object.entries(byCategory)) {
+    result += cat + ':\n';
+    for (const b of items.slice(0, 20)) {
+      result += '  - ' + b.item_name + ': avg $' + (b.avg_unit_cost || 0).toFixed(2);
+      result += ' (range $' + (b.min_unit_cost || 0).toFixed(2) + '-$' + (b.max_unit_cost || 0).toFixed(2) + ')';
+      if (b.avg_labor_hours) result += ' labor: ' + b.avg_labor_hours.toFixed(2) + ' hrs';
+      result += ' [' + (b.sample_count || 0) + ' projects]\n';
+    }
+  }
   return result;
 })()}
 
@@ -4981,6 +5012,66 @@ You MUST calculate and add materials + labor for ALL missing disciplines using t
 
 The final bid MUST incorporate ALL corrections. Do NOT just report the errors — FIX them in the actual tables and totals.
 
+${(() => {
+  const proposals = context.winningProposals || [];
+  if (proposals.length === 0) return '';
+  // Only include proposals of similar project type for relevance
+  const typeMatch = proposals.filter(p => {
+    const pt = (p.project_type || '').toLowerCase();
+    const ct = (context.projectType || '').toLowerCase();
+    return pt === ct || pt.includes(ct) || ct.includes(pt);
+  });
+  const toUse = typeMatch.length > 0 ? typeMatch.slice(0, 3) : proposals.slice(0, 2);
+  return `
+═══ WINNING PROPOSAL INTELLIGENCE — Match this tone & strategy ═══
+These are excerpts from PAST WINNING BIDS. Study the executive summary style, value proposition approach, and exclusion phrasing. Mirror this company's voice and winning strategy:
+${toUse.map((p, i) => `
+── Won: ${p.project_name} (${p.project_type || 'N/A'}) — $${(p.contract_value || 0).toLocaleString()} ──
+Executive Summary Style: ${(p.executive_summary || 'N/A').substring(0, 500)}
+Value Props: ${(p.value_propositions || 'N/A').substring(0, 400)}
+Strategy Notes: ${(p.strategy_notes || 'N/A').substring(0, 300)}
+${p.win_margin_pct ? `Win Margin: ${p.win_margin_pct}%` : ''}`).join('\n')}
+Use similar language, confidence level, and positioning in Sections 11 and 12 of this bid.
+`;
+})()}
+${(() => {
+  const strengths = context.companyStrengths || [];
+  if (strengths.length === 0) return '';
+  const byCat = {};
+  strengths.forEach(s => { (byCat[s.category] = byCat[s.category] || []).push(s); });
+  return `
+═══ COMPANY COMPETITIVE STRENGTHS — Weave into proposal narrative ═══
+Incorporate these differentiators into the Observations & Recommendations section and any executive summary language:
+${Object.entries(byCat).map(([cat, items]) =>
+    `▸ ${cat}: ${items.map(i => `${i.strength}${i.detail ? ` (${i.detail.substring(0, 100)})` : ''}`).join('; ')}`
+  ).join('\n')}
+These are REAL company capabilities — use them to position the bid as the strongest option.
+`;
+})()}
+${(() => {
+  const decisions = context.bidDecisions || [];
+  if (decisions.length === 0) return '';
+  // Analyze patterns: which categories get sharpened vs padded
+  const patterns = {};
+  for (const d of decisions.slice(0, 50)) {
+    const cat = d.category || 'unknown';
+    if (!patterns[cat]) patterns[cat] = { sharpen: 0, pad: 0, avgPct: 0, count: 0 };
+    patterns[cat].count++;
+    patterns[cat].avgPct += (d.adjustment_pct || 0);
+    if ((d.adjustment_pct || 0) < 0) patterns[cat].sharpen++;
+    else patterns[cat].pad++;
+  }
+  const summary = Object.entries(patterns).map(([cat, p]) =>
+    `${cat}: avg ${(p.avgPct / Math.max(p.count, 1)).toFixed(1)}% adjustment (${p.sharpen} sharpened, ${p.pad} padded across ${p.count} bids)`
+  ).join('\n');
+  return `
+═══ BID DAY INTELLIGENCE — Historical adjustment patterns ═══
+Past estimator bid-day adjustments for similar projects (learn from these patterns):
+${summary}
+Consider these patterns when setting final prices — the estimator typically sharpens or pads these categories.
+`;
+})()}
+
 Generate the COMPLETE BID REPORT now. Every section must have real data with real dollar amounts. This is not a template — it is an actual bid.`;
       },
 
@@ -5365,14 +5456,16 @@ Return ONLY valid JSON:
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
-YOUR METHODOLOGY — QUADRANT DIVISION:
+YOUR METHODOLOGY — 9-ZONE GRID DIVISION (3×3):
 For each sheet:
-1. Mentally divide the drawing into 4 quadrants: TOP-LEFT, TOP-RIGHT, BOTTOM-LEFT, BOTTOM-RIGHT
-2. Count ALL device symbols in each quadrant independently
-3. Sum the 4 quadrants to get the sheet total
-4. This catches devices missed by room-based scanning (devices in undefined spaces, on boundaries)
+1. Mentally divide the drawing into a 3×3 GRID (9 zones): TL, TC, TR, ML, MC, MR, BL, BC, BR
+   (Top-Left, Top-Center, Top-Right, Middle-Left, Middle-Center, Middle-Right, Bottom-Left, Bottom-Center, Bottom-Right)
+2. Count ALL device symbols in each of the 9 zones independently
+3. Sum all 9 zones to get the sheet total
+4. This catches devices missed by room-based scanning — smaller zones = higher resolution counting
+5. After counting all 9 zones, do a BOUNDARY CHECK: scan the grid lines between zones for devices that sit on borders
 
-WHY THIS WORKS: Devices at room boundaries, in ceiling spaces, or in areas without clear room labels are often missed by room-based counting. Zone-based counting catches them.
+WHY THIS WORKS: 9 smaller zones (vs 4 quadrants) dramatically reduces missed devices. Devices at room boundaries, in ceiling spaces, corridors, or areas without clear room labels are caught because each zone is small enough to visually inspect completely.
 
 ═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
 Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location.
@@ -5382,20 +5475,19 @@ Also include "outlet_breakdown": {"1D": N, "2D": N, "4D": N, "6D": N} showing lo
 
 Return ONLY valid JSON:
 {
-  "quadrants": [
+  "grid_counts": [
     {
       "sheet_id": "E1.01",
-      "top_left": { "camera": 3, "data_outlet": 15 },
-      "top_right": { "camera": 5, "data_outlet": 20 },
-      "bottom_left": { "camera": 2, "data_outlet": 18 },
-      "bottom_right": { "camera": 4, "data_outlet": 12 },
+      "TL": { "camera": 2, "data_outlet": 8 }, "TC": { "camera": 1, "data_outlet": 5 }, "TR": { "camera": 2, "data_outlet": 7 },
+      "ML": { "camera": 1, "data_outlet": 6 }, "MC": { "camera": 0, "data_outlet": 4 }, "MR": { "camera": 1, "data_outlet": 5 },
+      "BL": { "camera": 2, "data_outlet": 10 }, "BC": { "camera": 3, "data_outlet": 8 }, "BR": { "camera": 2, "data_outlet": 12 },
       "sheet_total": { "camera": 14, "data_outlet": 65 }
     }
   ],
   "totals": { "camera": 48, "data_outlet": 200 },
   "outlet_breakdown": { "1D": 10, "2D": 80, "4D": 15, "6D": 0 },
   "boundary_devices": [
-    { "sheet": "E1.01", "type": "data_outlet", "count": 3, "note": "On boundary between quadrants — counted once" }
+    { "sheet": "E1.01", "type": "data_outlet", "count": 3, "note": "On grid boundary — counted once in nearest zone" }
   ]
 }`,
 
@@ -5515,11 +5607,32 @@ Return ONLY valid JSON:
       // ── BRAIN 10: Targeted Re-Scanner (Wave 1.75) ─────────────
       TARGETED_RESCANNER: () => {
         const disputes = context.wave1_75?.CONSENSUS_ARBITRATOR?.disputes || [];
-        if (disputes.length === 0) return '';
-        return `You are a FORENSIC SYMBOL COUNTER performing a TARGETED THIRD READ. The consensus engine found ${disputes.length} disputed item(s) where three independent counts disagreed significantly.
+        // Also collect problem areas from per-page scans where counts varied wildly between passes
+        const perPageVariances = [];
+        const scanResults = context._perPageScanResults || {};
+        for (const [sheetId, passes] of Object.entries(scanResults)) {
+          if (!Array.isArray(passes) || passes.length < 2) continue;
+          const deviceTypes = new Set();
+          passes.forEach(p => { if (p?.totals) Object.keys(p.totals).forEach(k => deviceTypes.add(k)); });
+          for (const dt of deviceTypes) {
+            const counts = passes.map(p => p?.totals?.[dt] || 0).filter(c => c > 0);
+            if (counts.length < 2) continue;
+            const max = Math.max(...counts);
+            const min = Math.min(...counts);
+            if (max > 0 && ((max - min) / max) > 0.2) {
+              perPageVariances.push({ sheet_id: sheetId, device_type: dt, pass_counts: counts, variance_pct: Math.round(((max - min) / max) * 100) });
+            }
+          }
+        }
+        if (disputes.length === 0 && perPageVariances.length === 0) return '';
+        return `You are a FORENSIC SYMBOL COUNTER performing a TARGETED THIRD READ. The consensus engine found ${disputes.length} disputed item(s) and per-page scanning found ${perPageVariances.length} high-variance sheet(s).
 
 YOUR MISSION: Re-count ONLY the disputed items. Focus ONLY on the problem areas identified below.
-
+${perPageVariances.length > 0 ? `
+═══ HIGH-VARIANCE SHEETS (per-page scan passes disagreed by >20%) ═══
+These specific sheets had inconsistent counts across scan passes. Re-examine each carefully:
+${JSON.stringify(perPageVariances.slice(0, 20), null, 2)}
+` : ''}
 DISPUTED ITEMS FOR RE-COUNT:
 ${JSON.stringify(disputes, null, 2)}
 
@@ -6264,7 +6377,7 @@ CRITICAL RULES:
 - mount_type: "ceiling" for ceiling devices, "wall" for wall-mount, "floor" for floor/desk mount`,
 
       // ── BRAIN 24: Zoom Scanner (Wave 1.5) ───────────────────────
-      ZOOM_SCANNER: () => `You are a HIGH-MAGNIFICATION ZOOM SCANNER for ELV device symbols. Divide each sheet into 4 quadrants and count with extreme precision.
+      ZOOM_SCANNER: () => `You are a HIGH-MAGNIFICATION ZOOM SCANNER for ELV device symbols. Divide each sheet into a 3×3 GRID (9 zones) and count with extreme precision.
 
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
@@ -6272,11 +6385,12 @@ DISCIPLINES: ${(context.disciplines || []).join(', ')}
 LEGEND (key symbols only):
 ${JSON.stringify(context.wave0?.LEGEND_DECODER?.symbols || [], null, 2).substring(0, 2000)}
 
-METHOD — For EACH sheet, divide into 4 quadrants (top-left, top-right, bottom-left, bottom-right):
-- Count every device symbol in each quadrant independently
-- Add all 4 quadrants for the sheet total
+METHOD — For EACH sheet, divide into a 3×3 GRID (9 zones: TL, TC, TR, ML, MC, MR, BL, BC, BR):
+- Count every device symbol in each of the 9 zones independently
+- Sum all 9 zones for the sheet total
 - Pay special attention to: dense areas, stacked symbols, devices behind text
-- Don't double-count at quadrant boundaries
+- Don't double-count at zone boundaries — count each device in the zone where its CENTER falls
+- After counting all zones, do a FOCUSED RE-CHECK of zone boundaries where devices cluster
 
 ═══ CRITICAL — DATA DROP MULTIPLIER NOTATION ═══
 Symbols with numeric prefixes like "2D", "4D", "1D" indicate the number of data cables at that location.
@@ -6286,21 +6400,20 @@ Also include "outlet_breakdown": {"1D": N, "2D": N, "4D": N, "6D": N} showing lo
 
 Return ONLY valid JSON:
 {
-  "quadrant_counts": [
+  "grid_counts": [
     {
       "sheet_id": "E1.01",
-      "top_left": { "data_outlet": 12, "camera": 3 },
-      "top_right": { "data_outlet": 15, "camera": 2 },
-      "bottom_left": { "data_outlet": 8, "camera": 4 },
-      "bottom_right": { "data_outlet": 10, "camera": 2 },
+      "TL": { "data_outlet": 5, "camera": 1 }, "TC": { "data_outlet": 4, "camera": 1 }, "TR": { "data_outlet": 3, "camera": 1 },
+      "ML": { "data_outlet": 6, "camera": 1 }, "MC": { "data_outlet": 3, "camera": 0 }, "MR": { "data_outlet": 6, "camera": 1 },
+      "BL": { "data_outlet": 4, "camera": 2 }, "BC": { "data_outlet": 6, "camera": 1 }, "BR": { "data_outlet": 8, "camera": 3 },
       "sheet_total": { "data_outlet": 45, "camera": 11 }
     }
   ],
   "zoom_findings": [
-    { "sheet_id": "E1.01", "description": "3 stacked WAPs behind title block", "device_type": "wap", "additional_count": 3 }
+    { "sheet_id": "E1.01", "zone": "BR", "description": "3 stacked WAPs behind title block", "device_type": "wap", "additional_count": 3 }
   ],
   "grand_totals": {},
-  "methodology": "4-quadrant zoom scan"
+  "methodology": "9-zone high-magnification scan"
 }`,
 
       // ── BRAIN 25: Per-Floor Analyzer (Wave 1.5) ─────────────────
@@ -6829,6 +6942,17 @@ ${legendContext}
       // Multi-pass deduplication: for each page, take the HIGHER count from multiple passes
       // This prevents undercounting (which loses bids) while the consensus engine handles overcounting
       const dedupedPageResults = this._deduplicateMultiPassResults(key, pageResults, scansPerPage);
+
+      // Store per-page variance data for intelligent re-query (TARGETED_RESCANNER)
+      if (key === 'SYMBOL_SCANNER' && scansPerPage > 1) {
+        context._perPageScanResults = context._perPageScanResults || {};
+        for (const pr of pageResults) {
+          if (pr.success && pr.sheetId) {
+            if (!context._perPageScanResults[pr.sheetId]) context._perPageScanResults[pr.sheetId] = [];
+            context._perPageScanResults[pr.sheetId].push({ totals: pr.data?.totals || pr.data?.counts || {} });
+          }
+        }
+      }
 
       // Aggregate all page-level results into brain-level output
       const aggregated = this._aggregatePerPageResults(key, dedupedPageResults);
@@ -7491,6 +7615,26 @@ ${legendContext}
       }
     }
 
+    // ═══ ADDENDA PROCESSING — Merge addenda sheets into plans for full analysis ═══
+    const addendaFiles = encodedFiles.addenda || [];
+    if (addendaFiles.length > 0) {
+      console.log(`[SmartBrains] 📋 Addenda: ${addendaFiles.length} addendum file(s) detected — merging into plan set`);
+      // Tag addenda files so brains can identify them as revisions
+      for (const af of addendaFiles) {
+        af._isAddendum = true;
+        af.name = af.name || 'addendum';
+        if (!af.name.toLowerCase().includes('addend')) {
+          af.name = `ADDENDUM_${af.name}`;
+        }
+      }
+      // Merge addenda into plans so all counting/pricing brains see the updated sheets
+      filteredEncodedFiles.plans = [...(filteredEncodedFiles.plans || []), ...addendaFiles];
+      // Store addenda sheet names for change tracking
+      context._addendaSheets = addendaFiles.map(f => f.name || 'unknown');
+      context._hasAddenda = true;
+      progressCallback(11.5, `📋 ${addendaFiles.length} addendum file(s) merged into analysis`, this._brainStatus);
+    }
+
     // ═══ WAVE 1: First Read — Document Intelligence (8 parallel brains) ═══
     progressCallback(12, '🔍 Wave 1: First Read — 8 brains scanning…', this._brainStatus);
     const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR', 'SCOPE_EXCLUSION_SCANNER'];
@@ -7611,11 +7755,12 @@ ${legendContext}
       progressCallback(55, `⚡ Auto-detected disciplines: ${disciplinesAdded.join(', ')}`, this._brainStatus);
     }
 
-    // ═══ PRE-WAVE 2: Load Rate Library + Distributor Price Cache ═══
-    // Both loaded in parallel for speed
-    const [rlResult, dpResult] = await Promise.allSettled([
+    // ═══ PRE-WAVE 2: Load Rate Library + Distributor Cache + Cost Benchmarks ═══
+    // All loaded in parallel for speed
+    const [rlResult, dpResult, bmResult] = await Promise.allSettled([
       fetch('/api/rate-library', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
       fetch('/api/distributor-prices', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
+      fetch('/api/benchmarks', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
     ]);
 
     if (rlResult.status === 'fulfilled' && rlResult.value?.rates?.length > 0) {
@@ -7626,6 +7771,11 @@ ${legendContext}
     if (dpResult.status === 'fulfilled' && dpResult.value?.prices?.length > 0) {
       context.distributorPrices = dpResult.value.prices;
       console.log(`[SmartBrains] 🏪 Distributor Cache: loaded ${context.distributorPrices.length} cached distributor prices`);
+    }
+
+    if (bmResult.status === 'fulfilled' && bmResult.value?.benchmarks?.length > 0) {
+      context.costBenchmarks = bmResult.value.benchmarks;
+      console.log(`[SmartBrains] 📊 Cost Benchmarks: loaded ${context.costBenchmarks.length} historical price benchmarks from completed projects`);
     }
 
     // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
@@ -7812,6 +7962,32 @@ ${legendContext}
     } catch (e) {
       console.warn('[SmartBrains] Wave 3.85 failed (non-fatal, continuing):', e.message);
       context.wave3_85 = {};
+    }
+
+    // ═══ PRE-WAVE 4: Load Winning Proposals + Company Strengths + Bid Decision Patterns ═══
+    try {
+      const [wpResult, csResult, bdResult] = await Promise.allSettled([
+        fetch('/api/winning-proposals', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
+        fetch('/api/company-strengths', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
+        fetch(`/api/bid-decisions?project_type=${encodeURIComponent(state.projectType || '')}`, { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
+      ]);
+
+      if (wpResult.status === 'fulfilled' && wpResult.value?.proposals?.length > 0) {
+        context.winningProposals = wpResult.value.proposals;
+        console.log(`[SmartBrains] 🏆 Winning Proposals: loaded ${context.winningProposals.length} past winning bid(s) for tone/strategy learning`);
+      }
+
+      if (csResult.status === 'fulfilled' && csResult.value?.strengths?.length > 0) {
+        context.companyStrengths = csResult.value.strengths;
+        console.log(`[SmartBrains] 💪 Company Strengths: loaded ${context.companyStrengths.length} competitive positioning data point(s)`);
+      }
+
+      if (bdResult.status === 'fulfilled' && bdResult.value?.decisions?.length > 0) {
+        context.bidDecisions = bdResult.value.decisions;
+        console.log(`[SmartBrains] 🎯 Bid Decisions: loaded ${context.bidDecisions.length} past bid adjustment pattern(s)`);
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Pre-Wave 4 data loading failed (non-fatal):', e.message);
     }
 
     // ═══ WAVE 4: Report Synthesis (1 brain) ═══
