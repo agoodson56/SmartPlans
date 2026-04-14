@@ -8799,7 +8799,19 @@ function renderStep7(container) {
 
   container.innerHTML = `
     <h2 class="step-heading">Estimate Complete</h2>
-    <p class="step-subheading">Your AI-powered estimate is ready. Review the analysis below, then export for your project management workflow.</p>
+    <p class="step-subheading">Your AI-powered estimate is ready. Click <strong style="color:#237078;">Generate Complete Bid Package</strong> below to auto-build the full Fortune 500 proposal, or review the analysis sections first.</p>
+
+    <!-- v5.125.0 Auto-Proposal One-Click Button -->
+    <div id="auto-proposal-cta" style="margin:18px 0 22px 0;padding:24px 28px;background:linear-gradient(135deg,#0F2942 0%,#237078 55%,#2B828B 100%);border-radius:14px;border-left:5px solid #EBB328;box-shadow:0 8px 32px rgba(15,41,66,0.25);display:flex;align-items:center;gap:22px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:260px;">
+        <div style="font-size:10px;color:#EBB328;font-weight:800;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">SmartPlans · Auto-Proposal</div>
+        <div style="font-size:20px;color:#ffffff;font-weight:800;line-height:1.3;margin-bottom:4px;">One-Click Complete Bid Package</div>
+        <div style="font-size:12.5px;color:rgba(255,255,255,0.78);line-height:1.55;">Generates a send-ready Fortune 500 proposal using 5 AI brains: project understanding, technical approach, cover letter, executive summary, and compliance matrix. Pulls credentials from <a href="https://www.3dtsi.com" target="_blank" style="color:#EBB328;font-weight:700;text-decoration:none;">3dtsi.com</a> automatically. <a href="#" data-action="open-company-profile" style="color:#EBB328;font-weight:700;text-decoration:none;">Edit Company Profile →</a></div>
+      </div>
+      <button data-action="generate-complete-bid-package" style="padding:16px 28px;border:none;border-radius:10px;background:linear-gradient(135deg,#EBB328,#C99518);color:#0F2942;font-weight:900;font-size:14px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;box-shadow:0 8px 24px rgba(235,179,40,0.4);white-space:nowrap;transition:transform 0.15s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+        ⚡ Generate Complete Bid Package
+      </button>
+    </div>
 
     <div class="results-hero">
       <div class="results-top">
@@ -13239,6 +13251,241 @@ function closeSavedPanel() {
   const panel = document.querySelector('.saved-panel');
   if (backdrop) backdrop.remove();
   if (panel) panel.remove();
+}
+
+// ═══════════════════════════════════════════════════════════
+// v5.125.0 — Auto-Proposal: Company Profile Editor + One-Click Generator
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Opens a modal editor for the Company Profile. Reads from COMPANY_CREDENTIALS
+ * + localStorage overrides, writes updated fields back to localStorage so
+ * every proposal SmartPlans generates going forward uses the new data.
+ *
+ * Surfaces ONLY the fields marked [UPDATE] — estimator doesn't have to scroll
+ * through data we already know.
+ */
+function openCompanyProfileEditor() {
+  if (typeof COMPANY_CREDENTIALS === 'undefined' || typeof COMPANY_CREDENTIALS_HELPERS === 'undefined') {
+    spToast('Company credentials module not loaded — reload the page', 'error');
+    return;
+  }
+
+  // Close any existing editor
+  const existing = document.getElementById('company-profile-modal');
+  if (existing) existing.remove();
+
+  const gaps = COMPANY_CREDENTIALS_HELPERS.findUpdatePlaceholders();
+  const overrides = COMPANY_CREDENTIALS_HELPERS.loadOverrides() || {};
+
+  // Group gaps by top-level section for a cleaner UI
+  const sections = {};
+  for (const g of gaps) {
+    const top = g.path.split('.')[0].split('[')[0];
+    if (!sections[top]) sections[top] = [];
+    sections[top].push(g);
+  }
+
+  const sectionLabels = {
+    federal: 'Federal Registration',
+    bonding: 'Bonding Capacity',
+    insurance: 'Insurance Limits',
+    safety: 'Safety Record',
+    metrics: 'Company Metrics',
+    leadership: 'Leadership Bios',
+    pastProjects: 'Past Projects',
+    licenses: 'License Numbers',
+    certifications: 'Certifications',
+  };
+
+  const html = `
+    <div id="company-profile-modal" style="position:fixed;inset:0;z-index:10001;background:rgba(15,23,42,0.82);display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div style="background:#fff;border-radius:14px;max-width:820px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+        <div style="padding:22px 28px;border-bottom:2px solid #EBB328;background:linear-gradient(135deg,#0F2942,#237078);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:12px;color:#EBB328;font-weight:800;letter-spacing:2px;text-transform:uppercase;">SmartPlans · Company Profile</div>
+            <div style="font-size:20px;font-weight:800;margin-top:4px;">${esc(COMPANY_CREDENTIALS.legalName)}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.7);margin-top:2px;">Fill these once, they apply to every proposal.</div>
+          </div>
+          <button id="cp-close" style="background:none;border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">✕ Close</button>
+        </div>
+
+        <div style="padding:22px 28px;">
+          <div style="background:rgba(235,179,40,0.08);border-left:4px solid #EBB328;padding:12px 16px;border-radius:8px;margin-bottom:18px;">
+            <div style="font-weight:800;color:#0F2942;font-size:13px;">${gaps.length} field${gaps.length === 1 ? '' : 's'} need your attention</div>
+            <div style="font-size:12px;color:#4A5568;margin-top:4px;line-height:1.5;">These are the gaps from <a href="https://www.3dtsi.com" target="_blank" style="color:#237078;font-weight:700;">www.3dtsi.com</a> that the website didn't publicly expose. Fill in what you know — leave the rest blank for now. Everything saves locally and auto-applies to every proposal you generate.</div>
+          </div>
+
+          <form id="cp-form">
+            ${Object.keys(sections).sort((a, b) => (sectionLabels[a] || a).localeCompare(sectionLabels[b] || b)).map(sectionKey => `
+              <div style="margin-bottom:22px;">
+                <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:2px;color:#237078;font-weight:800;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #EBB328;">${esc(sectionLabels[sectionKey] || sectionKey)}</h3>
+                ${sections[sectionKey].map(g => {
+                  const label = g.path.replace(/\[\d+\]/g, (m) => ` ${parseInt(m.slice(1, -1)) + 1}`).replace(/\./g, ' › ').replace(/([a-z])([A-Z])/g, '$1 $2');
+                  const currentVal = _getDeep(overrides, g.path) || '';
+                  const isLong = /bio|scope|highlights|description/.test(g.path);
+                  return `
+                    <div style="margin-bottom:12px;">
+                      <label style="display:block;font-size:11px;color:#6B7280;font-weight:700;margin-bottom:4px;letter-spacing:0.5px;">${esc(label)}</label>
+                      ${isLong
+                        ? `<textarea data-cp-path="${esc(g.path)}" placeholder="${esc(g.current)}" rows="2" style="width:100%;padding:8px 12px;border:1px solid #D1D5DB;border-radius:6px;font-family:inherit;font-size:13px;color:#1a1a2e;resize:vertical;">${esc(currentVal)}</textarea>`
+                        : `<input type="text" data-cp-path="${esc(g.path)}" placeholder="${esc(g.current)}" value="${esc(currentVal)}" style="width:100%;padding:8px 12px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px;color:#1a1a2e;">`
+                      }
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `).join('')}
+          </form>
+        </div>
+
+        <div style="padding:16px 28px;border-top:1px solid #E5E7EB;background:#FAFBFC;display:flex;justify-content:space-between;align-items:center;border-radius:0 0 14px 14px;">
+          <div style="font-size:11px;color:#9CA3AF;">Saved to this browser. Use the same browser for every bid, or re-enter on another machine.</div>
+          <div style="display:flex;gap:10px;">
+            <button id="cp-clear" style="padding:10px 18px;border:1px solid #D1D5DB;background:#fff;color:#6B7280;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">Clear All Overrides</button>
+            <button id="cp-save" style="padding:10px 22px;border:none;background:linear-gradient(135deg,#EBB328,#C99518);color:#0F2942;border-radius:8px;cursor:pointer;font-size:13px;font-weight:800;letter-spacing:0.5px;">💾 Save Profile</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = html;
+  document.body.appendChild(wrapper.firstElementChild);
+
+  document.getElementById('cp-close')?.addEventListener('click', () => {
+    document.getElementById('company-profile-modal')?.remove();
+  });
+
+  document.getElementById('cp-save')?.addEventListener('click', () => {
+    const form = document.getElementById('cp-form');
+    const inputs = form.querySelectorAll('[data-cp-path]');
+    const newOverrides = COMPANY_CREDENTIALS_HELPERS.loadOverrides() || {};
+    let updateCount = 0;
+    inputs.forEach(inp => {
+      const path = inp.getAttribute('data-cp-path');
+      const val = inp.value.trim();
+      if (val) {
+        _setDeep(newOverrides, path, val);
+        updateCount++;
+      }
+    });
+    const ok = COMPANY_CREDENTIALS_HELPERS.saveOverrides(newOverrides);
+    if (ok) {
+      spToast(`Saved ${updateCount} field${updateCount === 1 ? '' : 's'} to company profile`, 'success');
+      document.getElementById('company-profile-modal')?.remove();
+    } else {
+      spToast('Failed to save profile', 'error');
+    }
+  });
+
+  document.getElementById('cp-clear')?.addEventListener('click', () => {
+    if (!confirm('Clear all company profile overrides? Values from company-credentials.js will apply again.')) return;
+    try {
+      localStorage.removeItem('smartplans_company_overrides');
+      spToast('Cleared all company profile overrides', 'info');
+      document.getElementById('company-profile-modal')?.remove();
+    } catch (e) {
+      spToast('Failed to clear: ' + e.message, 'error');
+    }
+  });
+
+  // Close on backdrop click
+  document.getElementById('company-profile-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'company-profile-modal') {
+      document.getElementById('company-profile-modal')?.remove();
+    }
+  });
+}
+
+// Deep getter/setter used by the company profile editor
+function _getDeep(obj, path) {
+  if (!obj || !path) return undefined;
+  const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.');
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+function _setDeep(obj, path, val) {
+  if (!obj || !path) return;
+  const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    const nextIsNum = /^\d+$/.test(parts[i + 1]);
+    if (cur[p] == null) cur[p] = nextIsNum ? [] : {};
+    cur = cur[p];
+  }
+  cur[parts[parts.length - 1]] = val;
+}
+
+/**
+ * One-click "Generate Complete Bid Package". Routes to the new v2
+ * pipeline in proposal-generator-v2.js. Shows a progress overlay.
+ */
+async function generateCompleteBidPackage() {
+  if (typeof ProposalGenerator === 'undefined' || typeof ProposalGenerator.generateCompleteBidPackage !== 'function') {
+    spToast('Proposal generator v2 not loaded — reload the page', 'error');
+    return;
+  }
+  if (!state.analysisComplete && !state.aiAnalysis) {
+    spToast('Run analysis first before generating a bid package', 'warning');
+    return;
+  }
+
+  // Build progress overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'bid-package-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10002;background:rgba(15,23,42,0.85);display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:32px 36px;box-shadow:0 20px 60px rgba(0,0,0,0.4);text-align:center;">
+      <div style="font-size:11px;color:#C99518;font-weight:800;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">SmartPlans · Auto-Proposal</div>
+      <h2 style="font-size:22px;color:#0F2942;margin:0 0 4px 0;font-weight:800;">Generating Complete Bid Package</h2>
+      <div style="font-size:13px;color:#6B7280;margin-bottom:24px;">5-brain proposal pipeline · Fortune 500 layout</div>
+
+      <div style="background:#F4F6F8;border-radius:10px;height:14px;overflow:hidden;margin-bottom:10px;">
+        <div id="bp-bar" style="height:100%;width:2%;background:linear-gradient(90deg,#EBB328,#237078);transition:width 0.3s ease;"></div>
+      </div>
+      <div id="bp-pct" style="font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:1px;">2%</div>
+      <div id="bp-msg" style="font-size:13px;color:#237078;font-weight:600;margin-top:14px;line-height:1.5;">Preparing bid package…</div>
+
+      <div style="margin-top:22px;padding:12px 16px;background:rgba(235,179,40,0.08);border-left:3px solid #EBB328;border-radius:6px;font-size:11px;color:#4A5568;line-height:1.5;text-align:left;">
+        <strong style="color:#0F2942;">Running 5 AI brains in sequence:</strong><br>
+        1. Project Understanding writer<br>
+        2. Technical Approach writer<br>
+        3. Cover Letter writer<br>
+        4. Executive Summary writer<br>
+        5. Compliance Matrix generator<br>
+        <span style="color:#9CA3AF;font-size:10px;margin-top:4px;display:block;">Estimated time: 45-90 seconds</span>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const progress = (pct, msg) => {
+    const bar = document.getElementById('bp-bar');
+    const pctEl = document.getElementById('bp-pct');
+    const msgEl = document.getElementById('bp-msg');
+    if (bar) bar.style.width = Math.max(2, Math.min(100, pct)) + '%';
+    if (pctEl) pctEl.textContent = Math.round(pct) + '%';
+    if (msgEl) msgEl.textContent = msg;
+  };
+
+  try {
+    await ProposalGenerator.generateCompleteBidPackage(state, progress);
+    // Keep overlay visible briefly to show success
+    progress(100, '✓ Bid package ready');
+    setTimeout(() => { document.getElementById('bid-package-overlay')?.remove(); }, 1200);
+  } catch (err) {
+    console.error('[AutoProposal] Failed:', err);
+    const msgEl = document.getElementById('bp-msg');
+    if (msgEl) msgEl.innerHTML = `<span style="color:#EF4444;">✗ Generation failed: ${esc(err.message || 'unknown error')}</span>`;
+    setTimeout(() => { document.getElementById('bid-package-overlay')?.remove(); }, 4000);
+  }
 }
 
 async function showSavedEstimates() {
@@ -17832,6 +18079,12 @@ document.addEventListener("DOMContentLoaded", async () => {
           break;
         case 'show-saved-estimates':
           showSavedEstimates();
+          break;
+        case 'open-company-profile':
+          openCompanyProfileEditor();
+          break;
+        case 'generate-complete-bid-package':
+          generateCompleteBidPackage();
           break;
       }
     });

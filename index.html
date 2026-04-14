@@ -55,6 +55,9 @@
                 <button id="btn-saved-estimates" class="header-btn" data-action="show-saved-estimates" title="Saved Estimates">
                     <i data-lucide="folder-open"></i> <span class="header-btn-label">Saved</span>
                 </button>
+                <button id="btn-company-profile" class="header-btn" data-action="open-company-profile" title="Company Profile (fills gaps in proposal credentials)">
+                    <i data-lucide="building-2"></i> <span class="header-btn-label">Profile</span>
+                </button>
             </div>
         </header>
 
@@ -129,13 +132,13 @@
           Sentry.init({
             dsn: "https://60b02e5d7804fc77476c97324b9039e5@o4511099720957952.ingest.us.sentry.io/4511099752284160",
             environment: location.hostname.includes('localhost') ? 'development' : 'production',
-            release: 'smartplans@5.124.5',
+            release: 'smartplans@5.125.0',
             integrations: [Sentry.browserTracingIntegration()],
             tracesSampleRate: 0.1,
             initialScope: { tags: { app: 'smartplans' } },
           });
           console.log('[SmartPlans] Sentry error tracking initialized');
-          console.log('[SmartPlans] Build: v5.124.5 — 2026-04-14');
+          console.log('[SmartPlans] Build: v5.125.0 — 2026-04-14');
         }
       } catch (e) {
         console.warn('[SmartPlans] Sentry init failed (non-fatal):', e.message);
@@ -204,6 +207,7 @@
     <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js" crossorigin="anonymous" integrity="sha384-ieG+IKD0d/ZPXyCBTMVAbqsQdns8QGJR/e26WMw7M4fkaI/rHcS/YIoi+ah9WGge"></script>
     <script src="pricing-database.js"></script>
     <script src="company-profile.js"></script>
+    <script src="company-credentials.js"></script>
     <script src="prevailing-wages-ca.js"></script>
     <script src="prevailing-wages-national.js"></script>
     <script src="formula-engine-3d.js"></script>
@@ -211,6 +215,7 @@
     <script src="scale-calibration.js"></script>
     <script src="export-engine.js"></script>
     <script src="proposal-generator.js"></script>
+    <script src="proposal-generator-v2.js"></script>
     <script src="rate-library.js"></script>
     <script src="ai-engine.js"></script>
     <script src="app.js"></script>
