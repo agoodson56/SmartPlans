@@ -8969,11 +8969,41 @@ ${legendContext}
           context._prevailingWageJurisdiction = pw.state_jurisdiction || (forceDB ? 'federal' : null);
           context._prevailingWageAgency = pw.agency_or_owner || null;
           context._prevailingWageDetermination = pw.wage_determination || null;
-          context._prevailingWageMultiplier = parseFloat(pw.estimated_labor_rate_multiplier) || (forceDB ? 2.0 : 1.6);
+
+          // ─── v5.126.1 HOTFIX: Enforce minimum multiplier floor ───
+          // The AI detector returned 1.5x for the Gardnerville VA Clinic,
+          // but federal Davis-Bacon for ELV/low-voltage work in Nevada is
+          // realistically 1.7-2.0x after H&W + pension + training fringes.
+          // A 1.5x multiplier on open-shop $64/hr loaded = $96/hr — still
+          // ~$20-30/hr below actual prevailing-wage rates for IBEW/NECA
+          // electronics work in Douglas County NV.
+          //
+          // Enforce minimums (based on real NV/CA federal DB wage
+          // determinations published 2025-2026):
+          //   Davis-Bacon federal:   MIN 1.80x  (realistic 1.80-2.05)
+          //   State prevailing wage: MIN 1.55x  (varies by state — CA is higher)
+          //   Project Labor Agree.:  MIN 1.70x  (union-scale + fringes)
+          const aiMultiplier = parseFloat(pw.estimated_labor_rate_multiplier);
+          let minMultiplier = 1.0;
+          if (forceDB) minMultiplier = 1.80;
+          else if (forcePLA) minMultiplier = 1.70;
+          else if (forceState) minMultiplier = 1.55;
+
+          let finalMultiplier = (isFinite(aiMultiplier) && aiMultiplier > 0)
+            ? aiMultiplier
+            : (forceDB ? 2.0 : forcePLA ? 1.85 : 1.70);
+
+          if (finalMultiplier < minMultiplier) {
+            console.warn(`[SmartBrains] ⚖️  Prevailing Wage Detector returned ${finalMultiplier}x, but minimum floor for ${forceDB ? 'DAVIS_BACON' : forcePLA ? 'PLA' : 'STATE'} is ${minMultiplier}x. Enforcing floor.`);
+            finalMultiplier = minMultiplier;
+          }
+
+          context._prevailingWageMultiplier = finalMultiplier;
+          context._prevailingWageMultiplierSource = (aiMultiplier >= minMultiplier) ? 'ai_detector' : 'minimum_floor';
           state._prevailingWageRequired = true;
           state._prevailingWageDetection = pw;
           console.warn(`[SmartBrains] ⚖️  PREVAILING WAGE REQUIRED — ${context._prevailingWageType.toUpperCase()}${pw.agency_or_owner ? ' (' + pw.agency_or_owner + ')' : ''}`);
-          console.warn(`[SmartBrains]    Labor rate multiplier forced to ${context._prevailingWageMultiplier}x — downstream Labor Calculator must use this`);
+          console.warn(`[SmartBrains]    Labor rate multiplier: ${context._prevailingWageMultiplier}x (source: ${context._prevailingWageMultiplierSource})`);
           if (Array.isArray(pw.indicators)) {
             for (const ind of pw.indicators.slice(0, 5)) {
               console.warn(`[SmartBrains]    → Trigger: "${ind.text}" (${ind.source}, ${ind.confidence}%)`);
@@ -10274,11 +10304,19 @@ ${legendContext}
           const dbApplied = labor.prevailing_wage_applied === true;
           const reportedMultiplier = parseFloat(labor.prevailing_wage_multiplier) || null;
 
+          // v5.126.1: DB_FLOOR scaled to the enforced minimum multiplier.
           // Expected loaded rate for Davis-Bacon on ELV/low-voltage work:
           //   Base PW wage ~$50-60/hr + fringes ~$25-35/hr = $75-95/hr hourly
           //   × 35% burden = ~$100-130/hr loaded
-          // If avg loaded rate is < $90/hr, DB was NOT applied.
-          const DB_FLOOR = 90;
+          // Old fixed floor was $90/hr (assumed 2.0x). With the 1.80x min
+          // for DB, the minimum defensible loaded rate is:
+          //   open-shop ~$55/hr × 1.80 = $99/hr (DB)
+          //   open-shop ~$55/hr × 1.55 = $85/hr (state)
+          //   open-shop ~$55/hr × 1.70 = $93/hr (PLA)
+          // Pick a conservative single floor that works for all three.
+          const DB_FLOOR = (context._prevailingWageType === 'davis_bacon') ? 95
+                         : (context._prevailingWageType === 'pla')        ? 90
+                         : 85;  // state PW
 
           if (avgLoadedRate > 0 && avgLoadedRate < DB_FLOOR) {
             // AI produced open-shop labor despite DB detection. Scale up in code.
