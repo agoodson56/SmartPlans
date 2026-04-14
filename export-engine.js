@@ -199,6 +199,9 @@ const SmartPlansExport = {
                     .map(c => ({ id: c.id, description: c.description, category: c.category, estimatedCost: c.estimatedCost, severity: c.severity, source: c.source }))
                 : [],
 
+            // Proposal Narrative — AI-generated persuasive proposal draft (Wave 4.1)
+            proposalNarrative: state._proposalNarrative || null,
+
             // 3D Formula Engine breakdown — deterministic bid using 3D Technology Services formulas
             engine3D: (typeof FormulaEngine3D !== 'undefined' && state._engine3DResult)
                 ? {

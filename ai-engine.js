@@ -158,6 +158,8 @@ const SmartBrains = {
     ESTIMATE_CORRECTOR: { id: 27, name: 'Estimate Corrector', wave: 3.85, emoji: '🔧', needsFiles: [], maxTokens: 65536, useProModel: true },
     // ── Wave 4: Final Report (Gemini 3.1 Pro for comprehensive bid generation) ──
     REPORT_WRITER: { id: 17, name: 'Report Synthesizer', wave: 4, emoji: '📝', needsFiles: [], maxTokens: 65536, useProModel: true },
+    // ── Wave 4.1: Proposal Writer (persuasive narrative — runs AFTER technical bid) ──
+    PROPOSAL_WRITER: { id: 31, name: 'Proposal Writer', wave: 4.1, emoji: '🏆', needsFiles: [], maxTokens: 65536, useProModel: true },
   },
 
   // Brain status tracking for UI
@@ -5077,6 +5079,167 @@ Consider these patterns when setting final prices — the estimator typically sh
 Generate the COMPLETE BID REPORT now. Every section must have real data with real dollar amounts. This is not a template — it is an actual bid.`;
       },
 
+      // ── BRAIN 31: Proposal Writer (Wave 4.1 — Persuasive Narrative) ──
+      PROPOSAL_WRITER: () => {
+        const projName = context.projectName || 'Project';
+        const projType = context.projectType || 'Low Voltage';
+        const projLoc = context.projectLocation || 'TBD';
+        const rfp = context._rfpCriteria || {};
+        const strengths = context.companyStrengths || [];
+        const proposals = context.winningProposals || [];
+        const devil = context.wave3?.DEVILS_ADVOCATE || {};
+        const specialCond = context.wave1?.SPECIAL_CONDITIONS || {};
+        const consensus = context.wave1_75?.CONSENSUS_ARBITRATOR || {};
+        const codeComp = context.wave1?.CODE_COMPLIANCE || {};
+        const insights = context._brainInsights || [];
+        const pricer = context._correctedPricer || context.wave2?.MATERIAL_PRICER || {};
+        const grandTotal = pricer.corrected_grand_total || pricer.grand_total || 0;
+
+        return `You are an ELITE CONSTRUCTION PROPOSAL STRATEGIST. You write proposals that win contracts. Not proposals that "look professional" — proposals that make the evaluator put down every other bid and say "this is the one."
+
+You are writing for: ${projName}
+Location: ${projLoc}
+Type: ${projType}
+
+YOUR MISSION: Write a PERSUASIVE PROPOSAL NARRATIVE that makes this bid IRRESISTIBLE.
+This is NOT a cost table — the technical bid already has the numbers. This is the STORY that sells.
+The evaluator will read this BEFORE looking at any numbers. By the time they see the price, they should already want to hire us.
+
+═══ THE PSYCHOLOGY OF WINNING ═══
+1. PROVE YOU UNDERSTAND THEIR PROJECT BETTER THAN ANYONE ELSE
+   - Reference specific details from THEIR plans (room names, sheet numbers, device counts)
+   - Show you found things other bidders will miss
+   - Demonstrate you've already solved problems they didn't know they had
+
+2. ELIMINATE EVERY RISK IN THEIR MIND
+   - The evaluator's biggest fear: picking the wrong contractor
+   - For every concern they might have, proactively address it
+   - Turn the Devil's Advocate challenges into YOUR selling points
+
+3. MAKE THE VALUE UNDENIABLE
+   - Don't just list scope — quantify the VALUE
+   - "We identified 3 scope gaps that would cost $X in change orders — we've included them"
+   - "Our cable routing analysis saves X feet of cable waste vs straight-line estimates"
+
+4. CREATE EMOTIONAL CERTAINTY
+   - The evaluator needs to feel CONFIDENT recommending you to their boss
+   - Give them the ammunition to defend choosing you
+
+═══ WHAT YOU KNOW ABOUT THIS PROJECT (from 29-brain deep analysis) ═══
+
+DEVICE COUNTS (verified across 6 independent reads):
+${JSON.stringify(consensus.consensus_counts || context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2).substring(0, 2000)}
+
+RISKS & CHALLENGES IDENTIFIED (turn these into selling points):
+${JSON.stringify(devil.challenges || [], null, 2).substring(0, 3000)}
+
+SPECIAL CONDITIONS:
+${JSON.stringify(specialCond.special_conditions || specialCond.conditions || {}, null, 2).substring(0, 2000)}
+
+CODE COMPLIANCE FINDINGS:
+${JSON.stringify(codeComp.compliance_items || codeComp.findings || [], null, 2).substring(0, 1500)}
+
+PROJECT-SPECIFIC INSIGHTS FROM ANALYSIS:
+${insights.slice(0, 10).map(i => `• [${i.type}] ${i.detail}`).join('\n') || 'No specific insights collected'}
+
+APPROXIMATE CONTRACT VALUE: $${grandTotal.toLocaleString()}
+
+${rfp.award_method && rfp.award_method !== 'unknown' ? `
+═══ RFP EVALUATION CRITERIA — WRITE TO THESE SCORING WEIGHTS ═══
+Award Method: ${rfp.award_method.toUpperCase()}
+${(rfp.scoring_criteria || []).map(sc => `• ${sc.category}: ${sc.weight_pct}% — ${sc.notes || ''}`).join('\n')}
+${(rfp.bid_strategy_recommendations || []).map(r => `💡 ${r}`).join('\n')}
+${rfp.mwbe_requirements?.goal_pct > 0 ? `⚠️ ${rfp.mwbe_requirements.type} Goal: ${rfp.mwbe_requirements.goal_pct}%` : ''}
+
+CRITICAL: Weight your proposal sections to match these percentages. If Technical Approach is 30%, make that section 3x more detailed than a 10% section.
+` : `
+No RFP evaluation criteria found — assume LOWEST RESPONSIBLE BIDDER.
+Strategy: Be brief, be sharp, be clear. Focus on proving competence and completeness, not storytelling.
+`}
+
+${strengths.length > 0 ? `
+═══ COMPANY STRENGTHS — USE THESE AS PROOF POINTS ═══
+${strengths.map(s => `• [${s.category}] ${s.strength}${s.detail ? `: ${s.detail}` : ''}${s.win_impact ? ` (Impact: ${s.win_impact})` : ''}`).join('\n')}
+` : ''}
+
+${proposals.length > 0 ? `
+═══ PAST WINNING PROPOSALS — MATCH THIS VOICE AND STRATEGY ═══
+${proposals.slice(0, 3).map(p => `
+── Won: ${p.project_name} ($${(p.contract_value || 0).toLocaleString()}) ──
+Executive Summary: ${(p.executive_summary || '').substring(0, 400)}
+Value Props: ${(p.value_propositions || '').substring(0, 300)}
+Strategy: ${(p.strategy_notes || '').substring(0, 200)}
+`).join('\n')}
+Mirror this company's voice. Use similar confidence level and positioning.
+` : ''}
+
+═══ GENERATE THESE SECTIONS (in this exact order) ═══
+
+## EXECUTIVE SUMMARY
+2-3 paragraphs MAX. This is the SINGLE MOST IMPORTANT section.
+- Open with a sentence that shows you understand the PROJECT'S PURPOSE (not your company)
+- Name specific scope: "${projName} requires [X cameras, Y card readers, Z data drops]..."
+- State your total price confidently
+- Close with why choosing you eliminates risk
+${rfp.award_method === 'best_value' ? 'For best-value: emphasize technical excellence and experience alongside price.' : 'For lowest-bid: emphasize completeness, no change orders, and value.'}
+
+## PROOF OF UNDERSTANDING
+This is where you DESTROY the competition. Reference specific findings from the plans:
+- Name specific sheets, rooms, and device counts
+- Highlight scope gaps you found that others will miss (from Devil's Advocate challenges)
+- Show you read the specs (manufacturer requirements, code compliance items)
+- Mention any addenda changes and how you've incorporated them
+- Reference the responsibility matrix / scope exclusions you identified
+
+## TECHNICAL APPROACH & METHODOLOGY
+How you'll execute this project. Be specific to THIS project, not generic.
+- Phase 1: Mobilization & coordination (mention specific MDF/IDF rooms by name)
+- Phase 2: Rough-in & infrastructure (reference cable pathway findings)
+- Phase 3: Device installation (reference device counts per floor)
+- Phase 4: Termination & testing (reference cable types and certification requirements)
+- Phase 5: Programming, commissioning & owner training
+- Include timeline estimate based on scope
+
+## RISK MITIGATION & VALUE ENGINEERING
+Turn EVERY Devil's Advocate challenge into a SELLING POINT:
+- "We identified [risk] during our plan review and have proactively included [solution] in our pricing"
+- "Other bidders may miss [scope gap] — we've included $X to cover this, avoiding costly change orders"
+- Offer value engineering alternatives where appropriate (equivalent products, optimized routing)
+
+## QUALITY ASSURANCE & COMPLIANCE
+- Reference SPECIFIC code/standard requirements from the Code Compliance brain
+- Certification and testing methodology
+- Warranty and post-installation support
+
+## RELEVANT EXPERIENCE
+${strengths.length > 0 ? 'Use company strengths data to build this section.' : 'Reference 3-5 similar completed projects with scope, value, and outcomes.'}
+- Projects of similar type, scale, and complexity
+- Key personnel with relevant certifications
+- Safety record and EMR
+
+## WHY US — THE DECISION MADE SIMPLE
+3-5 bullet points that make the choice obvious:
+1. [Specific technical advantage for THIS project]
+2. [Risk/cost savings only you identified]
+3. [Experience proof point]
+4. [Quality/compliance differentiator]
+5. [Value: what they get that others won't include]
+
+Close with a single powerful sentence: the evaluator should feel they'd be making a MISTAKE not choosing you.
+
+═══ WRITING RULES ═══
+- NEVER be generic. Every sentence must reference THIS project specifically.
+- Use numbers and specifics: "48 cameras across 3 floors" not "cameras throughout the building"
+- Write in first person plural ("We" / "Our team")
+- Be confident but not arrogant — back every claim with evidence from the plan review
+- Keep paragraphs short (3-4 sentences max). Evaluators skim.
+- Use bold for key numbers and differentiators
+- NO filler phrases: "We are pleased to submit" / "Thank you for the opportunity" — CUT THEM
+- Open EVERY section with the most compelling fact, not a preamble
+
+Return the proposal as formatted Markdown text.`;
+      },
+
       // ── BRAIN 0: Legend Decoder (Wave 0 — Pre-Processing) ─────
       LEGEND_DECODER: () => `You are a CONSTRUCTION SYMBOL LEGEND EXPERT. Your ONLY job is to decode the symbol legend and build a structured dictionary BEFORE any counting begins.
 
@@ -7336,11 +7499,11 @@ ${legendContext}
   },
 
   async _runWave(waveNum, brainKeys, encodedFiles, state, context, progressCallback) {
-    const waveStart = { 0: 5, 0.75: 10, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 3.85: 88, 4: 92 };
-    const waveEnd = { 0: 10, 0.75: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 80, 3.5: 84, 3.75: 88, 3.85: 92, 4: 98 };
+    const waveStart = { 0: 5, 0.75: 10, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 3.85: 88, 4: 92, 4.1: 96 };
+    const waveEnd = { 0: 10, 0.75: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 80, 3.5: 84, 3.75: 88, 3.85: 92, 4: 96, 4.1: 99 };
     const baseProgress = waveStart[waveNum] ?? 0;
     const endProgress = waveEnd[waveNum] ?? 100;
-    const waveNames = { 0: 'Legend Pre-Processing', 0.75: 'RFP Criteria Parsing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Material Pricing', 2.25: 'Labor Calculation', 2.5: 'Financial Engine', 2.75: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 3.85: 'Estimate Correction', 4: 'Report Synthesis' };
+    const waveNames = { 0: 'Legend Pre-Processing', 0.75: 'RFP Criteria Parsing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Material Pricing', 2.25: 'Labor Calculation', 2.5: 'Financial Engine', 2.75: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 3.85: 'Estimate Correction', 4: 'Report Synthesis', 4.1: 'Proposal Writer' };
 
     const results = {};
     let completed = 0;
@@ -8273,6 +8436,22 @@ ${legendContext}
     const wave4Results = await this._runWave(4, ['REPORT_WRITER'], filteredEncodedFiles, state, context, progressCallback);
     console.log('[SmartBrains] ═══ Wave 4 Complete ═══');
 
+    // ═══ WAVE 4.1: Proposal Writer (persuasive narrative) ═══
+    let proposalNarrative = null;
+    try {
+      progressCallback(96, '🏆 Wave 4.1: Writing winning proposal narrative…', this._brainStatus);
+      const wave41Results = await this._runWave(4.1, ['PROPOSAL_WRITER'], filteredEncodedFiles, state, context, progressCallback);
+      const pw = wave41Results.PROPOSAL_WRITER;
+      if (pw && !pw._failed) {
+        proposalNarrative = pw;
+        console.log('[SmartBrains] ═══ Wave 4.1 Complete — Proposal Writer succeeded ═══');
+      } else {
+        console.warn('[SmartBrains] Wave 4.1: Proposal Writer failed or returned empty — skipping (non-fatal)');
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Wave 4.1 failed (non-fatal):', e.message);
+    }
+
     // Log session cost summary
     if (this._sessionCost) {
       const sc = this._sessionCost;
@@ -8433,10 +8612,11 @@ ${legendContext}
 
     const finalReport = (typeof report === 'string' ? report : JSON.stringify(report, null, 2)) + validationAppendix;
 
-    progressCallback(100, '🎯 Analysis complete — 28 brains finished!', this._brainStatus);
+    progressCallback(100, '🎯 Analysis complete — 31 brains finished!', this._brainStatus);
 
     return {
       report: finalReport,
+      proposalNarrative: proposalNarrative,
       _ocrScaleData: ocrScalePages.length > 0 ? ocrScalePages : undefined,
       addendaDelta: addendaDelta,
       rfpCriteria: context._rfpCriteria || null,
@@ -8449,6 +8629,7 @@ ${legendContext}
         wave2_5_fin: wave25FinResults, wave2_75: wave275Results,
         wave3: wave3Results, wave3_5: context.wave3_5, wave3_75: context.wave3_75,
         wave3_85_corrected: context.wave3_85?.ESTIMATE_CORRECTOR || null,
+        wave4_1: proposalNarrative,
       },
       brainStatus: { ...this._brainStatus },
       stats: {

@@ -8897,6 +8897,8 @@ function renderStep7(container) {
 
     ${buildAddendaDeltaCard(state)}
 
+    ${buildProposalNarrativeCard(state)}
+
     ${buildSymbolInventoryCard(state)}
 
     <div class="info-card" id="bid-compare-card" style="border-left:3px solid #0D9488;">
@@ -9258,6 +9260,34 @@ function renderStep7(container) {
   if (adToggle) adToggle.addEventListener('click', () => {
     state._addendaDeltaOpen = !state._addendaDeltaOpen;
     render();
+  });
+
+  // ── Proposal Narrative toggle ──
+  const propToggle = document.getElementById('proposal-narrative-toggle');
+  if (propToggle) propToggle.addEventListener('click', () => {
+    state._proposalOpen = !state._proposalOpen;
+    render();
+  });
+
+  // ── Copy Proposal to Clipboard ──
+  const propCopy = document.getElementById('proposal-copy-btn');
+  if (propCopy) propCopy.addEventListener('click', () => {
+    const pn = state._proposalNarrative;
+    if (!pn) return;
+    const sections = [
+      pn.executive_summary ? `EXECUTIVE SUMMARY\n${pn.executive_summary}` : '',
+      pn.proof_of_understanding ? `PROOF OF UNDERSTANDING\n${pn.proof_of_understanding}` : '',
+      pn.technical_approach ? `TECHNICAL APPROACH & METHODOLOGY\n${pn.technical_approach}` : '',
+      pn.risk_mitigation ? `RISK MITIGATION & VALUE ENGINEERING\n${pn.risk_mitigation}` : '',
+      pn.quality_assurance ? `QUALITY ASSURANCE & COMPLIANCE\n${pn.quality_assurance}` : '',
+      pn.relevant_experience ? `RELEVANT EXPERIENCE\n${pn.relevant_experience}` : '',
+      pn.why_us ? `WHY US — THE DECISION MADE SIMPLE\n${pn.why_us}` : '',
+      pn.closing_statement ? `CLOSING\n${pn.closing_statement}` : '',
+    ].filter(Boolean).join('\n\n─────────────────────────────────\n\n');
+    navigator.clipboard.writeText(sections).then(() => {
+      propCopy.textContent = '✓ Copied!';
+      setTimeout(() => { propCopy.innerHTML = '<i data-lucide="copy" style="width:14px;height:14px;"></i> Copy Proposal'; if (typeof lucide !== 'undefined') lucide.createIcons(); }, 2000);
+    });
   });
 
   // ── Bid Compare toggle ──
@@ -11716,6 +11746,10 @@ function renderAnalysis(container) {
         ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 4).map(([key, brain]) =>
     `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
   ).join('')}
+        <div class="brain-wave-header">WAVE 4.1 — Proposal Writer</div>
+        ${Object.entries(SmartBrains.BRAINS).filter(([, b]) => b.wave === 4.1).map(([key, brain]) =>
+    `<div class="brain-row" id="brain-${key}"><span class="brain-emoji">${brain.emoji}</span><span class="brain-name">${brain.name}</span><span class="brain-status" id="brain-status-${key}">⏳</span></div>`
+  ).join('')}
       </div>
     </div>
   `;
@@ -11863,11 +11897,12 @@ async function runGeminiAnalysis(updateProgress) {
     _invalidateBomCache(); // CRITICAL: Force fresh BOM computation with new analysis data
     state.brainStats = result.stats;
 
-    // Store new intelligence data from v5.121
+    // Store new intelligence data from v5.121+
     state._addendaDelta = result.addendaDelta || null;
     state._rfpCriteria = result.rfpCriteria || state._rfpCriteria || null;
     state._sessionInsights = result.sessionInsights || [];
     state._clarificationQuestions = result.clarificationQuestions || [];
+    state._proposalNarrative = result.proposalNarrative || null;
 
     // ─── Local Math Validation (belt and suspenders) ───
     updateProgress(99, "Running local math validation…", result.brainStatus);
@@ -12933,6 +12968,9 @@ function _restoreStateFromPayload(id, pkg, est) {
   if (pkg?.sectionCompleteness) state.sectionCompleteness = pkg.sectionCompleteness;
   if (pkg?.failedBrains) state.failedBrains = pkg.failedBrains;
   if (pkg?.brainStats) state.brainStats = pkg.brainStats;
+
+  // ── Restore Proposal Narrative (Wave 4.1 persuasive draft) ──
+  if (pkg?.proposalNarrative) state._proposalNarrative = pkg.proposalNarrative;
 
   // ── Restore 3D Engine reference result (was saved but never restored) ──
   if (pkg?.engine3D) state._engine3DResult = pkg.engine3D;
@@ -15669,6 +15707,83 @@ function buildAddendaDeltaCard(st) {
             <div style="font-size:12px;color:var(--text-secondary);">Labor: ${netSign}$${Math.abs(s.net_labor_impact).toLocaleString()}</div>
             <div style="font-size:13px;font-weight:600;color:${s.net_total_impact >= 0 ? '#ef4444' : '#22c55e'};">Net: ${netSign}$${Math.abs(s.net_total_impact).toLocaleString()}</div>
           </div>
+        </div>
+      ` : ''}
+    </div>`;
+}
+
+// ═══ PROPOSAL NARRATIVE CARD — Persuasive winning proposal from Wave 4.1 ═══
+function buildProposalNarrativeCard(st) {
+  const pn = st._proposalNarrative;
+  if (!pn) return '';
+
+  const isOpen = st._proposalOpen || false;
+
+  // Collect non-empty sections
+  const sections = [
+    { key: 'executive_summary', title: 'Executive Summary', icon: '🎯', color: '#6366f1' },
+    { key: 'proof_of_understanding', title: 'Proof of Understanding', icon: '🔍', color: '#8b5cf6' },
+    { key: 'technical_approach', title: 'Technical Approach & Methodology', icon: '⚙️', color: '#0ea5e9' },
+    { key: 'risk_mitigation', title: 'Risk Mitigation & Value Engineering', icon: '🛡️', color: '#14b8a6' },
+    { key: 'quality_assurance', title: 'Quality Assurance & Compliance', icon: '✅', color: '#22c55e' },
+    { key: 'relevant_experience', title: 'Relevant Experience', icon: '🏗️', color: '#f59e0b' },
+    { key: 'why_us', title: 'Why Us — The Decision Made Simple', icon: '🏆', color: '#ef4444' },
+    { key: 'closing_statement', title: 'Closing Statement', icon: '🤝', color: '#6366f1' },
+  ].filter(s => pn[s.key]);
+
+  const sectionCount = sections.length;
+  const wordCount = sections.reduce((sum, s) => sum + (pn[s.key] || '').split(/\s+/).length, 0);
+
+  // Format paragraph text — convert markdown-like bold and newlines
+  const fmtText = (text) => {
+    if (!text) return '';
+    return esc(text)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n\n/g, '</p><p style="margin:8px 0;line-height:1.7;">')
+      .replace(/\n- /g, '</p><div style="padding-left:16px;margin:4px 0;"><span style="color:#6366f1;margin-right:6px;">▸</span>')
+      .replace(/\n(\d+)\. /g, '</p><div style="padding-left:16px;margin:4px 0;"><span style="color:#6366f1;margin-right:6px;">$1.</span>');
+  };
+
+  return `
+    <div class="info-card" style="border-left:3px solid #f59e0b;background:linear-gradient(135deg,rgba(245,158,11,0.04),rgba(99,102,241,0.04));">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="proposal-narrative-toggle">
+        <h3 class="info-card-title" style="margin:0;">🏆 WINNING PROPOSAL NARRATIVE</h3>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:600;">${sectionCount} sections</span>
+          <span style="font-size:11px;color:var(--text-secondary);">~${wordCount.toLocaleString()} words</span>
+          <span style="transform:rotate(${isOpen ? '180' : '0'}deg);transition:transform 0.2s;">▼</span>
+        </div>
+      </div>
+      ${isOpen ? `
+        <div style="margin-top:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div style="font-size:12px;color:var(--text-secondary);font-style:italic;">AI-generated proposal draft — review and customize before submission</div>
+            <button id="proposal-copy-btn" style="display:flex;align-items:center;gap:4px;padding:6px 14px;border-radius:8px;border:1px solid rgba(245,158,11,0.3);background:rgba(245,158,11,0.08);color:#f59e0b;font-size:12px;font-weight:600;cursor:pointer;">
+              <i data-lucide="copy" style="width:14px;height:14px;"></i> Copy Proposal
+            </button>
+          </div>
+          ${sections.map(s => `
+            <div style="margin-bottom:20px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(0,0,0,0.08);">
+                <span style="font-size:16px;">${s.icon}</span>
+                <h4 style="margin:0;font-size:14px;font-weight:700;color:${s.color};text-transform:uppercase;letter-spacing:0.5px;">${esc(s.title)}</h4>
+              </div>
+              <div style="font-size:13px;color:var(--text-primary);line-height:1.7;padding:0 4px;">
+                <p style="margin:8px 0;line-height:1.7;">${fmtText(pn[s.key])}</p>
+              </div>
+            </div>
+          `).join('')}
+          ${pn.tone_notes ? `
+            <div style="margin-top:16px;padding:10px 14px;background:rgba(99,102,241,0.06);border-radius:8px;border-left:3px solid #6366f1;">
+              <div style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Tone & Strategy Notes</div>
+              <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">${esc(pn.tone_notes)}</div>
+            </div>
+          ` : ''}
+          ${pn.win_themes && pn.win_themes.length > 0 ? `
+            <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;">
+              ${pn.win_themes.map(t => `<span style="padding:4px 10px;border-radius:12px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.12);color:#f59e0b;">${esc(t)}</span>`).join('')}
+            </div>
+          ` : ''}
         </div>
       ` : ''}
     </div>`;
