@@ -233,6 +233,37 @@ CREATE TABLE IF NOT EXISTS salespeople (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_salespeople_email ON salespeople(email);
 CREATE INDEX IF NOT EXISTS idx_salespeople_name ON salespeople(last_name, first_name);
 
+-- ═══════════════════════════════════════════════════════════════
+-- Distributor Price Cache — Cached pricing from distributors
+-- Populated manually, from quote imports, or future API integration
+-- (Graybar, Anixter/WESCO, ADI, etc.)
+-- Used by Material Pricer as a pricing source between rate library
+-- (project-specific) and generic PRICING_DB (fallback).
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS distributor_prices (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    item_name TEXT NOT NULL,
+    manufacturer TEXT,
+    part_number TEXT,
+    distributor TEXT NOT NULL,
+    unit_cost REAL NOT NULL,
+    unit TEXT DEFAULT 'ea',
+    list_price REAL,
+    discount_pct REAL DEFAULT 0,
+    category TEXT,
+    quote_number TEXT,
+    quote_date TEXT,
+    expires_at TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_dist_prices_item ON distributor_prices(item_name);
+CREATE INDEX IF NOT EXISTS idx_dist_prices_part ON distributor_prices(part_number);
+CREATE INDEX IF NOT EXISTS idx_dist_prices_distributor ON distributor_prices(distributor);
+
 -- Performance indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_revisions_created ON estimate_revisions(created_at DESC);

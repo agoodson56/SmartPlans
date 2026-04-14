@@ -634,6 +634,81 @@ function getDefaultExclusions(disciplines) {
 // Fills based on: (1) selected disciplines, (2) by_others items
 // from AI pathway analysis, (3) AI-detected annotations (FBO/NIC/OFCI)
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// AUTO-POPULATE RATE LIBRARY — Silently save BOM prices after analysis
+// New items are saved to D1; existing rates are NOT overwritten.
+// This builds a growing knowledge base of real project pricing.
+// ═══════════════════════════════════════════════════════════════
+async function _autoPopulateRateLibrary() {
+  try {
+    if (!state.aiAnalysis) return;
+    const bom = typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis
+      ? SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis)
+      : null;
+    if (!bom?.categories || bom.categories.length === 0) return;
+
+    // Fetch existing rates to avoid duplicates
+    const headers = {};
+    if (typeof _sessionToken !== 'undefined' && _sessionToken) headers['X-Session-Token'] = _sessionToken;
+    if (typeof _appToken !== 'undefined' && _appToken) headers['X-App-Token'] = _appToken;
+    headers['Content-Type'] = 'application/json';
+
+    let existingNames = new Set();
+    try {
+      const resp = await fetch('/api/rate-library', { headers });
+      if (resp.ok) {
+        const data = await resp.json();
+        existingNames = new Set((data.rates || []).map(r => (r.item_name || '').toLowerCase()));
+      }
+    } catch (e) { /* proceed without dedup — may cause harmless duplicate attempts */ }
+
+    let saved = 0;
+    let skipped = 0;
+    const projectLabel = state.projectName || 'Untitled';
+
+    for (const cat of bom.categories) {
+      for (const item of (cat.items || [])) {
+        const itemName = (item.item || item.name || '').trim();
+        const unitCost = item.unit_cost || item.unitCost || 0;
+
+        // Skip empty, unnamed, or zero-cost items
+        if (!itemName || itemName.length < 3 || unitCost <= 0) { skipped++; continue; }
+        // Skip consumables and waste factor items
+        if (/consumable|waste|spare|attic stock|small tools/i.test(itemName)) { skipped++; continue; }
+        // Skip if already in library
+        if (existingNames.has(itemName.toLowerCase())) { skipped++; continue; }
+
+        try {
+          await fetch('/api/rate-library', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              item_name: itemName,
+              category: cat.name || cat.category || null,
+              unit_cost: unitCost,
+              unit: item.unit || 'ea',
+              labor_hours: 0,
+              supplier: (item.mfg || item.manufacturer || '').substring(0, 200) || null,
+              notes: `Auto-saved from: ${projectLabel} (${new Date().toLocaleDateString()})`,
+            }),
+          });
+          existingNames.add(itemName.toLowerCase());
+          saved++;
+        } catch (e) {
+          skipped++;
+        }
+      }
+    }
+
+    if (saved > 0) {
+      console.log(`[RateLibrary] Auto-populated ${saved} new rates from "${projectLabel}" (${skipped} skipped/existing)`);
+    }
+  } catch (err) {
+    // Silent failure — don't interrupt the user's workflow
+    console.warn('[RateLibrary] Auto-populate failed:', err.message);
+  }
+}
+
 function _autoPopulateExclusions(brainResults) {
   if (!state.exclusions) state.exclusions = [];
   if (state.exclusions.length > 0) return; // User already has items — don't override
@@ -11817,6 +11892,11 @@ async function runGeminiAnalysis(updateProgress) {
           console.warn('[CableAnalyzer] Schedule build failed:', caErr.message);
         }
       }
+
+      // ── AUTO-POPULATE RATE LIBRARY — save BOM prices for future bids ──
+      // Silently saves new BOM items to the rate library so future estimates
+      // benefit from known-good prices. Does NOT overwrite existing rates.
+      _autoPopulateRateLibrary();
 
       state.currentStep = 6; // Go to Travel & Costs stage
       render();

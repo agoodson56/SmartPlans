@@ -215,6 +215,29 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON user_sessions(expires_at);
 
+-- v5.119: Distributor price cache (for future Graybar/Anixter/WESCO API integration)
+CREATE TABLE IF NOT EXISTS distributor_prices (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    item_name TEXT NOT NULL,
+    manufacturer TEXT,
+    part_number TEXT,
+    distributor TEXT NOT NULL,
+    unit_cost REAL NOT NULL,
+    unit TEXT DEFAULT 'ea',
+    list_price REAL,
+    discount_pct REAL DEFAULT 0,
+    category TEXT,
+    quote_number TEXT,
+    quote_date TEXT,
+    expires_at TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_dist_prices_item ON distributor_prices(item_name);
+CREATE INDEX IF NOT EXISTS idx_dist_prices_part ON distributor_prices(part_number);
+CREATE INDEX IF NOT EXISTS idx_dist_prices_distributor ON distributor_prices(distributor);
+
 -- Performance indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_revisions_created ON estimate_revisions(created_at DESC);

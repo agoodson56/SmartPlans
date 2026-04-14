@@ -3878,7 +3878,33 @@ ${(() => {
   return result;
 })()}
 
-PRICING DATABASE (use these prices when no rate library match exists):
+═══ DISTRIBUTOR PRICE CACHE — Recent quotes from Graybar/Anixter/WESCO/ADI ═══
+${(() => {
+  const prices = context.distributorPrices || [];
+  if (prices.length === 0) return 'No cached distributor prices available.';
+  let result = 'These are REAL quotes from distributors. Use when available — more current than generic database.\n\n';
+  const byDist = {};
+  for (const p of prices) {
+    const dist = p.distributor || 'Unknown';
+    if (!byDist[dist]) byDist[dist] = [];
+    byDist[dist].push(p);
+  }
+  for (const [dist, items] of Object.entries(byDist)) {
+    result += dist + ':\n';
+    for (const p of items.slice(0, 25)) {
+      result += '  - ' + p.item_name;
+      if (p.manufacturer) result += ' (' + p.manufacturer;
+      if (p.part_number) result += ' ' + p.part_number;
+      if (p.manufacturer) result += ')';
+      result += ': $' + p.unit_cost + '/' + (p.unit || 'ea');
+      if (p.quote_date) result += ' [quoted ' + p.quote_date + ']';
+      result += '\n';
+    }
+  }
+  return result;
+})()}
+
+PRICING DATABASE (use these prices when no rate library or distributor cache match exists):
 ${context.pricingContext || 'Use industry standard pricing'}
 
 ═══ PRICING GUARDRAILS (HARD LIMITS — violations will be rejected) ═══
@@ -6634,6 +6660,26 @@ Return ONLY valid JSON:
       this._brainStatus[key].status = 'running';
       progressCallback(baseProgress, `${brain.emoji} ${brain.name} per-page scanning (${deduped.length} pages × ${scansPerPage} passes)…`, this._brainStatus);
 
+      // ── MULTI-PAGE PAIRING: Find T-0.0 / general notes reference page ──
+      // The first telecom page (T-0.0, T-0.1, T0.0) contains the Responsibility Matrix,
+      // general notes, abbreviations, and scope definitions. Include it alongside EVERY
+      // per-page scan so the brain can cross-reference scope and notes.
+      let referencePageParts = [];
+      const refPagePatterns = [/T[-.]?0[.-]0/i, /T[-.]?0[.-]1/i, /T[-.]?0\.0/i, /T0\.0/i, /T[-.]?001/i];
+      for (const chunk of deduped) {
+        const name = chunk.name || '';
+        const sheetId = chunk._sheetId || '';
+        if (refPagePatterns.some(p => p.test(name) || p.test(sheetId))) {
+          referencePageParts = [
+            { text: `\n--- REFERENCE PAGE: ${name} (General Notes / Responsibility Matrix — included for cross-reference) ---` },
+            { fileData: { mimeType: chunk.mimeType, fileUri: chunk.fileUri } },
+          ];
+          if (chunk._usedKeyName) referencePageParts[1]._usedKeyName = chunk._usedKeyName;
+          console.log(`[Brain:${brain.name}] 📋 Multi-page pairing: T-0.0 reference page found (${name}) — will include with every page scan`);
+          break;
+        }
+      }
+
       // Build decoded legend context to include in every per-page call
       // Includes both dedicated legend sheet symbols AND plan-embedded legend symbols
       const legendSymbols = context.wave0?.LEGEND_DECODER?.symbols;
@@ -6727,10 +6773,11 @@ ${legendContext}
 
           const batchPromises = batch.map(async (file) => {
             try {
-              // Build file parts for just this one page
+              // Build file parts for just this one page + reference page (T-0.0)
               const fileParts = [
                 { text: `\n--- PAGE: ${file.name} (Pass ${pass + 1}) ---` },
                 { fileData: { mimeType: file.mimeType, fileUri: file.fileUri } },
+                ...referencePageParts, // T-0.0 general notes page (if found) — enables cross-referencing
                 ...contextTextParts,
               ];
 
@@ -7564,21 +7611,21 @@ ${legendContext}
       progressCallback(55, `⚡ Auto-detected disciplines: ${disciplinesAdded.join(', ')}`, this._brainStatus);
     }
 
-    // ═══ PRE-WAVE 2: Load Rate Library (known-good prices from past projects) ═══
-    try {
-      const rlResp = await fetch('/api/rate-library', {
-        headers: this._authHeaders(),
-      });
-      if (rlResp.ok) {
-        const rlData = await rlResp.json();
-        const rates = rlData.rates || [];
-        if (rates.length > 0) {
-          context.rateLibrary = rates;
-          console.log(`[SmartBrains] 📚 Rate Library: loaded ${rates.length} known-good prices from past projects`);
-        }
-      }
-    } catch (rlErr) {
-      console.warn('[SmartBrains] Rate Library unavailable:', rlErr.message);
+    // ═══ PRE-WAVE 2: Load Rate Library + Distributor Price Cache ═══
+    // Both loaded in parallel for speed
+    const [rlResult, dpResult] = await Promise.allSettled([
+      fetch('/api/rate-library', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
+      fetch('/api/distributor-prices', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
+    ]);
+
+    if (rlResult.status === 'fulfilled' && rlResult.value?.rates?.length > 0) {
+      context.rateLibrary = rlResult.value.rates;
+      console.log(`[SmartBrains] 📚 Rate Library: loaded ${context.rateLibrary.length} known-good prices from past projects`);
+    }
+
+    if (dpResult.status === 'fulfilled' && dpResult.value?.prices?.length > 0) {
+      context.distributorPrices = dpResult.value.prices;
+      console.log(`[SmartBrains] 🏪 Distributor Cache: loaded ${context.distributorPrices.length} cached distributor prices`);
     }
 
     // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
