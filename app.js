@@ -1405,6 +1405,7 @@ const SmartDefaults = {
 
 // ─── Start New Bid — full state reset ───
 function startNewBid() {
+  _invalidateBomCache(); // Clear cached BOM for fresh bid
   if (state.analyzing) {
     spToast('Cannot start a new bid while analysis is running.', 'error');
     return;
@@ -3347,8 +3348,21 @@ function getFormatInfo(label) {
 // Convenience wrapper: extracts BOM from AI analysis, then removes
 // categories for unselected disciplines. All UI code should use this
 // instead of calling SmartPlansExport._extractBOMFromAnalysis directly.
+// Cache for corrected BOM — prevents re-running corrections on every render.
+// Invalidated when aiAnalysis changes (new run) or disciplines change.
+let _bomCache = null;
+let _bomCacheKey = null;
+
 function getFilteredBOM(aiAnalysis, disciplines) {
   if (typeof SmartPlansExport === 'undefined') return { categories: [], grandTotal: 0 };
+
+  // ── BOM CACHE: Return cached corrected BOM if inputs haven't changed ──
+  // This is CRITICAL — without caching, corrections run on every render and
+  // can compound ($100K+ drift on saved bid reload).
+  const cacheKey = (aiAnalysis || '').length + '|' + (disciplines || []).join(',');
+  if (_bomCache && _bomCacheKey === cacheKey) {
+    return _bomCache;
+  }
 
   // FIX: If this estimate was loaded from a truncated save, use the pre-structured
   // financials data instead of re-parsing the chopped markdown. This restores the
@@ -3439,9 +3453,17 @@ function getFilteredBOM(aiAnalysis, disciplines) {
     bom.grandTotal = Math.round(bom.grandTotal * 100) / 100;
   }
 
+  // Cache the fully corrected BOM so subsequent renders return identical data
+  _bomCache = bom;
+  _bomCacheKey = cacheKey;
   return bom;
 }
 
+// Invalidate BOM cache when user makes edits (add/delete items, override qty)
+function _invalidateBomCache() {
+  _bomCache = null;
+  _bomCacheKey = null;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // RENDERING
@@ -9155,6 +9177,7 @@ function renderStep7(container) {
         // Mark AI item as deleted
         if (!state.deletedBomItems) state.deletedBomItems = {};
         state.deletedBomItems[key] = true;
+        _invalidateBomCache(); // Force re-computation with deletion applied
         // Clean up any override for this item
         delete state.supplierPriceOverrides[key];
       }
@@ -9212,6 +9235,7 @@ function renderStep7(container) {
         const unitCost = parseFloat(formRow.querySelector('.bom-add-cost').value) || 0;
         const mfg = formRow.querySelector('.bom-add-mfg').value.trim();
         if (!state.manualBomItems) state.manualBomItems = [];
+        _invalidateBomCache(); // Force re-computation with new item
         state.manualBomItems.push({
           id: 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
           catIndex: ci,
@@ -12373,6 +12397,7 @@ async function loadEstimate(id) {
 
 // Shared state restoration logic for both cloud and local loads
 function _restoreStateFromPayload(id, pkg, est) {
+  _invalidateBomCache(); // Clear cached BOM when loading saved estimate
   state.estimateId = id;
   state.projectName = pkg?.project?.name || est?.project_name || '';
   state.projectType = pkg?.project?.type || est?.project_type || '';
