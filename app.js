@@ -8899,6 +8899,8 @@ function renderStep7(container) {
 
     ${buildProjectFitnessCard(state)}
 
+    ${buildMathAuditorCard(state)}
+
     ${build3DEngineCard(state)}
 
     ${buildScaleCalibrationCard(state)}
@@ -11921,6 +11923,8 @@ async function runGeminiAnalysis(updateProgress) {
     state._sessionInsights = result.sessionInsights || [];
     state._clarificationQuestions = result.clarificationQuestions || [];
     state._proposalNarrative = result.proposalNarrative || null;
+    state._mathAuditLog = result.stats?.mathAuditLog || [];
+    state._mathAuditFixes = result.stats?.mathAuditFixes || 0;
 
     // ─── Local Math Validation (belt and suspenders) ───
     updateProgress(99, "Running local math validation…", result.brainStatus);
@@ -15727,6 +15731,34 @@ function buildAddendaDeltaCard(st) {
           </div>
         </div>
       ` : ''}
+    </div>`;
+}
+
+// ═══ MATH AUDITOR CARD — Shows deterministic corrections applied to AI output ═══
+function buildMathAuditorCard(st) {
+  const log = st._mathAuditLog || [];
+  const fixes = st._mathAuditFixes || 0;
+  if (fixes === 0) return '';
+
+  return `
+    <div class="info-card" style="border-left:3px solid #0ea5e9;background:linear-gradient(135deg,rgba(14,165,233,0.04),rgba(99,102,241,0.02));">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h3 class="info-card-title" style="margin:0;">
+          🧮 MATH AUDITOR — ${fixes} Auto-Correction${fixes !== 1 ? 's' : ''} Applied
+        </h3>
+        <span style="font-size:11px;padding:3px 10px;border-radius:8px;background:rgba(14,165,233,0.12);color:#0ea5e9;font-weight:700;">DETERMINISTIC</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;font-style:italic;">
+        These corrections were applied automatically using industry formulas — no AI involved. Every fix is mathematically verified.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${log.map(entry => `
+          <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 12px;background:rgba(14,165,233,0.04);border-radius:8px;border-left:2px solid #0ea5e9;">
+            <span style="color:#0ea5e9;font-size:14px;flex-shrink:0;">✓</span>
+            <span style="font-size:12px;color:var(--text-primary);line-height:1.5;">${esc(entry)}</span>
+          </div>
+        `).join('')}
+      </div>
     </div>`;
 }
 
