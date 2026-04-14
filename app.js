@@ -941,6 +941,13 @@ const state = {
   preparedFor: "",
   projectType: "",
   disciplines: [],
+  // v5.126.0: Sticky flag — set to true the first time the user clicks a
+  // discipline chip in this session. Once set, _doProjectTypeCascade()
+  // is FORBIDDEN from touching state.disciplines ever again, even if the
+  // length drops to 0. This defeats any lingering auto-suggest path that
+  // tried to "helpfully" re-populate disciplines after the estimator
+  // explicitly chose a subset.
+  _disciplinesUserTouched: false,
   fileFormat: "",
   specificItems: "",
   knownQuantities: "",
@@ -1092,6 +1099,55 @@ const state = {
   _exclusionsLoaded: false, // true after first API load
   _exclusionsTab: 'exclusion', // active tab: 'exclusion', 'assumption', 'clarification'
 };
+
+// ═══════════════════════════════════════════════════════════════
+// v5.126.0 — Defensive disciplines mutation logger
+// Wraps state.disciplines with a getter/setter that logs every write
+// with a stack trace. If the "disciplines re-enable themselves" bug
+// ever recurs, the console will show EXACTLY which code path wrote
+// back the unwanted disciplines. Once the bug is caught and fixed,
+// the logger can be safely removed — it's pure observability.
+//
+// The setter also REJECTS writes from _doProjectTypeCascade() if the
+// user has already touched disciplines in this session. Belt AND
+// suspenders — even if the auto-suggest guard is bypassed, the
+// setter refuses the write.
+// ═══════════════════════════════════════════════════════════════
+(function installDisciplinesGuard() {
+  let _disciplinesStore = Array.isArray(state.disciplines) ? state.disciplines : [];
+  Object.defineProperty(state, 'disciplines', {
+    configurable: true,
+    enumerable: true,
+    get() { return _disciplinesStore; },
+    set(value) {
+      if (!Array.isArray(value)) {
+        console.warn('[DisciplinesGuard] Rejected non-array write:', value);
+        return;
+      }
+      // Dedupe + filter falsy
+      const cleaned = [...new Set(value.filter(Boolean))];
+
+      // Detect writes from the auto-suggest cascade AFTER user touched
+      const stack = (new Error()).stack || '';
+      const fromCascade = /(_doProjectTypeCascade|onProjectTypeChanged|SmartDefaults)/.test(stack);
+      if (state._disciplinesUserTouched && fromCascade && cleaned.length !== _disciplinesStore.length) {
+        console.warn('[DisciplinesGuard] 🛑 BLOCKED cascade write — user already touched disciplines', {
+          blocked: cleaned,
+          preserved: _disciplinesStore,
+          stack: stack.split('\n').slice(1, 4).join(' ← '),
+        });
+        return; // Refuse the write
+      }
+
+      // Log every write with a compact stack trace for debugging
+      if (_disciplinesStore.length !== cleaned.length ||
+          _disciplinesStore.some((d, i) => d !== cleaned[i])) {
+        console.log(`[DisciplinesGuard] ${_disciplinesStore.length} → ${cleaned.length} [${cleaned.join(', ')}]`);
+      }
+      _disciplinesStore = cleaned;
+    },
+  });
+})();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SALESPERSON MANAGEMENT — D1 backend persistence (follows the program, not the PC)
@@ -1479,11 +1535,25 @@ const SmartDefaults = {
       this.onPrevailingWageChanged();
     }
 
-    // Auto-suggest disciplines (only if none selected yet)
-    if (matched.suggestDisciplines && state.disciplines.length === 0 && this._canAutoSet('disciplines')) {
+    // Auto-suggest disciplines — but NEVER after the user has touched them.
+    // v5.126.0: Three-layer guard instead of the old two-layer.
+    //   (1) length must be 0 (user has cleared everything)
+    //   (2) _canAutoSet must return true (legacy manual-override check)
+    //   (3) state._disciplinesUserTouched must be false (sticky session flag)
+    // The sticky flag defeats any edge case where the user clears everything
+    // and _canAutoSet is somehow reset. Once the user has clicked ANY chip in
+    // this session, this block is forever dead until the page is reloaded.
+    if (
+      matched.suggestDisciplines &&
+      state.disciplines.length === 0 &&
+      this._canAutoSet('disciplines') &&
+      !state._disciplinesUserTouched
+    ) {
       state.disciplines = [...matched.suggestDisciplines];
       console.log(`[SmartDefaults] Auto-suggested disciplines: ${state.disciplines.join(', ')}`);
       changed = true;
+    } else if (state._disciplinesUserTouched && matched.suggestDisciplines) {
+      console.log('[SmartDefaults] Skipping discipline auto-suggest — user has touched disciplines in this session');
     }
 
     // Auto-fill "Specific items to count" from disciplines (only if empty and not manually edited)
@@ -1659,6 +1729,7 @@ function startNewBid() {
   state.preparedFor = '';
   state.projectType = '';
   state.disciplines = [];
+  state._disciplinesUserTouched = false; // Fresh bid — allow auto-suggest again
   state.fileFormat = '';
   state.specificItems = '';
   state.knownQuantities = '';
@@ -4693,15 +4764,23 @@ function renderStep0(container) {
     const btn = e.target.closest(".chip");
     if (!btn) return;
     const d = btn.dataset.disc;
-    const idx = state.disciplines.indexOf(d);
-    if (idx >= 0) state.disciplines.splice(idx, 1);
-    else state.disciplines.push(d);
-    SmartDefaults.markManual('disciplines'); // User manually chose — don't auto-suggest
+    // v5.126.0: Defensive — rebuild disciplines as a NEW array reference rather
+    // than mutating in place. This defeats any code path that might be holding
+    // an old reference and writing to it after the click.
+    const wasSelected = state.disciplines.includes(d);
+    const next = wasSelected
+      ? state.disciplines.filter(x => x !== d)
+      : [...state.disciplines, d];
+    state.disciplines = next;
+    // v5.126.0: Sticky touched flag — once set, the cascade is FORBIDDEN from
+    // touching disciplines for the rest of the session.
+    state._disciplinesUserTouched = true;
+    SmartDefaults.markManual('disciplines'); // Legacy flag — kept for back-compat
+    console.log(`[Disciplines] User ${wasSelected ? 'DESELECTED' : 'SELECTED'} "${d}" — now [${next.join(', ')}]`);
+
     // Auto-update "Specific items to count" to match current disciplines
-    // Only auto-fill if user hasn't manually typed custom text (check if current text matches auto-generated)
     const autoText = SmartDefaults._buildSpecificItemsText(state.disciplines);
     const currentText = state.specificItems.trim();
-    // Update if: empty, or currently matches a previous auto-generated version (starts with "• ")
     if (!currentText || currentText.startsWith('• ')) {
       state.specificItems = autoText;
     }
@@ -13154,6 +13233,13 @@ function _restoreStateFromPayload(id, pkg, est) {
   state.projectLocation = pkg?.project?.location || est?.project_location || '';
   state.preparedFor = pkg?.project?.preparedFor || est?.prepared_for || '';
   state.disciplines = pkg?.project?.disciplines || (est?.disciplines ? _safeParseDisciplines(est.disciplines) : []);
+  // v5.126.0: Loaded estimates represent deliberate discipline choices from a
+  // prior session. Mark as touched so the auto-suggest cascade can never
+  // re-populate them, even if the length ever drops to zero mid-edit.
+  if (Array.isArray(state.disciplines) && state.disciplines.length > 0) {
+    state._disciplinesUserTouched = true;
+    if (typeof SmartDefaults !== 'undefined') SmartDefaults.markManual('disciplines');
+  }
   state.pricingTier = pkg?.pricingConfig?.tier || est?.pricing_tier || 'mid';
   state.codeJurisdiction = pkg?.project?.codeJurisdiction || pkg?.project?.jurisdiction || '';
   state.prevailingWage = pkg?.project?.prevailingWage || '';
