@@ -84,6 +84,20 @@ export async function onRequestPost(context) {
     }
 
     try {
+        // Ensure table exists (same as GET — in case POST is called before GET)
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS salespeople (
+            id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+            first_name TEXT NOT NULL,
+            last_name TEXT NOT NULL,
+            title TEXT DEFAULT 'Sales Consultant',
+            phone TEXT,
+            email TEXT NOT NULL,
+            office TEXT,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )`).run();
+
         const body = await request.json();
         const firstName = String(body.firstName || '').trim().substring(0, 100);
         const lastName = String(body.lastName || '').trim().substring(0, 100);

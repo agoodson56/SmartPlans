@@ -1137,30 +1137,48 @@ function _loadSalespeople() {
 
 /** Save a salesperson to D1 backend (async). Updates cache on success. */
 async function _saveSalespersonToServer(sp) {
-  try {
-    const res = await fetch('/api/salespeople', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
-      body: JSON.stringify(sp),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    // Refresh cache from server to get the assigned ID
-    await _loadSalespeopleFromServer();
-    // Update the sp object with the server-assigned ID
-    if (data.id) sp.id = data.id;
-    console.log(`[Salesperson] ${data.updated ? 'Updated' : 'Created'} on server: ${sp.firstName} ${sp.lastName}`);
-    return true;
-  } catch (err) {
-    console.error('[Salesperson] Server save failed:', err.message);
-    // Fallback: save to localStorage so data isn't lost
-    const list = _loadSalespeople();
-    const existIdx = list.findIndex(s => s.email.toLowerCase() === sp.email.toLowerCase());
-    if (existIdx >= 0) { list[existIdx] = { ...list[existIdx], ...sp }; } else { list.push(sp); }
-    _salespeopleCache = list;
-    localStorage.setItem('sp_salespeople', JSON.stringify(list));
-    return false;
+  // Try up to 2 times (initial + 1 retry)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch('/api/salespeople', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
+        body: JSON.stringify(sp),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error(`[Salesperson] Server save HTTP ${res.status}:`, errData.error || 'unknown');
+        if (res.status === 401 && attempt === 0) {
+          // Session may have expired — try refreshing it
+          console.warn('[Salesperson] Auth failed, retrying after session check…');
+          continue;
+        }
+        throw new Error(`HTTP ${res.status}: ${errData.error || 'Server error'}`);
+      }
+      const data = await res.json();
+      // Refresh cache from server to get the assigned ID
+      await _loadSalespeopleFromServer();
+      // Update the sp object with the server-assigned ID
+      if (data.id) sp.id = data.id;
+      console.log(`[Salesperson] ${data.updated ? 'Updated' : 'Created'} on server: ${sp.firstName} ${sp.lastName}`);
+      spToast(`Saved: ${sp.firstName} ${sp.lastName}`, 'success');
+      return true;
+    } catch (err) {
+      if (attempt < 1) continue; // retry
+      console.error('[Salesperson] Server save failed after retries:', err.message);
+      // Fallback: save to localStorage so data isn't lost — but WARN the user
+      const list = _loadSalespeople();
+      const existIdx = list.findIndex(s => s.email.toLowerCase() === sp.email.toLowerCase());
+      if (existIdx >= 0) { list[existIdx] = { ...list[existIdx], ...sp }; } else { list.push(sp); }
+      _salespeopleCache = list;
+      localStorage.setItem('sp_salespeople', JSON.stringify(list));
+      // Mark as needing sync so we retry on next page load
+      localStorage.setItem('sp_salespeople_needs_sync', '1');
+      spToast(`⚠️ Saved locally only — server sync failed. Will retry on next login.`, 'warning', 6000);
+      return false;
+    }
   }
+  return false;
 }
 
 /** Delete a salesperson from D1 backend (admin only). */
@@ -16467,20 +16485,28 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (hasSession) {
     // User is logged in — load salespeople from server before rendering
     await _loadSalespeopleFromServer();
-    // Migrate any localStorage-only salespeople to the server (one-time)
+    // Sync any localStorage-only salespeople to the server
+    // This runs on EVERY login (not just one-time) to catch any failed saves
     try {
-      const localOnly = JSON.parse(localStorage.getItem('sp_salespeople_migrated') ? '[]' : localStorage.getItem('sp_salespeople') || '[]');
-      if (localOnly.length > 0 && !localStorage.getItem('sp_salespeople_migrated')) {
-        for (const sp of localOnly) {
+      const localList = JSON.parse(localStorage.getItem('sp_salespeople') || '[]');
+      const needsSync = localStorage.getItem('sp_salespeople_needs_sync') === '1';
+      if (localList.length > 0 && (needsSync || !localStorage.getItem('sp_salespeople_migrated'))) {
+        let synced = 0;
+        for (const sp of localList) {
           const alreadyOnServer = _salespeopleCache.some(s => s.email.toLowerCase() === (sp.email || '').toLowerCase());
           if (!alreadyOnServer && sp.firstName && sp.lastName && sp.email) {
-            await _saveSalespersonToServer(sp);
+            const ok = await _saveSalespersonToServer(sp);
+            if (ok) synced++;
           }
         }
         localStorage.setItem('sp_salespeople_migrated', '1');
-        console.log('[Salesperson] Migrated localStorage salespeople to server');
+        localStorage.removeItem('sp_salespeople_needs_sync');
+        if (synced > 0) {
+          console.log(`[Salesperson] Synced ${synced} salespeople to server`);
+          await _loadSalespeopleFromServer(); // Refresh cache after sync
+        }
       }
-    } catch (e) { console.warn('[Salesperson] Migration skipped:', e.message); }
+    } catch (e) { console.warn('[Salesperson] Sync skipped:', e.message); }
     // Start the app
     Auth._updateHeader();
     render();

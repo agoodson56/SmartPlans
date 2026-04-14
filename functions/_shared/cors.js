@@ -78,7 +78,14 @@ export function isAllowedOrigin(origin, allowMissing = false) {
         // SEC: Root domain removed — explicit subdomains only to prevent subdomain takeover attacks
     ];
 
-    return allowedHostnames.includes(hostname);
+    if (allowedHostnames.includes(hostname)) return true;
+
+    // Allow Cloudflare Pages preview deployments (e.g., 048a605e.smartplans-4g5.pages.dev)
+    // These are generated per-deployment and used by the CI/CD pipeline
+    if (hostname.endsWith('.smartplans-4g5.pages.dev')) return true;
+    if (hostname.endsWith('.smartpm.pages.dev')) return true;
+
+    return false;
 }
 
 /**
