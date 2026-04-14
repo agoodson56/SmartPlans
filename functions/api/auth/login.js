@@ -8,6 +8,15 @@ import { isAllowedOrigin, timingSafeCompare } from '../../_shared/cors.js';
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_SEC = 300;
 
+// ─── Always-Admin List ──────────────────────────────────────────
+// Emails in this list are auto-promoted to admin + activated on
+// every successful login, regardless of their current DB flag.
+// This is the permanent recovery path for the SmartPlans owner.
+// Entries are lowercased and compared case-insensitively.
+const ALWAYS_ADMIN_EMAILS = new Set([
+    'agoodson@3dtsi.com',
+]);
+
 async function hashPasswordPBKDF2(password, saltHex, iterations = 100000) {
     const enc = new TextEncoder();
     const salt = new Uint8Array(saltHex.match(/.{2}/g).map(b => parseInt(b, 16)));
@@ -90,6 +99,25 @@ export async function onRequestPost(context) {
 
         // Clear rate limit on success
         try { await env.DB.prepare("DELETE FROM rate_limits WHERE key = ?").bind(`login_fail:${ip}`).run(); } catch {}
+
+        // ─── Always-Admin auto-promotion (v5.125.1) ─────────────
+        // If this email is in the ALWAYS_ADMIN_EMAILS list, force
+        // is_admin=1 and is_active=1 in the DB, then reflect that
+        // in the in-memory user row so the response returns admin.
+        if (ALWAYS_ADMIN_EMAILS.has(email)) {
+            if (!user.is_admin || !user.is_active) {
+                try {
+                    await env.DB.prepare(
+                        "UPDATE user_accounts SET is_admin = 1, is_active = 1 WHERE id = ?"
+                    ).bind(user.id).run();
+                    console.log(`[Auth] Auto-promoted ${email} to admin via ALWAYS_ADMIN_EMAILS`);
+                } catch (e) {
+                    console.warn('[Auth] Auto-promote DB update failed:', e.message);
+                }
+            }
+            user.is_admin = 1;
+            user.is_active = 1;
+        }
 
         // Update last_login
         await env.DB.prepare("UPDATE user_accounts SET last_login = datetime('now') WHERE id = ?").bind(user.id).run();
