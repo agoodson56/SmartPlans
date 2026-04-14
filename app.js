@@ -9311,6 +9311,12 @@ function renderStep7(container) {
     });
   });
 
+  // ── Checklist PDF print buttons ──
+  const printAllBtn = document.getElementById('checklist-print-all');
+  if (printAllBtn) printAllBtn.addEventListener('click', () => _printChecklist('all'));
+  const printOpenBtn = document.getElementById('checklist-print-unchecked');
+  if (printOpenBtn) printOpenBtn.addEventListener('click', () => _printChecklist('unchecked'));
+
   // ── Restore checklist state from localStorage (once per session) ──
   if (!state._checklistChecked && !state._checklistRestored) {
     state._checklistRestored = true;
@@ -16061,8 +16067,18 @@ function buildEstimatorChecklistCard(st) {
           <span style="font-size:12px;font-weight:700;color:${pctDone === 100 ? '#22c55e' : 'var(--text-secondary)'};">${checkedCount}/${totalCount}</span>
         </div>
       </div>
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;padding:8px 12px;background:rgba(99,102,241,0.04);border-radius:8px;border-left:2px solid #6366f1;">
-        💡 <strong>These are the items SmartPlans couldn't verify with 100% confidence.</strong> Check each one off as you verify it. Your expertise on these items is what takes this bid from 90% → 100%.
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="flex:1;font-size:12px;color:var(--text-secondary);padding:8px 12px;background:rgba(99,102,241,0.04);border-radius:8px;border-left:2px solid #6366f1;">
+          💡 <strong>These are the items SmartPlans couldn't verify with 100% confidence.</strong> Check each one off as you verify it. Your expertise on these items is what takes this bid from 90% → 100%.
+        </div>
+        <div style="display:flex;gap:6px;margin-left:12px;flex-shrink:0;">
+          <button id="checklist-print-all" style="display:flex;align-items:center;gap:4px;padding:6px 12px;border:1px solid rgba(99,102,241,0.3);border-radius:6px;background:rgba(99,102,241,0.06);color:#6366f1;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;" title="Print all checklist items to PDF">
+            <i data-lucide="printer" style="width:13px;height:13px;"></i> Print All
+          </button>
+          <button id="checklist-print-unchecked" style="display:flex;align-items:center;gap:4px;padding:6px 12px;border:1px solid rgba(239,68,68,0.3);border-radius:6px;background:rgba(239,68,68,0.06);color:#ef4444;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;" title="Print only unchecked items to PDF">
+            <i data-lucide="printer" style="width:13px;height:13px;"></i> Print Open
+          </button>
+        </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;" id="estimator-checklist-items">
         ${actions.map((a, idx) => `
@@ -16089,6 +16105,144 @@ function buildEstimatorChecklistCard(st) {
         </div>
       ` : ''}
     </div>`;
+}
+
+// ═══ CHECKLIST PDF GENERATOR — Print all or unchecked-only to PDF ═══
+function _printChecklist(mode) {
+  const checked = state._checklistChecked || {};
+
+  // Re-aggregate actions (same logic as buildEstimatorChecklistCard)
+  const actions = [];
+
+  // Spec gaps
+  for (const g of ((state._specCompliance?.gaps || []).filter(g => g.status === 'missing'))) {
+    actions.push({ id: `spec-${g.spec_section}-${(g.requirement || '').substring(0, 20)}`, priority: g.severity === 'critical' ? 1 : 2, icon: g.severity === 'critical' ? '🔴' : '🟡', category: 'Spec Gap', text: g.requirement || '', detail: `Section ${g.spec_section || '?'}${(g.estimated_cost_if_missing || 0) > 0 ? ' — ~$' + (g.estimated_cost_if_missing).toLocaleString() : ''}`, why: g.severity === 'critical' ? 'Required by spec — missing this loses the bid or creates a change order' : 'Spec requirement not in BOM' });
+  }
+  // Anomalies
+  for (const a of (state._quantityAnomalies || [])) {
+    actions.push({ id: `anom-${a.type}-${(a.item || '').substring(0, 20)}`, priority: a.severity === 'warning' ? 2 : 3, icon: a.severity === 'warning' ? '⚠️' : 'ℹ️', category: 'Qty Anomaly', text: `Verify: ${a.item}`, detail: a.detail, why: a.suggestion });
+  }
+  // Low confidence items
+  if (state._confidenceScoring && state.parsedBOM) {
+    const allItems = (state.parsedBOM.categories || []).flatMap(c => (c.items || []));
+    for (const item of allItems.filter(i => i._confidence && (i._confidence.grade === 'C' || i._confidence.grade === 'D')).slice(0, 10)) {
+      actions.push({ id: `conf-${(item.item || item.device_type || '').substring(0, 20)}`, priority: item._confidence.grade === 'D' ? 1 : 3, icon: item._confidence.grade === 'D' ? '🔴' : '🟡', category: item._confidence.grade === 'D' ? 'Low Confidence' : 'Review', text: `${item.item || item.device_type || 'Unknown'} — Grade ${item._confidence.grade}`, detail: `Qty: ${item.qty || 0} | $${(item.extCost || item.ext_cost || 0).toLocaleString()}`, why: 'Multiple verification flags' });
+    }
+  }
+  // Devil's Advocate
+  const devil = state.brainResults?.wave3?.DEVILS_ADVOCATE;
+  if (devil && !devil._failed) {
+    for (const c of (devil.challenges || []).filter(c => c.severity === 'critical' || c.severity === 'warning').slice(0, 5)) {
+      actions.push({ id: `devil-${(c.category || '').substring(0, 15)}`, priority: c.severity === 'critical' ? 1 : 2, icon: '😈', category: 'Risk Flag', text: `${c.category || 'Risk'}: ${c.description || ''}`, detail: c.estimated_impact ? `Impact: ${c.estimated_impact}` : '', why: 'Devil\'s Advocate challenge' });
+    }
+  }
+  // Cross Validator
+  const validator = state.brainResults?.wave3?.CROSS_VALIDATOR;
+  if (validator && !validator._failed) {
+    for (const issue of (validator.issues || []).filter(i => i.severity === 'critical' || i.severity === 'warning').slice(0, 5)) {
+      actions.push({ id: `xval-${(issue.category || '').substring(0, 15)}`, priority: issue.severity === 'critical' ? 1 : 2, icon: '⚠️', category: 'Verification', text: `${issue.category || 'Issue'}: ${issue.description || ''}`, detail: issue.correction ? `Fix: ${issue.correction}` : '', why: 'Cross-validator discrepancy' });
+    }
+  }
+  // Cost/SF
+  const cpf = state._costPerSF;
+  if (cpf && (cpf.rating === 'suspiciously_low' || cpf.rating === 'suspiciously_high' || cpf.rating === 'below_range' || cpf.rating === 'above_range')) {
+    actions.push({ id: 'cost-sf-range', priority: cpf.rating.includes('suspiciously') ? 1 : 2, icon: '📊', category: '$/SF Check', text: `$${cpf.cost_per_sf.toFixed(2)}/SF — ${cpf.rating.replace(/_/g, ' ')}`, detail: `Range: $${cpf.benchmark_low}-$${cpf.benchmark_high}/SF`, why: cpf.analysis });
+  }
+  // Clarifications
+  for (const q of (state._clarificationQuestions || []).filter(q => !state._clarificationAnswers?.[q.id] && (q.severity === 'high' || q.severity === 'critical')).slice(0, 5)) {
+    actions.push({ id: `clarify-${q.id}`, priority: 2, icon: '❓', category: 'Ambiguity', text: q.question || 'Unresolved ambiguity', detail: '', why: 'Unresolved ambiguity needs human judgment' });
+  }
+  // Testing/training
+  if (state._specCompliance) {
+    for (const t of (state._specCompliance.testing_requirements || []).filter(t => !t.in_bom).slice(0, 3)) {
+      actions.push({ id: `test-${(t.requirement || '').substring(0, 20)}`, priority: 2, icon: '🧪', category: 'Testing', text: `Testing: ${t.requirement || ''}`, detail: `${t.labor_hours_estimate || '?'} labor hours`, why: 'Spec-required testing not in BOM' });
+    }
+    for (const t of (state._specCompliance.training_requirements || []).filter(t => !t.in_bom).slice(0, 2)) {
+      actions.push({ id: `train-${(t.description || '').substring(0, 20)}`, priority: 3, icon: '📚', category: 'Training', text: `Training: ${t.description || ''}`, detail: `${t.labor_hours || '?'} hours`, why: 'Spec-required training not in BOM' });
+    }
+  }
+
+  actions.sort((a, b) => a.priority - b.priority);
+
+  // Filter based on mode
+  const items = mode === 'unchecked' ? actions.filter(a => !checked[a.id]) : actions;
+  const title = mode === 'unchecked' ? 'OPEN ITEMS — Estimator Review Checklist' : 'COMPLETE — Estimator Review Checklist';
+
+  if (items.length === 0) {
+    spToast('No items to print — all items have been checked off!', 'success');
+    return;
+  }
+
+  const e = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const priorityLabel = p => p === 1 ? 'CRITICAL' : p === 2 ? 'WARNING' : 'INFO';
+  const priorityColor = p => p === 1 ? '#dc2626' : p === 2 ? '#d97706' : '#6366f1';
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${e(title)}</title>
+<style>
+  @page { margin: 0.75in; size: letter; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e1e2e; font-size: 11pt; line-height: 1.5; }
+  .header { border-bottom: 3px solid #1e1e2e; padding-bottom: 12px; margin-bottom: 20px; }
+  .header h1 { font-size: 18pt; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+  .header .meta { font-size: 9pt; color: #666; margin-top: 4px; }
+  .summary { display: flex; gap: 20px; margin-bottom: 20px; padding: 12px; background: #f8f9fa; border-radius: 6px; }
+  .summary-item { text-align: center; }
+  .summary-item .num { font-size: 22pt; font-weight: 800; }
+  .summary-item .label { font-size: 8pt; text-transform: uppercase; letter-spacing: 1px; color: #666; }
+  .item { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid #eee; page-break-inside: avoid; }
+  .checkbox { width: 16px; height: 16px; border: 2px solid ${mode === 'unchecked' ? '#ccc' : '#22c55e'}; border-radius: 3px; flex-shrink: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center; }
+  .checkbox.done { background: #22c55e; border-color: #22c55e; }
+  .checkbox.done::after { content: '✓'; color: white; font-size: 10pt; font-weight: 900; }
+  .item-body { flex: 1; }
+  .item-header { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .badge { font-size: 7pt; padding: 2px 6px; border-radius: 3px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: white; }
+  .item-text { font-size: 10.5pt; font-weight: 600; }
+  .item-detail { font-size: 9pt; color: #666; margin-top: 1px; }
+  .item-why { font-size: 8.5pt; color: #888; font-style: italic; margin-top: 2px; }
+  .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 8pt; color: #999; display: flex; justify-content: space-between; }
+  .notes-area { margin-top: 24px; page-break-inside: avoid; }
+  .notes-area h3 { font-size: 10pt; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; color: #666; }
+  .notes-lines { border: 1px solid #ddd; border-radius: 4px; padding: 8px; min-height: 100px; }
+  .notes-line { border-bottom: 1px solid #eee; height: 24px; }
+</style>
+<script>window.onload=function(){window.print();}</script>
+</head><body>
+  <div class="header">
+    <h1>${e(title)}</h1>
+    <div class="meta">${e(state.projectName || 'Untitled Project')} | ${e((state.disciplines || []).join(', '))} | Generated ${new Date().toLocaleDateString()} by SmartPlans v5.124.2</div>
+  </div>
+  <div class="summary">
+    <div class="summary-item"><div class="num" style="color:#dc2626;">${items.filter(i => i.priority === 1).length}</div><div class="label">Critical</div></div>
+    <div class="summary-item"><div class="num" style="color:#d97706;">${items.filter(i => i.priority === 2).length}</div><div class="label">Warning</div></div>
+    <div class="summary-item"><div class="num" style="color:#6366f1;">${items.filter(i => i.priority === 3).length}</div><div class="label">Info</div></div>
+    <div class="summary-item"><div class="num">${items.length}</div><div class="label">Total</div></div>
+    ${mode === 'all' ? `<div class="summary-item"><div class="num" style="color:#22c55e;">${actions.filter(a => checked[a.id]).length}</div><div class="label">Checked</div></div>` : ''}
+  </div>
+  ${items.map((a, i) => `
+    <div class="item">
+      <div class="checkbox ${checked[a.id] ? 'done' : ''}"></div>
+      <div class="item-body">
+        <div class="item-header">
+          <span class="badge" style="background:${priorityColor(a.priority)};">${priorityLabel(a.priority)}</span>
+          <span class="badge" style="background:#475569;">${e(a.category)}</span>
+        </div>
+        <div class="item-text">${a.icon} ${e(a.text)}</div>
+        ${a.detail ? `<div class="item-detail">${e(a.detail)}</div>` : ''}
+        <div class="item-why">→ ${e(a.why)}</div>
+      </div>
+    </div>
+  `).join('')}
+  <div class="notes-area">
+    <h3>Estimator Notes</h3>
+    <div class="notes-lines">${Array(6).fill('<div class="notes-line"></div>').join('')}</div>
+  </div>
+  <div class="footer">
+    <div>SmartPlans Estimator Review Checklist</div>
+    <div>Printed: ${new Date().toLocaleString()}</div>
+  </div>
+</body></html>`;
+
+  openPrintAsPDF(html);
 }
 
 // ═══ BUILDING PROFILE CARD — Shows inferred building characteristics ═══
