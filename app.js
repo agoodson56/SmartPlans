@@ -8899,6 +8899,16 @@ function renderStep7(container) {
 
     ${buildEstimatorChecklistCard(state)}
 
+    ${buildSheetInventoryCard(state)}
+
+    ${buildPrevailingWageCard(state)}
+
+    ${buildScopeDelineationCard(state)}
+
+    ${buildDoorScheduleCard(state)}
+
+    ${buildKeynoteCard(state)}
+
     ${buildProjectFitnessCard(state)}
 
     ${buildMathAuditorCard(state)}
@@ -9383,6 +9393,21 @@ function renderStep7(container) {
   if (bcToggle) bcToggle.addEventListener('click', () => {
     const body = document.getElementById('bid-compare-body');
     if (body) body.style.display = body.style.display === 'none' ? 'block' : 'none';
+  });
+
+  // ── v5.124.5 new card toggles ──
+  [
+    ['sheet-inv-toggle',  'sheet-inv-body'],
+    ['pw-toggle',         'pw-body'],
+    ['sd-toggle',         'sd-body'],
+    ['ds-toggle',         'ds-body'],
+    ['kn-toggle',         'kn-body'],
+  ].forEach(([toggleId, bodyId]) => {
+    const t = document.getElementById(toggleId);
+    if (t) t.addEventListener('click', () => {
+      const b = document.getElementById(bodyId);
+      if (b) b.style.display = (b.style.display === 'none' || !b.style.display) ? 'block' : 'none';
+    });
   });
 
   // ── Bid Compare file upload ──
@@ -11918,24 +11943,24 @@ async function runGeminiAnalysis(updateProgress) {
         const highPriority = questions.filter(q => q.severity === 'high' || q.severity === 'critical');
         if (highPriority.length === 0) { resolve({}); return; }
 
-        // Build modal HTML
+        // Build modal HTML — hardcoded colors for guaranteed contrast on any theme
         const modalHtml = `
-          <div id="clarification-modal" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;padding:20px;">
-            <div style="background:var(--bg-card,#1a1a2e);border:1px solid var(--border,#333);border-radius:12px;max-width:640px;width:100%;max-height:80vh;overflow-y:auto;padding:24px;">
-              <h3 style="margin:0 0 8px;color:var(--text-primary,#fff);">❓ Clarification Needed</h3>
-              <p style="margin:0 0 16px;color:var(--text-secondary,#aaa);font-size:14px;">The AI found ${highPriority.length} ambiguit${highPriority.length === 1 ? 'y' : 'ies'} that could affect accuracy. Your input helps SmartPlans get closer to 100%.</p>
+          <div id="clarification-modal" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;padding:20px;">
+            <div style="background:#0f172a;border:2px solid #6366F1;border-radius:14px;max-width:680px;width:100%;max-height:82vh;overflow-y:auto;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+              <h3 style="margin:0 0 10px;color:#ffffff;font-size:20px;font-weight:800;">❓ Clarification Needed</h3>
+              <p style="margin:0 0 20px;color:#e2e8f0;font-size:14px;line-height:1.5;">The AI found ${highPriority.length} ambiguit${highPriority.length === 1 ? 'y' : 'ies'} that could affect accuracy. Your input helps SmartPlans get closer to 100%.</p>
               ${highPriority.map((q, i) => `
-                <div style="background:var(--bg-secondary,#222);border-radius:8px;padding:12px;margin-bottom:12px;">
-                  <div style="font-size:12px;color:var(--accent-sky,#38bdf8);margin-bottom:4px;font-weight:600;">${q.category}</div>
-                  <div style="color:var(--text-primary,#fff);font-size:14px;margin-bottom:8px;">${q.question}</div>
-                  <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                    ${(q.options || []).map((opt, j) => `<button class="clarify-option" data-qid="${q.id}" data-val="${opt}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border,#444);background:var(--bg-card,#1a1a2e);color:var(--text-primary,#fff);cursor:pointer;font-size:13px;transition:all 0.15s;">${opt}</button>`).join('')}
+                <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;margin-bottom:14px;">
+                  <div style="font-size:11px;color:#38bdf8;margin-bottom:8px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">${q.category || 'Question'}</div>
+                  <div style="color:#ffffff;font-size:15px;line-height:1.55;margin-bottom:14px;font-weight:500;">${q.question || ''}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    ${(q.options || []).map((opt) => `<button class="clarify-option" data-qid="${q.id}" data-val="${String(opt).replace(/"/g, '&quot;')}" style="padding:10px 16px;border-radius:8px;border:2px solid #475569;background:#0f172a;color:#ffffff;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.15s;">${opt}</button>`).join('')}
                   </div>
                 </div>
               `).join('')}
-              <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
-                <button id="clarify-skip" style="padding:8px 16px;border-radius:8px;border:1px solid var(--border,#444);background:transparent;color:var(--text-secondary,#aaa);cursor:pointer;">Skip — Use AI best guess</button>
-                <button id="clarify-submit" style="padding:8px 16px;border-radius:8px;border:none;background:var(--accent-sky,#38bdf8);color:#000;cursor:pointer;font-weight:600;">Continue with answers</button>
+              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+                <button id="clarify-skip" style="padding:10px 18px;border-radius:8px;border:1px solid #64748b;background:transparent;color:#cbd5e1;cursor:pointer;font-size:13px;font-weight:600;">Skip — Use AI best guess</button>
+                <button id="clarify-submit" style="padding:10px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#ffffff;cursor:pointer;font-weight:700;font-size:14px;box-shadow:0 4px 12px rgba(99,102,241,0.4);">Continue with answers</button>
               </div>
             </div>
           </div>`;
@@ -12000,6 +12025,19 @@ async function runGeminiAnalysis(updateProgress) {
     state._confidenceScoring = result.confidenceScoring || null;
     state._quantitiesUnverified = result.quantitiesUnverified || false;
     state._quantitiesUnverifiedReason = result.quantitiesUnverifiedReason || '';
+    // v5.124.5: new brain state hydration
+    state._prevailingWageDetection = result.prevailingWageDetection || null;
+    state._prevailingWageRequired = result.prevailingWageRequired || false;
+    state._prevailingWageType = result.prevailingWageType || null;
+    state._prevailingWageMultiplier = result.prevailingWageMultiplier || 1.0;
+    state._sheetInventory = result.sheetInventory || null;
+    state._sheetInventoryInsufficient = result.sheetInventoryInsufficient || false;
+    state._scopeDelineations = result.scopeDelineations || null;
+    state._ofoiDeviceTypes = result.ofoiDeviceTypes || [];
+    state._nicDeviceTypes = result.nicDeviceTypes || [];
+    state._roughInOnlyDeviceTypes = result.roughInOnlyDeviceTypes || [];
+    state._keynotes = result.keynotes || null;
+    state._doorSchedule = result.doorSchedule || null;
 
     // ─── Local Math Validation (belt and suspenders) ───
     updateProgress(99, "Running local math validation…", result.brainStatus);
@@ -16620,6 +16658,351 @@ function buildProposalNarrativeCard(st) {
           ` : ''}
         </div>
       ` : ''}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// NEW CARDS v5.124.5 — Preflight Gates & First-Read Surfacing
+// ═══════════════════════════════════════════════════════════
+
+function buildSheetInventoryCard(st) {
+  const sig = st._sheetInventory;
+  if (!sig) return '';
+  const coverage = parseFloat(sig.coverage_pct) || 0;
+  const status = (sig.status || '').toLowerCase();
+  const missing = Array.isArray(sig.missing_sheets) ? sig.missing_sheets : [];
+  const indexList = Array.isArray(sig.index_sheet_list) ? sig.index_sheet_list : [];
+
+  // Color based on status
+  const statusColor = status === 'ok' ? '#10B981' : status === 'partial' ? '#F59E0B' : '#EF4444';
+  const statusLabel = status === 'ok' ? '✓ FULL COVERAGE' : status === 'partial' ? '⚠ PARTIAL COVERAGE' : '⛔ INSUFFICIENT COVERAGE';
+  const icon = status === 'ok' ? '📑' : status === 'insufficient' ? '⛔' : '⚠️';
+
+  return `
+    <div class="info-card" id="sheet-inventory-card" style="border-left:3px solid ${statusColor};margin-top:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" id="sheet-inv-toggle">
+        <h3 class="info-card-title" style="margin:0;display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">${icon}</span> SHEET INVENTORY GUARD
+          <span style="padding:3px 10px;border-radius:10px;font-size:10px;font-weight:800;background:${statusColor};color:white;letter-spacing:0.5px;">${statusLabel}</span>
+          <span style="font-size:13px;font-weight:600;color:${statusColor};">${coverage}% coverage</span>
+        </h3>
+        <span style="font-size:11px;color:rgba(0,0,0,0.4);text-transform:uppercase;letter-spacing:1px;">&#9660; EXPAND</span>
+      </div>
+      <div id="sheet-inv-body" style="display:${status === 'insufficient' ? 'block' : 'none'};">
+        <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:160px;padding:10px 14px;background:rgba(99,102,241,0.06);border-radius:8px;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);">Index Sheet</div>
+            <div style="font-weight:700;font-size:13px;">${esc(sig.index_source_sheet || 'Not found')}</div>
+          </div>
+          <div style="flex:1;min-width:160px;padding:10px 14px;background:rgba(99,102,241,0.06);border-radius:8px;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);">Relevant Sheets</div>
+            <div style="font-weight:700;font-size:13px;">${sig.uploaded_relevant_sheet_count || 0} / ${sig.total_relevant_sheets || 0} uploaded</div>
+          </div>
+          <div style="flex:1;min-width:160px;padding:10px 14px;background:rgba(99,102,241,0.06);border-radius:8px;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);">Total In Index</div>
+            <div style="font-weight:700;font-size:13px;">${sig.total_sheets_in_index || 0} sheets published</div>
+          </div>
+        </div>
+        ${sig.warning_to_estimator ? `
+          <div style="padding:12px 16px;background:rgba(239,68,68,0.08);border-left:3px solid ${statusColor};border-radius:6px;margin-bottom:14px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:${statusColor};font-weight:800;margin-bottom:4px;">Warning</div>
+            <div style="font-size:13px;color:rgba(0,0,0,0.75);line-height:1.5;">${esc(sig.warning_to_estimator)}</div>
+          </div>
+        ` : ''}
+        ${missing.length > 0 ? `
+          <div style="margin-bottom:14px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#EF4444;font-weight:800;margin-bottom:8px;">⚠ Missing Sheets (${missing.length})</div>
+            <div style="max-height:260px;overflow-y:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                <thead><tr style="background:rgba(239,68,68,0.06);">
+                  <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">Sheet No.</th>
+                  <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">Title</th>
+                  <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">Why Needed</th>
+                </tr></thead>
+                <tbody>
+                  ${missing.map(m => `<tr>
+                    <td style="padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.05);font-family:monospace;font-weight:700;">${esc(m.sheet_no || '')}</td>
+                    <td style="padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.05);">${esc(m.title || '')}</td>
+                    <td style="padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.05);color:rgba(0,0,0,0.6);">${esc(m.why_needed || '')}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ` : ''}
+        ${indexList.length > 0 ? `
+          <details style="margin-top:10px;">
+            <summary style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:700;">Full Sheet Index (${indexList.length})</summary>
+            <div style="margin-top:8px;max-height:240px;overflow-y:auto;font-family:monospace;font-size:11px;">
+              ${indexList.map(s => `<div style="padding:4px 8px;border-bottom:1px solid rgba(0,0,0,0.04);${s.relevant_to_selected_disciplines ? 'background:rgba(16,185,129,0.04);' : 'opacity:0.5;'}">${esc(s.sheet_no || '')} — ${esc(s.title || '')} ${s.relevant_to_selected_disciplines ? '<span style="color:#10B981;font-weight:700;">[REQUIRED]</span>' : '<span style="color:rgba(0,0,0,0.4);">[skip]</span>'}</div>`).join('')}
+            </div>
+          </details>
+        ` : ''}
+      </div>
+    </div>`;
+}
+
+function buildPrevailingWageCard(st) {
+  const pw = st._prevailingWageDetection;
+  if (!pw) return '';
+  const required = st._prevailingWageRequired;
+  const type = (st._prevailingWageType || '').toUpperCase().replace('_', '-');
+  const mult = st._prevailingWageMultiplier || 1.0;
+  const indicators = Array.isArray(pw.indicators) ? pw.indicators : [];
+  const color = required ? '#8B5CF6' : '#10B981';
+  const icon = required ? '⚖️' : '✓';
+  const label = required ? `${type} REQUIRED` : 'OPEN-SHOP OK';
+
+  return `
+    <div class="info-card" id="prevailing-wage-card" style="border-left:3px solid ${color};margin-top:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" id="pw-toggle">
+        <h3 class="info-card-title" style="margin:0;display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">${icon}</span> PREVAILING WAGE DETECTION
+          <span style="padding:3px 10px;border-radius:10px;font-size:10px;font-weight:800;background:${color};color:white;letter-spacing:0.5px;">${label}</span>
+          ${required ? `<span style="font-size:13px;font-weight:700;color:${color};">${mult}× labor multiplier</span>` : ''}
+        </h3>
+        <span style="font-size:11px;color:rgba(0,0,0,0.4);text-transform:uppercase;letter-spacing:1px;">&#9660; EXPAND</span>
+      </div>
+      <div id="pw-body" style="display:${required ? 'block' : 'none'};">
+        ${required ? `
+          <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:180px;padding:10px 14px;background:rgba(139,92,246,0.08);border-radius:8px;">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);">Agency / Owner</div>
+              <div style="font-weight:700;font-size:13px;">${esc(pw.agency_or_owner || 'Federal or state public project')}</div>
+            </div>
+            <div style="flex:1;min-width:180px;padding:10px 14px;background:rgba(139,92,246,0.08);border-radius:8px;">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);">Wage Determination</div>
+              <div style="font-weight:700;font-size:13px;">${esc(pw.wage_determination || 'Obtain from solicitation')}</div>
+            </div>
+            <div style="flex:1;min-width:180px;padding:10px 14px;background:rgba(139,92,246,0.08);border-radius:8px;">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);">Rate Multiplier Applied</div>
+              <div style="font-weight:700;font-size:13px;color:${color};">${mult}× base rate</div>
+            </div>
+          </div>
+        ` : `
+          <p style="color:rgba(0,0,0,0.6);font-size:13px;margin-bottom:12px;">No federal or state prevailing wage indicators detected. Labor calculator will use open-shop rates.</p>
+        `}
+        ${pw.warning_to_estimator ? `
+          <div style="padding:12px 16px;background:rgba(139,92,246,0.06);border-left:3px solid ${color};border-radius:6px;margin-bottom:14px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:${color};font-weight:800;margin-bottom:4px;">⚠ Critical Notice</div>
+            <div style="font-size:13px;color:rgba(0,0,0,0.75);line-height:1.5;">${esc(pw.warning_to_estimator)}</div>
+          </div>
+        ` : ''}
+        ${indicators.length > 0 ? `
+          <div>
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:700;margin-bottom:8px;">Detection Indicators (${indicators.length})</div>
+            <div style="max-height:200px;overflow-y:auto;">
+              ${indicators.map(i => `<div style="padding:8px 12px;margin-bottom:6px;background:rgba(139,92,246,0.04);border-radius:6px;">
+                <div style="font-size:10px;text-transform:uppercase;color:rgba(0,0,0,0.45);font-weight:700;">${esc(i.source || 'unknown source')} · ${i.confidence || 0}% confidence</div>
+                <div style="font-size:12.5px;margin-top:2px;">"${esc(i.text || '')}"</div>
+              </div>`).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    </div>`;
+}
+
+function buildScopeDelineationCard(st) {
+  const sds = st._scopeDelineations;
+  if (!sds) return '';
+  const delineations = Array.isArray(sds.delineations) ? sds.delineations : [];
+  if (delineations.length === 0) return '';
+
+  const critical = delineations.filter(d => d.severity === 'critical');
+  const warnings = delineations.filter(d => d.severity === 'warning');
+  const ofoi = Array.isArray(sds.ofoi_items) ? sds.ofoi_items : [];
+  const nic = Array.isArray(sds.nic_items) ? sds.nic_items : [];
+  const roughIn = Array.isArray(sds.rough_in_only_items) ? sds.rough_in_only_items : [];
+
+  const color = critical.length > 0 ? '#EF4444' : '#F59E0B';
+
+  return `
+    <div class="info-card" id="scope-delineation-card" style="border-left:3px solid ${color};margin-top:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" id="sd-toggle">
+        <h3 class="info-card-title" style="margin:0;display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">🛂</span> SCOPE DELINEATIONS
+          <span style="padding:3px 10px;border-radius:10px;font-size:10px;font-weight:800;background:${color};color:white;letter-spacing:0.5px;">${delineations.length} FOUND</span>
+          ${critical.length > 0 ? `<span style="font-size:12px;font-weight:700;color:#EF4444;">${critical.length} critical</span>` : ''}
+        </h3>
+        <span style="font-size:11px;color:rgba(0,0,0,0.4);text-transform:uppercase;letter-spacing:1px;">&#9660; EXPAND</span>
+      </div>
+      <div id="sd-body" style="display:${critical.length > 0 ? 'block' : 'none'};">
+        ${Array.isArray(sds.critical_warnings) && sds.critical_warnings.length > 0 ? `
+          <div style="margin-bottom:14px;">
+            ${sds.critical_warnings.map(w => `<div style="padding:10px 14px;background:rgba(239,68,68,0.08);border-left:3px solid #EF4444;border-radius:6px;margin-bottom:8px;font-size:13px;color:rgba(0,0,0,0.8);font-weight:600;">⚠ ${esc(w)}</div>`).join('')}
+          </div>
+        ` : ''}
+        <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:140px;padding:10px 14px;background:rgba(239,68,68,0.06);border-radius:8px;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#EF4444;font-weight:800;">OFOI</div>
+            <div style="font-size:18px;font-weight:800;color:#EF4444;">${ofoi.length}</div>
+            <div style="font-size:11px;color:rgba(0,0,0,0.5);">owner-furnished</div>
+          </div>
+          <div style="flex:1;min-width:140px;padding:10px 14px;background:rgba(245,158,11,0.06);border-radius:8px;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#F59E0B;font-weight:800;">NIC / By Others</div>
+            <div style="font-size:18px;font-weight:800;color:#F59E0B;">${nic.length}</div>
+            <div style="font-size:11px;color:rgba(0,0,0,0.5);">not in contract</div>
+          </div>
+          <div style="flex:1;min-width:140px;padding:10px 14px;background:rgba(99,102,241,0.06);border-radius:8px;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#6366F1;font-weight:800;">Rough-In Only</div>
+            <div style="font-size:18px;font-weight:800;color:#6366F1;">${roughIn.length}</div>
+            <div style="font-size:11px;color:rgba(0,0,0,0.5);">labor yes, no device</div>
+          </div>
+        </div>
+        <div style="max-height:340px;overflow-y:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr style="background:rgba(0,0,0,0.04);">
+              <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">Type</th>
+              <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">Affected Scope</th>
+              <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">Exact Phrase</th>
+              <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">Source</th>
+              <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">BOM Correction</th>
+            </tr></thead>
+            <tbody>
+              ${delineations.map(d => {
+                const sevColor = d.severity === 'critical' ? '#EF4444' : d.severity === 'warning' ? '#F59E0B' : '#10B981';
+                return `<tr>
+                  <td style="padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.05);"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${sevColor};color:white;letter-spacing:0.3px;">${esc((d.phrase_type || '').toUpperCase())}</span></td>
+                  <td style="padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.05);font-weight:600;">${esc(d.affected_scope || '')}</td>
+                  <td style="padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.05);font-style:italic;color:rgba(0,0,0,0.7);">"${esc(d.exact_phrase || '')}"</td>
+                  <td style="padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.05);font-family:monospace;font-size:11px;color:rgba(0,0,0,0.55);">${esc(d.source_location || '')}</td>
+                  <td style="padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.05);color:rgba(0,0,0,0.65);">${esc(d.estimated_bom_correction || '')}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function buildDoorScheduleCard(st) {
+  const dsp = st._doorSchedule;
+  if (!dsp) return '';
+  const hw = dsp.hardware_summary || {};
+  const acDoors = Array.isArray(dsp.access_control_doors) ? dsp.access_control_doors : [];
+  const total = dsp.total_doors || 0;
+  if (!dsp.schedule_found && total === 0) return '';
+
+  return `
+    <div class="info-card" id="door-schedule-card" style="border-left:3px solid #0EA5E9;margin-top:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" id="ds-toggle">
+        <h3 class="info-card-title" style="margin:0;display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">🚪</span> DOOR SCHEDULE PARSER
+          <span style="padding:3px 10px;border-radius:10px;font-size:10px;font-weight:800;background:#0EA5E9;color:white;letter-spacing:0.5px;">${total} DOORS · ${acDoors.length} AC</span>
+        </h3>
+        <span style="font-size:11px;color:rgba(0,0,0,0.4);text-transform:uppercase;letter-spacing:1px;">&#9660; EXPAND</span>
+      </div>
+      <div id="ds-body" style="display:none;">
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+          ${[
+            ['Card Readers', hw.card_readers_from_schedule || 0, '#0EA5E9'],
+            ['Electric Strikes', hw.electric_strikes || 0, '#10B981'],
+            ['Mag Locks', hw.mag_locks || 0, '#8B5CF6'],
+            ['REX Sensors', hw.rex_sensors || 0, '#F59E0B'],
+            ['Door Contacts', hw.door_contacts || 0, '#EF4444'],
+            ['Auto Operators', hw.auto_operators || 0, '#06B6D4'],
+            ['Hold-Opens', hw.hold_opens || 0, '#D97706'],
+            ['Delayed Egress', hw.delayed_egress || 0, '#DC2626'],
+          ].map(([label, n, c]) => `
+            <div style="flex:1;min-width:120px;padding:10px 14px;background:rgba(14,165,233,0.04);border-radius:8px;border-top:2px solid ${c};">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:rgba(0,0,0,0.5);">${label}</div>
+              <div style="font-size:20px;font-weight:800;color:${c};">${n}</div>
+            </div>
+          `).join('')}
+        </div>
+        ${dsp.comparison_to_plans ? `
+          <div style="padding:10px 14px;background:rgba(245,158,11,0.08);border-left:3px solid #F59E0B;border-radius:6px;margin-bottom:14px;font-size:13px;color:rgba(0,0,0,0.75);">
+            <b>Plan cross-check:</b> ${esc(dsp.comparison_to_plans)}
+          </div>
+        ` : ''}
+        <div style="font-size:11px;color:rgba(0,0,0,0.55);margin-bottom:6px;">Source: ${esc(dsp.schedule_source || 'Unknown')}</div>
+        <div style="max-height:320px;overflow-y:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr style="background:rgba(0,0,0,0.04);">
+              <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">Door</th>
+              <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">Location</th>
+              <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">HW Set</th>
+              <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">ELV Components</th>
+              <th style="text-align:center;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.1);">AC</th>
+            </tr></thead>
+            <tbody>
+              ${(Array.isArray(dsp.doors) ? dsp.doors : []).slice(0, 120).map(d => `<tr>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.05);font-family:monospace;font-weight:700;">${esc(d.door_no || '')}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.05);">${esc(d.location || '')}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.05);font-family:monospace;">${esc(d.hardware_set || '')}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.05);color:rgba(0,0,0,0.7);">${Array.isArray(d.elv_components) ? d.elv_components.map(c => esc(c)).join(', ') : ''}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.05);text-align:center;">${d.access_controlled ? '<span style="color:#10B981;font-weight:800;">✓</span>' : '<span style="color:rgba(0,0,0,0.25);">—</span>'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function buildKeynoteCard(st) {
+  const ke = st._keynotes;
+  if (!ke) return '';
+  const gotchas = Array.isArray(ke.scope_gotchas) ? ke.scope_gotchas : [];
+  const generalNotes = Array.isArray(ke.general_notes) ? ke.general_notes : [];
+  const keynotes = Array.isArray(ke.keynotes) ? ke.keynotes : [];
+  if (gotchas.length === 0 && generalNotes.length === 0 && keynotes.length === 0) return '';
+
+  const critical = gotchas.filter(g => g.severity === 'critical');
+  const color = critical.length > 0 ? '#EF4444' : '#0D9488';
+
+  return `
+    <div class="info-card" id="keynote-card" style="border-left:3px solid ${color};margin-top:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" id="kn-toggle">
+        <h3 class="info-card-title" style="margin:0;display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">🏷️</span> KEYNOTES &amp; GENERAL NOTES
+          <span style="padding:3px 10px;border-radius:10px;font-size:10px;font-weight:800;background:${color};color:white;letter-spacing:0.5px;">${generalNotes.length + keynotes.length} NOTES</span>
+          ${gotchas.length > 0 ? `<span style="font-size:12px;font-weight:700;color:${color};">${gotchas.length} scope gotcha${gotchas.length === 1 ? '' : 's'}</span>` : ''}
+        </h3>
+        <span style="font-size:11px;color:rgba(0,0,0,0.4);text-transform:uppercase;letter-spacing:1px;">&#9660; EXPAND</span>
+      </div>
+      <div id="kn-body" style="display:${critical.length > 0 ? 'block' : 'none'};">
+        ${gotchas.length > 0 ? `
+          <div style="margin-bottom:14px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:${color};font-weight:800;margin-bottom:8px;">⚠ Scope Gotchas (${gotchas.length})</div>
+            ${gotchas.map(g => {
+              const sevColor = g.severity === 'critical' ? '#EF4444' : g.severity === 'warning' ? '#F59E0B' : '#10B981';
+              return `<div style="padding:10px 14px;margin-bottom:8px;background:rgba(239,68,68,0.04);border-left:3px solid ${sevColor};border-radius:6px;">
+                <div style="font-size:10px;text-transform:uppercase;font-weight:700;color:${sevColor};letter-spacing:0.5px;margin-bottom:4px;">${esc(g.sheet || '')} · ${esc(g.severity || 'info')}</div>
+                <div style="font-size:13px;font-style:italic;color:rgba(0,0,0,0.8);margin-bottom:4px;">"${esc(g.quote || '')}"</div>
+                <div style="font-size:12px;color:rgba(0,0,0,0.6);">${esc(g.why_gotcha || '')}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        ` : ''}
+        ${generalNotes.length > 0 ? `
+          <details style="margin-bottom:10px;">
+            <summary style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:700;">General Notes (${generalNotes.length})</summary>
+            <div style="margin-top:8px;max-height:300px;overflow-y:auto;">
+              ${generalNotes.map(n => `<div style="padding:8px 12px;border-bottom:1px solid rgba(0,0,0,0.06);font-size:12px;">
+                <span style="font-family:monospace;font-weight:700;color:rgba(0,0,0,0.5);">${esc(n.source_sheet || '')} · #${esc(n.note_number || '')}</span>
+                <span style="margin-left:8px;padding:2px 8px;border-radius:10px;font-size:10px;background:rgba(99,102,241,0.1);color:#6366F1;">${esc(n.category || '')}</span>
+                <div style="margin-top:4px;color:rgba(0,0,0,0.75);">${esc(n.note_text || '')}</div>
+                ${n.likely_bom_line_item && n.in_bom === false ? `<div style="margin-top:4px;font-size:11px;color:#EF4444;">⚠ Likely missing from BOM: ${esc(n.likely_bom_line_item)}</div>` : ''}
+              </div>`).join('')}
+            </div>
+          </details>
+        ` : ''}
+        ${keynotes.length > 0 ? `
+          <details>
+            <summary style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(0,0,0,0.5);font-weight:700;">Per-Sheet Keynotes (${keynotes.length})</summary>
+            <div style="margin-top:8px;max-height:300px;overflow-y:auto;">
+              ${keynotes.map(k => `<div style="padding:8px 12px;border-bottom:1px solid rgba(0,0,0,0.06);font-size:12px;">
+                <span style="font-family:monospace;font-weight:700;color:rgba(0,0,0,0.5);">${esc(k.source_sheet || '')} · KN#${esc(k.keynote_ref || '')}</span>
+                ${k.our_scope === false ? `<span style="margin-left:8px;padding:2px 8px;border-radius:10px;font-size:10px;background:rgba(239,68,68,0.1);color:#EF4444;">NOT OUR SCOPE</span>` : ''}
+                <div style="margin-top:4px;color:rgba(0,0,0,0.75);">${esc(k.note_text || '')}</div>
+              </div>`).join('')}
+            </div>
+          </details>
+        ` : ''}
+      </div>
     </div>`;
 }
 

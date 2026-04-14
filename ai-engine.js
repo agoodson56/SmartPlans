@@ -115,6 +115,9 @@ const SmartBrains = {
     LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 65536, useProModel: true },
     PLAN_LEGEND_SCANNER: { id: 0.25, name: 'Plan Legend Scanner', wave: 0, emoji: '🗺️', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
+    // ── Wave 0.3: Preflight Gates (run BEFORE downstream brains so they can hard-stop bad inputs) ──
+    PREVAILING_WAGE_DETECTOR: { id: 34, name: 'Prevailing Wage Detector', wave: 0.3, emoji: '⚖️', needsFiles: ['plans', 'specs'], maxTokens: 16384, useProModel: true },
+    SHEET_INVENTORY_GUARD:    { id: 35, name: 'Sheet Inventory Guard',    wave: 0.3, emoji: '📑', needsFiles: ['plans', 'specs'], maxTokens: 16384, useProModel: true },
     // ── Wave 0.35: Building Profile Inference (infers SF, rooms, floors from plans) ──
     BUILDING_PROFILER: { id: 32, name: 'Building Profiler', wave: 0.35, emoji: '🏛️', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
     // ── Wave 0.75: RFP Criteria Parsing (reads specs for evaluation scoring) ──
@@ -130,6 +133,10 @@ const SmartBrains = {
     RISER_DIAGRAM_ANALYZER: { id: 23, name: 'Riser Diagram Analyzer', wave: 1, emoji: '📶', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
     DEVICE_LOCATOR: { id: 28, name: 'Device Locator', wave: 1, emoji: '📍', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     SCOPE_EXCLUSION_SCANNER: { id: 29, name: 'Scope Exclusion Scanner', wave: 1, emoji: '🚫', needsFiles: ['plans', 'specs'], maxTokens: 65536, useProModel: true },
+    // ── New Wave 1 scanners (v5.124.5): capture scope delineation, per-sheet keynotes, and door schedule access points ──
+    SCOPE_DELINEATION_SCANNER: { id: 36, name: 'Scope Delineation Scanner', wave: 1, emoji: '🛂', needsFiles: ['legends', 'plans', 'specs'], maxTokens: 65536, useProModel: true },
+    KEYNOTE_EXTRACTOR:         { id: 37, name: 'Keynote Extractor',         wave: 1, emoji: '🏷️',  needsFiles: ['plans'],                    maxTokens: 65536, useProModel: true },
+    DOOR_SCHEDULE_PARSER:      { id: 38, name: 'Door Schedule Parser',      wave: 1, emoji: '🚪', needsFiles: ['plans', 'specs'],          maxTokens: 65536, useProModel: true },
     // ── Wave 1.5: Second Read — Independent Verification (all Gemini 3.1 Pro) ──
     SHADOW_SCANNER: { id: 6, name: 'Shadow Scanner', wave: 1.5, emoji: '👁️', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     DISCIPLINE_DEEP_DIVE: { id: 7, name: 'Discipline Deep-Dive', wave: 1.5, emoji: '🎯', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
@@ -2736,6 +2743,12 @@ const SmartBrains = {
     PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
     OVERLAP_DETECTOR: ['overlapping_areas', 'potential_duplicates'],
     ESTIMATE_CORRECTOR: ['corrected_categories', 'correction_log'],
+    // v5.124.5 new brains
+    PREVAILING_WAGE_DETECTOR:  ['requires_davis_bacon', 'indicators', 'wage_determination'],
+    SHEET_INVENTORY_GUARD:     ['index_sheet_list', 'uploaded_sheet_count', 'missing_sheets', 'coverage_pct'],
+    SCOPE_DELINEATION_SCANNER: ['delineations', 'ofoi_items', 'nic_items', 'by_others'],
+    KEYNOTE_EXTRACTOR:         ['keynotes', 'general_notes'],
+    DOOR_SCHEDULE_PARSER:      ['doors', 'access_control_doors', 'hardware_summary'],
     // REPORT_WRITER returns markdown, no JSON schema
   },
 
@@ -3700,11 +3713,48 @@ Each item MUST have ALL of these fields:
         }).join('\n');
 
         const bp = context._buildingProfile || {};
+
+        // v5.124.5: Pull scope delineations so the Pricer removes OFOI material cost
+        const ofoi = Array.isArray(context._ofoiDeviceTypes) ? context._ofoiDeviceTypes : [];
+        const nic = Array.isArray(context._nicDeviceTypes) ? context._nicDeviceTypes : [];
+        const roughInOnly = Array.isArray(context._roughInOnlyDeviceTypes) ? context._roughInOnlyDeviceTypes : [];
+        const delineationNotes = [];
+        const sds = context._scopeDelineations;
+        if (sds && Array.isArray(sds.delineations)) {
+          for (const d of sds.delineations.slice(0, 15)) {
+            if (d.severity === 'critical' || d.phrase_type === 'OFOI' || d.phrase_type === 'OFCI' || d.phrase_type === 'rough_in_only' || d.phrase_type === 'NIC' || d.phrase_type === 'by_others') {
+              delineationNotes.push(`- ${d.phrase_type.toUpperCase()}: "${d.exact_phrase}" → ${d.affected_scope} → ${d.estimated_bom_correction || d.contractor_responsibility}`);
+            }
+          }
+        }
+        const scopeBlock = (ofoi.length + nic.length + roughInOnly.length + delineationNotes.length > 0) ? `
+
+═══ 🛂 SCOPE DELINEATIONS FROM WAVE 1 SCANNER (MANDATORY APPLY) ═══
+The Scope Delineation Scanner extracted these explicit scope limits from the drawings and specs.
+You MUST honor them — do NOT price material for items marked OFOI / NIC / by others. You MAY still price the cabling, rough-in, and labor for those items where applicable.
+
+${ofoi.length > 0 ? `OFOI DEVICE TYPES (owner-furnished — material cost = $0, but still include cable/rough-in):
+${ofoi.map(t => '  - ' + t).join('\n')}
+` : ''}${nic.length > 0 ? `NIC DEVICE TYPES (not in contract — skip entirely, zero cost):
+${nic.map(t => '  - ' + t).join('\n')}
+` : ''}${roughInOnly.length > 0 ? `ROUGH-IN ONLY DEVICE TYPES (no device material, include box + conduit + cable):
+${roughInOnly.map(t => '  - ' + t).join('\n')}
+` : ''}${delineationNotes.length > 0 ? `EXPLICIT DELINEATION PHRASES FROM THE DOCUMENTS:
+${delineationNotes.join('\n')}
+` : ''}
+HOW TO APPLY:
+1. Before pricing each BOM line item, check its device type against the lists above
+2. If OFOI: set material unit cost to $0 but keep the line with a note "OFOI — owner furnished, EC provides cabling and rough-in only"
+3. If NIC: omit the line entirely
+4. If rough-in only: include the rough-in hardware (box, plaster ring, conduit stub, cable pull) but NOT the endpoint device
+5. Add a top-level "scope_adjustments_applied" array in your output listing each correction you made so downstream brains can audit it
+` : '';
+
         return `You are a CONSTRUCTION MATERIAL PRICING SPECIALIST. Calculate exact material costs.
 
 PROJECT: ${context.projectName}
 PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}× multiplier)
-MATERIAL MARKUP: ${context.markup?.material || 50}%
+MATERIAL MARKUP: ${context.markup?.material || 50}%${scopeBlock}
 ${bp.total_gross_sf ? `\n═══ BUILDING PROFILE (from Building Profiler — use for validation) ═══
 Building Type: ${bp.building_type || 'unknown'} ${bp.building_subtype ? '(' + bp.building_subtype + ')' : ''}
 Total SF: ${(bp.total_gross_sf || 0).toLocaleString()} | Floors: ${bp.num_floors || '?'} | Rooms: ${bp.total_rooms || '?'} | Doors: ${bp.total_doors || '?'}
@@ -4489,13 +4539,41 @@ Return ONLY valid JSON:
           || context.wave1?.SYMBOL_SCANNER?.totals
           || {};
 
+        // v5.124.5: Force Davis-Bacon / state prevailing wage from Wave 0.3 preflight detection
+        const pwRequired = context._prevailingWageRequired === true;
+        const pwType = context._prevailingWageType || '';
+        const pwAgency = context._prevailingWageAgency || '';
+        const pwMultiplier = parseFloat(context._prevailingWageMultiplier) || (pwRequired ? 2.0 : 1.0);
+        const pwDetermination = context._prevailingWageDetermination || '';
+        const pwBlock = pwRequired ? `
+
+═══ ⚖️  MANDATORY PREVAILING WAGE OVERRIDE (detected by Wave 0.3 Prevailing Wage Detector) ═══
+THIS PROJECT REQUIRES ${pwType.toUpperCase()} PREVAILING WAGE RATES. YOU MUST APPLY THEM.
+Agency / Owner: ${pwAgency || 'unknown (federal or state public project)'}
+Wage Determination: ${pwDetermination || 'must be obtained from solicitation documents'}
+REQUIRED LABOR RATE MULTIPLIER: ${pwMultiplier}x the open-shop base rate shown above.
+
+HOW TO APPLY:
+1. Take every base rate listed in LABOR RATES above
+2. Multiply by ${pwMultiplier} to get the prevailing-wage base rate
+3. THEN apply burden and markup as normal
+4. DO NOT SKIP THIS STEP. A missed Davis-Bacon detection costs $60,000-$100,000 on a typical clinic-sized project.
+
+EXAMPLE:
+- Base rate shown: $85/hr
+- Prevailing wage rate: $85 × ${pwMultiplier} = $${(85 * pwMultiplier).toFixed(2)}/hr
+- Loaded (with burden × ${burdenMult.toFixed(2)}): $${(85 * pwMultiplier * burdenMult).toFixed(2)}/hr
+
+REPORT THIS in your output: add a top-level field "prevailing_wage_applied": true and "prevailing_wage_multiplier": ${pwMultiplier} so downstream brains can verify.
+` : '';
+
         return `You are a CONSTRUCTION LABOR ESTIMATOR using NECA labor standards.
 
 PROJECT: ${context.projectName} | Type: ${context.projectType}
 LABOR MARKUP: ${context.markup?.labor || 50}%
 BURDEN RATE: ${context.includeBurden ? context.burdenRate + '%' : 'Not applied'}
-PREVAILING WAGE: ${context.prevailingWage || 'No'}
-WORK SHIFT: ${context.workShift || 'Standard'}
+PREVAILING WAGE: ${pwRequired ? (pwType.toUpperCase() + ' REQUIRED — SEE MANDATORY OVERRIDE BELOW') : (context.prevailingWage || 'No')}
+WORK SHIFT: ${context.workShift || 'Standard'}${pwBlock}
 
 LABOR RATES:
 ${Object.entries(context.laborRates || {}).map(([k, v]) =>
@@ -6938,6 +7016,31 @@ YOUR MISSION: Read every specification section relevant to the selected discipli
 5. Every WARRANTY requirement is noted (affects pricing)
 6. Every TRAINING requirement is noted (adds labor hours)
 
+═══ HARD "SHALL PROVIDE" ENFORCER — NEW IN v5.124.5 ═══
+Apply this rule STRICTLY: every sentence in the spec containing one of these verb phrases is a FIRM scope commitment the contractor owes. If there is NO corresponding BOM line item, it is an AUTOMATIC missing gap — severity "critical" unless clearly informational.
+
+Trigger verbs (scan for these verbatim):
+- "shall provide"
+- "shall furnish"
+- "shall furnish and install"
+- "contractor shall provide"
+- "contractor shall install"
+- "contractor shall supply"
+- "shall include"
+- "the contractor is responsible for providing"
+- "provide a complete and operational"
+- "provide, install, and test"
+
+For EACH trigger sentence you find:
+1. Quote the full sentence verbatim in "requirement" (no paraphrasing)
+2. Extract the NOUN being provided (what's the item?)
+3. Search the current BOM list for that noun
+4. If no match, flag as "missing" with severity "critical"
+5. Estimate the dollar cost of the missing item based on the spec context
+6. If match, still list it as status="met" with the matching bom_match string
+
+DO NOT skip ANY trigger sentence. If the spec has 40 "shall provide" statements and only 25 are in the BOM, I expect to see all 40 analyzed with 15 marked missing. Under-reporting gaps costs the estimator money.
+
 COMMON SPEC GAPS CONTRACTORS MISS:
 - Spec says "provide conduit" but BOM has no conduit line items
 - Spec says "firestopping at all penetrations" but no firestop material in BOM
@@ -6987,6 +7090,367 @@ Return ONLY valid JSON:
   "notes": ""
 }`;
       },
+
+      // ═══════════════════════════════════════════════════════════
+      // NEW BRAINS v5.124.5 — Preflight Gates & First-Read Scanners
+      // ═══════════════════════════════════════════════════════════
+
+      // ── BRAIN 34: Prevailing Wage Detector (Wave 0.3) ───────────
+      PREVAILING_WAGE_DETECTOR: () => `You are a PREVAILING WAGE DETECTOR for construction bid documents. Your ONE job: determine whether this project requires federal Davis-Bacon or state prevailing wage rates.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+
+WHAT TO LOOK FOR (in title blocks, spec Division 01, general conditions, cover sheets):
+1. FEDERAL triggers (require Davis-Bacon Act):
+   - "Department of Veterans Affairs" / "VA" / "VAMC" / "Veterans Health Administration"
+   - "U.S. Army Corps of Engineers" / "USACE"
+   - "Department of Defense" / "DoD" / "DLA" / any military branch
+   - "General Services Administration" / "GSA"
+   - "Federal Bureau of Prisons" / "BOP"
+   - "Indian Health Service" / "IHS"
+   - "National Park Service" / "NPS"
+   - ANY federal agency, federally-owned facility, or federally-funded project
+   - Explicit mention of "Davis-Bacon Act", "DBA", "wage determination", "WD-##-####"
+2. STATE triggers (state prevailing wage):
+   - "Public Works Project" in CA, NY, NJ, IL, WA, etc.
+   - References to DIR (CA Department of Industrial Relations), NYSDOL, etc.
+   - "California Prevailing Wage" / "NY State Prevailing Wage"
+   - Bidder registration requirement with state labor department
+3. PROJECT LABOR AGREEMENT (PLA):
+   - "Project Labor Agreement" / "PLA" / "Community Benefits Agreement"
+   - Union-only scope, apprentice ratio requirements
+4. LOCAL PREVAILING WAGE:
+   - City/county-funded project in a jurisdiction with living-wage ordinances
+
+HOW TO DETECT WITHOUT EXPLICIT MENTION:
+- Project name contains "VA" + building type "clinic/hospital/CBOC" → federal VA, Davis-Bacon applies
+- Title block has federal seal, VA logo, USACE logo → federal
+- Spec section "01 74 19" or "01 35 00" often contains wage determination references
+- Bid bond/performance bond exceeding $100k almost always indicates public project
+
+IMPACT ON LABOR RATES (for context — you don't calculate, just flag):
+- Davis-Bacon wages are typically 40-80% higher than open-shop prevailing rates
+- Fringe benefits (H&W, pension, apprentice training) add another 20-30%
+- Total burdened labor can be 2x-2.5x open shop
+
+Return ONLY valid JSON:
+{
+  "requires_davis_bacon": true|false,
+  "requires_state_prevailing_wage": true|false,
+  "state_jurisdiction": "CA|NY|WA|...|null",
+  "requires_pla": true|false,
+  "wage_determination": "WD-##-####|null",
+  "indicators": [
+    { "source": "title_block|spec_section|cover_sheet|project_name", "text": "exact phrase that triggered detection", "confidence": 95 }
+  ],
+  "agency_or_owner": "Department of Veterans Affairs|USACE|State of CA|...|null",
+  "estimated_labor_rate_multiplier": 1.0,
+  "warning_to_estimator": "This is a federal VA project. All labor must be bid at Davis-Bacon rates for the wage determination published with this solicitation. Open-shop rates will leave $60-100k on the table.",
+  "confidence": 90,
+  "notes": ""
+}
+
+CRITICAL: If you see ANY federal indicator, set requires_davis_bacon=true with high confidence. Better to flag a false positive than miss a true federal project — a missed Davis-Bacon detection costs 6 figures.`,
+
+      // ── BRAIN 35: Sheet Inventory Guard (Wave 0.3) ──────────────
+      SHEET_INVENTORY_GUARD: () => {
+        const uploadedPlanCount = (context._uploadedPlanCount || 0);
+        return `You are a SHEET INVENTORY GUARD. Your job is to read the COVER SHEET / DRAWING INDEX of the uploaded drawings, extract the complete sheet list the architect published, then flag how many of those sheets were actually uploaded for analysis.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+UPLOADED PLAN PAGES: ${uploadedPlanCount}
+
+YOUR MISSION: Prevent downstream brains from guessing counts on a legend-only upload. If the cover sheet says there are 47 drawings but the user only uploaded 3 pages, EVERY downstream brain will produce phantom data. Catch this BEFORE Wave 1 spends money on hallucinated counts.
+
+STEP 1 — FIND THE INDEX
+Look for a drawing index / sheet index table on the cover, title, or general-info sheet. It usually looks like:
+  SHEET NO.   SHEET TITLE
+  G-001       Cover Sheet
+  G-002       General Notes
+  E-0.0       Electrical & Fire Alarm Legend
+  E-1.0       First Floor Power Plan
+  T-1.0       First Floor Telecom Plan
+  FA-1.0      First Floor Fire Alarm Plan
+  ...
+
+STEP 2 — EXTRACT EVERY SHEET
+Capture every row: sheet number, sheet title, and the discipline prefix (G, A, S, M, E, T, FA, SP, etc.).
+
+STEP 3 — FILTER TO SELECTED DISCIPLINES
+The user selected these disciplines: ${(context.disciplines || []).join(', ')}. Based on standard AEC sheet naming, which sheets in the index are REQUIRED for these disciplines?
+- Structured Cabling / CCTV / Access Control / AV: need G (general), T (telecom), E (electrical coord), A (arch — for door schedules), sometimes FA
+- Fire Alarm: need G, FA, E, some A
+Always include G (general/cover) sheets.
+
+STEP 4 — COMPARE TO UPLOAD
+The user uploaded ${uploadedPlanCount} plan pages. Determine:
+- How many sheets in the RELEVANT filtered index are present in the upload?
+- Coverage percentage = (uploaded_relevant_sheets / total_relevant_sheets) * 100
+- Which specific sheet numbers appear MISSING?
+
+STEP 5 — VERDICT
+- coverage >= 85%  → status="ok" — analysis can proceed with confidence
+- coverage 50-84%  → status="partial" — analysis can proceed but warn estimator of gaps
+- coverage < 50%   → status="insufficient" — HARD STOP, tell user to upload the rest before wasting an analysis
+
+Return ONLY valid JSON:
+{
+  "index_found": true|false,
+  "index_source_sheet": "G-001 Cover / Drawing Index",
+  "index_sheet_list": [
+    { "sheet_no": "E-0.0", "title": "Electrical Legend", "discipline_prefix": "E", "relevant_to_selected_disciplines": true }
+  ],
+  "total_sheets_in_index": 0,
+  "total_relevant_sheets": 0,
+  "uploaded_sheet_count": ${uploadedPlanCount},
+  "uploaded_relevant_sheet_count": 0,
+  "coverage_pct": 0,
+  "status": "ok|partial|insufficient",
+  "missing_sheets": [
+    { "sheet_no": "T-1.0", "title": "First Floor Telecom Plan", "discipline_prefix": "T", "why_needed": "Required for Structured Cabling device counts" }
+  ],
+  "warning_to_estimator": "You only uploaded 3 of 24 relevant sheets (12%). Symbol Scanner will produce phantom counts. Upload the missing sheets before running analysis.",
+  "confidence": 90
+}
+
+CRITICAL: If you CAN'T find an index sheet in the upload, set index_found=false and status="insufficient" with a warning that a cover/index sheet is required to verify coverage. Never guess the index — only report what's actually visible.`;
+      },
+
+      // ── BRAIN 36: Scope Delineation Scanner (Wave 1) ────────────
+      SCOPE_DELINEATION_SCANNER: () => `You are a SCOPE DELINEATION SCANNER. Your only job is to extract every explicit statement in the construction documents that SHIFTS SCOPE onto or off of the ELV contractor. These are the landmines that blow up bids after award.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+WHAT TO CAPTURE — every phrase matching these patterns, from EVERY source (legend notes, general notes, keynotes, title block notes, spec front matter, spec body, schedule notes, drawing reference bubbles):
+
+1. OFOI / OFCI (Owner Furnished, Owner/Contractor Installed)
+   - "Owner Furnished, Owner Installed"
+   - "Owner Furnished, Contractor Installed"
+   - "OFOI" / "OFCI"
+   - Impact: contractor bears LABOR to rough-in and install but NOT MATERIAL cost of device
+   - EXAMPLE: "Security cameras provided by owner; EC to provide CAT6 cabling and rough-in boxes"
+
+2. NIC (Not In Contract)
+   - "Not In Contract" / "NIC"
+   - "By Others" / "by others"
+   - "Future" — item shown but not part of this bid
+   - "Existing to Remain" (ETR) — verify this isn't being re-priced
+   - Impact: contractor bears ZERO scope on this item
+
+3. ROUGH-IN ONLY
+   - "Rough-in only"
+   - "Prepare for future"
+   - "Provide empty conduit and back box"
+   - "Cable and terminate — device by others"
+   - Impact: contractor provides conduit + box + cable pull but NOT the endpoint device
+
+4. PROVIDE vs INSTALL vs FURNISH-ONLY
+   - "Furnish only" — contractor buys material, owner or another trade installs
+   - "Install only" — contractor installs material supplied by owner/another trade
+   - "Provide and install" — full scope (furnish AND install)
+
+5. DIVISION OF WORK
+   - "Power by EC" / "Power provided by Division 26" — low-voltage contractor does NOT run 120V
+   - "Conduit by EC" — low-voltage contractor does NOT install conduit, only pulls cable
+   - "Coordinate with mechanical for..." — scope boundary with another trade
+   - "Furnished by Division 28, installed by Division 26"
+
+6. EXISTING CONDITIONS
+   - "Reuse existing" — no new material but verify condition
+   - "Demo existing" — demolition labor required
+   - "Existing to remain, modify as shown" — partial scope
+
+7. SUBMITTAL / APPROVAL GATES
+   - "Subject to architect approval"
+   - "Shop drawings required before fabrication"
+   - Impact: engineering hours that are easy to miss
+
+WHERE TO LOOK (PRIORITY ORDER):
+1. Legend sheet general notes (E-0.0, T-0.0, FA-0.0)
+2. Cover sheet general notes
+3. Each floor plan's title block keynotes
+4. Spec section 27 00 00 / 28 00 00 front matter
+5. Door schedule hardware notes
+6. Riser diagram notes
+7. Any "responsibility matrix" table in the spec
+
+Return ONLY valid JSON:
+{
+  "delineations": [
+    {
+      "id": "dl1",
+      "phrase_type": "OFOI|OFCI|NIC|by_others|rough_in_only|furnish_only|install_only|future|existing_to_remain",
+      "exact_phrase": "Security Camera Provided by Owner. EC to provide CAT6 cabling and rough-in",
+      "source_location": "Sheet E-0.0 General Notes / Spec 28 23 00 / Drawing keynote #4",
+      "affected_scope": "CCTV cameras",
+      "affected_device_types": ["camera", "dome_camera", "ptz_camera"],
+      "contractor_responsibility": "cable_and_rough_in_only",
+      "dollar_impact_direction": "reduces_material_cost|reduces_labor|adds_coordination",
+      "estimated_bom_correction": "Remove camera material cost (~$600-900 each). Keep Cat6 cable pull and rough-in box labor.",
+      "severity": "critical|warning|info"
+    }
+  ],
+  "ofoi_items": [ { "item": "Security cameras", "quantity_hint": 15, "source": "Sheet E-0.0 note 3" } ],
+  "ofci_items": [],
+  "nic_items": [],
+  "by_others": [],
+  "rough_in_only_items": [ { "item": "Security door contacts", "source": "Sheet E-0.0 note 5" } ],
+  "furnish_only_items": [],
+  "install_only_items": [],
+  "responsibility_matrix": [
+    { "scope_item": "CCTV cameras — material", "responsible": "Owner", "our_scope": false },
+    { "scope_item": "CCTV cameras — cabling and rough-in", "responsible": "EC", "our_scope": true },
+    { "scope_item": "Security door contacts — hardware", "responsible": "DHI supplier", "our_scope": false }
+  ],
+  "total_delineations_found": 0,
+  "critical_warnings": [
+    "Cameras are OFOI — do NOT include $900/ea material in BOM. Only cable pull and rough-in."
+  ],
+  "confidence": 90,
+  "notes": ""
+}
+
+CRITICAL: Be EXHAUSTIVE. Every "by others" and "OFOI" you miss is a potential $5k-$50k bid error. Scan every legend note, every general note, every keynote, every spec page. Quote the EXACT phrase — downstream brains need to be able to search for it.`,
+
+      // ── BRAIN 37: Keynote Extractor (Wave 1) ────────────────────
+      KEYNOTE_EXTRACTOR: () => `You are a KEYNOTE EXTRACTOR for construction drawings. Your job: read every sheet's title block keynote table, general notes, and sheet-specific notes. Return a structured list so downstream brains don't miss single-line scope gotchas.
+
+PROJECT: ${context.projectName || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+BACKGROUND — What keynotes actually are:
+Each drawing sheet has a "KEYNOTES" or "GENERAL NOTES" box, typically in the title block or along one edge of the sheet. Numbered items (1, 2, 3... or sometimes A, B, C) are referenced throughout the plan view with little numbered bubbles. 80% of the scope surprises on any project live in these notes — NOT in the BOM.
+
+Examples of high-impact keynotes we've seen blow up bids:
+- "All horizontal cable shall be plenum-rated CMP, even above non-plenum ceilings"
+- "Provide firestopping at all wall and floor penetrations per UL detail"
+- "Coordinate exact device locations with owner 7 days prior to rough-in"
+- "Provide 2-hour fire-rated cable for all fire alarm notification circuits"
+- "All patch cords to be factory-manufactured; no field terminations"
+- "Provide and install category 6A bulk cable with manufacturer 25-year channel warranty"
+- "Label all cable ends with permanent P-touch labels per TIA-606-C"
+- "Install above-ceiling J-hooks at max 5'-0\" intervals; no bundled cable drops"
+- "Coordinate core drilling with structural engineer"
+- "Provide seismic bracing for all ceiling-mounted devices per IBC 2018"
+- "All rack-mount equipment to be UL-listed and seismically-rated"
+
+YOUR MISSION — for EVERY uploaded plan sheet:
+1. Locate the keynote table (usually numbered 1-N)
+2. Transcribe every numbered note exactly
+3. Categorize each note by impact type
+4. Flag notes that likely correspond to BOM line items that are MISSING
+
+Return ONLY valid JSON:
+{
+  "sheets_analyzed": 0,
+  "total_keynotes_found": 0,
+  "general_notes": [
+    {
+      "source_sheet": "G-001 Cover",
+      "note_number": "1",
+      "note_text": "All low-voltage cabling shall be plenum-rated CMP",
+      "category": "material_spec|labor|coordination|testing|submittal|warranty|firestopping|seismic|labeling|other",
+      "impact_type": "adds_cost|requires_special_handling|scope_boundary|delivery_deadline",
+      "estimated_dollar_impact": "high|medium|low|unknown",
+      "likely_bom_line_item": "Cat6A CMP cable",
+      "in_bom": true|false|unknown
+    }
+  ],
+  "keynotes": [
+    {
+      "source_sheet": "E-1.0 First Floor Power",
+      "keynote_ref": "4",
+      "note_text": "Provide 120V 20A dedicated circuit at each WAP location",
+      "category": "coordination",
+      "our_scope": false,
+      "responsible_party": "Division 26 Electrical",
+      "impact": "scope_boundary"
+    }
+  ],
+  "scope_gotchas": [
+    {
+      "sheet": "E-0.0",
+      "quote": "Security Camera Provided by Owner. EC to provide CAT6 cabling and rough-in",
+      "why_gotcha": "Cameras are OFOI — don't price camera material",
+      "severity": "critical"
+    }
+  ],
+  "confidence": 85,
+  "notes": ""
+}
+
+CRITICAL: Do NOT summarize or paraphrase the note text — transcribe it EXACTLY as written. Downstream brains search for specific phrases.`,
+
+      // ── BRAIN 38: Door Schedule Parser (Wave 1) ─────────────────
+      DOOR_SCHEDULE_PARSER: () => `You are a DOOR SCHEDULE PARSER for ELV access control estimation. Your job: find the door schedule (usually on an architectural sheet or in spec section 08 71 00), extract every door with its hardware set, and identify which doors require ELV rough-in or access control scope.
+
+PROJECT: ${context.projectName || 'Unknown'}
+SELECTED DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+BACKGROUND — Door schedules drive access control scope:
+Every architectural set has a DOOR SCHEDULE — a table listing every door with its door number, type, size, fire rating, and HARDWARE SET (HW SET #1, #2, #3...). Each hardware set corresponds to a spec section that lists the actual hardware components. Hardware sets with electric hardware (electric strike, mag lock, electric mortise, request-to-exit sensor, electromagnetic hold-open) require ELV rough-in and an access control head-end connection.
+
+A contractor who doesn't read the door schedule is GUARANTEED to miscount card reader / electric strike quantities — often by 50-100%.
+
+HARDWARE-SET CODES that indicate ACCESS CONTROL scope:
+- Electric Strike ("ES", "EL", "ESTK")
+- Magnetic Lock / Mag Lock ("MAG", "ML")
+- Electric Mortise / Electrified Panic ("EM", "EP")
+- Request-to-Exit sensor ("REX", "RTE", "PIR REX")
+- Door Contact / Position Switch ("DC", "DPS")
+- Card Reader ("CR", "RDR", "PROX", "HID")
+- Delayed Egress ("DE")
+- Auto-Operator ("AO", "ADA Op")
+- Electromagnetic Hold-Open ("HO", "EMHO") — fire alarm release point
+- Power Supply ("PS") — may be in spec, allocates to EC vs ELV
+
+YOUR MISSION:
+1. Find the door schedule table on any uploaded architectural or specialty sheet
+2. If the schedule is in the spec (Section 08 71 00 Door Hardware), parse it there too
+3. Extract every door: number, location, hardware set #
+4. For each door, determine if its hardware set triggers ELV scope
+5. Count by ELV component type (card reader, electric strike, mag lock, REX, door contact)
+
+Return ONLY valid JSON:
+{
+  "schedule_found": true|false,
+  "schedule_source": "Sheet A-601 / Spec 08 71 00",
+  "total_doors": 0,
+  "doors": [
+    {
+      "door_no": "101A",
+      "location": "Main Entry Lobby",
+      "type": "hollow_metal|wood|glass|aluminum",
+      "width": "3'-0\\"",
+      "hardware_set": "HW-4",
+      "fire_rating": "90 min|none|20 min",
+      "elv_components": ["card_reader", "electric_strike", "REX", "door_contact"],
+      "access_controlled": true,
+      "needs_rough_in": true,
+      "notes": "Dual-leaf with electrified panic"
+    }
+  ],
+  "access_control_doors": [
+    { "door_no": "101A", "components": ["reader", "strike", "REX", "DC"] }
+  ],
+  "hardware_summary": {
+    "card_readers_from_schedule": 0,
+    "electric_strikes": 0,
+    "mag_locks": 0,
+    "rex_sensors": 0,
+    "door_contacts": 0,
+    "auto_operators": 0,
+    "hold_opens": 0,
+    "delayed_egress": 0
+  },
+  "comparison_to_plans": "Door schedule shows 12 AC doors; security plan T-1.0 shows 10 readers — 2 doors missing from plan, verify scope",
+  "confidence": 90,
+  "notes": ""
+}
+
+CRITICAL: The door schedule is the AUTHORITATIVE source for access control quantities — more authoritative than the security floor plan symbol count. If the door schedule says 12 card readers and the plan shows 10, the schedule is almost always right and the plan is missing 2.`,
 
       // ── BRAIN 26: Overlap Detector (Wave 3.5) ───────────────────
       OVERLAP_DETECTOR: () => {
@@ -8155,6 +8619,86 @@ ${legendContext}
 
     context.wave0 = wave0Results;
 
+    // ═══ WAVE 0.3: Preflight Gates — Prevailing Wage + Sheet Inventory (v5.124.5) ═══
+    // These run BEFORE Wave 0.35 so they can:
+    //   (1) Force Davis-Bacon rates into the labor calculator before anything is priced
+    //   (2) Hard-stop analysis if the uploaded sheet set is insufficient (coverage < 50%)
+    // Non-fatal: if either brain fails, downstream brains still run with a warning.
+    try {
+      // Pre-compute uploaded plan count for the Sheet Inventory Guard prompt
+      context._uploadedPlanCount = (encodedFiles.plans || []).length;
+
+      progressCallback(7, '⚖️ Wave 0.3: Prevailing wage + sheet inventory preflight…', this._brainStatus);
+      const wave03Results = await this._runWave(0.3, ['PREVAILING_WAGE_DETECTOR', 'SHEET_INVENTORY_GUARD'], encodedFiles, state, context, progressCallback);
+      context.wave0_3 = wave03Results;
+
+      // ── Prevailing Wage outcome ──
+      const pw = wave03Results.PREVAILING_WAGE_DETECTOR;
+      if (pw && !pw._failed && !pw._parseFailed) {
+        const forceDB = pw.requires_davis_bacon === true;
+        const forceState = pw.requires_state_prevailing_wage === true;
+        const forcePLA = pw.requires_pla === true;
+        if (forceDB || forceState || forcePLA) {
+          context._prevailingWageRequired = true;
+          context._prevailingWageType = forceDB ? 'davis_bacon' : (forceState ? 'state' : 'pla');
+          context._prevailingWageJurisdiction = pw.state_jurisdiction || (forceDB ? 'federal' : null);
+          context._prevailingWageAgency = pw.agency_or_owner || null;
+          context._prevailingWageDetermination = pw.wage_determination || null;
+          context._prevailingWageMultiplier = parseFloat(pw.estimated_labor_rate_multiplier) || (forceDB ? 2.0 : 1.6);
+          state._prevailingWageRequired = true;
+          state._prevailingWageDetection = pw;
+          console.warn(`[SmartBrains] ⚖️  PREVAILING WAGE REQUIRED — ${context._prevailingWageType.toUpperCase()}${pw.agency_or_owner ? ' (' + pw.agency_or_owner + ')' : ''}`);
+          console.warn(`[SmartBrains]    Labor rate multiplier forced to ${context._prevailingWageMultiplier}x — downstream Labor Calculator must use this`);
+          if (Array.isArray(pw.indicators)) {
+            for (const ind of pw.indicators.slice(0, 5)) {
+              console.warn(`[SmartBrains]    → Trigger: "${ind.text}" (${ind.source}, ${ind.confidence}%)`);
+            }
+          }
+          context._brainInsights = context._brainInsights || [];
+          context._brainInsights.push({
+            source: 'PREVAILING_WAGE_DETECTOR',
+            type: 'prevailing_wage',
+            detail: `${context._prevailingWageType.toUpperCase()} required — ${pw.agency_or_owner || 'unknown agency'} — labor multiplier ${context._prevailingWageMultiplier}x`,
+          });
+        } else {
+          context._prevailingWageRequired = false;
+          state._prevailingWageRequired = false;
+          state._prevailingWageDetection = pw;
+          console.log('[SmartBrains] ⚖️  Prevailing wage not detected — proceeding with open-shop rates');
+        }
+      }
+
+      // ── Sheet Inventory Guard outcome ──
+      const sig = wave03Results.SHEET_INVENTORY_GUARD;
+      if (sig && !sig._failed && !sig._parseFailed) {
+        context._sheetInventory = sig;
+        state._sheetInventory = sig;
+        const coverage = parseFloat(sig.coverage_pct) || 0;
+        const status = (sig.status || '').toLowerCase();
+        console.log(`[SmartBrains] 📑 Sheet Inventory: ${coverage}% coverage — status=${status}`);
+        if (Array.isArray(sig.missing_sheets) && sig.missing_sheets.length > 0) {
+          console.warn(`[SmartBrains]    ⚠ ${sig.missing_sheets.length} required sheet(s) appear MISSING:`);
+          for (const ms of sig.missing_sheets.slice(0, 10)) {
+            console.warn(`[SmartBrains]       → ${ms.sheet_no}: ${ms.title || ''} (${ms.why_needed || ''})`);
+          }
+        }
+        if (status === 'insufficient') {
+          context._sheetInventoryInsufficient = true;
+          state._sheetInventoryInsufficient = true;
+          console.warn(`[SmartBrains] ⛔ SHEET INVENTORY INSUFFICIENT — analysis will continue but quantities will be flagged as unverified`);
+        }
+        context._brainInsights = context._brainInsights || [];
+        context._brainInsights.push({
+          source: 'SHEET_INVENTORY_GUARD',
+          type: 'sheet_coverage',
+          detail: `${coverage}% coverage (${sig.uploaded_relevant_sheet_count || 0}/${sig.total_relevant_sheets || 0} relevant sheets) — ${status}`,
+        });
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Wave 0.3 preflight errored (non-fatal):', e.message);
+      context.wave0_3 = {};
+    }
+
     // ═══ WAVE 0.35: Building Profile Inference (1 brain, Pro model) — NON-FATAL ═══
     try {
       progressCallback(8, '🏛️ Wave 0.35: Inferring building profile — SF, rooms, floors…', this._brainStatus);
@@ -8259,9 +8803,11 @@ ${legendContext}
       progressCallback(11.5, `📋 ${addendaFiles.length} addendum file(s) merged into analysis`, this._brainStatus);
     }
 
-    // ═══ WAVE 1: First Read — Document Intelligence (8 parallel brains) ═══
-    progressCallback(12, '🔍 Wave 1: First Read — 8 brains scanning…', this._brainStatus);
-    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR', 'SCOPE_EXCLUSION_SCANNER'];
+    // ═══ WAVE 1: First Read — Document Intelligence (13 parallel brains in v5.124.5) ═══
+    progressCallback(12, '🔍 Wave 1: First Read — 13 brains scanning…', this._brainStatus);
+    const wave1Keys = ['SYMBOL_SCANNER', 'CODE_COMPLIANCE', 'MDF_IDF_ANALYZER', 'CABLE_PATHWAY', 'SPECIAL_CONDITIONS', 'SPEC_CROSS_REF', 'ANNOTATION_READER', 'RISER_DIAGRAM_ANALYZER', 'DEVICE_LOCATOR', 'SCOPE_EXCLUSION_SCANNER',
+      // v5.124.5 additions
+      'SCOPE_DELINEATION_SCANNER', 'KEYNOTE_EXTRACTOR', 'DOOR_SCHEDULE_PARSER'];
     const wave1Results = await this._runWave(1, wave1Keys, filteredEncodedFiles, state, context, progressCallback);
     context.wave1 = wave1Results;
 
@@ -8326,7 +8872,127 @@ ${legendContext}
       };
     }
 
-    console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (8 brains) ═══');
+    console.log('[SmartBrains] ═══ Wave 1 Complete — First Read done (13 brains) ═══');
+
+    // ═══ POST-WAVE 1 (v5.124.5): Process new brain outputs ═══
+
+    // ── Scope Delineation Scanner → feed into brain insights + scope summary ──
+    try {
+      const sds = wave1Results.SCOPE_DELINEATION_SCANNER;
+      if (sds && !sds._failed && !sds._parseFailed) {
+        context._scopeDelineations = sds;
+        state._scopeDelineations = sds;
+        const delineations = Array.isArray(sds.delineations) ? sds.delineations : [];
+        const critical = delineations.filter(d => d.severity === 'critical');
+        console.log(`[SmartBrains] 🛂 Scope Delineation Scanner — ${delineations.length} delineation(s) found (${critical.length} critical)`);
+        for (const d of critical.slice(0, 10)) {
+          console.warn(`[SmartBrains]   ⚠ ${d.phrase_type.toUpperCase()}: "${d.exact_phrase}" → ${d.affected_scope} (${d.contractor_responsibility})`);
+        }
+        // Feed delineations into brain insights so Material Pricer and Labor Calculator see them
+        for (const d of delineations.slice(0, 20)) {
+          context._brainInsights.push({
+            source: 'SCOPE_DELINEATION_SCANNER',
+            type: 'scope_delineation',
+            detail: `${d.phrase_type.toUpperCase()} — ${d.affected_scope}: "${d.exact_phrase}" [${d.source_location}] → ${d.estimated_bom_correction || d.contractor_responsibility}`,
+          });
+        }
+        // Build a quick lookup for downstream brains: device types that are OFOI/NIC/rough-in only
+        const ofoiDeviceTypes = new Set();
+        const nicDeviceTypes = new Set();
+        const roughInOnlyTypes = new Set();
+        for (const d of delineations) {
+          const types = Array.isArray(d.affected_device_types) ? d.affected_device_types : [];
+          if (d.phrase_type === 'OFOI' || d.phrase_type === 'OFCI') types.forEach(t => ofoiDeviceTypes.add(t.toLowerCase()));
+          if (d.phrase_type === 'NIC' || d.phrase_type === 'by_others' || d.phrase_type === 'future') types.forEach(t => nicDeviceTypes.add(t.toLowerCase()));
+          if (d.phrase_type === 'rough_in_only') types.forEach(t => roughInOnlyTypes.add(t.toLowerCase()));
+        }
+        context._ofoiDeviceTypes = Array.from(ofoiDeviceTypes);
+        context._nicDeviceTypes = Array.from(nicDeviceTypes);
+        context._roughInOnlyDeviceTypes = Array.from(roughInOnlyTypes);
+        state._ofoiDeviceTypes = context._ofoiDeviceTypes;
+        state._nicDeviceTypes = context._nicDeviceTypes;
+        state._roughInOnlyDeviceTypes = context._roughInOnlyDeviceTypes;
+        if (ofoiDeviceTypes.size > 0) {
+          console.warn(`[SmartBrains]    → OFOI device types (material cost = $0): ${Array.from(ofoiDeviceTypes).join(', ')}`);
+        }
+        if (nicDeviceTypes.size > 0) {
+          console.warn(`[SmartBrains]    → NIC device types (skip entirely): ${Array.from(nicDeviceTypes).join(', ')}`);
+        }
+        if (roughInOnlyTypes.size > 0) {
+          console.warn(`[SmartBrains]    → Rough-in only (labor yes, material no): ${Array.from(roughInOnlyTypes).join(', ')}`);
+        }
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Scope Delineation post-processing failed (non-fatal):', e.message);
+    }
+
+    // ── Keynote Extractor → feed scope gotchas into insights ──
+    try {
+      const ke = wave1Results.KEYNOTE_EXTRACTOR;
+      if (ke && !ke._failed && !ke._parseFailed) {
+        context._keynotes = ke;
+        state._keynotes = ke;
+        const gotchas = Array.isArray(ke.scope_gotchas) ? ke.scope_gotchas : [];
+        const totalKeynotes = parseInt(ke.total_keynotes_found) || (Array.isArray(ke.keynotes) ? ke.keynotes.length : 0);
+        console.log(`[SmartBrains] 🏷️  Keynote Extractor — ${totalKeynotes} keynote(s) across ${ke.sheets_analyzed || 0} sheet(s), ${gotchas.length} scope gotcha(s)`);
+        for (const g of gotchas.slice(0, 10)) {
+          console.warn(`[SmartBrains]   ⚠ ${g.sheet}: "${g.quote}" — ${g.why_gotcha} (${g.severity})`);
+          context._brainInsights.push({
+            source: 'KEYNOTE_EXTRACTOR',
+            type: 'keynote_gotcha',
+            detail: `${g.sheet}: "${g.quote}" — ${g.why_gotcha}`,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Keynote Extractor post-processing failed (non-fatal):', e.message);
+    }
+
+    // ── Door Schedule Parser → cross-check against Symbol Scanner access control counts ──
+    try {
+      const dsp = wave1Results.DOOR_SCHEDULE_PARSER;
+      if (dsp && !dsp._failed && !dsp._parseFailed) {
+        context._doorSchedule = dsp;
+        state._doorSchedule = dsp;
+        const hw = dsp.hardware_summary || {};
+        console.log(`[SmartBrains] 🚪 Door Schedule Parser — ${dsp.total_doors || 0} total door(s), ${(dsp.access_control_doors || []).length} access-controlled`);
+        console.log(`[SmartBrains]    Schedule hardware counts: readers=${hw.card_readers_from_schedule || 0}, strikes=${hw.electric_strikes || 0}, mags=${hw.mag_locks || 0}, REX=${hw.rex_sensors || 0}, contacts=${hw.door_contacts || 0}`);
+
+        // Cross-check against Symbol Scanner plan counts
+        const planCounts = wave1Results.SYMBOL_SCANNER?.totals || {};
+        const planReaders = parseInt(planCounts.card_reader || planCounts.reader || planCounts.CR || 0) || 0;
+        const scheduleReaders = parseInt(hw.card_readers_from_schedule) || 0;
+        if (scheduleReaders > 0 && planReaders > 0 && Math.abs(scheduleReaders - planReaders) >= 2) {
+          const authoritative = Math.max(scheduleReaders, planReaders);
+          console.warn(`[SmartBrains]    ⚠ MISMATCH: schedule says ${scheduleReaders} readers, plan shows ${planReaders} — using ${authoritative} (schedule is usually authoritative)`);
+          context._brainInsights.push({
+            source: 'DOOR_SCHEDULE_PARSER',
+            type: 'door_schedule_mismatch',
+            detail: `Door schedule shows ${scheduleReaders} card readers but symbol scanner found ${planReaders} on plans. Discrepancy of ${Math.abs(scheduleReaders - planReaders)} — verify before bid submission. Door schedule is typically authoritative.`,
+          });
+        } else if (scheduleReaders > 0) {
+          context._brainInsights.push({
+            source: 'DOOR_SCHEDULE_PARSER',
+            type: 'door_schedule',
+            detail: `${scheduleReaders} card reader(s), ${hw.electric_strikes || 0} electric strike(s), ${hw.mag_locks || 0} mag lock(s) confirmed from door schedule`,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Door Schedule post-processing failed (non-fatal):', e.message);
+    }
+
+    // ── Merge Sheet Inventory Guard's insufficient status into the quantities-verified guard ──
+    // If Wave 0.3 already detected insufficient coverage, the quantities-verified logic below
+    // will also fire, but the root cause reason should reference the sheet inventory finding.
+    if (context._sheetInventoryInsufficient && context._sheetInventory) {
+      const sig = context._sheetInventory;
+      const existingReason = context._quantitiesUnverifiedReason || '';
+      const coverage = parseFloat(sig.coverage_pct) || 0;
+      const missingCount = Array.isArray(sig.missing_sheets) ? sig.missing_sheets.length : 0;
+      context._quantitiesUnverifiedReason = `Sheet Inventory Guard detected only ${coverage}% coverage (${missingCount} relevant sheet(s) missing from upload). ${existingReason}`.trim();
+    }
+
 
     // ═══ SESSION MEMORY: Extract Wave 1 insights for downstream brains ═══
     try {
@@ -9479,8 +10145,21 @@ ${legendContext}
       confidenceScoring: context._confidenceScoring || null,
       quantitiesUnverified: context._quantitiesUnverified || false,
       quantitiesUnverifiedReason: context._quantitiesUnverifiedReason || '',
+      // v5.124.5: New brain outputs surfaced to the app
+      prevailingWageDetection: context.wave0_3?.PREVAILING_WAGE_DETECTOR || null,
+      prevailingWageRequired: context._prevailingWageRequired || false,
+      prevailingWageType: context._prevailingWageType || null,
+      prevailingWageMultiplier: context._prevailingWageMultiplier || 1.0,
+      sheetInventory: context._sheetInventory || null,
+      sheetInventoryInsufficient: context._sheetInventoryInsufficient || false,
+      scopeDelineations: context._scopeDelineations || null,
+      ofoiDeviceTypes: context._ofoiDeviceTypes || [],
+      nicDeviceTypes: context._nicDeviceTypes || [],
+      roughInOnlyDeviceTypes: context._roughInOnlyDeviceTypes || [],
+      keynotes: context._keynotes || null,
+      doorSchedule: context._doorSchedule || null,
       brainResults: {
-        wave0: wave0Results, wave0_35: context.wave0_35 || null, wave0_75: context.wave0_75 || null,
+        wave0: wave0Results, wave0_3: context.wave0_3 || null, wave0_35: context.wave0_35 || null, wave0_75: context.wave0_75 || null,
         wave1: wave1Results, wave1_5: wave15Results,
         wave1_75: wave175Results, wave2: wave2Results, wave2_25: wave225Results,
         wave2_5_fin: wave25FinResults, wave2_75: wave275Results,
