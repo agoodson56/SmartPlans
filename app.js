@@ -11512,6 +11512,7 @@ async function runGeminiAnalysis(updateProgress) {
     state.aiAnalysis = result.report;
     state.aiError = null;
     state.brainResults = result.brainResults;
+    _invalidateBomCache(); // CRITICAL: Force fresh BOM computation with new analysis data
     state.brainStats = result.stats;
 
     // ─── Local Math Validation (belt and suspenders) ───
@@ -12416,6 +12417,13 @@ function _restoreStateFromPayload(id, pkg, est) {
   if (pkg?.project?.salesperson) {
     state.salesperson = pkg.project.salesperson;
     _applySalesperson(state.salesperson);
+  }
+  // CRITICAL: Restore text layer page texts so saved bids get deterministic corrections.
+  // Without this, _ocrPageTexts is empty on reload and text layer corrections are skipped,
+  // causing $100K+ drift (679 drops instead of 321, fire alarm not zeroed, etc.)
+  if (pkg?.project?._ocrPageTexts && Object.keys(pkg.project._ocrPageTexts).length > 0) {
+    state._ocrPageTexts = pkg.project._ocrPageTexts;
+    console.log(`[TextLayer] Restored ${Object.keys(state._ocrPageTexts).length} page texts from saved estimate — text layer corrections will be active`);
   }
   // Transit auto-detect is deferred until AFTER markup restore (line ~9329) to avoid
   // overwriting saved markups. See _restoreTransitAutoDetect() called below.

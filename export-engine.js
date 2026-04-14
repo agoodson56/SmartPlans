@@ -94,6 +94,10 @@ const SmartPlansExport = {
                 ceilingHeight: state.ceilingHeight || 10,
                 floorToFloorHeight: state.floorToFloorHeight || 14,
                 salesperson: state.salesperson || null,
+                // CRITICAL: Save text layer page texts so saved bids get the same
+                // deterministic corrections on reload. Without this, _ocrPageTexts
+                // is empty on reload and ALL text layer corrections are skipped.
+                _ocrPageTexts: state._ocrPageTexts || null,
             },
 
             documents: {
