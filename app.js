@@ -6244,6 +6244,10 @@ function _getCableRatePerFt(type, rating) {
 // ONLY when zone data is available and quantities have improved confidence.
 function injectCalculatedCableQuantities(bom) {
   if (!state.brainResults) return bom; // Guard: analysis not complete yet
+  // CRITICAL: Prevent corrections from running multiple times on the same BOM.
+  // Every render calls getFilteredBOM → injectCalculatedCableQuantities.
+  // Without this guard, corrections compound and add $200K+ on each reload.
+  if (bom._correctionsApplied) return bom;
   const pathway = computePathwayDistances();
 
   // Normalize keys to match the simplified BOM lookup keys (cat6a, cat6, cat5e, etc.)
@@ -7547,7 +7551,7 @@ function injectCalculatedCableQuantities(bom) {
   }
 
   const newGrandTotal = cleanedCategories.reduce((s, c) => s + (c.subtotal || 0), 0);
-  return { ...bom, categories: cleanedCategories, grandTotal: Math.round(newGrandTotal * 100) / 100 };
+  return { ...bom, categories: cleanedCategories, grandTotal: Math.round(newGrandTotal * 100) / 100, _correctionsApplied: true };
 }
 
 // ─── Step 6: Travel, Per Diem & Incidentals ───
