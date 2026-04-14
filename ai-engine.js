@@ -115,6 +115,8 @@ const SmartBrains = {
     LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 65536, useProModel: true },
     PLAN_LEGEND_SCANNER: { id: 0.25, name: 'Plan Legend Scanner', wave: 0, emoji: '🗺️', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
+    // ── Wave 0.35: Building Profile Inference (infers SF, rooms, floors from plans) ──
+    BUILDING_PROFILER: { id: 32, name: 'Building Profiler', wave: 0.35, emoji: '🏛️', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
     // ── Wave 0.75: RFP Criteria Parsing (reads specs for evaluation scoring) ──
     RFP_CRITERIA_PARSER: { id: 30, name: 'RFP Criteria Parser', wave: 0.75, emoji: '🏅', needsFiles: ['specs'], maxTokens: 32768, useProModel: true },
     // ── Wave 1: First Read — Document Intelligence ──
@@ -148,6 +150,8 @@ const SmartBrains = {
     // ── Wave 3: Adversarial Audit (Gemini 3.1 Pro deep reasoning) ──
     CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 65536, useProModel: true },
     DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
+    // ── Wave 3.25: Spec Compliance Checker (reads specs + BOM, ensures every spec requirement has a BOM item) ──
+    SPEC_COMPLIANCE_CHECKER: { id: 33, name: 'Spec Compliance Checker', wave: 3.25, emoji: '📜', needsFiles: ['specs'], maxTokens: 65536, useProModel: true },
     // ── Wave 3.5: 4th, 5th, 6th Read — Deep Accuracy Pass (3 brains, Pro model) ──
     DETAIL_VERIFIER: { id: 18, name: 'Detail Verifier', wave: 3.5, emoji: '🔎', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     CROSS_SHEET_ANALYZER: { id: 19, name: 'Cross-Sheet Analyzer', wave: 3.5, emoji: '📊', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
@@ -3695,12 +3699,18 @@ Each item MUST have ALL of these fields:
           return `  - ${d}: ${items || 'CHECK SYMBOL DATA FOR EXACT COUNTS'}`;
         }).join('\n');
 
+        const bp = context._buildingProfile || {};
         return `You are a CONSTRUCTION MATERIAL PRICING SPECIALIST. Calculate exact material costs.
 
 PROJECT: ${context.projectName}
 PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}× multiplier)
 MATERIAL MARKUP: ${context.markup?.material || 50}%
-
+${bp.total_gross_sf ? `\n═══ BUILDING PROFILE (from Building Profiler — use for validation) ═══
+Building Type: ${bp.building_type || 'unknown'} ${bp.building_subtype ? '(' + bp.building_subtype + ')' : ''}
+Total SF: ${(bp.total_gross_sf || 0).toLocaleString()} | Floors: ${bp.num_floors || '?'} | Rooms: ${bp.total_rooms || '?'} | Doors: ${bp.total_doors || '?'}
+Ceiling: ${bp.ceiling_type || 'unknown'} | Corridors: ${bp.corridor_total_lf || '?'} LF | Elevators: ${bp.elevators || 0} | Stairwells: ${bp.stairwells || 0}
+MDF/IDF Rooms: ${bp.special_spaces?.mdf_idf_rooms || '?'} | Parking: ${bp.parking?.type || 'unknown'} (${bp.parking?.stalls || '?'} stalls)
+USE THIS PROFILE TO VALIDATE YOUR QUANTITIES — e.g., card readers should roughly match door count, cameras should cover corridors and parking.\n` : ''}
 ═══ SELECTED DISCIPLINES ═══
 ${disciplineChecklist}
 
@@ -5643,6 +5653,64 @@ RULES:
 - The "building_dimensions" is the OVERALL envelope (largest extents across all sheets)
 - If a zone spans multiple sheets at different scales, use the sheet where its centroid falls`,
 
+      // ── BRAIN 32: Building Profiler (Wave 0.35) ──────────────
+      BUILDING_PROFILER: () => `You are a BUILDING PROFILE INFERENCE ENGINE for construction documents. You analyze architectural plans, floor plans, and site plans to infer the building's physical characteristics BEFORE any device counting begins. Your profile becomes the GROUND TRUTH that all downstream brains validate against.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+YOUR MISSION: Infer the building's physical profile from the construction drawings. This profile will be used by 30+ downstream brains to validate their counts and catch errors.
+
+WHAT TO EXTRACT:
+1. **Building Envelope**: Approximate total square footage (gross and usable), number of floors, building footprint dimensions
+2. **Room Inventory**: Count and classify every room visible on floor plans — offices, conference rooms, restrooms, lobbies, corridors, storage, mechanical, server/telecom rooms, break rooms, exam rooms, patient rooms, nurse stations, etc.
+3. **Floor-by-Floor Breakdown**: SF per floor, room count per floor, room types per floor
+4. **Building Type Indicators**: Healthcare (exam rooms, nurse stations, patient rooms), Office (cubicle farms, conference rooms), Education (classrooms, labs), Retail (sales floor, stockroom), Government/VA (security checkpoints, waiting rooms)
+5. **Door Count**: Total doors visible (critical for access control scope estimation)
+6. **Ceiling Type**: Drop ceiling, open plenum, hard lid — affects cable pathway routing
+7. **Corridor/Hallway Length**: Approximate total linear feet of corridors (affects camera counts, cable pathways)
+8. **Parking Areas**: Garage levels, surface lots, total stalls (affects CCTV scope)
+9. **Exterior Perimeter**: Approximate linear feet (affects perimeter security cameras)
+10. **Special Spaces**: Data centers, MDF/IDF rooms, security command centers, loading docks, elevators (count)
+
+MEASUREMENT RULES:
+- Use architectural scale bars, title block scales, or door widths (standard 3'-0") as reference
+- If multiple floors have identical layouts, note "typical floor" and multiply
+- Round SF to nearest 100 SF, corridor lengths to nearest 10 LF
+- If you can't determine SF precisely, provide a range (e.g., 15,000-18,000 SF)
+
+BUILDING TYPE AUTO-DETECTION:
+- If you see exam rooms, nurse stations, patient rooms → Healthcare/Medical
+- If you see classrooms, labs, gymnasium → Education/K-12 or Higher Ed
+- If you see courtrooms, holding cells, sally ports → Justice/Correctional
+- If you see retail floor, POS locations, stockroom → Retail
+- If you see open office, cubicles, executive suites → Commercial Office
+- If VA/Veterans Affairs appears in title block → Government/VA Healthcare
+
+Return ONLY valid JSON:
+{
+  "building_type": "healthcare|office|education|retail|government|industrial|mixed_use",
+  "building_subtype": "VA clinic|medical office building|hospital|elementary school|etc.",
+  "total_gross_sf": 0,
+  "total_usable_sf": 0,
+  "num_floors": 0,
+  "num_buildings": 1,
+  "floors": [
+    { "name": "1st Floor", "sf": 0, "rooms": 0, "room_types": { "office": 0, "conference": 0, "restroom": 0, "corridor": 0, "lobby": 0, "exam_room": 0, "storage": 0, "telecom": 0, "mechanical": 0, "break_room": 0, "other": 0 } }
+  ],
+  "total_rooms": 0,
+  "total_doors": 0,
+  "ceiling_type": "drop_ceiling|open_plenum|hard_lid|mixed",
+  "corridor_total_lf": 0,
+  "parking": { "type": "surface|garage|both|none", "levels": 0, "stalls": 0 },
+  "exterior_perimeter_lf": 0,
+  "elevators": 0,
+  "stairwells": 0,
+  "special_spaces": { "mdf_idf_rooms": 0, "security_rooms": 0, "loading_docks": 0, "data_centers": 0 },
+  "confidence": 85,
+  "notes": "Any important observations about the building layout"
+}`,
+
       // ── BRAIN 30: RFP Criteria Parser (Wave 0.75) ──────────────
       RFP_CRITERIA_PARSER: () => `You are an RFP/BID EVALUATION CRITERIA ANALYST. Your job is to extract the SCORING CRITERIA, EVALUATION MATRIX, and SELECTION FACTORS from project specifications, RFP documents, and invitation-to-bid documents.
 
@@ -6762,20 +6830,46 @@ Return ONLY valid JSON:
 }`,
 
       // ── BRAIN 25: Per-Floor Analyzer (Wave 1.5) ─────────────────
-      PER_FLOOR_ANALYZER: () => `You are a PER-FLOOR INDEPENDENT ANALYZER for ELV construction documents. You analyze each floor as a SEPARATE ENTITY and compare results to find floor-specific anomalies.
+      PER_FLOOR_ANALYZER: () => {
+        const bp = context._buildingProfile || context.wave0_35?.BUILDING_PROFILER || {};
+        return `You are a PER-FLOOR INDEPENDENT ANALYZER with ROOM-BY-ROOM WALKTHROUGH capability for ELV construction documents. You analyze each floor as a SEPARATE ENTITY, walk through every room, and compare results to find floor-specific anomalies.
 
 PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
+${bp.total_gross_sf ? `BUILDING PROFILE: ${bp.building_type || 'unknown'} — ${(bp.total_gross_sf || 0).toLocaleString()} SF, ${bp.num_floors || '?'} floors, ${bp.total_rooms || '?'} rooms, ${bp.total_doors || '?'} doors` : ''}
 
 LEGEND DICTIONARY:
 ${JSON.stringify(context.wave0?.LEGEND_DECODER || {}, null, 2).substring(0, 3000)}
 
-YOUR METHOD — FLOOR-BY-FLOOR ISOLATION:
+YOUR METHOD — FLOOR-BY-FLOOR + ROOM-BY-ROOM WALKTHROUGH:
 1. Group sheets by floor (1st Floor, 2nd Floor, 3rd Floor, Basement, Roof, etc.)
 2. For EACH floor independently:
    a. Count all devices by type
    b. Calculate density (devices per sq ft or per room)
    c. Note any floor-specific requirements
+3. ROOM-BY-ROOM WALKTHROUGH (NEW — Critical for accuracy):
+   For EACH identifiable room on the plans:
+   a. Identify room function (office, conference, restroom, lobby, exam room, corridor, etc.)
+   b. List what devices ARE shown in the room
+   c. List what devices SHOULD be in the room based on its function
+   d. Flag any MISSING devices (e.g., conference room with no WAP, exam room with no data outlet)
+   e. Flag any EXCESS devices (e.g., storage closet with a card reader)
+
+ROOM-TYPE EXPECTED DEVICES (validate against these):
+- Office: 1-2 data outlets, 1 WAP per 2500 SF
+- Conference Room: 2-4 data outlets, 1 WAP, 1 display/AV connection, possible ceiling speaker
+- Restroom: Possibly nurse call pull cord (healthcare), no data typically
+- Lobby/Reception: Data outlets, WAP, camera, card reader at entry, possibly intercom
+- Exam Room (Healthcare): 2-4 data outlets, nurse call station, possibly medical gas alarm
+- Patient Room (Healthcare): 2-4 data outlets, nurse call station, pillow speaker, TV data
+- Corridor: Cameras at intersections, WAPs every 60-80 ft, fire alarm devices every 30 ft max
+- Server/Telecom Room: Multiple data outlets, environmental sensors, camera, card reader, UPS
+- Stairwell: Camera, card reader (if secured), fire alarm pull station + horn/strobe
+- Elevator Lobby: Camera, card reader, fire alarm devices
+- Loading Dock: Camera, intercom, card reader
+- Break Room/Kitchen: 1-2 data outlets, WAP coverage
+- Mechanical Room: Environmental sensors, access control if secured
+
 3. COMPARE floors against each other:
    a. Are typical floors consistent? If Floor 2 has 40 data outlets but Floor 3 has only 15, investigate.
    b. Are ground floors different from upper floors (more security, different cabling)?
@@ -6795,6 +6889,18 @@ Return ONLY valid JSON:
     { "floor": "1st Floor", "sheets": ["E1.01", "E1.02"], "device_counts": { "data_outlet": 45, "camera": 12, "card_reader": 8 }, "total_devices": 65, "notes": "Lobby has higher camera density" },
     { "floor": "2nd Floor", "sheets": ["E2.01"], "device_counts": { "data_outlet": 52, "camera": 6, "card_reader": 4 }, "total_devices": 62, "notes": "Typical office floor" }
   ],
+  "room_walkthrough": [
+    { "floor": "1st Floor", "room": "Lobby", "room_type": "lobby", "devices_present": ["data_outlet:4", "camera:2", "card_reader:1", "WAP:1"], "devices_expected": ["data_outlet:2-4", "camera:1-2", "card_reader:1", "WAP:1"], "missing": [], "excess": [], "status": "complete" },
+    { "floor": "1st Floor", "room": "Conference Room A", "room_type": "conference", "devices_present": ["data_outlet:2"], "devices_expected": ["data_outlet:2-4", "WAP:1", "display_connection:1"], "missing": ["WAP", "display_connection"], "excess": [], "status": "incomplete" }
+  ],
+  "room_summary": {
+    "total_rooms_inspected": 0,
+    "rooms_complete": 0,
+    "rooms_incomplete": 0,
+    "rooms_with_excess": 0,
+    "total_missing_devices": 0,
+    "critical_missing": []
+  },
   "floor_comparisons": [
     { "comparison": "Floor 2 vs Floor 3", "consistent": true, "variance_pct": 5, "notes": "Within normal range" }
   ],
@@ -6803,7 +6909,84 @@ Return ONLY valid JSON:
   ],
   "total_floors": 0,
   "total_devices_all_floors": 0
-}`,
+}`;
+      },
+
+      // ── BRAIN 33: Spec Compliance Checker (Wave 3.25) ──────────
+      SPEC_COMPLIANCE_CHECKER: () => {
+        const pricer = context.wave2?.MATERIAL_PRICER || {};
+        const bomItems = (pricer.categories || pricer.material_categories || []).flatMap(c => (c.items || []).map(i => i.item || i.device_type || i.name || ''));
+        const specCrossRef = context.wave1?.SPEC_CROSS_REF || {};
+        const buildingProfile = context.wave0_35?.BUILDING_PROFILER || {};
+        return `You are a SPECIFICATION COMPLIANCE AUDITOR. You compare every requirement in the project specifications against the Bill of Materials to find GAPS — spec requirements that have NO corresponding BOM line item.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+BUILDING PROFILE: ${JSON.stringify(buildingProfile, null, 2).substring(0, 2000)}
+
+CURRENT BOM LINE ITEMS (from Material Pricer):
+${bomItems.slice(0, 200).join('\n')}
+
+SPEC CROSS-REFERENCE DATA:
+${JSON.stringify(specCrossRef, null, 2).substring(0, 3000)}
+
+YOUR MISSION: Read every specification section relevant to the selected disciplines and verify:
+1. Every MATERIAL requirement in the spec has a corresponding BOM line item
+2. Every SYSTEM requirement (e.g., "provide complete access control system") has all sub-components
+3. Every TESTING/COMMISSIONING requirement is noted (these add labor cost)
+4. Every SUBMITTAL requirement is noted (these add engineering time)
+5. Every WARRANTY requirement is noted (affects pricing)
+6. Every TRAINING requirement is noted (adds labor hours)
+
+COMMON SPEC GAPS CONTRACTORS MISS:
+- Spec says "provide conduit" but BOM has no conduit line items
+- Spec says "firestopping at all penetrations" but no firestop material in BOM
+- Spec says "provide labeling per TIA-606-C" but no labels/engraving in BOM
+- Spec says "as-built drawings" but no engineering hours allocated
+- Spec says "provide UPS for head-end" but no UPS in BOM
+- Spec says "seismic bracing per IBC" but no bracing hardware in BOM
+- Spec says "provide spare parts (10%)" but BOM has no spares line
+- Spec says "ICRA barriers required" but no infection control materials in BOM
+- Spec says "prevailing wage applies" — verify labor rates reflect this
+
+SEVERITY LEVELS:
+- critical: Missing item worth >$5,000 or required by code
+- warning: Missing item worth $1,000-$5,000 or affects system completeness
+- info: Minor omission or documentation requirement
+
+Return ONLY valid JSON:
+{
+  "spec_requirements_checked": 0,
+  "requirements_met": 0,
+  "requirements_missing": 0,
+  "compliance_score": 0,
+  "gaps": [
+    {
+      "spec_section": "27 10 00",
+      "requirement": "Provide Category 6A cabling per TIA-568.2-D",
+      "status": "met|missing|partial",
+      "severity": "critical|warning|info",
+      "bom_match": "Cat6A Cable" ,
+      "estimated_cost_if_missing": 0,
+      "recommendation": "Add line item for..."
+    }
+  ],
+  "testing_requirements": [
+    { "spec_section": "27 10 00", "requirement": "100% channel testing with Fluke DTX", "labor_hours_estimate": 40, "in_bom": false }
+  ],
+  "submittal_requirements": [
+    { "spec_section": "01 33 00", "item": "Product data submittals", "engineering_hours": 16, "in_bom": false }
+  ],
+  "warranty_requirements": [
+    { "spec_section": "27 10 00", "duration": "25-year manufacturer system warranty", "cost_impact": "included|additional", "notes": "" }
+  ],
+  "training_requirements": [
+    { "spec_section": "01 79 00", "description": "End-user training (8 hours)", "labor_hours": 8, "in_bom": false }
+  ],
+  "confidence": 85,
+  "notes": ""
+}`;
+      },
 
       // ── BRAIN 26: Overlap Detector (Wave 3.5) ───────────────────
       OVERLAP_DETECTOR: () => {
@@ -7616,11 +7799,11 @@ ${legendContext}
   },
 
   async _runWave(waveNum, brainKeys, encodedFiles, state, context, progressCallback) {
-    const waveStart = { 0: 5, 0.75: 10, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.5: 80, 3.75: 84, 3.85: 88, 4: 92, 4.1: 96 };
-    const waveEnd = { 0: 10, 0.75: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 80, 3.5: 84, 3.75: 88, 3.85: 92, 4: 96, 4.1: 99 };
+    const waveStart = { 0: 5, 0.35: 8, 0.75: 10, 1: 12, 1.5: 35, 1.75: 50, 2: 56, 2.25: 62, 2.5: 68, 2.75: 72, 3: 76, 3.25: 78, 3.5: 80, 3.75: 84, 3.85: 88, 4: 92, 4.1: 96 };
+    const waveEnd = { 0: 8, 0.35: 10, 0.75: 12, 1: 35, 1.5: 50, 1.75: 56, 2: 62, 2.25: 68, 2.5: 72, 2.75: 76, 3: 78, 3.25: 80, 3.5: 84, 3.75: 88, 3.85: 92, 4: 96, 4.1: 99 };
     const baseProgress = waveStart[waveNum] ?? 0;
     const endProgress = waveEnd[waveNum] ?? 100;
-    const waveNames = { 0: 'Legend Pre-Processing', 0.75: 'RFP Criteria Parsing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Material Pricing', 2.25: 'Labor Calculation', 2.5: 'Financial Engine', 2.75: 'Reverse Verification', 3: 'Adversarial Audit', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 3.85: 'Estimate Correction', 4: 'Report Synthesis', 4.1: 'Proposal Writer' };
+    const waveNames = { 0: 'Legend Pre-Processing', 0.35: 'Building Profile', 0.75: 'RFP Criteria Parsing', 1: 'First Read', 1.5: 'Second Read', 1.75: 'Consensus Resolution', 2: 'Material Pricing', 2.25: 'Labor Calculation', 2.5: 'Financial Engine', 2.75: 'Reverse Verification', 3: 'Adversarial Audit', 3.25: 'Spec Compliance Check', 3.5: '4th & 5th Read — Deep Accuracy', 3.75: '6th Read — Final Reconciliation', 3.85: 'Estimate Correction', 4: 'Report Synthesis', 4.1: 'Proposal Writer' };
 
     const results = {};
     let completed = 0;
@@ -7971,6 +8154,30 @@ ${legendContext}
     }
 
     context.wave0 = wave0Results;
+
+    // ═══ WAVE 0.35: Building Profile Inference (1 brain, Pro model) — NON-FATAL ═══
+    try {
+      progressCallback(8, '🏛️ Wave 0.35: Inferring building profile — SF, rooms, floors…', this._brainStatus);
+      const wave035Results = await this._runWave(0.35, ['BUILDING_PROFILER'], encodedFiles, state, context, progressCallback);
+      context.wave0_35 = wave035Results;
+      const bp = wave035Results.BUILDING_PROFILER;
+      if (bp && !bp._failed && !bp._parseFailed) {
+        context._buildingProfile = bp;
+        state._buildingProfile = bp;
+        console.log(`[SmartBrains] 🏛️ Building Profile: ${bp.building_type || 'unknown'} — ${(bp.total_gross_sf || 0).toLocaleString()} SF, ${bp.num_floors || '?'} floor(s), ${bp.total_rooms || '?'} room(s), ${bp.total_doors || '?'} door(s)`);
+        if (bp.floors) {
+          for (const f of bp.floors) {
+            console.log(`[SmartBrains]   📐 ${f.name}: ${(f.sf || 0).toLocaleString()} SF, ${f.rooms || 0} rooms`);
+          }
+        }
+        // Push building profile into session memory so all downstream brains see it
+        context._brainInsights = context._brainInsights || [];
+        context._brainInsights.push({ source: 'BUILDING_PROFILER', type: 'building_profile', detail: `${bp.building_type} — ${(bp.total_gross_sf || 0).toLocaleString()} SF, ${bp.num_floors} floors, ${bp.total_rooms} rooms, ${bp.total_doors} doors, ceiling: ${bp.ceiling_type || 'unknown'}` });
+      }
+    } catch (e) {
+      console.warn('[SmartBrains] Wave 0.35 Building Profiler failed (non-fatal):', e.message);
+      context.wave0_35 = {};
+    }
 
     // ═══ SESSION MEMORY — Shared insight accumulator across all waves ═══
     // Each brain can output an "insights" array of observations that later brains will see.
@@ -8687,6 +8894,121 @@ ${legendContext}
     }
     console.log('[SmartBrains] ═══ Wave 2 Complete — Materials priced ═══');
 
+    // ═══ QUANTITY ANOMALY DETECTOR — Deterministic statistical outlier detection (ZERO AI cost) ═══
+    // Flags items with qty >50× median, cost >40% of category, or unit cost anomalies.
+    if (_pricer && (_pricer.categories || _pricer.material_categories)) {
+      const _anomCats = _pricer.categories || _pricer.material_categories || [];
+      const _anomalies = [];
+      const allItems = _anomCats.flatMap(c => (c.items || []).map(i => ({ ...i, category: c.name || c.category || 'Other' })));
+
+      if (allItems.length > 2) {
+        // Calculate median qty across all items
+        const qtys = allItems.map(i => i.qty || 0).filter(q => q > 0).sort((a, b) => a - b);
+        const medianQty = qtys.length > 0 ? qtys[Math.floor(qtys.length / 2)] : 1;
+
+        // Calculate total BOM cost
+        const totalBOMCost = allItems.reduce((s, i) => s + (i.ext_cost || i.extCost || 0), 0);
+
+        for (const item of allItems) {
+          const qty = item.qty || 0;
+          const extCost = item.ext_cost || item.extCost || 0;
+          const unitCost = item.unit_cost || item.unitCost || 0;
+          const name = item.item || item.device_type || item.name || 'Unknown';
+
+          // Rule 1: Qty >50× the median qty → statistical outlier
+          if (qty > 0 && medianQty > 0 && qty > medianQty * 50) {
+            _anomalies.push({ item: name, category: item.category, type: 'qty_outlier', severity: 'warning', detail: `Qty ${qty} is ${Math.round(qty / medianQty)}× the median (${medianQty})`, qty, medianQty, suggestion: 'Verify this quantity — it may be double-counted or use wrong units' });
+          }
+
+          // Rule 2: Single item >40% of its category subtotal → cost concentration
+          const catItems = allItems.filter(i => i.category === item.category);
+          const catTotal = catItems.reduce((s, i) => s + (i.ext_cost || i.extCost || 0), 0);
+          if (catTotal > 0 && extCost > catTotal * 0.4 && catItems.length > 2) {
+            _anomalies.push({ item: name, category: item.category, type: 'cost_concentration', severity: 'info', detail: `$${extCost.toLocaleString()} is ${Math.round(extCost / catTotal * 100)}% of ${item.category} ($${catTotal.toLocaleString()})`, extCost, catTotal, suggestion: 'Verify pricing — one item dominates this category' });
+          }
+
+          // Rule 3: Unit cost outlier — compare against same-category items
+          const catUnitCosts = catItems.map(i => i.unit_cost || i.unitCost || 0).filter(u => u > 0).sort((a, b) => a - b);
+          if (catUnitCosts.length >= 3 && unitCost > 0) {
+            const catMedianUC = catUnitCosts[Math.floor(catUnitCosts.length / 2)];
+            if (unitCost > catMedianUC * 20 && catMedianUC > 0) {
+              _anomalies.push({ item: name, category: item.category, type: 'unit_cost_outlier', severity: 'warning', detail: `Unit cost $${unitCost.toFixed(2)} is ${Math.round(unitCost / catMedianUC)}× the category median ($${catMedianUC.toFixed(2)})`, unitCost, catMedianUC, suggestion: 'Check if unit cost is per-unit or per-lot' });
+            }
+          }
+
+          // Rule 4: Qty is exactly 1 for items that typically come in multiples
+          const typicalMultiples = /cable|wire|conduit|j-hook|box|connector|bracket|plate|ring|strap|clip|tie/i;
+          if (qty === 1 && typicalMultiples.test(name) && extCost > 500) {
+            _anomalies.push({ item: name, category: item.category, type: 'suspicious_qty_one', severity: 'info', detail: `Qty=1 for "${name}" at $${extCost.toLocaleString()} — this item usually has qty > 1`, qty, extCost, suggestion: 'Verify quantity — may be per-lot pricing instead of per-unit' });
+          }
+        }
+
+        if (_anomalies.length > 0) {
+          context._quantityAnomalies = _anomalies;
+          state._quantityAnomalies = _anomalies;
+          console.log(`[SmartBrains] ═══ QUANTITY ANOMALY DETECTOR: ${_anomalies.length} anomaly/anomalies flagged ═══`);
+          for (const a of _anomalies.slice(0, 5)) {
+            console.log(`[AnomalyDetector] ⚠️ ${a.type}: ${a.item} — ${a.detail}`);
+          }
+        }
+      }
+    }
+
+    // ═══ COST-PER-SF BENCHMARK — Industry $/SF comparison (ZERO AI cost) ═══
+    // Compares total bid against industry benchmarks by building type.
+    if (_pricer && context._buildingProfile) {
+      const bp = context._buildingProfile;
+      const totalSF = bp.total_gross_sf || 0;
+      const grandTotal = _pricer.grand_total || 0;
+
+      if (totalSF > 0 && grandTotal > 0) {
+        const costPerSF = grandTotal / totalSF;
+
+        // Industry benchmarks ($/SF for ELV/low-voltage scope, material only)
+        const benchmarks = {
+          'healthcare':  { low: 8, mid: 14, high: 22, label: 'Healthcare/Medical' },
+          'office':      { low: 5, mid: 9, high: 15, label: 'Commercial Office' },
+          'education':   { low: 6, mid: 11, high: 18, label: 'Education/K-12' },
+          'government':  { low: 8, mid: 15, high: 24, label: 'Government/VA' },
+          'retail':      { low: 3, mid: 6, high: 10, label: 'Retail' },
+          'industrial':  { low: 2, mid: 5, high: 9, label: 'Industrial/Warehouse' },
+          'mixed_use':   { low: 5, mid: 10, high: 18, label: 'Mixed Use' },
+        };
+
+        const bType = (bp.building_type || 'office').toLowerCase();
+        const bench = benchmarks[bType] || benchmarks['office'];
+
+        let rating = 'normal';
+        let ratingEmoji = '✅';
+        if (costPerSF < bench.low * 0.7) { rating = 'suspiciously_low'; ratingEmoji = '🔴'; }
+        else if (costPerSF < bench.low) { rating = 'below_range'; ratingEmoji = '🟡'; }
+        else if (costPerSF > bench.high * 1.3) { rating = 'suspiciously_high'; ratingEmoji = '🔴'; }
+        else if (costPerSF > bench.high) { rating = 'above_range'; ratingEmoji = '🟡'; }
+        else { rating = 'within_range'; ratingEmoji = '✅'; }
+
+        const costPerSFData = {
+          building_type: bench.label,
+          total_sf: totalSF,
+          grand_total: grandTotal,
+          cost_per_sf: Math.round(costPerSF * 100) / 100,
+          benchmark_low: bench.low,
+          benchmark_mid: bench.mid,
+          benchmark_high: bench.high,
+          rating: rating,
+          percentile: Math.min(100, Math.max(0, Math.round(((costPerSF - bench.low) / (bench.high - bench.low)) * 100))),
+          analysis: rating === 'suspiciously_low' ? 'Cost is significantly below industry range — likely missing scope items or using below-market pricing'
+                  : rating === 'below_range' ? 'Cost is below typical range — verify all scope items are included'
+                  : rating === 'above_range' ? 'Cost is above typical range — consider value engineering opportunities'
+                  : rating === 'suspiciously_high' ? 'Cost is significantly above industry range — check for quantity over-counts or inflated unit costs'
+                  : 'Cost is within typical industry range for this building type',
+        };
+
+        context._costPerSF = costPerSFData;
+        state._costPerSF = costPerSFData;
+        console.log(`[SmartBrains] ═══ COST-PER-SF BENCHMARK: $${costPerSF.toFixed(2)}/SF ${ratingEmoji} (${bench.label} range: $${bench.low}-$${bench.high}/SF) ═══`);
+      }
+    }
+
     // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
     progressCallback(62, '👷 Wave 2.25: Labor Calculator — computing labor hours…', this._brainStatus);
     const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], filteredEncodedFiles, state, context, progressCallback);
@@ -8710,6 +9032,34 @@ ${legendContext}
     const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], filteredEncodedFiles, state, context, progressCallback);
     context.wave3 = wave3Results;
     console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
+
+    // ═══ WAVE 3.25: Spec Compliance Checker (reads specs + BOM, finds gaps) — NON-FATAL ═══
+    if ((encodedFiles.specs || []).length > 0) {
+      try {
+        progressCallback(78, '📜 Wave 3.25: Checking spec compliance — finding BOM gaps…', this._brainStatus);
+        const wave325Results = await this._runWave(3.25, ['SPEC_COMPLIANCE_CHECKER'], filteredEncodedFiles, state, context, progressCallback);
+        context.wave3_25 = wave325Results;
+        const specCheck = wave325Results.SPEC_COMPLIANCE_CHECKER;
+        if (specCheck && !specCheck._failed && !specCheck._parseFailed) {
+          context._specCompliance = specCheck;
+          state._specCompliance = specCheck;
+          const gaps = specCheck.gaps || [];
+          const critical = gaps.filter(g => g.severity === 'critical');
+          const warnings = gaps.filter(g => g.severity === 'warning');
+          console.log(`[SmartBrains] 📜 Spec Compliance: ${specCheck.compliance_score || 0}% — ${specCheck.spec_requirements_checked || 0} checked, ${gaps.length} gap(s) found (${critical.length} critical, ${warnings.length} warning)`);
+          for (const g of critical.slice(0, 5)) {
+            console.log(`[SmartBrains]   🔴 ${g.spec_section}: ${g.requirement} — est. $${(g.estimated_cost_if_missing || 0).toLocaleString()}`);
+          }
+          // Inject spec gaps into session memory for downstream brains
+          for (const g of critical.slice(0, 3)) {
+            context._brainInsights.push({ source: 'SPEC_COMPLIANCE_CHECKER', type: 'spec_gap', detail: `MISSING: ${g.requirement} (${g.spec_section}) — $${(g.estimated_cost_if_missing || 0).toLocaleString()}` });
+          }
+        }
+      } catch (e) {
+        console.warn('[SmartBrains] Wave 3.25 Spec Compliance failed (non-fatal):', e.message);
+        context.wave3_25 = {};
+      }
+    }
 
     // ═══ WAVE 3.5: Deep Accuracy Pass (3 parallel brains, Pro) ═══
     try {
@@ -8968,7 +9318,66 @@ ${legendContext}
 
     const finalReport = (typeof report === 'string' ? report : JSON.stringify(report, null, 2)) + validationAppendix;
 
-    progressCallback(100, '🎯 Analysis complete — 31 brains finished!', this._brainStatus);
+    // ═══ PER-ITEM CONFIDENCE SCORING — Grade every BOM line item A/B/C/D (ZERO AI cost) ═══
+    // Uses consensus agreement, verification findings, spec compliance, and anomaly flags.
+    if (_pricer && (_pricer.categories || _pricer.material_categories)) {
+      const _scoreCats = _pricer.categories || _pricer.material_categories || [];
+      const consensusCounts = consensus?.consensus_counts || {};
+      const verifierIssues = (validator?.issues || []).map(i => (i.item || i.description || '').toLowerCase());
+      const devilChallenges = (devil?.challenges || []).map(c => (c.item || c.description || '').toLowerCase());
+      const specGaps = (context._specCompliance?.gaps || []).filter(g => g.status === 'missing').map(g => (g.requirement || '').toLowerCase());
+      const anomalyItems = (context._quantityAnomalies || []).map(a => (a.item || '').toLowerCase());
+      const auditFixed = (context._mathAuditLog || []).map(l => l.toLowerCase());
+
+      let totalItems = 0, gradeA = 0, gradeB = 0, gradeC = 0, gradeD = 0;
+
+      for (const cat of _scoreCats) {
+        for (const item of (cat.items || [])) {
+          totalItems++;
+          const name = (item.item || item.device_type || item.name || '').toLowerCase();
+          let score = 100; // Start perfect
+
+          // Deduction: flagged by Devil's Advocate (-15)
+          if (devilChallenges.some(c => c.includes(name) || name.includes(c.substring(0, 15)))) score -= 15;
+          // Deduction: flagged by Cross Validator (-20)
+          if (verifierIssues.some(i => i.includes(name) || name.includes(i.substring(0, 15)))) score -= 20;
+          // Deduction: quantity anomaly detected (-15)
+          if (anomalyItems.some(a => a.includes(name) || name.includes(a.substring(0, 15)))) score -= 15;
+          // Deduction: corrected by Math Auditor (-10, but the fix improves accuracy)
+          if (auditFixed.some(l => l.includes(name.substring(0, 12)))) score -= 10;
+          // Boost: consensus resolved item (+5)
+          const consensusEntry = Object.entries(consensusCounts).find(([k]) => k.toLowerCase().includes(name.substring(0, 12)));
+          if (consensusEntry && consensusEntry[1]?.confidence === 'resolved') score += 5;
+          // Deduction: qty=0 or ext_cost=0 (-30)
+          if ((item.qty || 0) === 0 || (item.ext_cost || item.extCost || 0) === 0) score -= 30;
+
+          // Clamp to 0-100
+          score = Math.max(0, Math.min(100, score));
+
+          // Assign grade
+          let grade;
+          if (score >= 85) { grade = 'A'; gradeA++; }
+          else if (score >= 70) { grade = 'B'; gradeB++; }
+          else if (score >= 50) { grade = 'C'; gradeC++; }
+          else { grade = 'D'; gradeD++; }
+
+          item._confidence = { score, grade };
+        }
+      }
+
+      const confidenceScoring = {
+        totalItems,
+        grades: { A: gradeA, B: gradeB, C: gradeC, D: gradeD },
+        overallGrade: gradeA / Math.max(totalItems, 1) >= 0.7 ? 'A' : gradeA / Math.max(totalItems, 1) >= 0.5 ? 'B' : gradeB / Math.max(totalItems, 1) >= 0.3 ? 'C' : 'D',
+        avgScore: totalItems > 0 ? Math.round(_scoreCats.flatMap(c => (c.items || []).map(i => i._confidence?.score || 0)).reduce((s, v) => s + v, 0) / totalItems) : 0,
+      };
+
+      context._confidenceScoring = confidenceScoring;
+      state._confidenceScoring = confidenceScoring;
+      console.log(`[SmartBrains] ═══ CONFIDENCE SCORING: ${totalItems} items graded — A:${gradeA} B:${gradeB} C:${gradeC} D:${gradeD} — Overall: ${confidenceScoring.overallGrade} (avg ${confidenceScoring.avgScore}/100) ═══`);
+    }
+
+    progressCallback(100, `🎯 Analysis complete — ${Object.keys(this.BRAINS).length} brains finished!`, this._brainStatus);
 
     return {
       report: finalReport,
@@ -8978,12 +9387,17 @@ ${legendContext}
       rfpCriteria: context._rfpCriteria || null,
       clarificationQuestions: context._clarificationQuestions || [],
       sessionInsights: context._brainInsights || [],
+      buildingProfile: context._buildingProfile || null,
+      specCompliance: context._specCompliance || null,
+      quantityAnomalies: context._quantityAnomalies || null,
+      costPerSF: context._costPerSF || null,
+      confidenceScoring: context._confidenceScoring || null,
       brainResults: {
-        wave0: wave0Results, wave0_75: context.wave0_75 || null,
+        wave0: wave0Results, wave0_35: context.wave0_35 || null, wave0_75: context.wave0_75 || null,
         wave1: wave1Results, wave1_5: wave15Results,
         wave1_75: wave175Results, wave2: wave2Results, wave2_25: wave225Results,
         wave2_5_fin: wave25FinResults, wave2_75: wave275Results,
-        wave3: wave3Results, wave3_5: context.wave3_5, wave3_75: context.wave3_75,
+        wave3: wave3Results, wave3_25: context.wave3_25 || null, wave3_5: context.wave3_5, wave3_75: context.wave3_75,
         wave3_85_corrected: context.wave3_85?.ESTIMATE_CORRECTOR || null,
         wave4_1: proposalNarrative,
       },

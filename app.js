@@ -8901,6 +8901,16 @@ function renderStep7(container) {
 
     ${buildMathAuditorCard(state)}
 
+    ${buildBuildingProfileCard(state)}
+
+    ${buildCostPerSFCard(state)}
+
+    ${buildQuantityAnomalyCard(state)}
+
+    ${buildSpecComplianceCard(state)}
+
+    ${buildConfidenceScoringCard(state)}
+
     ${build3DEngineCard(state)}
 
     ${buildScaleCalibrationCard(state)}
@@ -9279,6 +9289,27 @@ function renderStep7(container) {
   const adToggle = document.getElementById('addenda-delta-toggle');
   if (adToggle) adToggle.addEventListener('click', () => {
     state._addendaDeltaOpen = !state._addendaDeltaOpen;
+    render();
+  });
+
+  // ── Building Profile toggle ──
+  const bpToggle = document.getElementById('building-profile-toggle');
+  if (bpToggle) bpToggle.addEventListener('click', () => {
+    state._buildingProfileOpen = !state._buildingProfileOpen;
+    render();
+  });
+
+  // ── Quantity Anomaly toggle ──
+  const anomToggle = document.getElementById('anomaly-toggle');
+  if (anomToggle) anomToggle.addEventListener('click', () => {
+    state._anomaliesOpen = !state._anomaliesOpen;
+    render();
+  });
+
+  // ── Spec Compliance toggle ──
+  const specToggle = document.getElementById('spec-compliance-toggle');
+  if (specToggle) specToggle.addEventListener('click', () => {
+    state._specComplianceOpen = !state._specComplianceOpen;
     render();
   });
 
@@ -11925,6 +11956,11 @@ async function runGeminiAnalysis(updateProgress) {
     state._proposalNarrative = result.proposalNarrative || null;
     state._mathAuditLog = result.stats?.mathAuditLog || [];
     state._mathAuditFixes = result.stats?.mathAuditFixes || 0;
+    state._buildingProfile = result.buildingProfile || null;
+    state._specCompliance = result.specCompliance || null;
+    state._quantityAnomalies = result.quantityAnomalies || null;
+    state._costPerSF = result.costPerSF || null;
+    state._confidenceScoring = result.confidenceScoring || null;
 
     // ─── Local Math Validation (belt and suspenders) ───
     updateProgress(99, "Running local math validation…", result.brainStatus);
@@ -12993,6 +13029,11 @@ function _restoreStateFromPayload(id, pkg, est) {
 
   // ── Restore Proposal Narrative (Wave 4.1 persuasive draft) ──
   if (pkg?.proposalNarrative) state._proposalNarrative = pkg.proposalNarrative;
+  if (pkg?.buildingProfile) state._buildingProfile = pkg.buildingProfile;
+  if (pkg?.specCompliance) state._specCompliance = pkg.specCompliance;
+  if (pkg?.quantityAnomalies) state._quantityAnomalies = pkg.quantityAnomalies;
+  if (pkg?.costPerSF) state._costPerSF = pkg.costPerSF;
+  if (pkg?.confidenceScoring) state._confidenceScoring = pkg.confidenceScoring;
 
   // ── Restore 3D Engine reference result (was saved but never restored) ──
   if (pkg?.engine3D) state._engine3DResult = pkg.engine3D;
@@ -15758,6 +15799,267 @@ function buildMathAuditorCard(st) {
             <span style="font-size:12px;color:var(--text-primary);line-height:1.5;">${esc(entry)}</span>
           </div>
         `).join('')}
+      </div>
+    </div>`;
+}
+
+// ═══ BUILDING PROFILE CARD — Shows inferred building characteristics ═══
+function buildBuildingProfileCard(st) {
+  const bp = st._buildingProfile;
+  if (!bp) return '';
+  const isOpen = st._buildingProfileOpen || false;
+  const floors = bp.floors || [];
+  const sp = bp.special_spaces || {};
+  const pk = bp.parking || {};
+
+  return `
+    <div class="info-card" style="border-left:3px solid #8b5cf6;background:linear-gradient(135deg,rgba(139,92,246,0.04),rgba(99,102,241,0.02));">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="building-profile-toggle">
+        <h3 class="info-card-title" style="margin:0;">🏛️ BUILDING PROFILE</h3>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(139,92,246,0.15);color:#8b5cf6;font-weight:600;">${esc(bp.building_type || 'unknown')}</span>
+          <span style="font-size:11px;color:var(--text-secondary);">${(bp.total_gross_sf || 0).toLocaleString()} SF</span>
+          <span style="transform:rotate(${isOpen ? '180' : '0'}deg);transition:transform 0.2s;">▼</span>
+        </div>
+      </div>
+      ${isOpen ? `
+        <div style="margin-top:16px;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;">
+            <div style="padding:10px;background:rgba(139,92,246,0.06);border-radius:8px;text-align:center;">
+              <div style="font-size:20px;font-weight:800;color:#8b5cf6;">${(bp.total_gross_sf || 0).toLocaleString()}</div>
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);">Total SF</div>
+            </div>
+            <div style="padding:10px;background:rgba(99,102,241,0.06);border-radius:8px;text-align:center;">
+              <div style="font-size:20px;font-weight:800;color:#6366f1;">${bp.num_floors || '?'}</div>
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);">Floors</div>
+            </div>
+            <div style="padding:10px;background:rgba(14,165,233,0.06);border-radius:8px;text-align:center;">
+              <div style="font-size:20px;font-weight:800;color:#0ea5e9;">${bp.total_rooms || '?'}</div>
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);">Rooms</div>
+            </div>
+            <div style="padding:10px;background:rgba(20,184,166,0.06);border-radius:8px;text-align:center;">
+              <div style="font-size:20px;font-weight:800;color:#14b8a6;">${bp.total_doors || '?'}</div>
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);">Doors</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:12px;">
+            <div style="color:var(--text-secondary);">Ceiling: <span style="color:var(--text-primary);font-weight:600;">${esc(bp.ceiling_type || 'unknown')}</span></div>
+            <div style="color:var(--text-secondary);">Corridors: <span style="color:var(--text-primary);font-weight:600;">${(bp.corridor_total_lf || 0).toLocaleString()} LF</span></div>
+            <div style="color:var(--text-secondary);">Elevators: <span style="color:var(--text-primary);font-weight:600;">${bp.elevators || 0}</span></div>
+            <div style="color:var(--text-secondary);">Stairwells: <span style="color:var(--text-primary);font-weight:600;">${bp.stairwells || 0}</span></div>
+            <div style="color:var(--text-secondary);">MDF/IDF: <span style="color:var(--text-primary);font-weight:600;">${sp.mdf_idf_rooms || 0}</span></div>
+            <div style="color:var(--text-secondary);">Parking: <span style="color:var(--text-primary);font-weight:600;">${pk.type || 'none'} (${pk.stalls || 0} stalls)</span></div>
+          </div>
+          ${floors.length > 0 ? `
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:6px;font-weight:600;">Floor Breakdown</div>
+            <table style="width:100%;font-size:12px;border-collapse:collapse;">
+              <thead><tr style="border-bottom:1px solid rgba(0,0,0,0.1);">
+                <th style="text-align:left;padding:6px;color:var(--text-secondary);font-size:11px;">Floor</th>
+                <th style="text-align:right;padding:6px;color:var(--text-secondary);font-size:11px;">SF</th>
+                <th style="text-align:right;padding:6px;color:var(--text-secondary);font-size:11px;">Rooms</th>
+              </tr></thead>
+              <tbody>
+                ${floors.map(f => `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:6px;color:var(--text-primary);">${esc(f.name || '?')}</td>
+                  <td style="padding:6px;text-align:right;color:var(--text-primary);">${(f.sf || 0).toLocaleString()}</td>
+                  <td style="padding:6px;text-align:right;color:var(--text-primary);">${f.rooms || 0}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          ` : ''}
+        </div>
+      ` : ''}
+    </div>`;
+}
+
+// ═══ COST-PER-SF BENCHMARK CARD — Industry $/SF comparison ═══
+function buildCostPerSFCard(st) {
+  const data = st._costPerSF;
+  if (!data) return '';
+
+  const ratingColors = { within_range: '#22c55e', below_range: '#f59e0b', above_range: '#f59e0b', suspiciously_low: '#ef4444', suspiciously_high: '#ef4444' };
+  const ratingLabels = { within_range: 'WITHIN RANGE', below_range: 'BELOW RANGE', above_range: 'ABOVE RANGE', suspiciously_low: 'SUSPICIOUSLY LOW', suspiciously_high: 'SUSPICIOUSLY HIGH' };
+  const color = ratingColors[data.rating] || '#6366f1';
+  const label = ratingLabels[data.rating] || data.rating;
+
+  // Calculate gauge position (0-100)
+  const gaugePos = Math.min(100, Math.max(0, data.percentile));
+
+  return `
+    <div class="info-card" style="border-left:3px solid ${color};">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h3 class="info-card-title" style="margin:0;">📊 COST-PER-SF BENCHMARK</h3>
+        <span style="font-size:11px;padding:3px 10px;border-radius:8px;background:${color}22;color:${color};font-weight:700;">${label}</span>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px;">
+        <span style="font-size:28px;font-weight:900;color:${color};">$${data.cost_per_sf.toFixed(2)}</span>
+        <span style="font-size:13px;color:var(--text-secondary);">/SF</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+        ${esc(data.building_type)} | ${(data.total_sf).toLocaleString()} SF | BOM Total: $${(data.grand_total).toLocaleString()}
+      </div>
+      <div style="position:relative;height:24px;background:linear-gradient(90deg,#ef4444 0%,#f59e0b 20%,#22c55e 35%,#22c55e 65%,#f59e0b 80%,#ef4444 100%);border-radius:12px;margin-bottom:6px;overflow:visible;">
+        <div style="position:absolute;left:${gaugePos}%;top:-2px;transform:translateX(-50%);width:4px;height:28px;background:#1e1e2e;border-radius:2px;box-shadow:0 0 6px rgba(0,0,0,0.3);"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);">
+        <span>$${data.benchmark_low}/SF</span>
+        <span>$${data.benchmark_mid}/SF (mid)</span>
+        <span>$${data.benchmark_high}/SF</span>
+      </div>
+      <div style="margin-top:10px;padding:8px 12px;background:rgba(0,0,0,0.03);border-radius:8px;font-size:12px;color:var(--text-secondary);font-style:italic;">
+        ${esc(data.analysis)}
+      </div>
+    </div>`;
+}
+
+// ═══ QUANTITY ANOMALY CARD — Statistical outlier detection ═══
+function buildQuantityAnomalyCard(st) {
+  const anomalies = st._quantityAnomalies || [];
+  if (anomalies.length === 0) return '';
+  const isOpen = st._anomaliesOpen || false;
+
+  const severityIcons = { warning: '⚠️', info: 'ℹ️', critical: '🔴' };
+  const severityColors = { warning: '#f59e0b', info: '#6366f1', critical: '#ef4444' };
+
+  return `
+    <div class="info-card" style="border-left:3px solid #f59e0b;background:linear-gradient(135deg,rgba(245,158,11,0.04),rgba(239,68,68,0.02));">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="anomaly-toggle">
+        <h3 class="info-card-title" style="margin:0;">🔍 QUANTITY ANOMALY DETECTOR — ${anomalies.length} Flag${anomalies.length !== 1 ? 's' : ''}</h3>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;padding:3px 10px;border-radius:8px;background:rgba(245,158,11,0.12);color:#f59e0b;font-weight:700;">DETERMINISTIC</span>
+          <span style="transform:rotate(${isOpen ? '180' : '0'}deg);transition:transform 0.2s;">▼</span>
+        </div>
+      </div>
+      ${isOpen ? `
+        <div style="margin-top:12px;font-size:12px;color:var(--text-secondary);margin-bottom:12px;font-style:italic;">
+          Statistical analysis flagged these items as potential outliers. Review each one — some may be legitimate.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          ${anomalies.map(a => `
+            <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 12px;background:rgba(${a.severity === 'warning' ? '245,158,11' : a.severity === 'critical' ? '239,68,68' : '99,102,241'},0.04);border-radius:8px;border-left:2px solid ${severityColors[a.severity] || '#6366f1'};">
+              <span style="font-size:14px;flex-shrink:0;">${severityIcons[a.severity] || 'ℹ️'}</span>
+              <div>
+                <div style="font-size:12px;font-weight:600;color:var(--text-primary);">${esc(a.item)}</div>
+                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${esc(a.detail)}</div>
+                <div style="font-size:11px;color:${severityColors[a.severity] || '#6366f1'};margin-top:2px;font-style:italic;">${esc(a.suggestion)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>`;
+}
+
+// ═══ SPEC COMPLIANCE CARD — Shows spec vs BOM gap analysis ═══
+function buildSpecComplianceCard(st) {
+  const sc = st._specCompliance;
+  if (!sc) return '';
+  const isOpen = st._specComplianceOpen || false;
+  const gaps = sc.gaps || [];
+  const critical = gaps.filter(g => g.severity === 'critical');
+  const warnings = gaps.filter(g => g.severity === 'warning');
+  const met = gaps.filter(g => g.status === 'met');
+  const missing = gaps.filter(g => g.status === 'missing');
+  const scoreColor = (sc.compliance_score || 0) >= 80 ? '#22c55e' : (sc.compliance_score || 0) >= 60 ? '#f59e0b' : '#ef4444';
+  const totalMissingCost = missing.reduce((s, g) => s + (g.estimated_cost_if_missing || 0), 0);
+
+  return `
+    <div class="info-card" style="border-left:3px solid #14b8a6;background:linear-gradient(135deg,rgba(20,184,166,0.04),rgba(99,102,241,0.02));">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="spec-compliance-toggle">
+        <h3 class="info-card-title" style="margin:0;">📜 SPEC COMPLIANCE CHECKER</h3>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;padding:3px 10px;border-radius:8px;background:${scoreColor}22;color:${scoreColor};font-weight:700;">${sc.compliance_score || 0}%</span>
+          ${critical.length > 0 ? `<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(239,68,68,0.12);color:#ef4444;font-weight:600;">${critical.length} critical</span>` : ''}
+          <span style="transform:rotate(${isOpen ? '180' : '0'}deg);transition:transform 0.2s;">▼</span>
+        </div>
+      </div>
+      ${isOpen ? `
+        <div style="margin-top:16px;">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">
+            <div style="padding:8px;background:rgba(20,184,166,0.06);border-radius:8px;text-align:center;">
+              <div style="font-size:16px;font-weight:800;color:#14b8a6;">${sc.spec_requirements_checked || 0}</div>
+              <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;">Checked</div>
+            </div>
+            <div style="padding:8px;background:rgba(34,197,94,0.06);border-radius:8px;text-align:center;">
+              <div style="font-size:16px;font-weight:800;color:#22c55e;">${sc.requirements_met || 0}</div>
+              <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;">Met</div>
+            </div>
+            <div style="padding:8px;background:rgba(239,68,68,0.06);border-radius:8px;text-align:center;">
+              <div style="font-size:16px;font-weight:800;color:#ef4444;">${sc.requirements_missing || 0}</div>
+              <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;">Missing</div>
+            </div>
+            <div style="padding:8px;background:rgba(245,158,11,0.06);border-radius:8px;text-align:center;">
+              <div style="font-size:16px;font-weight:800;color:#f59e0b;">$${totalMissingCost.toLocaleString()}</div>
+              <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;">At Risk</div>
+            </div>
+          </div>
+          ${missing.length > 0 ? `
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#ef4444;margin-bottom:6px;font-weight:600;">Missing Requirements</div>
+            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:16px;">
+              ${missing.slice(0, 15).map(g => `
+                <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;background:rgba(239,68,68,0.04);border-radius:6px;border-left:2px solid ${g.severity === 'critical' ? '#ef4444' : '#f59e0b'};">
+                  <span style="font-size:12px;flex-shrink:0;">${g.severity === 'critical' ? '🔴' : '🟡'}</span>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:12px;color:var(--text-primary);font-weight:500;">${esc(g.requirement || '')}</div>
+                    <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">Section ${esc(g.spec_section || '?')} | Est. $${(g.estimated_cost_if_missing || 0).toLocaleString()}</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+          ${(sc.testing_requirements || []).length > 0 ? `
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#0ea5e9;margin-bottom:6px;font-weight:600;">Testing Requirements</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
+              ${(sc.testing_requirements || []).map(t => `
+                <span style="font-size:11px;padding:4px 8px;border-radius:6px;background:${t.in_bom ? 'rgba(34,197,94,0.1);color:#22c55e' : 'rgba(239,68,68,0.1);color:#ef4444'};">${esc(t.requirement?.substring(0, 40) || '?')} (${t.labor_hours_estimate || '?'}h) ${t.in_bom ? '✓' : '✗'}</span>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
+    </div>`;
+}
+
+// ═══ CONFIDENCE SCORING CARD — Per-item grade distribution ═══
+function buildConfidenceScoringCard(st) {
+  const cs = st._confidenceScoring;
+  if (!cs) return '';
+
+  const grades = cs.grades || {};
+  const total = cs.totalItems || 1;
+  const pctA = Math.round((grades.A || 0) / total * 100);
+  const pctB = Math.round((grades.B || 0) / total * 100);
+  const pctC = Math.round((grades.C || 0) / total * 100);
+  const pctD = Math.round((grades.D || 0) / total * 100);
+
+  const overallColor = cs.overallGrade === 'A' ? '#22c55e' : cs.overallGrade === 'B' ? '#0ea5e9' : cs.overallGrade === 'C' ? '#f59e0b' : '#ef4444';
+
+  return `
+    <div class="info-card" style="border-left:3px solid ${overallColor};">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h3 class="info-card-title" style="margin:0;">🎯 BOM CONFIDENCE SCORING</h3>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;font-weight:900;color:${overallColor};">${cs.overallGrade}</span>
+          <span style="font-size:11px;color:var(--text-secondary);">(${cs.avgScore}/100 avg)</span>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+        ${cs.totalItems} line items graded by consensus agreement, verification results, and anomaly flags
+      </div>
+      <div style="display:flex;gap:2px;height:24px;border-radius:6px;overflow:hidden;margin-bottom:8px;">
+        ${pctA > 0 ? `<div style="width:${pctA}%;background:#22c55e;display:flex;align-items:center;justify-content:center;"><span style="font-size:10px;color:white;font-weight:700;">${grades.A}</span></div>` : ''}
+        ${pctB > 0 ? `<div style="width:${pctB}%;background:#0ea5e9;display:flex;align-items:center;justify-content:center;"><span style="font-size:10px;color:white;font-weight:700;">${grades.B}</span></div>` : ''}
+        ${pctC > 0 ? `<div style="width:${pctC}%;background:#f59e0b;display:flex;align-items:center;justify-content:center;"><span style="font-size:10px;color:white;font-weight:700;">${grades.C}</span></div>` : ''}
+        ${pctD > 0 ? `<div style="width:${pctD}%;background:#ef4444;display:flex;align-items:center;justify-content:center;"><span style="font-size:10px;color:white;font-weight:700;">${grades.D}</span></div>` : ''}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;">
+        <span style="color:#22c55e;font-weight:600;">A: ${grades.A || 0} (${pctA}%)</span>
+        <span style="color:#0ea5e9;font-weight:600;">B: ${grades.B || 0} (${pctB}%)</span>
+        <span style="color:#f59e0b;font-weight:600;">C: ${grades.C || 0} (${pctC}%)</span>
+        <span style="color:#ef4444;font-weight:600;">D: ${grades.D || 0} (${pctD}%)</span>
+      </div>
+      <div style="margin-top:10px;padding:8px 12px;background:rgba(0,0,0,0.03);border-radius:8px;font-size:11px;color:var(--text-secondary);">
+        <strong>A</strong> = High confidence (verified by consensus, no flags) | <strong>B</strong> = Good (minor flags) | <strong>C</strong> = Review recommended | <strong>D</strong> = Low confidence (multiple flags)
       </div>
     </div>`;
 }

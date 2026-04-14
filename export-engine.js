@@ -202,6 +202,31 @@ const SmartPlansExport = {
             // Proposal Narrative — AI-generated persuasive proposal draft (Wave 4.1)
             proposalNarrative: state._proposalNarrative || null,
 
+            // Building Profile — Inferred building characteristics from Wave 0.35
+            buildingProfile: state._buildingProfile || null,
+
+            // Spec Compliance — Specification vs BOM gap analysis from Wave 3.25
+            specCompliance: state._specCompliance ? {
+                compliance_score: state._specCompliance.compliance_score,
+                requirements_checked: state._specCompliance.spec_requirements_checked,
+                requirements_met: state._specCompliance.requirements_met,
+                requirements_missing: state._specCompliance.requirements_missing,
+                gaps: (state._specCompliance.gaps || []).filter(g => g.status === 'missing').map(g => ({
+                    section: g.spec_section, requirement: g.requirement, severity: g.severity, estimatedCost: g.estimated_cost_if_missing
+                })),
+            } : null,
+
+            // Quantity Anomalies — Statistical outlier flags
+            quantityAnomalies: (state._quantityAnomalies || []).map(a => ({
+                item: a.item, category: a.category, type: a.type, severity: a.severity, detail: a.detail, suggestion: a.suggestion
+            })),
+
+            // Cost-Per-SF Benchmark — Industry comparison
+            costPerSF: state._costPerSF || null,
+
+            // Per-Item Confidence Scoring — Grade distribution
+            confidenceScoring: state._confidenceScoring || null,
+
             // 3D Formula Engine breakdown — deterministic bid using 3D Technology Services formulas
             engine3D: (typeof FormulaEngine3D !== 'undefined' && state._engine3DResult)
                 ? {
