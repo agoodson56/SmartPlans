@@ -7,27 +7,44 @@
 // DELETE ?id=                 Delete a rate
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin, timingSafeCompare } from '../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare, validateSession } from '../_shared/cors.js';
 
 function corsHeaders(origin) {
     return {
         'Access-Control-Allow-Origin': origin || 'https://smartplans-4g5.pages.dev',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, X-App-Token',
+        'Access-Control-Allow-Headers': 'Content-Type, X-App-Token, X-Session-Token',
         'Access-Control-Max-Age': '86400',
     };
 }
 
-function authorize(request, env) {
+async function authorize(request, env) {
     const origin = request.headers.get('Origin') || '';
     if (origin && !isAllowedOrigin(origin)) {
         return Response.json({ error: 'Origin not allowed' }, { status: 403, headers: corsHeaders(origin) });
     }
-    const envToken = env.ESTIMATES_TOKEN;
-    const token = request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) {
+
+    let authenticated = false;
+
+    // Path 1: Session-based auth (login system)
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    if (sessionToken && env.DB) {
+        const user = await validateSession(env.DB, sessionToken);
+        if (user) authenticated = true;
+    }
+
+    // Path 2: Legacy ESTIMATES_TOKEN auth
+    if (!authenticated) {
+        const envToken = env.ESTIMATES_TOKEN;
+        const appToken = request.headers.get('X-App-Token') || '';
+        if (envToken && appToken && timingSafeCompare(appToken, envToken)) {
+            authenticated = true;
+        }
+    }
+
+    if (!authenticated) {
         return Response.json(
-            { error: 'Unauthorized — invalid or missing X-App-Token' },
+            { error: 'Unauthorized — please log in or provide valid X-App-Token' },
             { status: 401, headers: corsHeaders(origin) }
         );
     }
@@ -50,7 +67,7 @@ export async function onRequestOptions({ request }) {
 // ─── GET — List all rates, optional filters ──────────────────
 export async function onRequestGet({ request, env }) {
     const origin = request.headers.get('Origin') || '';
-    const authErr = authorize(request, env);
+    const authErr = await authorize(request, env);
     if (authErr) return authErr;
 
     try {
@@ -95,7 +112,7 @@ export async function onRequestGet({ request, env }) {
 // ─── POST — Create a new rate ────────────────────────────────
 export async function onRequestPost({ request, env }) {
     const origin = request.headers.get('Origin') || '';
-    const authErr = authorize(request, env);
+    const authErr = await authorize(request, env);
     if (authErr) return authErr;
 
     const contentLength = parseInt(request.headers.get('content-length') || '0');
@@ -134,7 +151,7 @@ export async function onRequestPost({ request, env }) {
 // ─── PUT — Update an existing rate ───────────────────────────
 export async function onRequestPut({ request, env }) {
     const origin = request.headers.get('Origin') || '';
-    const authErr = authorize(request, env);
+    const authErr = await authorize(request, env);
     if (authErr) return authErr;
 
     try {
@@ -177,7 +194,7 @@ export async function onRequestPut({ request, env }) {
 // ─── DELETE — Remove a rate by id ────────────────────────────
 export async function onRequestDelete({ request, env }) {
     const origin = request.headers.get('Origin') || '';
-    const authErr = authorize(request, env);
+    const authErr = await authorize(request, env);
     if (authErr) return authErr;
 
     try {

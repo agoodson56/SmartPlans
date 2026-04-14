@@ -11,14 +11,22 @@ function closeRateLibraryPanel() {
   if (panel) panel.remove();
 }
 
+function _rateLibHeaders() {
+  const h = {};
+  const appToken = sessionStorage.getItem('sp_app_token') || '';
+  const sessionToken = sessionStorage.getItem('sp_session_token') || '';
+  if (appToken) h['X-App-Token'] = appToken;
+  if (sessionToken) h['X-Session-Token'] = sessionToken;
+  return h;
+}
+
 async function _fetchRates(category, search) {
-  const token = sessionStorage.getItem('sp_app_token') || '';
   const params = new URLSearchParams();
   if (category) params.set('category', category);
   if (search) params.set('search', search);
   const url = '/api/rate-library' + (params.toString() ? '?' + params : '');
   const res = await fetchWithRetry(url, {
-    headers: { 'X-App-Token': token },
+    headers: { ..._rateLibHeaders() },
     _timeout: 10000,
   }, 3);
   const data = await res.json();
@@ -27,10 +35,9 @@ async function _fetchRates(category, search) {
 }
 
 async function _createRate(rate) {
-  const token = sessionStorage.getItem('sp_app_token') || '';
   const res = await fetchWithRetry('/api/rate-library', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-App-Token': token },
+    headers: { 'Content-Type': 'application/json', ..._rateLibHeaders() },
     body: JSON.stringify(rate),
     _timeout: 10000,
   }, 3);
@@ -40,10 +47,9 @@ async function _createRate(rate) {
 }
 
 async function _updateRate(rate) {
-  const token = sessionStorage.getItem('sp_app_token') || '';
   const res = await fetchWithRetry('/api/rate-library', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-App-Token': token },
+    headers: { 'Content-Type': 'application/json', ..._rateLibHeaders() },
     body: JSON.stringify(rate),
     _timeout: 10000,
   }, 3);
@@ -53,10 +59,9 @@ async function _updateRate(rate) {
 }
 
 async function _deleteRate(id) {
-  const token = sessionStorage.getItem('sp_app_token') || '';
   const res = await fetchWithRetry(`/api/rate-library?id=${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: { 'X-App-Token': token },
+    headers: { ..._rateLibHeaders() },
     _timeout: 10000,
   }, 3);
   const data = await res.json();
