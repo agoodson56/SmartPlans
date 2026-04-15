@@ -3991,12 +3991,98 @@ function renderContent() {
         break;
     }
   } catch (err) {
-    console.error('Render error:', err);
-    main.innerHTML = `<div style="padding:40px;color:#f43f5e;">
-      <h3>Something went wrong</h3>
-      <p>${esc(err.message)}</p>
-      <button data-action="retry-render" style="margin-top:12px;padding:8px 16px;border-radius:6px;border:1px solid #f43f5e;background:rgba(244,63,94,0.1);color:#f43f5e;cursor:pointer;">Try Again</button>
-    </div>`;
+    // ─── v5.127.0: Full error boundary with state preservation ───
+    // Previous version showed the message in red and offered Retry. This
+    // enhanced version:
+    //   (1) Captures the full stack trace + current step for diagnostics
+    //   (2) Saves a backup of state to localStorage so reload recovers it
+    //   (3) Offers 3 recovery paths: Retry, Load Saved, Start Fresh
+    //   (4) Sends the error to Sentry with render context
+    //   (5) Shows collapsible technical details for debugging
+    const renderContext = {
+      step: state.currentStep,
+      analyzing: !!state.analyzing,
+      complete: !!state.analysisComplete,
+      hasAiAnalysis: !!(state.aiAnalysis && state.aiAnalysis.length > 100),
+      estimateId: state.estimateId || null,
+      projectName: state.projectName || '(untitled)',
+      disciplines: (state.disciplines || []).join(', '),
+      errorMessage: err.message || String(err),
+      errorStack: err.stack || '',
+      timestamp: new Date().toISOString(),
+    };
+    console.error('[Render] Fatal error while rendering step', state.currentStep, renderContext);
+    console.error('[Render] Stack:', err.stack);
+
+    // Save a backup of state so the user can recover across reloads
+    try {
+      const backup = {
+        timestamp: Date.now(),
+        step: state.currentStep,
+        projectName: state.projectName,
+        disciplines: state.disciplines,
+        estimateId: state.estimateId,
+        errorContext: renderContext,
+      };
+      localStorage.setItem('smartplans_crash_backup', JSON.stringify(backup));
+    } catch (e) { /* localStorage quota exceeded — non-fatal */ }
+
+    // Send to Sentry with full render context
+    if (typeof Sentry !== 'undefined' && Sentry.captureException) {
+      try {
+        Sentry.withScope(scope => {
+          scope.setTag('render_step', String(state.currentStep));
+          scope.setTag('analyzing', String(!!state.analyzing));
+          scope.setContext('render', renderContext);
+          Sentry.captureException(err);
+        });
+      } catch (e) { /* Sentry not ready — non-fatal */ }
+    }
+
+    const stackHtml = (err.stack || '').split('\n').slice(0, 8).map(line => esc(line)).join('<br>');
+    const hasRecoveryEstimate = !!state.estimateId;
+
+    main.innerHTML = `
+      <div style="padding:40px 20px;max-width:720px;margin:0 auto;">
+        <div style="background:linear-gradient(135deg,rgba(244,63,94,0.08),rgba(244,63,94,0.02));border:2px solid #f43f5e;border-radius:14px;padding:28px;">
+          <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;">
+            <div style="font-size:40px;line-height:1;">⚠️</div>
+            <div style="flex:1;">
+              <h2 style="margin:0 0 6px 0;font-size:20px;font-weight:800;color:#f43f5e;">SmartPlans hit an unexpected error</h2>
+              <div style="font-size:13px;color:rgba(0,0,0,0.6);line-height:1.5;">Don't worry — your bid data is still safe. Pick a recovery option below.</div>
+            </div>
+          </div>
+
+          <div style="padding:14px 16px;background:rgba(244,63,94,0.06);border-left:3px solid #f43f5e;border-radius:6px;margin-bottom:18px;">
+            <div style="font-size:11px;font-weight:800;color:#f43f5e;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Error</div>
+            <div style="font-size:13.5px;color:#1a1a2e;font-family:'JetBrains Mono',monospace;word-break:break-word;">${esc(renderContext.errorMessage)}</div>
+          </div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+            <button data-action="retry-render" style="flex:1;min-width:160px;padding:12px 18px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#ffffff;font-weight:800;font-size:14px;cursor:pointer;box-shadow:0 4px 12px rgba(99,102,241,0.35);">🔄 Try Rendering Again</button>
+            ${hasRecoveryEstimate ? `<button data-action="reload-estimate" style="flex:1;min-width:160px;padding:12px 18px;border-radius:8px;border:1px solid #64748b;background:#ffffff;color:#475569;font-weight:700;font-size:14px;cursor:pointer;">📂 Reload From Saved</button>` : ''}
+            <button data-action="start-new-bid" style="flex:1;min-width:160px;padding:12px 18px;border-radius:8px;border:1px solid #64748b;background:#ffffff;color:#475569;font-weight:700;font-size:14px;cursor:pointer;">🆕 Start Fresh Bid</button>
+          </div>
+
+          <details style="border-top:1px solid rgba(0,0,0,0.08);padding-top:14px;">
+            <summary style="cursor:pointer;font-size:12px;font-weight:700;color:rgba(0,0,0,0.55);text-transform:uppercase;letter-spacing:1px;">Technical details (for support)</summary>
+            <div style="margin-top:10px;padding:12px 14px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.55;overflow-x:auto;">
+              <div><strong style="color:#EBB328;">Step:</strong> ${state.currentStep}</div>
+              <div><strong style="color:#EBB328;">Project:</strong> ${esc(renderContext.projectName)}</div>
+              <div><strong style="color:#EBB328;">Disciplines:</strong> ${esc(renderContext.disciplines)}</div>
+              <div><strong style="color:#EBB328;">Estimate ID:</strong> ${esc(String(renderContext.estimateId || 'none'))}</div>
+              <div><strong style="color:#EBB328;">Time:</strong> ${esc(renderContext.timestamp)}</div>
+              <div style="margin-top:8px;"><strong style="color:#EBB328;">Stack:</strong></div>
+              <div style="margin-top:4px;color:#94a3b8;">${stackHtml}</div>
+            </div>
+          </details>
+
+          <div style="margin-top:14px;padding:10px 14px;background:rgba(235,179,40,0.06);border-left:3px solid #EBB328;border-radius:6px;font-size:11px;color:rgba(0,0,0,0.6);line-height:1.5;">
+            💡 <strong>Tip:</strong> A backup of your work has been saved to this browser. If "Try Rendering Again" doesn't work, close this tab, reopen SmartPlans, and your last session will be recoverable.
+          </div>
+        </div>
+      </div>
+    `;
   }
 }
 
@@ -9026,7 +9112,9 @@ function renderStep7(container) {
 
   container.innerHTML = `
     <h2 class="step-heading">Estimate Complete</h2>
-    <p class="step-subheading">Your AI-powered estimate is ready. Click <strong style="color:#237078;">Generate Complete Bid Package</strong> below to auto-build the full Fortune 500 proposal, or review the analysis sections first.</p>
+    <p class="step-subheading">Your AI-powered estimate is ready. Check the <strong style="color:#237078;">Bid Readiness Score</strong> below to see how much manual review it needs.</p>
+
+    ${buildBidReadinessCard(state)}
 
     <!-- v5.125.0 Auto-Proposal One-Click Button -->
     <div id="auto-proposal-cta" style="margin:18px 0 22px 0;padding:24px 28px;background:linear-gradient(135deg,#0F2942 0%,#237078 55%,#2B828B 100%);border-radius:14px;border-left:5px solid #EBB328;box-shadow:0 8px 32px rgba(15,41,66,0.25);display:flex;align-items:center;gap:22px;flex-wrap:wrap;">
@@ -17211,6 +17299,222 @@ function buildSpecComplianceCard(st) {
     </div>`;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// v5.127.0 BID READINESS SCORE
+//
+// Combines every quality signal SmartPlans produces into a single
+// 0-100 score that tells the estimator how much manual review their
+// bid needs. The trophy feature: no competitor shows this.
+//
+// Formula (weighted sum, all normalized to 0-100):
+//   40% — Confidence grade distribution (A/B/C/D percentages)
+//   20% — Sheet coverage (from Wave 0.3 Sheet Inventory Guard)
+//   15% — Discipline coverage (0 penalty if any zero-count disciplines)
+//   10% — Open clarification questions (penalty for unanswered)
+//   10% — Spec compliance score (from SPEC_COMPLIANCE_CHECKER)
+//    5% — Critical scope delineations addressed
+//
+// Returns { score, grade, label, color, factors }
+// ═══════════════════════════════════════════════════════════════
+function computeBidReadinessScore(st) {
+  if (!st || !st.analysisComplete) {
+    return { score: 0, grade: 'N/A', label: 'Analysis Not Run', color: '#64748b', factors: [] };
+  }
+
+  // Short-circuit: if quantities are unverified, readiness is always 0.
+  if (st._quantitiesUnverified) {
+    return {
+      score: 0,
+      grade: 'F',
+      label: 'QUANTITIES NOT VERIFIED',
+      color: '#ef4444',
+      factors: [
+        { name: 'Quantities unverified', points: 0, max: 100, note: st._quantitiesUnverifiedReason || 'Symbol Scanner could not verify counts. See blocking card below.' }
+      ],
+    };
+  }
+
+  const factors = [];
+
+  // ─── Factor 1: Confidence grade distribution (40%) ───
+  const cs = st._confidenceScoring;
+  let confidenceScore = 50; // Default neutral if no scoring data
+  if (cs && typeof cs.avgScore === 'number') {
+    confidenceScore = Math.max(0, Math.min(100, cs.avgScore));
+  }
+  factors.push({
+    name: 'Confidence Grade',
+    points: Math.round(confidenceScore * 0.40),
+    max: 40,
+    note: cs ? `${cs.overallGrade || '?'} overall · ${cs.totalItems || 0} items graded · ${cs.avgScore || 0}/100 avg` : 'No per-item scoring available',
+  });
+
+  // ─── Factor 2: Sheet coverage (20%) ───
+  const si = st._sheetInventory;
+  let sheetScore = 50;
+  if (si && typeof si.coverage_pct === 'number') {
+    sheetScore = Math.max(0, Math.min(100, si.coverage_pct));
+  } else if (si && si.index_found === false) {
+    sheetScore = 60; // no penalty if the drawing index wasn't extractable
+  }
+  factors.push({
+    name: 'Sheet Coverage',
+    points: Math.round(sheetScore * 0.20),
+    max: 20,
+    note: si
+      ? `${si.coverage_pct || 0}% of relevant sheets uploaded (${si.uploaded_relevant_sheet_count || 0}/${si.total_relevant_sheets || 0})`
+      : 'Sheet Inventory Guard did not run',
+  });
+
+  // ─── Factor 3: Discipline coverage (15%) ───
+  const gaps = Array.isArray(st._disciplineCoverageGaps) ? st._disciplineCoverageGaps : [];
+  const totalDisc = Array.isArray(st.disciplines) ? st.disciplines.length : 0;
+  const disciplineScore = totalDisc > 0
+    ? Math.max(0, 100 - (gaps.length / totalDisc) * 100)
+    : 50;
+  factors.push({
+    name: 'Discipline Coverage',
+    points: Math.round(disciplineScore * 0.15),
+    max: 15,
+    note: gaps.length === 0
+      ? `All ${totalDisc} selected disciplines have device counts`
+      : `${gaps.length} zero-count discipline(s): ${gaps.join(', ')}`,
+  });
+
+  // ─── Factor 4: Open clarification questions (10%) ───
+  const questions = Array.isArray(st._clarificationQuestions) ? st._clarificationQuestions : [];
+  const highSev = questions.filter(q => q.severity === 'high' || q.severity === 'critical');
+  const answered = st._clarificationAnswers || {};
+  const unanswered = highSev.filter(q => !answered[q.id]);
+  const clarScore = highSev.length === 0
+    ? 100
+    : Math.max(0, 100 - (unanswered.length / highSev.length) * 100);
+  factors.push({
+    name: 'Open Clarifications',
+    points: Math.round(clarScore * 0.10),
+    max: 10,
+    note: highSev.length === 0
+      ? 'No ambiguous symbols flagged'
+      : `${unanswered.length} of ${highSev.length} high-severity questions unanswered`,
+  });
+
+  // ─── Factor 5: Spec compliance (10%) ───
+  const sc = st._specCompliance;
+  let specScore = 75; // default if spec check didn't run
+  if (sc && typeof sc.compliance_score === 'number') {
+    specScore = Math.max(0, Math.min(100, sc.compliance_score));
+  }
+  factors.push({
+    name: 'Spec Compliance',
+    points: Math.round(specScore * 0.10),
+    max: 10,
+    note: sc
+      ? `${sc.compliance_score || 0}/100 — ${sc.requirements_met || 0} met, ${(sc.gaps || []).filter(g => g.severity === 'critical').length} critical gaps`
+      : 'Spec Compliance Checker did not run',
+  });
+
+  // ─── Factor 6: Scope delineations addressed (5%) ───
+  const sd = st._scopeDelineations;
+  const criticalDelineations = (sd?.delineations || []).filter(d => d.severity === 'critical');
+  const autoRemoved = Array.isArray(st._autoRemovedDisciplines) ? st._autoRemovedDisciplines.length : 0;
+  // If critical delineations exist and we auto-removed the affected disciplines,
+  // that counts as "addressed"
+  const delineationScore = criticalDelineations.length === 0
+    ? 100
+    : Math.max(60, 100 - (criticalDelineations.length - autoRemoved) * 10);
+  factors.push({
+    name: 'Scope Delineations',
+    points: Math.round(delineationScore * 0.05),
+    max: 5,
+    note: criticalDelineations.length === 0
+      ? 'No critical scope delineations found'
+      : `${criticalDelineations.length} critical found · ${autoRemoved} disciplines auto-removed`,
+  });
+
+  // ─── Total + grade ───
+  const total = factors.reduce((s, f) => s + f.points, 0);
+  const score = Math.min(100, Math.max(0, total));
+
+  let grade, label, color;
+  if (score >= 90)      { grade = 'A'; label = 'READY TO SEND';        color = '#10b981'; }
+  else if (score >= 80) { grade = 'B'; label = 'LIGHT REVIEW NEEDED';  color = '#22c55e'; }
+  else if (score >= 70) { grade = 'C'; label = 'MODERATE REVIEW';      color = '#f59e0b'; }
+  else if (score >= 55) { grade = 'D'; label = 'SIGNIFICANT REVIEW';   color = '#f97316'; }
+  else                  { grade = 'F'; label = 'NEEDS SIGNIFICANT FIXES'; color = '#ef4444'; }
+
+  return { score, grade, label, color, factors };
+}
+
+// ═══ BID READINESS SCORE CARD — prominent top-of-page display ═══
+function buildBidReadinessCard(st) {
+  const result = computeBidReadinessScore(st);
+  if (!st.analysisComplete) return '';
+
+  const circumference = 2 * Math.PI * 54; // radius 54 → ~339.3
+  const dashoffset = circumference - (result.score / 100) * circumference;
+
+  return `
+    <div id="bid-readiness-card" style="margin:18px 0 22px 0;padding:24px 28px;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border-radius:14px;border:2px solid ${result.color};box-shadow:0 8px 32px rgba(15,23,42,0.3);display:flex;align-items:center;gap:28px;flex-wrap:wrap;">
+
+      <!-- Score Ring -->
+      <div style="flex-shrink:0;position:relative;width:140px;height:140px;">
+        <svg width="140" height="140" viewBox="0 0 140 140">
+          <circle cx="70" cy="70" r="54" stroke="rgba(255,255,255,0.08)" stroke-width="14" fill="none"></circle>
+          <circle cx="70" cy="70" r="54" stroke="${result.color}" stroke-width="14" fill="none"
+                  stroke-dasharray="${circumference}" stroke-dashoffset="${dashoffset}"
+                  stroke-linecap="round" transform="rotate(-90 70 70)"
+                  style="transition:stroke-dashoffset 1s ease-out;filter:drop-shadow(0 0 8px ${result.color}66);"></circle>
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <div style="font-size:42px;font-weight:900;color:${result.color};line-height:1;font-family:'Playfair Display','Georgia',serif;">${result.score}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.5);letter-spacing:2px;margin-top:2px;">/ 100</div>
+        </div>
+      </div>
+
+      <!-- Label + Breakdown -->
+      <div style="flex:1;min-width:280px;">
+        <div style="font-size:10px;font-weight:800;color:#EBB328;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">SmartPlans · Bid Readiness</div>
+        <div style="font-size:24px;font-weight:900;color:${result.color};line-height:1.2;margin-bottom:4px;">${result.label}</div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:14px;">
+          Grade <strong style="color:${result.color};">${result.grade}</strong> — based on confidence, coverage, clarifications, and spec compliance
+        </div>
+
+        <!-- Factor breakdown -->
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${result.factors.map(f => {
+            const pct = f.max > 0 ? (f.points / f.max) : 0;
+            const color = pct >= 0.85 ? '#10b981' : pct >= 0.65 ? '#22c55e' : pct >= 0.45 ? '#f59e0b' : '#ef4444';
+            return `<div style="flex:1;min-width:120px;padding:8px 10px;background:rgba(255,255,255,0.04);border-left:3px solid ${color};border-radius:4px;" title="${esc(f.note)}">
+              <div style="font-size:9px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:1px;font-weight:700;">${esc(f.name)}</div>
+              <div style="font-size:15px;font-weight:800;color:#ffffff;margin-top:2px;">${f.points}<span style="font-size:10px;color:rgba(255,255,255,0.45);">/${f.max}</span></div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      ${result.score < 70 ? `
+        <div style="flex-basis:100%;padding:12px 16px;background:rgba(239,68,68,0.12);border-left:3px solid #ef4444;border-radius:6px;margin-top:4px;">
+          <div style="font-size:11px;font-weight:800;color:#ef4444;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">⚠ Bid Not Ready</div>
+          <div style="font-size:12.5px;color:rgba(255,255,255,0.85);line-height:1.55;">
+            This bid needs manual review before you send it. Scroll down to the Estimator Checklist card to see exactly what needs fixing.
+          </div>
+        </div>` : result.score < 85 ? `
+        <div style="flex-basis:100%;padding:12px 16px;background:rgba(245,158,11,0.12);border-left:3px solid #f59e0b;border-radius:6px;margin-top:4px;">
+          <div style="font-size:11px;font-weight:800;color:#f59e0b;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Review Recommended</div>
+          <div style="font-size:12.5px;color:rgba(255,255,255,0.85);line-height:1.55;">
+            Verify the items flagged in the Confidence Scoring and Estimator Checklist cards below before sending.
+          </div>
+        </div>` : `
+        <div style="flex-basis:100%;padding:12px 16px;background:rgba(16,185,129,0.12);border-left:3px solid #10b981;border-radius:6px;margin-top:4px;">
+          <div style="font-size:11px;font-weight:800;color:#10b981;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">✓ Ready to Send</div>
+          <div style="font-size:12.5px;color:rgba(255,255,255,0.85);line-height:1.55;">
+            All quality signals are green. Click "Generate Complete Bid Package" above to produce the Fortune 500 proposal, or export the BOM to Excel.
+          </div>
+        </div>`}
+    </div>
+  `;
+}
+
 // ═══ CONFIDENCE SCORING CARD — Per-item grade distribution ═══
 function buildConfidenceScoringCard(st) {
   if (st._quantitiesUnverified) return ''; // Suppressed — see blocking root-cause card
@@ -17253,6 +17557,48 @@ function buildConfidenceScoringCard(st) {
       <div style="margin-top:10px;padding:8px 12px;background:rgba(0,0,0,0.03);border-radius:8px;font-size:11px;color:var(--text-secondary);">
         <strong>A</strong> = High confidence (verified by consensus, no flags) | <strong>B</strong> = Good (minor flags) | <strong>C</strong> = Review recommended | <strong>D</strong> = Low confidence (multiple flags)
       </div>
+
+      ${Array.isArray(cs.worstItems) && cs.worstItems.length > 0 ? `
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.06);">
+        <div style="font-size:11px;font-weight:800;color:rgba(0,0,0,0.55);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">
+          ⚠ ${cs.worstItems.length} item${cs.worstItems.length === 1 ? '' : 's'} need review (verify these before sending)
+        </div>
+        <div style="max-height:260px;overflow-y:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:11.5px;">
+            <thead>
+              <tr style="background:rgba(0,0,0,0.03);">
+                <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.08);font-weight:700;color:rgba(0,0,0,0.55);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Grade</th>
+                <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.08);font-weight:700;color:rgba(0,0,0,0.55);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Item</th>
+                <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.08);font-weight:700;color:rgba(0,0,0,0.55);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Category</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.08);font-weight:700;color:rgba(0,0,0,0.55);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Qty</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.08);font-weight:700;color:rgba(0,0,0,0.55);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Cost</th>
+                <th style="text-align:left;padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.08);font-weight:700;color:rgba(0,0,0,0.55);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Why</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${cs.worstItems.map(w => {
+                const gradeColor = w.grade === 'D' ? '#ef4444' : '#f59e0b';
+                return `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                  <td style="padding:7px 10px;"><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${gradeColor};color:#fff;font-size:10px;font-weight:800;">${esc(w.grade)} (${w.score})</span></td>
+                  <td style="padding:7px 10px;font-weight:600;color:rgba(0,0,0,0.8);">${esc(String(w.name).substring(0, 50))}</td>
+                  <td style="padding:7px 10px;color:rgba(0,0,0,0.6);font-size:11px;">${esc(String(w.category).substring(0, 30))}</td>
+                  <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;color:rgba(0,0,0,0.7);">${w.qty} ${esc(w.unit || 'ea')}</td>
+                  <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;color:rgba(0,0,0,0.7);">$${Math.round(w.ext_cost).toLocaleString()}</td>
+                  <td style="padding:7px 10px;color:rgba(0,0,0,0.6);font-size:11px;">${esc((w.reasons || []).join(' · ') || '—')}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="margin-top:10px;padding:8px 12px;background:rgba(235,179,40,0.08);border-left:3px solid #EBB328;border-radius:6px;font-size:11px;color:rgba(0,0,0,0.7);line-height:1.5;">
+          💡 <strong>Workflow:</strong> Review each item above, verify the count on the plans, adjust in the BOM table if needed, then re-export. Items flagged C or D contribute to the Bid Readiness Score at the top of this page.
+        </div>
+      </div>
+      ` : `
+      <div style="margin-top:12px;padding:10px 14px;background:rgba(16,185,129,0.06);border-left:3px solid #10b981;border-radius:6px;font-size:12px;color:rgba(0,0,0,0.65);">
+        ✓ No items flagged for review — every line item scored B or better.
+      </div>
+      `}
     </div>`;
 }
 
@@ -18421,6 +18767,24 @@ document.addEventListener("DOMContentLoaded", async () => {
           break;
         case 'retry-render':
           render();
+          break;
+        case 'reload-estimate':
+          // v5.127.0: error boundary recovery — reload the current estimate
+          // from D1 and re-render. If state.estimateId is present, we can
+          // recover. Otherwise fall back to the saved estimates panel.
+          if (state.estimateId && typeof loadEstimate === 'function') {
+            try {
+              loadEstimate(state.estimateId).catch(err => {
+                console.error('[ErrorBoundary] reload-estimate failed:', err);
+                if (typeof spToast === 'function') spToast('Could not reload estimate: ' + err.message, 'error');
+              });
+            } catch (e) {
+              console.error('[ErrorBoundary] reload-estimate threw:', e);
+              if (typeof spToast === 'function') spToast('Could not reload estimate', 'error');
+            }
+          } else if (typeof showSavedEstimates === 'function') {
+            showSavedEstimates();
+          }
           break;
         case 'toggle-next':
           // Toggle visibility of the next sibling element

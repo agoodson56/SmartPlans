@@ -10960,26 +10960,52 @@ ${legendContext}
       const auditFixed = (context._mathAuditLog || []).map(l => l.toLowerCase());
 
       let totalItems = 0, gradeA = 0, gradeB = 0, gradeC = 0, gradeD = 0;
+      // v5.127.0: Collect individual item scores + deduction reasons
+      // so the UI can list the worst items inline in the confidence dashboard.
+      const allGradedItems = [];
 
       for (const cat of _scoreCats) {
         for (const item of (cat.items || [])) {
           totalItems++;
           const name = (item.item || item.device_type || item.name || '').toLowerCase();
           let score = 100; // Start perfect
+          const reasons = [];
 
           // Deduction: flagged by Devil's Advocate (-15)
-          if (devilChallenges.some(c => c.includes(name) || name.includes(c.substring(0, 15)))) score -= 15;
+          if (devilChallenges.some(c => c.includes(name) || name.includes(c.substring(0, 15)))) {
+            score -= 15;
+            reasons.push("Devil's Advocate flagged");
+          }
           // Deduction: flagged by Cross Validator (-20)
-          if (verifierIssues.some(i => i.includes(name) || name.includes(i.substring(0, 15)))) score -= 20;
+          if (verifierIssues.some(i => i.includes(name) || name.includes(i.substring(0, 15)))) {
+            score -= 20;
+            reasons.push('Cross Validator flagged');
+          }
           // Deduction: quantity anomaly detected (-15)
-          if (anomalyItems.some(a => a.includes(name) || name.includes(a.substring(0, 15)))) score -= 15;
+          if (anomalyItems.some(a => a.includes(name) || name.includes(a.substring(0, 15)))) {
+            score -= 15;
+            reasons.push('Quantity anomaly');
+          }
           // Deduction: corrected by Math Auditor (-10, but the fix improves accuracy)
-          if (auditFixed.some(l => l.includes(name.substring(0, 12)))) score -= 10;
+          if (auditFixed.some(l => l.includes(name.substring(0, 12)))) {
+            score -= 10;
+            reasons.push('Math auditor corrected');
+          }
           // Boost: consensus resolved item (+5)
           const consensusEntry = Object.entries(consensusCounts).find(([k]) => k.toLowerCase().includes(name.substring(0, 12)));
-          if (consensusEntry && consensusEntry[1]?.confidence === 'resolved') score += 5;
+          if (consensusEntry && consensusEntry[1]?.confidence === 'resolved') {
+            score += 5;
+          }
           // Deduction: qty=0 or ext_cost=0 (-30)
-          if ((item.qty || 0) === 0 || (item.ext_cost || item.extCost || 0) === 0) score -= 30;
+          if ((item.qty || 0) === 0 || (item.ext_cost || item.extCost || 0) === 0) {
+            score -= 30;
+            reasons.push('Zero qty or cost');
+          }
+          // Deduction: zero-count warning item from Material Pricer honesty rule (-20)
+          if (item._zero_count_warning === true) {
+            score -= 20;
+            reasons.push('Zero-count warning');
+          }
 
           // Clamp to 0-100
           score = Math.max(0, Math.min(100, score));
@@ -10991,15 +11017,33 @@ ${legendContext}
           else if (score >= 50) { grade = 'C'; gradeC++; }
           else { grade = 'D'; gradeD++; }
 
-          item._confidence = { score, grade };
+          item._confidence = { score, grade, reasons };
+          allGradedItems.push({
+            name: item.item || item.device_type || item.name || 'Unknown',
+            category: cat.name || cat.category || 'Uncategorized',
+            qty: item.qty || 0,
+            unit: item.unit || 'ea',
+            ext_cost: item.ext_cost || item.extCost || 0,
+            score,
+            grade,
+            reasons,
+          });
         }
       }
+
+      // v5.127.0: Surface the 10 worst items so the UI can list them inline.
+      // Sort by score ascending (worst first).
+      const worstItems = allGradedItems
+        .filter(i => i.grade === 'C' || i.grade === 'D')
+        .sort((a, b) => a.score - b.score)
+        .slice(0, 10);
 
       const confidenceScoring = {
         totalItems,
         grades: { A: gradeA, B: gradeB, C: gradeC, D: gradeD },
         overallGrade: gradeA / Math.max(totalItems, 1) >= 0.7 ? 'A' : gradeA / Math.max(totalItems, 1) >= 0.5 ? 'B' : gradeB / Math.max(totalItems, 1) >= 0.3 ? 'C' : 'D',
         avgScore: totalItems > 0 ? Math.round(_scoreCats.flatMap(c => (c.items || []).map(i => i._confidence?.score || 0)).reduce((s, v) => s + v, 0) / totalItems) : 0,
+        worstItems,
       };
 
       context._confidenceScoring = confidenceScoring;

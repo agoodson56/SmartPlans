@@ -33,14 +33,16 @@ jobs:
         env:
           CI: true
 
-      # REQUIRED — ai-engine regression suite must pass for the build to go green.
-      # These tests pin every bug that shipped in v5.126.x so nothing can regress.
-      - name: AI engine regression suite (BLOCKING)
+      # REQUIRED — blocking suite must pass for the build to go green.
+      # These tests pin every bug that shipped in v5.126.x and every
+      # quality feature that shipped in v5.127.x so nothing can regress.
+      - name: Blocking test suite (BLOCKING)
         run: |
           npx vitest run \
             tests/ai-engine-smoke.test.js \
             tests/ai-engine-regressions.test.js \
             tests/scope-delineation.test.js \
-            tests/fuzz-parsers.test.js
+            tests/fuzz-parsers.test.js \
+            tests/bid-readiness.test.js
         env:
           CI: true
