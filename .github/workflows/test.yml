@@ -43,6 +43,7 @@ jobs:
             tests/ai-engine-regressions.test.js \
             tests/scope-delineation.test.js \
             tests/fuzz-parsers.test.js \
-            tests/bid-readiness.test.js
+            tests/bid-readiness.test.js \
+            tests/bid-corrections.test.js
         env:
           CI: true

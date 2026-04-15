@@ -4256,6 +4256,99 @@ ${(() => {
   return result;
 })()}
 
+═══ 🧠 ESTIMATOR FEEDBACK LOOP — v5.127.1 (HIGHEST PRIORITY AFTER RATE LIBRARY) ═══
+${(() => {
+  // Item-level corrections made by real estimators on past bids of the same
+  // project_type. Aggregated by (item_name + field_changed) so the Pricer
+  // sees a single signal per item instead of raw rows.
+  const raw = Array.isArray(context._historicalCorrections) ? context._historicalCorrections : [];
+  if (raw.length === 0) {
+    return 'No historical estimator corrections for this project type yet — this is the first (or only uncorrected) bid. Future edits will be fed back here.';
+  }
+
+  // Aggregate by item_name + field
+  const byItem = {};
+  for (const c of raw) {
+    if (!c || !c.item_name || !c.field_changed) continue;
+    const key = (c.item_name + '|' + c.field_changed).toLowerCase();
+    if (!byItem[key]) {
+      byItem[key] = {
+        item_name: c.item_name,
+        field: c.field_changed,
+        discipline: c.discipline || null,
+        count: 0,
+        deltaSum: 0,
+        deltaAbsSum: 0,
+        origSum: 0,
+        corrSum: 0,
+        origCount: 0,
+        corrCount: 0,
+      };
+    }
+    const agg = byItem[key];
+    agg.count++;
+    const d = parseFloat(c.delta_pct);
+    if (!isNaN(d)) {
+      agg.deltaSum += d;
+      agg.deltaAbsSum += Math.abs(d);
+    }
+    const o = parseFloat(c.original_value);
+    const v = parseFloat(c.corrected_value);
+    if (!isNaN(o)) { agg.origSum += o; agg.origCount++; }
+    if (!isNaN(v)) { agg.corrSum += v; agg.corrCount++; }
+  }
+
+  // Sort by (count, |avg delta|) descending — the most-corrected items first
+  const rows = Object.values(byItem)
+    .map(a => ({
+      ...a,
+      avgDelta: a.count > 0 ? a.deltaSum / a.count : 0,
+      avgAbsDelta: a.count > 0 ? a.deltaAbsSum / a.count : 0,
+      avgOrig: a.origCount > 0 ? a.origSum / a.origCount : null,
+      avgCorr: a.corrCount > 0 ? a.corrSum / a.corrCount : null,
+    }))
+    // Filter out low-signal rows: single instance AND small delta
+    .filter(r => r.count >= 2 || Math.abs(r.avgDelta) >= 10)
+    .sort((a, b) => (b.count * 10 + b.avgAbsDelta) - (a.count * 10 + a.avgAbsDelta))
+    .slice(0, 40);
+
+  if (rows.length === 0) {
+    return `${raw.length} correction(s) on record but none have enough signal to act on yet (need 2+ instances or 10%+ delta per item).`;
+  }
+
+  const formatRow = (r) => {
+    const dir = r.avgDelta >= 0 ? '↑' : '↓';
+    const pct = Math.abs(r.avgDelta).toFixed(1);
+    const origStr = r.avgOrig != null
+      ? (r.field === 'unit_cost' ? '$' + r.avgOrig.toFixed(2) : r.avgOrig.toFixed(0))
+      : 'n/a';
+    const corrStr = r.avgCorr != null
+      ? (r.field === 'unit_cost' ? '$' + r.avgCorr.toFixed(2) : r.avgCorr.toFixed(0))
+      : 'n/a';
+    const disc = r.discipline ? ` [${r.discipline}]` : '';
+    return `  • ${r.item_name}${disc} — ${r.field}: ${origStr} → ${corrStr} (${dir}${pct}% avg across ${r.count} bid${r.count === 1 ? '' : 's'})`;
+  };
+
+  return `These are REAL corrections made by estimators on past bids of the same project type.
+Apply them BEFORE you lock in your own numbers — if an item shows a consistent ↑ 20% correction,
+your next value for that item should already be 20% higher than your first instinct.
+
+${rows.map(formatRow).join('\n')}
+
+HOW TO APPLY:
+1. Before you write each BOM line, scan this list for the item_name (match loosely — "Fixed Dome Camera" vs "Dome Camera (indoor)" should be treated as the same item)
+2. If a match exists with ≥3 instances, apply the average correction direction with 80% confidence:
+   - "qty": adjust your count toward the corrected value
+   - "unit_cost": adjust your price toward the corrected value
+3. If the delta is >50%, something structural changed — use the corrected value as the new baseline
+4. Tag each applied correction in your output with: "_feedback_applied": "<item_name>: <direction><pct>%"
+5. NEVER use the corrections as an excuse to ignore schedule counts — schedule still wins on quantities
+
+WHY THIS MATTERS: The estimators editing BOM numbers after the fact are the ground truth. They have
+seen the parts, priced them with their suppliers, and know what these items actually cost in the
+real world. Every correction you honor here is one less correction they have to make next time.`;
+})()}
+
 ═══ DISTRIBUTOR PRICE CACHE — Recent quotes from Graybar/Anixter/WESCO/ADI ═══
 ${(() => {
   const prices = context.distributorPrices || [];
@@ -9875,12 +9968,25 @@ ${legendContext}
       progressCallback(55, `⚡ Auto-detected disciplines: ${disciplinesAdded.join(', ')}`, this._brainStatus);
     }
 
-    // ═══ PRE-WAVE 2: Load Rate Library + Distributor Cache + Cost Benchmarks ═══
+    // ═══ PRE-WAVE 2: Load Rate Library + Distributor Cache + Cost Benchmarks + Bid Corrections ═══
     // All loaded in parallel for speed
-    const [rlResult, dpResult, bmResult] = await Promise.allSettled([
+    //
+    // v5.127.1 — Bid Corrections:
+    // Every time an estimator edits a BOM qty or unit_cost after Material Pricer
+    // runs, that edit is logged to /api/bid-corrections. Here we fetch all past
+    // corrections scoped to the current project_type + disciplines so Material
+    // Pricer can see "the last 20 times we priced a similar bid, this is how
+    // estimators fixed the numbers". The feedback loop makes every bid sharper.
+    const projectTypeParam = encodeURIComponent(state.projectType || '');
+    const correctionsUrl = projectTypeParam
+      ? `/api/bid-corrections?project_type=${projectTypeParam}&limit=300`
+      : `/api/bid-corrections?limit=300`;
+
+    const [rlResult, dpResult, bmResult, bcResult] = await Promise.allSettled([
       fetch('/api/rate-library', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
       fetch('/api/distributor-prices', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
       fetch('/api/benchmarks', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
+      fetch(correctionsUrl, { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
     ]);
 
     if (rlResult.status === 'fulfilled' && rlResult.value?.rates?.length > 0) {
@@ -9896,6 +10002,13 @@ ${legendContext}
     if (bmResult.status === 'fulfilled' && bmResult.value?.benchmarks?.length > 0) {
       context.costBenchmarks = bmResult.value.benchmarks;
       console.log(`[SmartBrains] 📊 Cost Benchmarks: loaded ${context.costBenchmarks.length} historical price benchmarks from completed projects`);
+    }
+
+    if (bcResult.status === 'fulfilled' && Array.isArray(bcResult.value?.corrections) && bcResult.value.corrections.length > 0) {
+      context._historicalCorrections = bcResult.value.corrections;
+      console.log(`[SmartBrains] 🧠 Estimator Feedback Loop: loaded ${context._historicalCorrections.length} historical corrections for ${state.projectType || 'all project types'}`);
+    } else {
+      context._historicalCorrections = [];
     }
 
     // ─── v5.126.0 PHASE 1.7: Pre-Pricer Consensus Counts Guard ───

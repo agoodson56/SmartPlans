@@ -326,6 +326,39 @@ CREATE TABLE IF NOT EXISTS bid_decisions (
 CREATE INDEX IF NOT EXISTS idx_bid_decisions_category ON bid_decisions(category);
 CREATE INDEX IF NOT EXISTS idx_bid_decisions_type ON bid_decisions(project_type);
 
+-- ═══════════════════════════════════════════════════════════════
+-- v5.127.1 — Estimator Feedback Loop: Bid Corrections
+-- Item-level (not category-level) corrections made by estimators
+-- during BOM review. Aggregated across all past bids and fed back
+-- into Material Pricer on the next run of the same project type +
+-- discipline so the AI learns from every manual edit.
+--
+-- This is the trophy feedback loop: every time an estimator fixes
+-- a number, SmartPlans gets smarter for the next bid.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS bid_corrections (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    estimate_id TEXT,
+    project_name TEXT,
+    project_type TEXT,           -- Hospital, Transit, Office, VA, School, etc.
+    discipline TEXT,             -- CCTV, Access Control, Structured Cabling, etc.
+    category TEXT,               -- Line item category name from BOM
+    item_name TEXT NOT NULL,     -- The item whose value was corrected
+    field_changed TEXT NOT NULL, -- 'qty' or 'unit_cost'
+    original_value REAL,         -- What Material Pricer output
+    corrected_value REAL,        -- What the estimator changed it to
+    delta_pct REAL,              -- (corrected - original) / original * 100
+    region TEXT,                 -- Regional multiplier key (optional)
+    corrected_by TEXT,           -- User id / name (optional)
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_corrections_type ON bid_corrections(project_type);
+CREATE INDEX IF NOT EXISTS idx_bid_corrections_disc ON bid_corrections(discipline);
+CREATE INDEX IF NOT EXISTS idx_bid_corrections_item ON bid_corrections(item_name);
+CREATE INDEX IF NOT EXISTS idx_bid_corrections_created ON bid_corrections(created_at DESC);
+
 -- Performance indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_revisions_created ON estimate_revisions(created_at DESC);

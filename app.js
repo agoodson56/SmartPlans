@@ -9814,6 +9814,68 @@ function renderStep7(container) {
   let _bomDebounce = null;
   const _fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  // ─── v5.127.1 Estimator Feedback Loop ───
+  // Sends BOM edits to /api/bid-corrections so Material Pricer can learn from
+  // them on the next run. Batches both qty and unit_cost changes for the same
+  // item into a single POST body. Fire-and-forget — UI never blocks on this.
+  async function _logBidCorrection({ origItem, origQty, origCost, newQty, newCost }) {
+    if (!origItem || !origItem.item) return;
+    const itemName = origItem.item || origItem.name || 'Unknown item';
+    const category = origItem.category || origItem._catName || null;
+    const discipline = origItem.discipline || origItem._discipline || category || null;
+    const projectType = state?.projectType || null;
+    const projectName = state?.projectName || null;
+    const estimateId = state?._estimateId || state?.estimateId || null;
+    const region = state?.regionalMultiplier || null;
+
+    const items = [];
+    if (typeof origQty === 'number' && typeof newQty === 'number' && origQty !== newQty) {
+      items.push({
+        estimate_id: estimateId,
+        project_name: projectName,
+        project_type: projectType,
+        discipline,
+        category,
+        item_name: itemName,
+        field_changed: 'qty',
+        original_value: origQty,
+        corrected_value: newQty,
+        region,
+      });
+    }
+    if (typeof origCost === 'number' && typeof newCost === 'number' && origCost !== newCost) {
+      items.push({
+        estimate_id: estimateId,
+        project_name: projectName,
+        project_type: projectType,
+        discipline,
+        category,
+        item_name: itemName,
+        field_changed: 'unit_cost',
+        original_value: origCost,
+        corrected_value: newCost,
+        region,
+      });
+    }
+    if (items.length === 0) return;
+
+    // Fire-and-forget — never block UI. Use queueMicrotask so we don't
+    // interfere with the rest of _bomRecalc's synchronous render work.
+    queueMicrotask(() => {
+      fetch('/api/bid-corrections', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ items }),
+      }).catch((err) => {
+        // Silent — log once, don't spam
+        if (!_logBidCorrection._warned) {
+          _logBidCorrection._warned = true;
+          console.warn('[SmartPlans] bid-corrections POST failed (will not retry this session):', err?.message || err);
+        }
+      });
+    });
+  }
+
   function _bomRecalc(key, qtyInput, costInput) {
     // AUDIT FIX H11: Prevent negative quantities — clamp to 0
     const qty = Math.max(0, parseFloat(qtyInput.value) || 0);
@@ -9844,6 +9906,22 @@ function renderStep7(container) {
         supplierName: 'Manual Edit',
         appliedAt: new Date().toISOString()
       };
+
+      // ─── v5.127.1 Estimator Feedback Loop ───
+      // Every qty or unit_cost edit is logged to /api/bid-corrections so
+      // the next run of the same project_type learns from this estimator.
+      // Fire-and-forget; failures don't block the UI.
+      try {
+        _logBidCorrection({
+          origItem,
+          origQty,
+          origCost,
+          newQty: qty,
+          newCost: unitCost,
+        });
+      } catch (fbErr) {
+        console.warn('[SmartPlans] Feedback loop log failed (non-fatal):', fbErr?.message || fbErr);
+      }
     } else {
       // Reverted to original — remove override
       delete state.supplierPriceOverrides[key];
