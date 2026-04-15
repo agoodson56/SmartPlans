@@ -1124,22 +1124,12 @@ const state = {
         console.warn('[DisciplinesGuard] Rejected non-array write:', value);
         return;
       }
-      // Dedupe + filter falsy
+      // v5.126.3 P0.3: Removed stack-trace regex that could false-block
+      // legitimate writes when any function named "SmartDefaults.*" was on
+      // the call stack (which happens routinely). The _disciplinesUserTouched
+      // sticky flag checked at the _doProjectTypeCascade callsite is the
+      // real defense — the setter just does dedupe + logging now.
       const cleaned = [...new Set(value.filter(Boolean))];
-
-      // Detect writes from the auto-suggest cascade AFTER user touched
-      const stack = (new Error()).stack || '';
-      const fromCascade = /(_doProjectTypeCascade|onProjectTypeChanged|SmartDefaults)/.test(stack);
-      if (state._disciplinesUserTouched && fromCascade && cleaned.length !== _disciplinesStore.length) {
-        console.warn('[DisciplinesGuard] 🛑 BLOCKED cascade write — user already touched disciplines', {
-          blocked: cleaned,
-          preserved: _disciplinesStore,
-          stack: stack.split('\n').slice(1, 4).join(' ← '),
-        });
-        return; // Refuse the write
-      }
-
-      // Log every write with a compact stack trace for debugging
       if (_disciplinesStore.length !== cleaned.length ||
           _disciplinesStore.some((d, i) => d !== cleaned[i])) {
         console.log(`[DisciplinesGuard] ${_disciplinesStore.length} → ${cleaned.length} [${cleaned.join(', ')}]`);

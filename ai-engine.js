@@ -122,10 +122,15 @@ const SmartBrains = {
         // instead of sending requests into a degraded backend.
         if (this._justTripped && !this._postCooldownHealthCheckInFlight) {
           this._postCooldownHealthCheckInFlight = true;
+          // v5.126.3 P0.1: Explicit AbortController instead of AbortSignal.timeout
+          // because AbortSignal.timeout is undefined on older browsers and also
+          // because even when supported, we want a deterministic 10s cap.
+          // Previous code could hang FOREVER if quota-check was slow/unreachable.
+          const hcController = new AbortController();
+          const hcTimeout = setTimeout(() => hcController.abort(), 10000);
           try {
-            const healthResp = await fetch('/api/ai/quota-check', {
-              signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined,
-            });
+            const healthResp = await fetch('/api/ai/quota-check', { signal: hcController.signal });
+            clearTimeout(hcTimeout);
             if (!healthResp.ok) {
               throw new Error(`Quota health check returned ${healthResp.status}`);
             }
@@ -135,18 +140,19 @@ const SmartBrains = {
             const healthState = String(health.health || 'unknown');
 
             if (healthState === 'critical' || (total > 0 && available < total * 0.25)) {
-              console.error(`[CircuitBreaker] ⛔ Post-cooldown health check FAILED — ${available}/${total} keys available, state=${healthState}. Aborting brain to avoid cascading failures.`);
-              // Mark as still tripped so subsequent waitIfTripped calls also abort
-              this.trippedUntil = Date.now() + 30000; // extend by 30s
-              throw new Error(`API recovering — only ${available}/${total} keys available. Retry in 30s.`);
+              console.error(`[CircuitBreaker] ⛔ Post-cooldown health check FAILED — ${available}/${total} keys available, state=${healthState}. Resuming anyway — brains will hit dead-slot blacklist individually.`);
+              // v5.126.3: Do NOT throw — let brains proceed and hit the dead-slot
+              // blacklist individually. Throwing here aborted the entire wave,
+              // which was worse than letting individual brains fail gracefully.
+            } else {
+              console.log(`[CircuitBreaker] ✅ Post-cooldown health check passed — ${available}/${total} keys available, state=${healthState}. Resuming.`);
             }
-            console.log(`[CircuitBreaker] ✅ Post-cooldown health check passed — ${available}/${total} keys available, state=${healthState}. Resuming.`);
           } catch (hcErr) {
-            console.warn(`[CircuitBreaker] Health check could not complete: ${hcErr.message}`);
-            // Be conservative: if the health endpoint is unreachable, throw
-            // rather than silently resume (the old behavior).
-            this._justTripped = false; // don't retry the health check forever
-            throw new Error(`Post-cooldown health check failed: ${hcErr.message}. Aborting brain.`);
+            clearTimeout(hcTimeout);
+            // v5.126.3: Log and continue. Old behavior threw, which aborted the
+            // brain. If the health endpoint is unreachable during cooldown, just
+            // trust the dead-slot blacklist to handle individual failures.
+            console.warn(`[CircuitBreaker] Health check could not complete (${hcErr.name === 'AbortError' ? 'timeout' : hcErr.message}) — resuming brains; dead slots will be blacklisted individually.`);
           } finally {
             this._postCooldownHealthCheckInFlight = false;
             this._justTripped = false;
@@ -8652,6 +8658,19 @@ ${legendContext}
     console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
     console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
 
+    // v5.126.3 P2: Reset dead slot blacklist and circuit breaker state at
+    // the start of every analysis. Previously _deadSlots persisted across
+    // bids, so a slot that returned 403 once would be blacklisted forever
+    // (until page reload) even if the GCP project was restored.
+    if (this._deadSlots) this._deadSlots.clear();
+    if (this._deadSlotReasons) this._deadSlotReasons.clear();
+    if (this._circuitBreaker) {
+      this._circuitBreaker.consecutive429s = 0;
+      this._circuitBreaker.trippedUntil = 0;
+      this._circuitBreaker._justTripped = false;
+      this._circuitBreaker._postCooldownHealthCheckInFlight = false;
+    }
+
     // Reset brain status
     this._brainStatus = {};
     for (const [key, brain] of Object.entries(this.BRAINS)) {
@@ -8718,29 +8737,26 @@ ${legendContext}
           // brains received empty context {} and produced garbage output
           // with no signal to stop.
           //
-          // New behavior: verify the inline fallback is actually viable
-          // before continuing. If both paths are dead, throw so analysis
-          // aborts instead of producing phantom results.
+          // v5.126.3 P1.1: Relaxed check — accept any non-empty string fileUri.
+          // The previous version demanded startsWith('https://'), which was
+          // overly strict and false-aborted on legitimate Gemini fileUris that
+          // start with generativelanguage.googleapis.com/ without the https://
+          // prefix (depending on SDK version). Warn-only, never abort.
           const fileUriCount = fileUris.length;
-          const hasUsableUris = fileUriCount > 0 && fileUris.every(f => f && f.fileUri && String(f.fileUri).startsWith('https://'));
-          if (!hasUsableUris) {
-            console.error(`[SmartBrains] ⛔ CACHE + FALLBACK BOTH FAILED: ${fileUriCount} uri(s), hasValidUris=${hasUsableUris}`);
-            throw new Error(`AI context unavailable: cache creation failed (${cacheData.error || 'unknown'}) AND ${fileUriCount === 0 ? 'no uploaded files have valid fileUris' : 'some fileUris are not HTTPS'}. Cannot run brains with empty context. Re-upload plans and try again.`);
-          }
-          if (!uploadKeyName) {
-            console.warn('[SmartBrains] ⚠️ Cache failed AND no upload key available — brains may hit wrong-key errors on inline fallback');
-          } else {
-            console.log(`[SmartBrains] ✅ Cache fallback validated: ${fileUriCount} file uri(s) + upload key ${uploadKeyName} — brains will send inline`);
+          const usableUriCount = fileUris.filter(f => f && f.fileUri && typeof f.fileUri === 'string' && f.fileUri.length > 0).length;
+          if (usableUriCount === 0 && fileUriCount > 0) {
+            console.warn(`[SmartBrains] ⚠️ Cache failed AND 0/${fileUriCount} fileUris are usable — brains will likely fail to read files. Estimator should re-upload.`);
+          } else if (usableUriCount < fileUriCount) {
+            console.warn(`[SmartBrains] ⚠️ Cache failed; ${usableUriCount}/${fileUriCount} fileUris usable — brains will send inline (some files may be missing)`);
+          } else if (fileUriCount > 0) {
+            console.log(`[SmartBrains] ✅ Cache fallback validated: ${fileUriCount} file uri(s)${uploadKeyName ? ' + upload key ' + uploadKeyName : ' (no upload key pinned)'} — brains will send inline`);
           }
         }
       }
     } catch (cacheErr) {
       console.warn('[SmartBrains] Context cache unavailable, using standard mode:', cacheErr.message);
-      // If the error was thrown by our own fallback validator above, re-throw
-      // to abort the analysis rather than continue silently.
-      if (/CACHE \+ FALLBACK BOTH FAILED|AI context unavailable/.test(cacheErr.message || '')) {
-        throw cacheErr;
-      }
+      // v5.126.3: No longer re-throws fallback errors. Brains will attempt
+      // inline delivery and fail individually if the files are unreadable.
     }
 
     // Store cache reference for brains to use
@@ -9443,29 +9459,42 @@ ${legendContext}
         // price it (producing $0 or a hallucinated allowance). Now we
         // auto-strip the discipline from context.disciplines BEFORE
         // Wave 2 runs, so downstream brains never see it.
+        //
+        // v5.126.3 P1.2: TOKEN-BASED matching. Previous version used
+        // _discNormalize(...).includes(normKey) which could false-positive
+        // on substring overlaps (e.g., "access control" inside "accesscontrolrooms"
+        // is fine, but "control" inside "climatecontrol" would wrongly match
+        // "Access Control"). Now we tokenize both sides and require ALL of
+        // the discipline's significant words to appear as whole tokens.
         const designBuildRemovals = [];
         const DB_PHRASE_TYPES = new Set(['design_build', 'design-build', 'by_others', 'by_ec', 'NIC', 'nic', 'by_div_26']);
-        // Map discipline-names-as-seen-by-scanner to our canonical DISCIPLINES keys
-        const _discNormalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const currentDisciplineMap = new Map();
-        for (const d of (state.disciplines || [])) {
-          currentDisciplineMap.set(_discNormalize(d), d);
-        }
+        // Tokenize: lowercase, split on non-alphanumerics, drop short/noise words
+        const _NOISE_TOKENS = new Set(['and', 'or', 'the', 'of', 'for', 'to', 'by', 'on', 'in', 'a', 'an', 'systems', 'system']);
+        const _tokenize = (s) => String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter(t => t && t.length >= 3 && !_NOISE_TOKENS.has(t));
+        // Build a list of { discipline, significantTokens } for each selected discipline
+        const disciplineTokens = (state.disciplines || []).map(d => ({
+          discipline: d,
+          tokens: _tokenize(d),
+        })).filter(x => x.tokens.length > 0);
+        const removedSet = new Set();
         for (const d of delineations) {
           const ptype = String(d.phrase_type || '').toLowerCase();
           const affected = String(d.affected_scope || '');
           const phrase = String(d.exact_phrase || '');
-          // Match our disciplines against the affected_scope string
-          for (const [normKey, canonical] of currentDisciplineMap.entries()) {
-            if (!currentDisciplineMap.has(normKey)) continue; // already removed
-            // Strong match: phrase contains "design-build" or "by others" or "by EC" AND references the discipline name
-            const mentionsDiscipline = _discNormalize(affected).includes(normKey) || _discNormalize(phrase).includes(normKey);
-            const looksLikeDesignBuild = DB_PHRASE_TYPES.has(ptype)
-              || /design.?build\s+by\s+(electrical|ec|div\.?\s*26|others?)/i.test(phrase)
-              || /(shall\s+be|is)\s+(design.?build|by\s+others|not\s+in\s+contract|NIC)/i.test(phrase);
-            if (mentionsDiscipline && looksLikeDesignBuild) {
-              designBuildRemovals.push({ discipline: canonical, phrase, reason: ptype });
-              currentDisciplineMap.delete(normKey);
+          const affectedTokens = new Set(_tokenize(affected));
+          const phraseTokens = new Set(_tokenize(phrase));
+          const looksLikeDesignBuild = DB_PHRASE_TYPES.has(ptype)
+            || /design.?build\s+by\s+(electrical|ec|div\.?\s*26|others?)/i.test(phrase)
+            || /(shall\s+be|is)\s+(design.?build|by\s+others|not\s+in\s+contract|NIC)/i.test(phrase);
+          if (!looksLikeDesignBuild) continue;
+          for (const { discipline, tokens } of disciplineTokens) {
+            if (removedSet.has(discipline)) continue;
+            // Require ALL significant tokens of the discipline to appear in either
+            // the affected_scope or the phrase (set membership, not substring).
+            const allTokensMatch = tokens.every(t => affectedTokens.has(t) || phraseTokens.has(t));
+            if (allTokensMatch) {
+              designBuildRemovals.push({ discipline, phrase, reason: ptype });
+              removedSet.add(discipline);
             }
           }
         }
@@ -9826,30 +9855,43 @@ ${legendContext}
     // New behavior: verify at least one count source has real data before
     // Material Pricer runs. If ALL sources are empty AND disciplines are
     // selected, hard-error with a clear root cause.
+    // v5.126.3 P0.2: Defensive shape-check. Previous version called
+    // Object.keys() on consensusCounts without verifying it was a plain
+    // object, which threw TypeError when CONSENSUS_ARBITRATOR returned
+    // null or an array. Now we validate the shape before inspecting.
     try {
       const selectedDisciplinesPre = Array.isArray(state.disciplines) ? state.disciplines.length : 0;
-      const consensusCounts = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
+      let consensusCounts = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
         || context.wave1_75?.TARGETED_RESCANNER?.final_counts
-        || context.wave1?.SYMBOL_SCANNER?.totals
-        || {};
+        || context.wave1?.SYMBOL_SCANNER?.totals;
+
+      // Normalize weird shapes to {} so downstream logic doesn't crash
+      if (consensusCounts == null || typeof consensusCounts !== 'object' || Array.isArray(consensusCounts)) {
+        console.warn(`[SmartBrains] ⚠️ Pre-Pricer Guard: consensusCounts had unexpected shape (${Array.isArray(consensusCounts) ? 'array' : typeof consensusCounts}); treating as empty.`);
+        consensusCounts = {};
+      }
+
       const nonZeroCount = Object.values(consensusCounts).filter(v => {
+        if (v == null) return false;
         const n = typeof v === 'object' ? (v?.consensus || v?.count || v?.total || 0) : v;
         return (parseFloat(n) || 0) > 0;
       }).length;
       const totalKeyCount = Object.keys(consensusCounts).length;
 
       if (selectedDisciplinesPre > 0 && totalKeyCount === 0) {
-        throw new Error(`Pre-Pricer Guard: ${selectedDisciplinesPre} discipline(s) selected but ZERO device counts available from any Wave 1 source (CONSENSUS_ARBITRATOR + TARGETED_RESCANNER + SYMBOL_SCANNER all empty). Wave 1 likely failed silently. Cannot run Material Pricer — it would produce a $0 BOM. Fix: re-upload plans with the correct legend sheets and re-run analysis.`);
-      }
-      if (selectedDisciplinesPre > 0 && nonZeroCount === 0) {
+        // v5.126.3: soft warning, not a hard throw. Let Material Pricer run —
+        // the Per-Discipline Coverage Guard + Material Pricer's own zero-count
+        // honesty rule will produce a warning BOM, which is better than
+        // aborting the entire analysis with a confusing error.
+        console.warn(`[SmartBrains] ⚠️ Pre-Pricer Guard: ${selectedDisciplinesPre} discipline(s) selected but ZERO device counts available from any Wave 1 source. Material Pricer will run and emit zero-count warning items for every selected discipline. Estimator must fix the upload.`);
+      } else if (selectedDisciplinesPre > 0 && nonZeroCount === 0) {
         console.warn(`[SmartBrains] ⚠️ Pre-Pricer Guard: ${totalKeyCount} count key(s) present but ALL are zero. Material Pricer will run but is expected to emit zero-count warning items for every selected discipline.`);
       } else {
         console.log(`[SmartBrains] ✅ Pre-Pricer Guard: ${nonZeroCount}/${totalKeyCount} count keys have non-zero values — Material Pricer can proceed`);
       }
     } catch (prePricerErr) {
-      // Propagate hard errors (empty counts + disciplines selected)
-      if (/Pre-Pricer Guard/.test(prePricerErr.message || '')) throw prePricerErr;
-      console.warn('[SmartBrains] Pre-Pricer Guard errored non-fatally:', prePricerErr.message);
+      // v5.126.3: Always non-fatal now. Do not propagate.
+      console.warn('[SmartBrains] Pre-Pricer Guard errored non-fatally (continuing):', prePricerErr.message);
     }
 
     // ═══ WAVE 2: Material Pricer (1 brain — runs first so Labor can use its quantities) ═══
@@ -10417,7 +10459,14 @@ ${legendContext}
                          : (context._prevailingWageType === 'pla')        ? 90
                          : 85;  // state PW
 
-          if (avgLoadedRate > 0 && avgLoadedRate < DB_FLOOR) {
+          // v5.126.3 P1.3: If the AI explicitly reported prevailing_wage_applied=true
+          // AND a reasonable multiplier (>= 1.4), trust it and SKIP the scale-up.
+          // Previous version double-applied the multiplier when the AI had already
+          // done the math but came back below our conservative floor for some reason
+          // (e.g., mixed-trade crew with partial DB exposure).
+          if (avgLoadedRate > 0 && avgLoadedRate < DB_FLOOR && dbApplied && reportedMultiplier && reportedMultiplier >= 1.4) {
+            console.log(`[SmartBrains] ✅ Davis-Bacon validator: avg $${avgLoadedRate.toFixed(2)}/hr below floor BUT AI reported prevailing_wage_applied=true with ${reportedMultiplier}x — trusting AI, skipping scale-up to avoid double-apply`);
+          } else if (avgLoadedRate > 0 && avgLoadedRate < DB_FLOOR) {
             // AI produced open-shop labor despite DB detection. Scale up in code.
             const scaleFactor = expectedMultiplier;
             console.warn(`[SmartBrains] ⛔ DAVIS-BACON VALIDATOR: Labor Calculator returned avg $${avgLoadedRate.toFixed(2)}/hr — below DB floor of $${DB_FLOOR}/hr`);
@@ -10600,7 +10649,10 @@ ${legendContext}
         // 40% from the original — deterministic safety net.
         const origTotal = parseFloat(corrector.original_grand_total) || 0;
         const corrTotal = parseFloat(corrector.corrected_grand_total) || 0;
-        if (origTotal > 1000 && corrTotal > 0) {
+        // v5.126.3 P3: Lowered the gate from $1000 to $100 so small service-call
+        // bids also get the drift check. The only reason to skip is if origTotal
+        // is missing or nonsensical (zero/negative).
+        if (origTotal > 100 && corrTotal > 0) {
           const driftPct = Math.abs(corrTotal - origTotal) / origTotal;
           if (driftPct > 0.40) {
             console.warn(`[SmartBrains] ⛔ ESTIMATE CORRECTOR SANITY GUARD: corrected_grand_total $${corrTotal.toLocaleString()} drifts ${(driftPct * 100).toFixed(1)}% from original $${origTotal.toLocaleString()} — REJECTING correction`);
