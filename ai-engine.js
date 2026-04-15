@@ -81,10 +81,18 @@ const SmartBrains = {
   _model400Blacklist: new Set(),
 
   // FIX #19: Circuit breaker — pause all brains when API is overwhelmed
+  // ─── v5.126.2: Session-level dead slot blacklist ───
+  // When a slot returns 403 PERMISSION_DENIED (Google Cloud Project
+  // suspended or cross-project file access denied), it's DEAD for the
+  // rest of the session — no amount of waiting or retrying will fix it.
+  // Separate from the transient 429 rate limit circuit breaker.
+  _deadSlots: new Set(),          // slot numbers that returned 403 — skip forever this session
+  _deadSlotReasons: new Map(),    // slot → reason string for diagnostics
+
   _circuitBreaker: {
     consecutive429s: 0,
     trippedUntil: 0,     // timestamp when circuit breaker clears
-    TRIP_THRESHOLD: 5,   // trip after 5 consecutive 429s across different keys
+    TRIP_THRESHOLD: 5,   // trip after 5 consecutive 429s (rate limits only, NOT 403)
     COOLDOWN_MS: 60000,  // pause for 60 seconds
     _postCooldownHealthCheckInFlight: false,
     record429() {
@@ -2109,20 +2117,34 @@ const SmartBrains = {
 
       // FIX #13: Use Math.floor for brain IDs (some are floats like 0.5, 1.75)
       // FIX #5: Skip exhausted key slots that returned 429
+      // v5.126.2: ALSO skip session-level dead slots (_deadSlots) — those returned 403 PERMISSION_DENIED
       let keySlot;
       if (hasUploadedFiles && !uploadKeyName) {
-        // Fallback: pin to slot 0 if key name wasn't tracked
+        // Fallback: pin to slot 0 if key name wasn't tracked — but check if slot 0 is dead
         keySlot = 0;
+        if (SmartBrains._deadSlots.has(0)) {
+          // Slot 0 is dead. Find the first non-dead slot.
+          for (let i = 1; i < 18; i++) {
+            if (!SmartBrains._deadSlots.has(i)) { keySlot = i; break; }
+          }
+        }
       } else {
-        // Rotate across all keys, skipping exhausted ones
+        // Rotate across all keys, skipping BOTH exhausted AND dead slots
         const brainInt = Math.floor(brainDef.id);
         let candidate = (brainInt + attempt) % 18;
         let tries = 0;
-        while (_exhaustedSlots.has(candidate) && tries < 18) {
+        while ((_exhaustedSlots.has(candidate) || SmartBrains._deadSlots.has(candidate)) && tries < 18) {
           candidate = (candidate + 1) % 18;
           tries++;
         }
         keySlot = candidate;
+        // If ALL 18 slots are dead/exhausted, fail fast instead of making a futile request
+        if (tries >= 18) {
+          const deadCount = SmartBrains._deadSlots.size;
+          const exhaustedCount = _exhaustedSlots.size;
+          const deadList = Array.from(SmartBrains._deadSlots).join(',');
+          throw new Error(`All 18 API key slots are exhausted or dead (${deadCount} dead: [${deadList}], ${exhaustedCount} transiently exhausted). ${deadCount >= 3 ? 'Multiple GCP projects are suspended — check Google Cloud Console billing and project status.' : 'Rate limits should recover shortly.'}`);
+        }
       }
 
       // If context cache is available, use it instead of sending files
@@ -2180,10 +2202,20 @@ const SmartBrains = {
         // Errors come through as _proxyError events in the stream.
         // Non-proxy responses (direct API) may still return error codes.
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
-          // FIX #5: Track exhausted key slots so we skip them on next retry
-          if (response.status === 429 || response.status === 403) {
+          // v5.126.2: Differentiate 403 (permanent) from 429 (transient)
+          if (response.status === 403) {
+            // Permanent — GCP project suspended or cross-project file denial
+            SmartBrains._deadSlots.add(keySlot);
+            SmartBrains._deadSlotReasons.set(keySlot, 'HTTP 403 PERMISSION_DENIED on direct response');
             _exhaustedSlots.add(keySlot);
-            this._circuitBreaker.record429(); // FIX #19
+            console.warn(`[Brain:${brainDef.name}] 🚫 GCP slot ${keySlot} returned 403 PERMISSION_DENIED — BLACKLISTED for remainder of session (${SmartBrains._deadSlots.size} dead slots total). Retrying with next key.`);
+          } else if (response.status === 429) {
+            // Transient — rate limit, track for circuit breaker
+            _exhaustedSlots.add(keySlot);
+            this._circuitBreaker.record429();
+          } else {
+            // 5xx — transient server error
+            _exhaustedSlots.add(keySlot);
           }
           const delay = Math.min(this.config.retryBaseDelay * Math.pow(2, attempt) + Math.random() * 500, 15000);
           console.warn(`[Brain:${brainDef.name}] API ${response.status}, slot ${keySlot} exhausted (${_exhaustedSlots.size} total), retrying in ${Math.round(delay)}ms`);
@@ -2396,12 +2428,22 @@ const SmartBrains = {
         }
 
         if (err._retryable) {
-          // FIX #5: Track exhausted slots from proxy-reported errors too
-          if (err.status === 429 || err.status === 403) {
+          // v5.126.2: Differentiate 403 (permanent) from 429 (transient rate limit)
+          if (err.status === 403) {
+            // Permanent — add slot to session-level dead list, do NOT trip circuit breaker
+            SmartBrains._deadSlots.add(keySlot);
+            const deadReason = /PERMISSION_DENIED|project.*denied|has been denied/i.test(err.message || '') ? 'GCP project suspended' : 'Cross-project file access denied';
+            SmartBrains._deadSlotReasons.set(keySlot, `${deadReason}: ${(err.message || '').substring(0, 120)}`);
             _exhaustedSlots.add(keySlot);
-            this._circuitBreaker.record429(); // FIX #19
+            console.warn(`[Brain:${brainDef.name}] 🚫 Proxy 403 PERMISSION_DENIED — slot ${keySlot} BLACKLISTED for session (${SmartBrains._deadSlots.size} dead total). Reason: ${deadReason}`);
+          } else if (err.status === 429) {
+            _exhaustedSlots.add(keySlot);
+            this._circuitBreaker.record429();
+            console.warn(`[Brain:${brainDef.name}] Proxy reported 429, slot ${keySlot} exhausted (${_exhaustedSlots.size} total), retrying…`);
+          } else {
+            _exhaustedSlots.add(keySlot);
+            console.warn(`[Brain:${brainDef.name}] Proxy reported API ${err.status}, slot ${keySlot} exhausted (${_exhaustedSlots.size} total), retrying…`);
           }
-          console.warn(`[Brain:${brainDef.name}] Proxy reported API ${err.status}, slot ${keySlot} exhausted (${_exhaustedSlots.size} total), retrying…`);
         } else if (err.name === 'AbortError') {
           console.warn(`[Brain:${brainDef.name}] Timeout, attempt ${attempt + 1}`);
         } else {
@@ -9391,6 +9433,63 @@ ${legendContext}
         if (roughInOnlyTypes.size > 0) {
           console.warn(`[SmartBrains]    → Rough-in only (labor yes, material no): ${Array.from(roughInOnlyTypes).join(', ')}`);
         }
+
+        // ─── v5.126.2: Auto-remove design-build disciplines ───
+        // When the Scope Delineation Scanner detects a phrase like
+        // "FIRE ALARM SHALL BE DESIGN-BUILD BY ELECTRICAL CONTRACTOR" with
+        // phrase_type in {design_build, by_others, by_ec, NIC} and the
+        // affected_scope names a full discipline, that discipline is NOT
+        // in our scope. Previously Material Pricer would still try to
+        // price it (producing $0 or a hallucinated allowance). Now we
+        // auto-strip the discipline from context.disciplines BEFORE
+        // Wave 2 runs, so downstream brains never see it.
+        const designBuildRemovals = [];
+        const DB_PHRASE_TYPES = new Set(['design_build', 'design-build', 'by_others', 'by_ec', 'NIC', 'nic', 'by_div_26']);
+        // Map discipline-names-as-seen-by-scanner to our canonical DISCIPLINES keys
+        const _discNormalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const currentDisciplineMap = new Map();
+        for (const d of (state.disciplines || [])) {
+          currentDisciplineMap.set(_discNormalize(d), d);
+        }
+        for (const d of delineations) {
+          const ptype = String(d.phrase_type || '').toLowerCase();
+          const affected = String(d.affected_scope || '');
+          const phrase = String(d.exact_phrase || '');
+          // Match our disciplines against the affected_scope string
+          for (const [normKey, canonical] of currentDisciplineMap.entries()) {
+            if (!currentDisciplineMap.has(normKey)) continue; // already removed
+            // Strong match: phrase contains "design-build" or "by others" or "by EC" AND references the discipline name
+            const mentionsDiscipline = _discNormalize(affected).includes(normKey) || _discNormalize(phrase).includes(normKey);
+            const looksLikeDesignBuild = DB_PHRASE_TYPES.has(ptype)
+              || /design.?build\s+by\s+(electrical|ec|div\.?\s*26|others?)/i.test(phrase)
+              || /(shall\s+be|is)\s+(design.?build|by\s+others|not\s+in\s+contract|NIC)/i.test(phrase);
+            if (mentionsDiscipline && looksLikeDesignBuild) {
+              designBuildRemovals.push({ discipline: canonical, phrase, reason: ptype });
+              currentDisciplineMap.delete(normKey);
+            }
+          }
+        }
+
+        if (designBuildRemovals.length > 0) {
+          const removedNames = new Set(designBuildRemovals.map(r => r.discipline));
+          const newDisciplines = (state.disciplines || []).filter(d => !removedNames.has(d));
+          console.warn(`[SmartBrains] 🛂 Auto-removing ${designBuildRemovals.length} discipline(s) from scope — flagged as design-build/by-others by the scanner:`);
+          for (const r of designBuildRemovals) {
+            console.warn(`[SmartBrains]    ⛔ ${r.discipline} — "${r.phrase.substring(0, 90)}..."`);
+          }
+          context.disciplines = newDisciplines;
+          state.disciplines = newDisciplines;
+          context._autoRemovedDisciplines = designBuildRemovals;
+          state._autoRemovedDisciplines = designBuildRemovals;
+          context._brainInsights = context._brainInsights || [];
+          for (const r of designBuildRemovals) {
+            context._brainInsights.push({
+              source: 'SCOPE_DELINEATION_AUTO_REMOVE',
+              type: 'discipline_auto_removed',
+              detail: `${r.discipline} was auto-removed from scope because the plans state: "${r.phrase.substring(0, 120)}". Material Pricer and Labor Calculator will not generate line items for this discipline.`,
+            });
+          }
+        }
       }
     } catch (e) {
       console.warn('[SmartBrains] Scope Delineation post-processing failed (non-fatal):', e.message);
@@ -10831,6 +10930,17 @@ ${legendContext}
       sheetInventory: context._sheetInventory || null,
       sheetInventoryInsufficient: context._sheetInventoryInsufficient || false,
       scopeDelineations: context._scopeDelineations || null,
+      // v5.126.2: Auto-removed disciplines (design-build-by-EC detection)
+      autoRemovedDisciplines: context._autoRemovedDisciplines || [],
+      // v5.126.2: Dead API slots for diagnostics
+      deadApiSlots: Array.from(this._deadSlots || []),
+      deadApiSlotReasons: (() => {
+        const out = {};
+        for (const [slot, reason] of (this._deadSlotReasons || new Map()).entries()) {
+          out[slot] = reason;
+        }
+        return out;
+      })(),
       ofoiDeviceTypes: context._ofoiDeviceTypes || [],
       nicDeviceTypes: context._nicDeviceTypes || [],
       roughInOnlyDeviceTypes: context._roughInOnlyDeviceTypes || [],

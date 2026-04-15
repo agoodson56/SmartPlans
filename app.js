@@ -12302,6 +12302,21 @@ async function runGeminiAnalysis(updateProgress) {
     state._roughInOnlyDeviceTypes = result.roughInOnlyDeviceTypes || [];
     state._keynotes = result.keynotes || null;
     state._doorSchedule = result.doorSchedule || null;
+    // v5.126.2: auto-removed disciplines + dead API slots
+    state._autoRemovedDisciplines = result.autoRemovedDisciplines || [];
+    state._deadApiSlots = result.deadApiSlots || [];
+    state._deadApiSlotReasons = result.deadApiSlotReasons || {};
+    // If disciplines were auto-removed by the scanner, sync state.disciplines
+    // down so the Step 0 UI reflects reality and downstream saves match.
+    if (Array.isArray(result.autoRemovedDisciplines) && result.autoRemovedDisciplines.length > 0) {
+      const removedNames = new Set(result.autoRemovedDisciplines.map(r => r.discipline));
+      const keptDisciplines = (state.disciplines || []).filter(d => !removedNames.has(d));
+      if (keptDisciplines.length !== (state.disciplines || []).length) {
+        console.warn(`[SmartPlans] Auto-removed ${removedNames.size} discipline(s) from state.disciplines:`, Array.from(removedNames));
+        state.disciplines = keptDisciplines;
+        state._disciplinesUserTouched = true; // don't let the cascade re-add them
+      }
+    }
 
     // ─── Local Math Validation (belt and suspenders) ───
     updateProgress(99, "Running local math validation…", result.brainStatus);
