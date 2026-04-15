@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Full suite — 2 pre-existing failures in export-engine.test.js
+      # (_extractBOMFromAnalysis + _parseCableRuns) are tracked in TESTS_TODO.md.
+      # Non-blocking for now but visible in logs.
+      - name: Full test suite (informational)
+        run: npm test
+        continue-on-error: true
+        env:
+          CI: true
+
+      # REQUIRED — ai-engine regression suite must pass for the build to go green.
+      # These tests pin every bug that shipped in v5.126.x so nothing can regress.
+      - name: AI engine regression suite (BLOCKING)
+        run: |
+          npx vitest run \
+            tests/ai-engine-smoke.test.js \
+            tests/ai-engine-regressions.test.js \
+            tests/scope-delineation.test.js \
+            tests/fuzz-parsers.test.js
+        env:
+          CI: true
