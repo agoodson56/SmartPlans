@@ -12194,24 +12194,62 @@ async function runGeminiAnalysis(updateProgress) {
         const highPriority = questions.filter(q => q.severity === 'high' || q.severity === 'critical');
         if (highPriority.length === 0) { resolve({}); return; }
 
-        // Build modal HTML — hardcoded colors for guaranteed contrast on any theme
+        // v5.126.4: Rebuilt modal with LOCATION CONTEXT.
+        // Each question now shows: sheet number, area description, occurrence
+        // count, legend label + visual description, and a list of all sheets
+        // where the symbol appears — so the estimator can physically open
+        // their PDF viewer and verify before answering.
+        const _formatSheetBadge = (sheet) => sheet ? `<span style="display:inline-block;padding:4px 10px;border-radius:6px;background:#EBB328;color:#0F2942;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:800;letter-spacing:0.5px;">${esc(sheet)}</span>` : `<span style="display:inline-block;padding:4px 10px;border-radius:6px;background:#475569;color:#cbd5e1;font-size:11px;font-style:italic;">sheet unknown</span>`;
+        const _formatArea = (area) => area ? `<span style="color:#e2e8f0;font-size:12.5px;">at <strong style="color:#ffffff;">${esc(area)}</strong></span>` : `<span style="color:#94a3b8;font-size:11px;font-style:italic;">location not identified</span>`;
+
         const modalHtml = `
-          <div id="clarification-modal" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;padding:20px;">
-            <div style="background:#0f172a;border:2px solid #6366F1;border-radius:14px;max-width:680px;width:100%;max-height:82vh;overflow-y:auto;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
-              <h3 style="margin:0 0 10px;color:#ffffff;font-size:20px;font-weight:800;">❓ Clarification Needed</h3>
-              <p style="margin:0 0 20px;color:#e2e8f0;font-size:14px;line-height:1.5;">The AI found ${highPriority.length} ambiguit${highPriority.length === 1 ? 'y' : 'ies'} that could affect accuracy. Your input helps SmartPlans get closer to 100%.</p>
+          <div id="clarification-modal" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;padding:20px;">
+            <div style="background:#0f172a;border:2px solid #EBB328;border-radius:14px;max-width:760px;width:100%;max-height:86vh;overflow-y:auto;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+              <h3 style="margin:0 0 6px;color:#ffffff;font-size:20px;font-weight:800;">❓ Clarification Needed</h3>
+              <p style="margin:0 0 20px;color:#e2e8f0;font-size:13px;line-height:1.55;">The AI found ${highPriority.length} ambiguit${highPriority.length === 1 ? 'y' : 'ies'} that could affect counts. Each question shows the <strong style="color:#EBB328;">sheet number and location</strong> where the symbol first appears — open your plans, verify the symbol, then answer.</p>
+
               ${highPriority.map((q, i) => `
-                <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;margin-bottom:14px;">
-                  <div style="font-size:11px;color:#38bdf8;margin-bottom:8px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">${esc(q.category || 'Question')}</div>
-                  <div style="color:#ffffff;font-size:15px;line-height:1.55;margin-bottom:14px;font-weight:500;">${esc(q.question || '')}</div>
-                  <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                    ${(q.options || []).map((opt) => `<button class="clarify-option" data-qid="${esc(q.id || '')}" data-val="${esc(String(opt || ''))}" style="padding:10px 16px;border-radius:8px;border:2px solid #475569;background:#0f172a;color:#ffffff;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.15s;">${esc(String(opt || ''))}</button>`).join('')}
+                <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:0;margin-bottom:14px;overflow:hidden;">
+
+                  <!-- Location strip: sheet + area + occurrence count -->
+                  <div style="background:linear-gradient(135deg,#0F2942,#237078);padding:12px 18px;border-bottom:1px solid #334155;">
+                    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+                      <span style="font-size:10px;font-weight:800;color:#EBB328;letter-spacing:2px;text-transform:uppercase;">Look on</span>
+                      ${_formatSheetBadge(q.firstSeenSheet)}
+                      ${_formatArea(q.firstSeenArea)}
+                      ${q.occurrenceCount > 0 ? `<span style="margin-left:auto;padding:3px 10px;border-radius:10px;background:rgba(235,179,40,0.15);color:#EBB328;font-size:11px;font-weight:700;letter-spacing:0.5px;">×${q.occurrenceCount} occurrences</span>` : ''}
+                    </div>
+                    ${Array.isArray(q.allSheets) && q.allSheets.length > 1 ? `
+                      <div style="margin-top:8px;font-size:11px;color:rgba(255,255,255,0.75);">
+                        Also appears on: ${q.allSheets.filter(s => s !== q.firstSeenSheet).map(s => `<span style="display:inline-block;padding:2px 7px;margin:0 4px 0 0;background:rgba(255,255,255,0.12);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#ffffff;">${esc(s)}</span>`).join('')}
+                      </div>` : ''}
+                  </div>
+
+                  <!-- Question body -->
+                  <div style="padding:16px 18px;">
+                    <div style="font-size:10px;color:#38bdf8;margin-bottom:8px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;">${esc(q.category || 'Question')}</div>
+
+                    ${q.legendLabel || q.visualDescription ? `
+                      <div style="display:flex;gap:10px;margin-bottom:12px;padding:10px 12px;background:#0f172a;border:1px dashed #475569;border-radius:8px;align-items:center;">
+                        ${q.legendLabel ? `<div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Label on legend</div><div style="font-family:'JetBrains Mono',monospace;color:#ffffff;font-size:14px;font-weight:700;">${esc(q.legendLabel)}</div></div>` : ''}
+                        ${q.visualDescription ? `<div style="flex:1;padding-left:${q.legendLabel ? '12px' : '0'};border-left:${q.legendLabel ? '1px solid #334155' : 'none'};"><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Visual</div><div style="color:#e2e8f0;font-size:12.5px;line-height:1.45;">${esc(q.visualDescription)}</div></div>` : ''}
+                      </div>` : ''}
+
+                    <div style="color:#ffffff;font-size:14.5px;line-height:1.55;margin-bottom:14px;font-weight:500;">${esc(q.question || '')}</div>
+
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                      ${(q.options || []).map((opt) => `<button class="clarify-option" data-qid="${esc(q.id || '')}" data-val="${esc(String(opt || ''))}" style="padding:10px 16px;border-radius:8px;border:2px solid #475569;background:#0f172a;color:#ffffff;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.15s;">${esc(String(opt || ''))}</button>`).join('')}
+                    </div>
                   </div>
                 </div>
               `).join('')}
-              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+
+              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap;">
                 <button id="clarify-skip" style="padding:10px 18px;border-radius:8px;border:1px solid #64748b;background:transparent;color:#cbd5e1;cursor:pointer;font-size:13px;font-weight:600;">Skip — Use AI best guess</button>
-                <button id="clarify-submit" style="padding:10px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#ffffff;cursor:pointer;font-weight:700;font-size:14px;box-shadow:0 4px 12px rgba(99,102,241,0.4);">Continue with answers</button>
+                <button id="clarify-submit" style="padding:10px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,#EBB328,#C99518);color:#0F2942;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 4px 12px rgba(235,179,40,0.35);letter-spacing:0.3px;">Continue with answers</button>
+              </div>
+              <div style="margin-top:12px;padding:10px 14px;background:rgba(235,179,40,0.06);border-left:3px solid #EBB328;border-radius:6px;font-size:11px;color:#cbd5e1;line-height:1.5;">
+                💡 <strong style="color:#ffffff;">Tip:</strong> Open your copy of the plans in Bluebeam, Adobe, or PDF.js and scroll to the sheet number shown above. The symbol you're being asked about lives at the location described. If you can't find it or don't know, click <em>Skip — Use AI best guess</em> and the analysis will continue.
               </div>
             </div>
           </div>`;

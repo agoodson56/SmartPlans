@@ -5778,6 +5778,35 @@ You MUST include a "multiplier_map" object in your response showing each prefix 
 If the legend shows 2D and 4D symbols, return: "multiplier_map": {"1D": 1, "2D": 2, "4D": 4}
 If you don't find any multiplier symbols, return: "multiplier_map": {}
 
+═══ AMBIGUOUS SYMBOL REPORTING — REQUIRED FIELDS (v5.126.4) ═══
+When you flag a symbol as ambiguous, the estimator will be asked to resolve
+it via a pop-up dialog. The pop-up MUST include enough context for the
+estimator to physically verify the symbol on the drawings. Without this,
+estimators skip the question and the analysis guesses wrong.
+
+For EVERY entry in "ambiguous_symbols", you MUST provide these fields:
+  - symbol_id           : short ID you assigned to the symbol (e.g., "S5")
+  - reason              : why the symbol is ambiguous
+  - could_be            : array of 2-5 possible device types
+  - legend_label        : the EXACT text shown next to the symbol on the legend
+  - visual              : short plain-English description of the symbol shape
+  - first_seen_sheet    : the sheet number where the symbol FIRST appears on
+                          a plan (e.g., "E-0.2", "T-1.0", "FA-1.0"). Use the
+                          sheet number shown in the title block.
+  - first_seen_area     : plain-English location on that sheet (e.g., "Grid
+                          C-4 near the main entry", "upper-left corner by the
+                          nurses' station", "along the east corridor"). Be
+                          specific enough that an estimator can scroll to it.
+  - occurrence_count    : integer estimate of how many times this ambiguous
+                          symbol appears across ALL uploaded plan sheets
+  - all_sheets          : array of sheet numbers where the symbol appears
+                          (e.g., ["E-0.2", "E-1.0", "E-1.1"])
+
+If you cannot confidently determine first_seen_sheet or first_seen_area,
+still provide the symbol as ambiguous but set those fields to null. Do NOT
+omit the symbol from the list — we would rather have a question with no
+location than no question at all.
+
 Return ONLY valid JSON:
 {
   "symbols": [
@@ -5786,7 +5815,17 @@ Return ONLY valid JSON:
   "multiplier_map": { "1D": 1, "2D": 2, "4D": 4, "6D": 6, "1V": 1, "2V": 2 },
   "legend_quality": "good",
   "ambiguous_symbols": [
-    { "symbol_id": "S5", "reason": "Similar shape to smoke detector - differentiate by size", "could_be": ["smoke_detector", "heat_detector"] }
+    {
+      "symbol_id": "S5",
+      "reason": "Similar shape to smoke detector — differentiated only by a 3-letter label",
+      "could_be": ["smoke_detector", "heat_detector"],
+      "legend_label": "SD-180",
+      "visual": "White circle with 3-letter label, ~180 sq units",
+      "first_seen_sheet": "E-0.2",
+      "first_seen_area": "Grid C-4, near the main entry lobby",
+      "occurrence_count": 14,
+      "all_sheets": ["E-0.2", "E-1.0", "E-1.1"]
+    }
   ],
   "total_unique_symbols": 24,
   "disciplines_covered": ["Structured Cabling", "CCTV"]
@@ -9644,15 +9683,29 @@ ${legendContext}
     const clarificationQuestions = [];
     try {
       // Source 1: Ambiguous symbols from legend decoder
+      // v5.126.4: Pass through location context (sheet + area + occurrence
+      // count + legend label) so the UI modal can show the estimator WHERE
+      // to look for the symbol they're being asked about.
       const legendAmbig = context.wave0?.LEGEND_DECODER?.ambiguous_symbols || [];
       for (const a of legendAmbig) {
+        const sheetList = Array.isArray(a.all_sheets) ? a.all_sheets : [];
+        const firstSheet = a.first_seen_sheet || (sheetList[0] || null);
         clarificationQuestions.push({
           id: `legend-${a.symbol_id}`,
           category: 'Symbol Identification',
-          question: `Symbol "${a.symbol_id}" is ambiguous: ${a.reason}. It could be: ${(a.could_be || []).join(' or ')}. Which is correct?`,
+          question: `Symbol "${a.legend_label || a.symbol_id}" is ambiguous: ${a.reason}. It could be: ${(a.could_be || []).join(' or ')}. Which is correct?`,
           options: a.could_be || [],
           severity: 'high',
           source: 'LEGEND_DECODER',
+          // v5.126.4 location context fields
+          symbolId: a.symbol_id || null,
+          legendLabel: a.legend_label || a.symbol_id || null,
+          visualDescription: a.visual || null,
+          firstSeenSheet: firstSheet,
+          firstSeenArea: a.first_seen_area || null,
+          occurrenceCount: parseInt(a.occurrence_count) || 0,
+          allSheets: sheetList,
+          reason: a.reason || '',
         });
       }
 
