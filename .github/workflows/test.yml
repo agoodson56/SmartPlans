@@ -46,6 +46,7 @@ jobs:
             tests/bid-readiness.test.js \
             tests/bid-corrections.test.js \
             tests/vector-extractor.test.js \
-            tests/keynote-expansion.test.js
+            tests/keynote-expansion.test.js \
+            tests/match-line.test.js
         env:
           CI: true

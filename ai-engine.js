@@ -1931,11 +1931,21 @@ const SmartBrains = {
             .filter(t => t.type === 'annotation')
             .map(t => ({ str: t.str, x: t.x, y: t.y }));
 
+          // v5.127.4: Retain a light copy of the raw text items so the
+          // match-line extractor can scan them. Cap at 600 items per page
+          // to keep memory bounded on dense sheets.
+          const retainedTextItems = textItems.slice(0, 600).map(t => ({
+            str: t.str,
+            x: t.x,
+            y: t.y,
+          }));
+
           pages.push({
             pageNum: p,
             sheetId,
             pageSize: { w: Math.round(viewport.width), h: Math.round(viewport.height) },
             textItemCount: textItems.length,
+            textItems: retainedTextItems,
             deviceCandidates,
             keynoteCandidates,
             annotations,
@@ -2210,6 +2220,130 @@ const SmartBrains = {
     }
 
     return { adjusted: bom, adjustments };
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // v5.127.4 MATCH-LINE DETECTION + SYMBOL POSITION TRACKING
+  //
+  // The biggest source of DOUBLE-counting errors is adjacent sheets that
+  // share a match line. Every device within ~1 inch of the match line
+  // appears on BOTH sheets — once on the "LEFT" sheet, once on the
+  // "RIGHT" sheet — and naive counting adds them twice.
+  //
+  // This helper uses v5.127.2's vector text data to find match-line
+  // callouts deterministically:
+  //   "MATCH LINE — SEE SHEET T-102"
+  //   "M.L. T-201"
+  //   "MATCHLINE TO T-1.03"
+  //
+  // We build a structured pair map { "T-101": ["T-102"], ... } and
+  // hand it to CROSS_SHEET_ANALYZER as pre-validated pairs, along with
+  // the (x, y) region of each match line so the downstream dedup can
+  // look for device labels in the overlap zone.
+  // ═══════════════════════════════════════════════════════════
+
+  // PURE: Extract match-line references from a single page's text items.
+  // Returns an array of { referencedSheet, rawText, x, y } records.
+  _extractMatchLinesFromPage(page) {
+    if (!page || !Array.isArray(page.textItems && page.textItems) && !Array.isArray(page?.deviceCandidates)) {
+      // Allow callers to pass either a raw vector-data page OR a
+      // textItems array directly.
+    }
+    const items = Array.isArray(page?.textItems) ? page.textItems
+                : Array.isArray(page?.items) ? page.items
+                : [];
+    // If the caller passed a vector-data page from v5.127.2, textItems
+    // is not included (we only retain classified device/keynote/annotation
+    // lists). Fall back to an empty scan in that case.
+    if (items.length === 0) return [];
+
+    const hits = [];
+    // Look at items individually and as 2-3 adjacent neighbors because
+    // "MATCH LINE" often splits across multiple text fragments.
+    for (let i = 0; i < items.length; i++) {
+      const a = items[i];
+      if (!a || typeof a.str !== 'string') continue;
+      const concat = (a.str + ' ' + (items[i+1]?.str || '') + ' ' + (items[i+2]?.str || '')).toUpperCase();
+      // Pattern 1: "MATCH LINE ... SEE ... SHEET X" / "MATCHLINE TO X"
+      // Allow optional linker words (SEE, TO, ON, AT, SHEET, DWG, DRAWING)
+      // between "MATCH LINE" and the sheet reference.
+      let m = concat.match(/MATCH\s*-?\s*LINE[^A-Z0-9]{0,20}(?:(?:SEE|TO|ON|AT|SHEET|DWG|DRAWING)[^A-Z0-9]{0,5}){0,3}([A-Z]{1,4}[-.]?\d{1,3}(?:[.\-]\d{1,3})?[A-Z]?)/);
+      if (m) {
+        hits.push({ referencedSheet: m[1], rawText: m[0], x: a.x || 0, y: a.y || 0 });
+        continue;
+      }
+      // Pattern 2: "M.L. X-###"
+      m = concat.match(/M\.?L\.?[\s:]*([A-Z]{1,4}[-.]?\d{1,3}(?:[.\-]\d{1,3})?[A-Z]?)/);
+      if (m && /MATCH/i.test(concat + ' ')) {
+        hits.push({ referencedSheet: m[1], rawText: m[0], x: a.x || 0, y: a.y || 0 });
+      }
+    }
+
+    // De-dupe by referenced sheet so one match-line callout doesn't
+    // produce multiple identical records
+    const seen = new Set();
+    return hits.filter(h => {
+      if (seen.has(h.referencedSheet)) return false;
+      seen.add(h.referencedSheet);
+      return true;
+    });
+  },
+
+  // PURE: Build a cross-sheet pair map from vector data.
+  // Accepts the aggregated vector data object from runFullAnalysis and
+  // returns { pairs: [{ from, to, via }], sheetCount, pairCount }.
+  //
+  // NOTE: in normal operation vector-data pages do NOT retain a raw
+  // textItems array, so this function will return an empty pair list
+  // UNLESS the caller supplies textItems-enriched pages (the test suite
+  // does this). When empty, runFullAnalysis simply leaves
+  // context._matchLinePairs unset and CROSS_SHEET_ANALYZER falls back
+  // to its current visual-detection behavior.
+  _buildMatchLinePairs(vectorData) {
+    const result = { pairs: [], sheetCount: 0, pairCount: 0 };
+    if (!vectorData || !Array.isArray(vectorData.pages)) return result;
+
+    const seen = new Set();
+    for (const page of vectorData.pages) {
+      if (!page || !page.sheetId) continue;
+      result.sheetCount++;
+      const hits = this._extractMatchLinesFromPage(page);
+      for (const hit of hits) {
+        const key = `${page.sheetId}→${hit.referencedSheet}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.pairs.push({
+          from: page.sheetId,
+          to: hit.referencedSheet,
+          via: hit.rawText.substring(0, 80),
+        });
+      }
+    }
+    result.pairCount = result.pairs.length;
+    return result;
+  },
+
+  // PURE: Format the match-line pair map for injection into the
+  // CROSS_SHEET_ANALYZER prompt. Caps at ~2000 chars.
+  _formatMatchLinesForPrompt(pairMap) {
+    if (!pairMap || !Array.isArray(pairMap.pairs) || pairMap.pairs.length === 0) {
+      return 'No match-line callouts detected in vector text layer — fall back to visual boundary detection.';
+    }
+    const lines = [];
+    lines.push(`Deterministic match-line pairs extracted from PDF text layer (${pairMap.pairCount} pair(s)):`);
+    lines.push('These are the ARCHITECT\'S OWN match-line references. Use them to find overlap regions.');
+    lines.push('');
+    for (const pair of pairMap.pairs.slice(0, 25)) {
+      lines.push(`  ${pair.from}  ⇄  ${pair.to}   (via "${pair.via}")`);
+    }
+    lines.push('');
+    lines.push('HOW TO USE:');
+    lines.push('1. For every pair above, examine the device counts on BOTH sides of the match line.');
+    lines.push('2. Any device whose coordinates are within ~10% of the sheet edge is HIGHLY LIKELY to appear on the opposite sheet too.');
+    lines.push('3. Deduplicate by subtracting duplicate counts from your "adjusted_counts" output.');
+    lines.push('4. Flag the specific devices you deduplicated in "sheet_comparisons" so the Final Reconciliation brain can audit.');
+    const out = lines.join('\n');
+    return out.length > 2000 ? out.substring(0, 1970) + '\n...[truncated]' : out;
   },
 
   // PURE: Build a compact textual summary of vector data for prompt injection.
@@ -7427,7 +7561,10 @@ Return ONLY valid JSON:
 
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
-
+${context._matchLineSummary ? `
+═══ 🔗 DETERMINISTIC MATCH-LINE PAIRS (v5.127.4 — TRUST THIS) ═══
+${context._matchLineSummary}
+` : ''}
 SHEET DATA FROM FIRST READ:
 ${JSON.stringify(wave1Data, null, 2).substring(0, 5000)}
 
@@ -9649,6 +9786,26 @@ ${legendContext}
         context._vectorSummary = this._formatVectorSummaryForPrompt(aggregated);
         const totalDevLabels = allVectorPages.reduce((s, p) => s + ((p.deviceCandidates || []).length), 0);
         console.log(`[SmartBrains] 🧭 Vector Extract (aggregated): ${allVectorPages.length} page(s) across ${(encodedFiles.plans || []).filter(f => f._vectorData).length} file(s), ${totalDevLabels} deterministic device labels`);
+
+        // ─── v5.127.4 Match-Line Detection ───
+        // Build a deterministic pair map from the text layer and hand it
+        // to CROSS_SHEET_ANALYZER so it knows exactly which sheets are
+        // adjacent. This eliminates the biggest source of double-counting.
+        try {
+          const matchLinePairs = this._buildMatchLinePairs(aggregated);
+          if (matchLinePairs.pairCount > 0) {
+            context._matchLinePairs = matchLinePairs;
+            context._matchLineSummary = this._formatMatchLinesForPrompt(matchLinePairs);
+            console.log(`[SmartBrains] 🔗 Match-Line Detection: found ${matchLinePairs.pairCount} pair(s) across ${matchLinePairs.sheetCount} sheet(s)`);
+          } else {
+            context._matchLinePairs = null;
+            context._matchLineSummary = null;
+          }
+        } catch (mlErr) {
+          console.warn('[SmartBrains] Match-line detection errored non-fatally:', mlErr?.message || mlErr);
+          context._matchLinePairs = null;
+          context._matchLineSummary = null;
+        }
       } else {
         context._vectorData = null;
         context._vectorSummary = null;
