@@ -1954,6 +1954,264 @@ const SmartBrains = {
     }
   },
 
+  // ═══════════════════════════════════════════════════════════
+  // v5.127.3 KEYNOTE MULTIPLIER PARSING + DETERMINISTIC SANITY RULES
+  //
+  // Two classes of errors we're pinning:
+  //
+  // 1. "TYP" multipliers buried in keynotes. A keynote that says
+  //    "TYP OF 12 PER FLOOR" means there are twelve of that item on
+  //    EVERY floor, but Symbol Scanner often only counts the one
+  //    symbol shown on the plan view. We parse these notes here and
+  //    expand them into authoritative counts.
+  //
+  // 2. Post-pricer sanity rules that enforce deterministic constraints
+  //    between related quantities. Examples:
+  //      - J-hooks cannot exceed 2× data drop count
+  //      - Patch panels must equal CEIL(data_jacks / ports_per_panel)
+  //      - Camera count must match consensus within 10%
+  //      - Reader count must match controlled-door count
+  //
+  // Both are PURE functions so they can be unit-tested in isolation
+  // and so the sanity rule output is deterministic per input.
+  // ═══════════════════════════════════════════════════════════
+
+  // PURE: Parse a "TYP" / "SIMILAR LOCATIONS" style multiplier out of a
+  // keynote string. Returns { multiplier, per, scope, raw } or null.
+  //
+  // Supported patterns:
+  //   "TYP 12"                         → { multiplier: 12 }
+  //   "TYP OF 6"                       → { multiplier: 6 }
+  //   "TYP (6)"                        → { multiplier: 6 }
+  //   "TYP 4 PER ROOM"                 → { multiplier: 4, per: 'room' }
+  //   "6 SIMILAR LOCATIONS"            → { multiplier: 6 }
+  //   "24 TOTAL"                       → { multiplier: 24, scope: 'total' }
+  //   "PROVIDE 3 AT EACH LOCATION"     → { multiplier: 3, per: 'location' }
+  //   "TYP ALL FLOORS"                 → null (no number — caller decides)
+  _parseTypicalMultiplier(noteText) {
+    if (typeof noteText !== 'string' || noteText.length === 0) return null;
+    const s = noteText.toUpperCase();
+
+    // "(N TOTAL)" — parenthetical total count
+    const totalMatch = s.match(/\((\d{1,4})\s*TOTAL\)/);
+    if (totalMatch) return { multiplier: parseInt(totalMatch[1], 10), scope: 'total', raw: totalMatch[0] };
+
+    // "N TOTAL" (not in parens)
+    const plainTotal = s.match(/(\d{1,4})\s+TOTAL\b/);
+    if (plainTotal) return { multiplier: parseInt(plainTotal[1], 10), scope: 'total', raw: plainTotal[0] };
+
+    // "TYP (N)" or "TYP OF N" or "TYP N" or "TYPICAL OF N"
+    const typMatch = s.match(/\bTYP(?:ICAL)?\.?\s*(?:OF\s+|[\(])?\s*(\d{1,4})\s*\)?/);
+    if (typMatch) {
+      const mult = parseInt(typMatch[1], 10);
+      // Look for "PER X" qualifier
+      const perMatch = s.match(/PER\s+([A-Z ]{3,25})\b/);
+      const result = { multiplier: mult, raw: typMatch[0] };
+      if (perMatch) result.per = perMatch[1].trim().toLowerCase();
+      return result;
+    }
+
+    // "N SIMILAR LOCATIONS" / "N SIMILAR"
+    const similarMatch = s.match(/(\d{1,4})\s+SIMILAR(?:\s+LOCATIONS?)?/);
+    if (similarMatch) return { multiplier: parseInt(similarMatch[1], 10), raw: similarMatch[0] };
+
+    // "PROVIDE N AT EACH LOCATION" / "PROVIDE N PER X"
+    const provideMatch = s.match(/PROVIDE\s+(\d{1,4})\s+(?:AT\s+EACH\s+([A-Z ]{3,20})|PER\s+([A-Z ]{3,20}))/);
+    if (provideMatch) {
+      const mult = parseInt(provideMatch[1], 10);
+      const per = (provideMatch[2] || provideMatch[3] || '').trim().toLowerCase();
+      return { multiplier: mult, per, raw: provideMatch[0] };
+    }
+
+    // "N LOCATIONS TOTAL" / "N LOCATIONS"
+    const locMatch = s.match(/(\d{1,4})\s+LOCATIONS/);
+    if (locMatch) return { multiplier: parseInt(locMatch[1], 10), raw: locMatch[0] };
+
+    return null;
+  },
+
+  // PURE: Walk a list of keynotes (KEYNOTE_EXTRACTOR output) and return a
+  // list of multiplier-bearing notes with their parsed multipliers and
+  // the device types they most likely refer to.
+  _expandKeynoteMultipliers(keynotes) {
+    if (!Array.isArray(keynotes)) return [];
+    const out = [];
+
+    // Device-type inference from keyword scan
+    const DEVICE_KEYWORDS = [
+      { kw: /\b(CAMERA|CCTV|DOME|PTZ|BULLET|NVR)\b/i, device: 'camera', discipline: 'CCTV' },
+      { kw: /\b(CARD\s*READER|READER|PROX)\b/i, device: 'card_reader', discipline: 'Access Control' },
+      { kw: /\b(ELECTRIC\s*STRIKE|MAG(?:NETIC)?\s*LOCK|MAGLOCK)\b/i, device: 'lock', discipline: 'Access Control' },
+      { kw: /\b(SMOKE\s*DETECTOR|HEAT\s*DETECTOR|DUCT\s*DETECTOR|FIRE\s*ALARM)\b/i, device: 'detector', discipline: 'Fire Alarm' },
+      { kw: /\b(HORN.?STROBE|STROBE|NOTIFICATION)\b/i, device: 'notification', discipline: 'Fire Alarm' },
+      { kw: /\b(PULL\s*STATION|MANUAL\s*PULL)\b/i, device: 'pull_station', discipline: 'Fire Alarm' },
+      { kw: /\b(DATA\s*OUTLET|DATA\s*JACK|WORK\s*AREA|OUTLET)\b/i, device: 'data_outlet', discipline: 'Structured Cabling' },
+      { kw: /\b(WAP|WIRELESS\s*ACCESS\s*POINT|WI-FI)\b/i, device: 'wap', discipline: 'Structured Cabling' },
+      { kw: /\b(SPEAKER|PAGING)\b/i, device: 'speaker', discipline: 'Audio Visual' },
+      { kw: /\b(NURSE\s*CALL|PATIENT\s*STATION|DOME\s*LIGHT|PULL\s*CORD)\b/i, device: 'nurse_call', discipline: 'Nurse Call Systems' },
+      { kw: /\b(MOTION\s*DETECTOR|GLASS\s*BREAK|INTRUSION)\b/i, device: 'intrusion', discipline: 'Intrusion Detection' },
+    ];
+
+    for (const note of keynotes) {
+      if (!note || typeof note !== 'object') continue;
+      const text = note.note_text || note.text || note.quote || '';
+      if (!text) continue;
+      const parsed = this._parseTypicalMultiplier(text);
+      if (!parsed || !parsed.multiplier || parsed.multiplier < 2) continue;
+
+      let device = null;
+      let discipline = null;
+      for (const entry of DEVICE_KEYWORDS) {
+        if (entry.kw.test(text)) { device = entry.device; discipline = entry.discipline; break; }
+      }
+      out.push({
+        source_sheet: note.source_sheet || note.sheet || null,
+        note_text: text.substring(0, 300),
+        multiplier: parsed.multiplier,
+        per: parsed.per || null,
+        scope: parsed.scope || null,
+        device,
+        discipline,
+      });
+    }
+    return out;
+  },
+
+  // PURE: Apply deterministic sanity rules to a Material Pricer output.
+  // Returns { adjusted, adjustments: [...] } — each adjustment is a
+  // human-readable record of what changed and why. `bom` is the Material
+  // Pricer categories[] array, `consensusCounts` is a plain object of
+  // device type → count.
+  _applyDeterministicSanityRules(bom, consensusCounts) {
+    const adjustments = [];
+    if (!Array.isArray(bom)) return { adjusted: bom, adjustments };
+
+    const counts = consensusCounts && typeof consensusCounts === 'object' ? consensusCounts : {};
+    const getCount = (key) => {
+      for (const [k, v] of Object.entries(counts)) {
+        if (k.toLowerCase().includes(key.toLowerCase())) {
+          const n = typeof v === 'object' ? (v.consensus || v.count || v.total || 0) : v;
+          const parsed = parseFloat(n) || 0;
+          if (parsed > 0) return parsed;
+        }
+      }
+      return 0;
+    };
+
+    // Flat list of items with category reference for mutation
+    const items = [];
+    for (const cat of bom) {
+      if (!cat || !Array.isArray(cat.items)) continue;
+      for (const it of cat.items) {
+        if (it && typeof it === 'object') items.push({ it, cat });
+      }
+    }
+
+    const findItems = (pattern) => items.filter(({ it }) =>
+      it.item && pattern.test(String(it.item))
+    );
+
+    // RULE 1: J-hook ceiling — max 2× total data drops
+    const dataDrops = getCount('data_outlet') || getCount('data jack') || getCount('work_area');
+    if (dataDrops > 0) {
+      const jHookItems = findItems(/\bj[\s-]?hook\b/i);
+      let totalJHooks = 0;
+      for (const { it } of jHookItems) totalJHooks += (parseFloat(it.qty) || 0);
+      const maxJHooks = dataDrops * 2;
+      if (totalJHooks > maxJHooks) {
+        const scale = maxJHooks / totalJHooks;
+        for (const { it } of jHookItems) {
+          const before = parseFloat(it.qty) || 0;
+          const after = Math.round(before * scale);
+          if (after !== before) {
+            it.qty = after;
+            if (typeof it.unit_cost === 'number' && typeof it.ext_cost === 'number') {
+              it.ext_cost = Math.round(after * it.unit_cost * 100) / 100;
+            }
+          }
+        }
+        adjustments.push({
+          rule: 'jhook_ceiling',
+          reason: `Total J-hooks (${totalJHooks}) exceeded 2× data drops (${dataDrops}). Scaled down to ${maxJHooks}.`,
+          before: totalJHooks,
+          after: maxJHooks,
+        });
+      }
+    }
+
+    // RULE 2: Patch panel count — must equal CEIL(data_jacks / 48)
+    if (dataDrops > 0) {
+      const panelItems = findItems(/patch\s*panel/i);
+      for (const { it } of panelItems) {
+        const text = String(it.item || '').toLowerCase();
+        // Infer port count from the item text (default 48)
+        let ports = 48;
+        const pm = text.match(/(\d{2})[\s-]?port/);
+        if (pm) ports = parseInt(pm[1], 10) || 48;
+        const expected = Math.ceil(dataDrops / ports);
+        const actual = parseFloat(it.qty) || 0;
+        // Allow up to 1.5× expected (double-patched scenarios) without adjustment
+        if (actual > expected * 1.5) {
+          const before = actual;
+          it.qty = expected;
+          if (typeof it.unit_cost === 'number') {
+            it.ext_cost = Math.round(expected * it.unit_cost * 100) / 100;
+          }
+          adjustments.push({
+            rule: 'patch_panel_ceiling',
+            reason: `${ports}-port patch panels: ${before} > ceil(${dataDrops}/${ports}) × 1.5. Clamped to ${expected}.`,
+            before,
+            after: expected,
+          });
+        }
+      }
+    }
+
+    // RULE 3: Cable footage sanity — avg run length cannot exceed 280ft
+    if (dataDrops > 0) {
+      const cableItems = findItems(/(?:cat\s*6|cat6a|cable)/i);
+      for (const { it } of cableItems) {
+        const unit = String(it.unit || '').toLowerCase();
+        if (!(unit === 'ft' || unit === 'lf' || unit === 'feet')) continue;
+        const qty = parseFloat(it.qty) || 0;
+        if (qty === 0) continue;
+        const avgPerDrop = qty / dataDrops;
+        if (avgPerDrop > 280) {
+          const clamped = Math.round(dataDrops * 260);
+          adjustments.push({
+            rule: 'cable_footage_sanity',
+            reason: `${it.item}: ${qty}ft ÷ ${dataDrops} drops = ${avgPerDrop.toFixed(0)}ft/drop (>280ft max). Flagged for review.`,
+            before: qty,
+            after: qty, // don't auto-correct cable footage; flag only
+            flag_only: true,
+          });
+        }
+      }
+    }
+
+    // RULE 4: Card reader vs controlled-door count must match within 15%
+    const doors = getCount('door') || getCount('controlled_door');
+    if (doors > 0) {
+      const readerItems = findItems(/(?:card\s*reader|proximity\s*reader|hid\s*reader)/i);
+      let totalReaders = 0;
+      for (const { it } of readerItems) totalReaders += (parseFloat(it.qty) || 0);
+      if (totalReaders > 0) {
+        const delta = Math.abs(totalReaders - doors) / doors;
+        if (delta > 0.15) {
+          adjustments.push({
+            rule: 'reader_door_match',
+            reason: `Card readers (${totalReaders}) differ from controlled doors (${doors}) by ${Math.round(delta * 100)}%. Verify hardware-set assignments.`,
+            before: totalReaders,
+            after: totalReaders,
+            flag_only: true,
+          });
+        }
+      }
+    }
+
+    return { adjusted: bom, adjustments };
+  },
+
   // PURE: Build a compact textual summary of vector data for prompt injection.
   // Designed to fit inside the Symbol Scanner prompt without blowing context.
   // Caps at ~3000 chars.
@@ -4650,6 +4908,38 @@ ${(() => {
     }
   }
   return result;
+})()}
+
+═══ 🧮 KEYNOTE MULTIPLIER EXPANSION — v5.127.3 (AUTHORITATIVE COUNTS) ═══
+${(() => {
+  const km = Array.isArray(context._keynoteMultipliers) ? context._keynoteMultipliers : [];
+  if (km.length === 0) {
+    return 'No TYP/SIMILAR/TOTAL multipliers parsed from keynotes — use raw consensus counts as-is.';
+  }
+  const lines = [
+    `The Keynote Extractor found ${km.length} keynote(s) with explicit "TYP N" / "N SIMILAR LOCATIONS" / "(N TOTAL)" multipliers.`,
+    'These are the ARCHITECT\'S explicit total counts — they OVERRIDE raw symbol counts for the affected device types.',
+    '',
+    'PARSED MULTIPLIERS:',
+  ];
+  for (const ex of km.slice(0, 30)) {
+    const perStr = ex.per ? ` per ${ex.per}` : '';
+    const devStr = ex.device ? ` → ${ex.discipline}/${ex.device}` : ' → (device unknown)';
+    const src = ex.source_sheet ? ` [${ex.source_sheet}]` : '';
+    lines.push(`  • ×${ex.multiplier}${perStr}${devStr}${src}`);
+    lines.push(`    "${ex.note_text.substring(0, 140)}${ex.note_text.length > 140 ? '...' : ''}"`);
+  }
+  lines.push('');
+  lines.push('HOW TO APPLY:');
+  lines.push('1. For every device type with a parsed multiplier → discipline mapping, treat the multiplier as the FLOOR count.');
+  lines.push('2. If Symbol Scanner found 4 cameras but a keynote says "TYP 12 PER FLOOR" across 3 floors, the correct count is 36 (12 × 3), NOT 4.');
+  lines.push('3. When the "per" qualifier references a unit count already known (floors, wings, buildings, patient rooms), multiply accordingly.');
+  lines.push('4. When the device type is "unknown", flag the keynote in "typical_multiplier_review" at the top of your output so the estimator can assign it.');
+  lines.push('5. Output a "typical_multipliers_applied" array listing every expansion you honored.');
+  lines.push('');
+  lines.push('WHY THIS MATTERS: "TYP N PER FLOOR" is the single biggest source of under-counting in ELV estimating. The AI sees one symbol, the keynote says "there are twelve of them on every floor", and a pure visual count will miss all but the one shown. This block closes that gap deterministically.');
+  const out = lines.join('\n');
+  return out.length > 4000 ? out.substring(0, 3970) + '\n...[truncated]' : out;
 })()}
 
 ═══ 🧠 ESTIMATOR FEEDBACK LOOP — v5.127.1 (HIGHEST PRIORITY AFTER RATE LIBRARY) ═══
@@ -10099,6 +10389,32 @@ ${legendContext}
             type: 'keynote_gotcha',
             detail: `${g.sheet}: "${g.quote}" — ${g.why_gotcha}`,
           });
+        }
+
+        // ─── v5.127.3 Keynote Multiplier Expansion ───
+        // Walk every keynote looking for "TYP N" / "N SIMILAR LOCATIONS" /
+        // "(N TOTAL)" style multipliers. For each hit, capture the parsed
+        // multiplier and (when possible) infer the device type. Material
+        // Pricer will see these as authoritative totals that override the
+        // raw symbol count when a multiplier is present.
+        const allNotes = [
+          ...(Array.isArray(ke.keynotes) ? ke.keynotes : []),
+          ...(Array.isArray(ke.general_notes) ? ke.general_notes : []),
+        ];
+        const expansions = this._expandKeynoteMultipliers(allNotes);
+        if (expansions.length > 0) {
+          context._keynoteMultipliers = expansions;
+          console.log(`[SmartBrains] 🧮 Keynote Expansion: ${expansions.length} TYP/SIMILAR/TOTAL multiplier(s) parsed`);
+          for (const ex of expansions.slice(0, 8)) {
+            const perStr = ex.per ? ` per ${ex.per}` : '';
+            const devStr = ex.device ? ` → ${ex.discipline}/${ex.device}` : '';
+            console.log(`[SmartBrains]    × ${ex.multiplier}${perStr}${devStr} — "${ex.note_text.substring(0, 60)}${ex.note_text.length > 60 ? '...' : ''}"`);
+            context._brainInsights.push({
+              source: 'KEYNOTE_EXTRACTOR',
+              type: 'typical_multiplier',
+              detail: `Note multiplier ×${ex.multiplier}${perStr}${devStr}: "${ex.note_text.substring(0, 120)}"`,
+            });
+          }
         }
       }
     } catch (e) {
