@@ -765,6 +765,27 @@ const SmartBrains = {
               } catch (e) { console.warn(`[SmartBrains] OCR Scale extraction failed for ${entry.name}:`, e.message); }
             }
 
+            // ─── v5.127.2 VECTOR EXTRACTION PRE-PROCESSING ───
+            // For every plan PDF, pull structured text + path data directly
+            // from the content stream so Symbol Scanner has a deterministic
+            // ground truth to sanity-check its visual counts against.
+            if (finalMime === 'application/pdf' && category === 'plans' && typeof pdfjsLib !== 'undefined') {
+              try {
+                progressCallback(null, `Extracting vector structure from ${entry.name}…`, null);
+                const vectorData = await this._extractVectorStructure(entry.rawFile);
+                if (vectorData && Array.isArray(vectorData.pages) && vectorData.pages.length > 0) {
+                  fileData._vectorData = vectorData;
+                  // Stash under state so the runFullAnalysis orchestrator can
+                  // aggregate across multiple plan files before Wave 1.
+                  if (!state._vectorData) state._vectorData = {};
+                  state._vectorData[entry.name] = vectorData;
+                  const totalDevices = vectorData.pages.reduce((s, p) => s + ((p.deviceCandidates || []).length), 0);
+                  const totalLines = vectorData.pages.reduce((s, p) => s + ((p.pathStats?.lineCount) || 0), 0);
+                  console.log(`[SmartBrains] 🧭 Vector Extract: ${entry.name} — ${vectorData.pages.length} pages, ${totalDevices} device labels, ${totalLines} line segments (${vectorData._elapsedMs}ms)`);
+                }
+              } catch (e) { console.warn(`[SmartBrains] Vector extraction failed for ${entry.name}:`, e.message); }
+            }
+
             encoded[category].push(fileData);
           }
         } catch (err) {
@@ -1621,6 +1642,369 @@ const SmartBrains = {
     }
 
     return result;
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // v5.127.2 VECTOR EXTRACTION PRE-PROCESSING
+  //
+  // For vector PDFs (most professional construction plans), we can
+  // pull a lot more than just rasterized images out before handing
+  // the file to Gemini. Each page has a content stream containing:
+  //   - Positioned text items (sheet IDs, room numbers, device labels,
+  //     keynote callouts, dimensions, annotations) with exact (x,y)
+  //   - Drawing operators (lines, rects, curves) that form the walls
+  //     and symbol geometry
+  //
+  // The goal here is NOT to replace Gemini's visual counting — it's to
+  // build a deterministic "ground truth" that brains can sanity-check
+  // their visual counts against. For example: if the vector extractor
+  // sees 48 "CR-\d+" device labels on a sheet, Symbol Scanner had
+  // better also find 48 card readers, not 32.
+  //
+  // All heavy lifting uses pdf.js (already loaded for scale extraction).
+  // The per-item classification helpers are PURE functions so they can
+  // be unit-tested in isolation without a live PDF.
+  // ═══════════════════════════════════════════════════════════
+
+  // PURE: Classify a single text item by what it looks like on a plan.
+  // Returns { type, confidence, deviceCode?, discipline? }.
+  // Types: 'device_label' | 'sheet_id' | 'room_number' | 'keynote' |
+  //        'dimension' | 'scale_text' | 'title_block' | 'annotation' | 'other'
+  _classifyVectorTextItem(str) {
+    if (typeof str !== 'string') return { type: 'other', confidence: 0 };
+    const s = str.trim();
+    if (s.length === 0) return { type: 'other', confidence: 0 };
+
+    // Scale notation: "1/8\" = 1'-0\"" / "SCALE: 1:96" etc.
+    if (/^\s*(?:SCALE\s*[:=]?\s*)?(?:\d+\/\d+\s*["″]?\s*=\s*\d+\s*['′]|1\s*:\s*\d+)/i.test(s)) {
+      return { type: 'scale_text', confidence: 0.95 };
+    }
+
+    // Device labels FIRST: "CR-12", "C-FD-5", "SD-101", "H/S-3", "WAP-7"
+    // Checked before sheet_id because prefixes like "SD" (smoke detector),
+    // "NC" (nurse call), "C" (camera) collide with sheet ID prefixes. When a
+    // string is in the known-device map we always prefer device_label.
+    const deviceMatch = s.match(/^([A-Z]{1,4}(?:\/[A-Z]{1,3})?)[-\/\s]?(\d{1,4})[A-Z]?$/);
+    if (deviceMatch) {
+      const code = deviceMatch[1].toUpperCase();
+      const DEVICE_PREFIX_MAP = {
+        'CR': { discipline: 'Access Control', device: 'card_reader' },
+        'CARD': { discipline: 'Access Control', device: 'card_reader' },
+        'DPS': { discipline: 'Access Control', device: 'door_position_switch' },
+        'REX': { discipline: 'Access Control', device: 'request_to_exit' },
+        'EL': { discipline: 'Access Control', device: 'electric_lock' },
+        'ES': { discipline: 'Access Control', device: 'electric_strike' },
+        'ML': { discipline: 'Access Control', device: 'maglock' },
+        'C': { discipline: 'CCTV', device: 'camera' },
+        'CAM': { discipline: 'CCTV', device: 'camera' },
+        'CCTV': { discipline: 'CCTV', device: 'camera' },
+        'NVR': { discipline: 'CCTV', device: 'nvr' },
+        'PTZ': { discipline: 'CCTV', device: 'ptz_camera' },
+        'FD': { discipline: 'CCTV', device: 'fixed_dome' },
+        'WAP': { discipline: 'Structured Cabling', device: 'wireless_ap' },
+        'AP': { discipline: 'Structured Cabling', device: 'wireless_ap' },
+        'DO': { discipline: 'Structured Cabling', device: 'data_outlet' },
+        'VO': { discipline: 'Structured Cabling', device: 'voice_outlet' },
+        'SD': { discipline: 'Fire Alarm', device: 'smoke_detector' },
+        'HD': { discipline: 'Fire Alarm', device: 'heat_detector' },
+        'DD': { discipline: 'Fire Alarm', device: 'duct_detector' },
+        'PS': { discipline: 'Fire Alarm', device: 'pull_station' },
+        'H/S': { discipline: 'Fire Alarm', device: 'horn_strobe' },
+        'HS': { discipline: 'Fire Alarm', device: 'horn_strobe' },
+        'STR': { discipline: 'Fire Alarm', device: 'strobe' },
+        'FACP': { discipline: 'Fire Alarm', device: 'facp' },
+        'SP': { discipline: 'Audio Visual', device: 'speaker' },
+        'SPK': { discipline: 'Audio Visual', device: 'speaker' },
+        'DSP': { discipline: 'Audio Visual', device: 'dsp' },
+        'NC': { discipline: 'Nurse Call Systems', device: 'nurse_call_station' },
+        'NCM': { discipline: 'Nurse Call Systems', device: 'master_station' },
+        'GB': { discipline: 'Intrusion Detection', device: 'glass_break' },
+        'MD': { discipline: 'Intrusion Detection', device: 'motion_detector' },
+      };
+      const mapping = DEVICE_PREFIX_MAP[code];
+      if (mapping) {
+        return {
+          type: 'device_label',
+          confidence: 0.8,
+          deviceCode: code,
+          discipline: mapping.discipline,
+          device: mapping.device,
+        };
+      }
+      // Unknown prefix and didn't match a device mapping — fall through
+      // and let the sheet-id check try to classify it before degrading
+      // to a generic low-confidence device label.
+    }
+
+    // Sheet ID: T-101, FA-2.01, E1.01, A-101, etc.
+    // Must be short (<= 10 chars), match the grammar, AND start with one
+    // of the known sheet prefixes (not any of the device prefixes above).
+    if (s.length <= 10 && /^[A-Z]{1,4}[-.]?\d{1,3}(?:[.\-]\d{1,3})?[a-zA-Z]?$/.test(s)) {
+      // NOTE: prefixes that collide with device codes (SD, NC, C, SP, AP)
+      // are deliberately excluded here — those were already returned as
+      // device_label above.
+      const sheetPrefixes = /^(T|E|EP|EL|ES|EA|FA|FP|FS|A|AE|AI|AD|M|P|S|L|G|DAS|BMS|LV|TEL|COMM)(?:\d|[-.])/i;
+      if (sheetPrefixes.test(s)) {
+        return { type: 'sheet_id', confidence: 0.85 };
+      }
+    }
+
+    // Unknown-prefix device label that fell through the sheet check
+    if (deviceMatch) {
+      return { type: 'device_label', confidence: 0.45, deviceCode: deviceMatch[1].toUpperCase() };
+    }
+
+    // Room number: 3-4 digit integer, often with a letter suffix
+    if (/^\d{3,4}[A-Z]?$/.test(s)) {
+      return { type: 'room_number', confidence: 0.6 };
+    }
+
+    // Keynote callout: single integer 1-99 alone, or with a period
+    if (/^\d{1,2}\.?$/.test(s)) {
+      return { type: 'keynote', confidence: 0.5 };
+    }
+
+    // Dimension: "12'-6\"", "14'", "8' - 0\""
+    if (/^\d+['′]\s*-?\s*\d*["″]?$/.test(s)) {
+      return { type: 'dimension', confidence: 0.9 };
+    }
+
+    // Annotation keywords: TYP, U.N.O., OFCI, NIC, N.T.S.
+    if (/^(TYP|U\.?N\.?O\.?|OFCI|OFOI|NIC|N\.?T\.?S\.?|DEMO|EXIST|NEW|RELO)\.?$/i.test(s)) {
+      return { type: 'annotation', confidence: 0.9 };
+    }
+
+    // Title block: all-caps words that look like a sheet title
+    if (s.length >= 10 && /^[A-Z0-9 &\-']+$/.test(s) && /\b(PLAN|ELEVATION|SECTION|DETAIL|SCHEDULE|LEGEND|NOTES|SHEET)\b/.test(s)) {
+      return { type: 'title_block', confidence: 0.85 };
+    }
+
+    return { type: 'other', confidence: 0.1 };
+  },
+
+  // PURE: Extract a sheet ID from a blob of concatenated title-block text.
+  // Returns the first convincing match or null.
+  _extractSheetIdFromText(text) {
+    if (typeof text !== 'string' || text.length === 0) return null;
+    const patterns = [
+      /\b([A-Z]{1,4}[-.]?\d{1,3}[.\-]\d{1,3}[a-zA-Z]?)\b/,  // T-101, FA-2.01
+      /\b([A-Z]{1,4}[-.]?\d{3,4}[a-zA-Z]?)\b/,               // T101, FA201
+      /\b([A-Z]{1,4}[-.]?\d{1,2})\b/,                         // T-1, FA-2
+    ];
+    for (const pat of patterns) {
+      const m = text.match(pat);
+      if (m) return m[1];
+    }
+    return null;
+  },
+
+  // PURE: Summarize an operator list into line/rect/curve counts.
+  // `opList` is pdf.js's operator list (fnArray + argsArray). `opsMap` is
+  // pdfjsLib.OPS (or a test fixture). If `opsMap` is missing or malformed
+  // this function still produces a best-effort count via op-name heuristics.
+  _summarizeVectorPaths(opList, opsMap) {
+    const summary = { lineCount: 0, rectCount: 0, curveCount: 0, pathCount: 0, textShowCount: 0 };
+    if (!opList || !Array.isArray(opList.fnArray)) return summary;
+
+    const OPS = opsMap || {};
+    const fnArr = opList.fnArray;
+    const argsArr = Array.isArray(opList.argsArray) ? opList.argsArray : [];
+
+    for (let i = 0; i < fnArr.length; i++) {
+      const op = fnArr[i];
+      const args = argsArr[i];
+
+      // 1. constructPath (modern pdf.js): args[0] is an array of sub-op codes.
+      //    args[1] is a flat array of coordinates, args[2] is the bbox.
+      if (OPS.constructPath !== undefined && op === OPS.constructPath) {
+        summary.pathCount++;
+        const subOps = Array.isArray(args) ? args[0] : null;
+        if (Array.isArray(subOps)) {
+          for (const sub of subOps) {
+            if (sub === OPS.moveTo) { /* pen moves, not a drawn segment */ }
+            else if (sub === OPS.lineTo) summary.lineCount++;
+            else if (sub === OPS.curveTo || sub === OPS.curveTo2 || sub === OPS.curveTo3) summary.curveCount++;
+            else if (sub === OPS.rectangle) summary.rectCount++;
+          }
+        }
+        continue;
+      }
+
+      // 2. Legacy per-op path building (older pdf.js)
+      if (OPS.lineTo !== undefined && op === OPS.lineTo) { summary.lineCount++; continue; }
+      if (OPS.rectangle !== undefined && op === OPS.rectangle) { summary.rectCount++; continue; }
+      if (OPS.curveTo !== undefined && op === OPS.curveTo) { summary.curveCount++; continue; }
+      if (OPS.curveTo2 !== undefined && op === OPS.curveTo2) { summary.curveCount++; continue; }
+      if (OPS.curveTo3 !== undefined && op === OPS.curveTo3) { summary.curveCount++; continue; }
+
+      // 3. Text-showing ops are counted separately so we can sanity check
+      //    how many glyphs are on the page.
+      if (
+        (OPS.showText !== undefined && op === OPS.showText) ||
+        (OPS.showSpacedText !== undefined && op === OPS.showSpacedText) ||
+        (OPS.nextLineShowText !== undefined && op === OPS.nextLineShowText) ||
+        (OPS.nextLineSetSpacingShowText !== undefined && op === OPS.nextLineSetSpacingShowText)
+      ) {
+        summary.textShowCount++;
+      }
+    }
+
+    return summary;
+  },
+
+  // Extract structured vector data from a PDF. Runs through every page and
+  // produces a per-page report with:
+  //   - sheetId (if detectable from title-block text)
+  //   - pageSize { w, h }  (PDF user-units)
+  //   - textItems  — every text item with (str, x, y, classification)
+  //   - pathStats  — counts of lines/rects/curves
+  //   - deviceCandidates — distilled device labels + their coordinates
+  //   - keynoteCandidates — single/double-digit text items (callouts)
+  //   - annotations — text items classified as annotation keywords
+  //
+  // Returns { pages: [...], totalPages, _elapsedMs }. Returns an empty
+  // result when pdf.js is not available.
+  async _extractVectorStructure(rawFile) {
+    const t0 = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    const empty = { pages: [], totalPages: 0, _elapsedMs: 0 };
+    if (typeof pdfjsLib === 'undefined') return empty;
+
+    try {
+      const arrayBuffer = await rawFile.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const totalPages = pdf.numPages;
+      const pages = [];
+      const OPS = pdfjsLib.OPS || {};
+
+      // Cap at 60 pages per file to keep the loop bounded on huge sets.
+      // Beyond that we still report totalPages but stop scanning.
+      const pageLimit = Math.min(totalPages, 60);
+
+      for (let p = 1; p <= pageLimit; p++) {
+        try {
+          const page = await pdf.getPage(p);
+          const viewport = page.getViewport({ scale: 1.0 });
+          const content = await page.getTextContent();
+
+          // Build positioned text items with classification
+          const textItems = [];
+          const titleBlobParts = [];
+          for (const item of content.items) {
+            if (!item || typeof item.str !== 'string' || item.str.trim().length === 0) continue;
+            const cls = this._classifyVectorTextItem(item.str);
+            const entry = {
+              str: item.str,
+              x: Math.round(item.transform[4]),
+              y: Math.round(item.transform[5]),
+              w: Math.round(item.width || 0),
+              type: cls.type,
+              confidence: cls.confidence,
+            };
+            if (cls.deviceCode) entry.deviceCode = cls.deviceCode;
+            if (cls.discipline) entry.discipline = cls.discipline;
+            if (cls.device) entry.device = cls.device;
+            textItems.push(entry);
+            // Title block is usually bottom-right — collect all short strings for sheet-id detection
+            if (item.str.length < 12) titleBlobParts.push(item.str);
+          }
+
+          // Detect sheet ID from the aggregated title-block blob
+          const sheetId = this._extractSheetIdFromText(titleBlobParts.join(' '));
+
+          // Path / operator summary (wrapped — can fail on weird PDFs)
+          let pathStats = { lineCount: 0, rectCount: 0, curveCount: 0, pathCount: 0, textShowCount: 0 };
+          try {
+            const opList = await page.getOperatorList();
+            pathStats = this._summarizeVectorPaths(opList, OPS);
+          } catch (opErr) {
+            // Non-fatal — many PDFs have pages that fail operator decoding
+          }
+
+          // Distill device / keynote / annotation candidates
+          const deviceCandidates = textItems
+            .filter(t => t.type === 'device_label')
+            .map(t => ({ str: t.str, x: t.x, y: t.y, code: t.deviceCode, discipline: t.discipline, device: t.device }));
+          const keynoteCandidates = textItems
+            .filter(t => t.type === 'keynote')
+            .map(t => ({ str: t.str, x: t.x, y: t.y }));
+          const annotations = textItems
+            .filter(t => t.type === 'annotation')
+            .map(t => ({ str: t.str, x: t.x, y: t.y }));
+
+          pages.push({
+            pageNum: p,
+            sheetId,
+            pageSize: { w: Math.round(viewport.width), h: Math.round(viewport.height) },
+            textItemCount: textItems.length,
+            deviceCandidates,
+            keynoteCandidates,
+            annotations,
+            pathStats,
+          });
+        } catch (pageErr) {
+          console.warn(`[SmartBrains] Vector extract: page ${p} failed — ${pageErr?.message || pageErr}`);
+        }
+      }
+
+      const elapsed = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) - t0;
+      return { pages, totalPages, _elapsedMs: Math.round(elapsed) };
+    } catch (err) {
+      console.warn(`[SmartBrains] Vector extract failed:`, err?.message || err);
+      return empty;
+    }
+  },
+
+  // PURE: Build a compact textual summary of vector data for prompt injection.
+  // Designed to fit inside the Symbol Scanner prompt without blowing context.
+  // Caps at ~3000 chars.
+  _formatVectorSummaryForPrompt(vectorData) {
+    if (!vectorData || !Array.isArray(vectorData.pages) || vectorData.pages.length === 0) {
+      return 'No vector data available (PDF may be scanned/raster, or pdf.js unavailable).';
+    }
+
+    const lines = [];
+    lines.push(`Vector extractor ran on ${vectorData.pages.length} page(s) of ${vectorData.totalPages || vectorData.pages.length} total.`);
+    lines.push('These counts come from parsing the PDF content stream directly — they are DETERMINISTIC GROUND TRUTH.');
+    lines.push('Your visual symbol count should match within ±10% per sheet. If you diverge by >20%, something is wrong with your count.');
+    lines.push('');
+
+    // Aggregate device candidates across all pages
+    const aggDevices = {};
+    for (const page of vectorData.pages) {
+      for (const d of (page.deviceCandidates || [])) {
+        const key = d.code || d.str;
+        if (!aggDevices[key]) aggDevices[key] = { code: key, count: 0, discipline: d.discipline, device: d.device };
+        aggDevices[key].count++;
+      }
+    }
+    const deviceRows = Object.values(aggDevices)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 30);
+    if (deviceRows.length > 0) {
+      lines.push('DEVICE LABELS FOUND IN TEXT LAYER (deterministic — these exist for sure):');
+      for (const d of deviceRows) {
+        const disc = d.discipline ? ` → ${d.discipline}/${d.device}` : '';
+        lines.push(`  • ${d.code}: ${d.count} instance(s)${disc}`);
+      }
+      lines.push('');
+    }
+
+    // Per-page breakdown
+    lines.push('PER-PAGE BREAKDOWN:');
+    for (const page of vectorData.pages.slice(0, 20)) {
+      const sheet = page.sheetId ? ` [${page.sheetId}]` : '';
+      const ps = page.pathStats || {};
+      const devCount = (page.deviceCandidates || []).length;
+      lines.push(
+        `  p${page.pageNum}${sheet}: ${page.textItemCount || 0} text items, ` +
+        `${devCount} device labels, ${ps.lineCount || 0} lines, ` +
+        `${ps.rectCount || 0} rects, ${ps.curveCount || 0} curves`
+      );
+    }
+    if (vectorData.pages.length > 20) lines.push(`  ... and ${vectorData.pages.length - 20} more page(s)`);
+
+    const out = lines.join('\n');
+    return out.length > 3000 ? out.substring(0, 2970) + '\n...[truncated]' : out;
   },
 
   // Split a large PDF into smaller chunk files using PDF.js
@@ -3060,7 +3444,19 @@ DISCIPLINES: ${(context.disciplines || []).join(', ')}
 NOTE: Documents have been pre-filtered to only include sheets/specs matching the selected disciplines above. Only count devices belonging to these disciplines — ignore any symbols from other trades that may appear on shared sheets.
 
 YOUR MISSION: Scan EVERY sheet and count EVERY device symbol for the selected disciplines. Be exhaustive.
-${context._hasAddenda ? `
+${context._vectorSummary ? `
+═══ 🧭 DETERMINISTIC VECTOR EXTRACTION (v5.127.2 — TRUST THIS) ═══
+${context._vectorSummary}
+
+HOW TO USE THIS BLOCK:
+1. Every device label above was pulled directly from the PDF text layer — these labels provably exist on the sheets. Your count MUST include them.
+2. If you visually count 40 cameras but the vector extractor found 48 "C-\\d+" labels, your count is WRONG — recount that sheet carefully, especially densely packed areas.
+3. Device codes like "CR-1" / "C-FD-23" / "SD-101" are the architect's own labels. Use them to cross-reference the equipment schedule and confirm which type each count belongs to.
+4. If the vector extractor finds ZERO device labels, the PDF may be raster-only — fall back to pure visual counting but flag the sheet as "no text layer available" in your notes.
+5. The line/rect/curve counts help you distinguish BUSY sheets (dense detail work) from sparse sheets (overall floor plans). A sheet with 5,000 line segments is a detail sheet with enlarged views — scan it for hidden symbols.
+
+IMPORTANT: This vector data is a FLOOR on your count, never a ceiling. You may find MORE symbols than the text layer lists (some symbols have no text label). You should never find FEWER device labels than the deterministic list.
+` : ''}${context._hasAddenda ? `
 ═══ ADDENDA ALERT — Revised sheets are included in this set ═══
 This plan set includes ADDENDA (revised sheets). Addenda sheets have "ADDENDUM" or revision clouds/deltas in their names or on the drawing.
 - If an addenda sheet replaces a base plan sheet (same sheet number), use the ADDENDA version counts
@@ -8940,6 +9336,37 @@ ${legendContext}
       context._specTexts = specTexts;
       const totalChars = specTexts.reduce((s, t) => s + t.text.length, 0);
       console.log(`[SmartBrains] 📑 Spec text: ${specTexts.length} file(s), ${Math.round(totalChars / 1024)}KB total — will be injected into Material Pricer`);
+    }
+
+    // ═══ PRE-WAVE: Aggregate v5.127.2 vector extraction across every plan file ═══
+    // Merge per-file vector data into a single flat pages array so Wave 1 brains
+    // can see every page at once. Also builds a compact text summary that gets
+    // injected into Symbol Scanner's prompt as deterministic ground truth.
+    try {
+      const allVectorPages = [];
+      let totalExtractedPages = 0;
+      for (const planFile of encodedFiles.plans || []) {
+        if (planFile._vectorData && Array.isArray(planFile._vectorData.pages)) {
+          for (const pg of planFile._vectorData.pages) {
+            allVectorPages.push({ ...pg, fileName: planFile.name });
+          }
+          totalExtractedPages += planFile._vectorData.pages.length;
+        }
+      }
+      if (allVectorPages.length > 0) {
+        const aggregated = { pages: allVectorPages, totalPages: totalExtractedPages };
+        context._vectorData = aggregated;
+        context._vectorSummary = this._formatVectorSummaryForPrompt(aggregated);
+        const totalDevLabels = allVectorPages.reduce((s, p) => s + ((p.deviceCandidates || []).length), 0);
+        console.log(`[SmartBrains] 🧭 Vector Extract (aggregated): ${allVectorPages.length} page(s) across ${(encodedFiles.plans || []).filter(f => f._vectorData).length} file(s), ${totalDevLabels} deterministic device labels`);
+      } else {
+        context._vectorData = null;
+        context._vectorSummary = null;
+      }
+    } catch (vecErr) {
+      console.warn('[SmartBrains] Vector aggregation errored non-fatally:', vecErr?.message || vecErr);
+      context._vectorData = null;
+      context._vectorSummary = null;
     }
 
     // ═══ PRE-WAVE: Collect OCR scale data extracted during file encoding ═══
