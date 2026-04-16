@@ -130,6 +130,24 @@
             // Pull BOM totals by discipline (for compliance matrix + SOV)
             const bomCategories = this._extractBomCategories(state);
 
+            // ── v5.128.0: Pull full analysis data for comprehensive proposal ──
+            const br = state.brainResults || {};
+            const deviceCounts = br.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts
+                || br.wave1_75?.TARGETED_RESCANNER?.final_counts
+                || br.wave1?.SYMBOL_SCANNER?.totals || {};
+            const bomFull = br.wave2?.MATERIAL_PRICER || br.wave3_85_corrected || {};
+            const bomItems = bomFull.categories || bomFull.material_categories || [];
+            const laborData = br.wave2_25?.LABOR_CALCULATOR || {};
+            const financialSummary = br.wave2_5_fin?.FINANCIAL_ENGINE || {};
+            const cablePathway = br.wave1?.CABLE_PATHWAY || {};
+            const mdfIdf = br.wave1?.MDF_IDF_ANALYZER || {};
+            const codeCompliance = br.wave1?.CODE_COMPLIANCE_CHECKER || {};
+            const specialConditions = br.wave1?.SPECIAL_CONDITIONS || {};
+            const devilsAdvocate = br.wave3?.DEVILS_ADVOCATE || {};
+            const crossValidator = br.wave3?.CROSS_VALIDATOR || {};
+            const scopeExclusionScanner = br.wave1?.SCOPE_EXCLUSION_SCANNER || {};
+            const clarificationQs = Array.isArray(state._clarificationQuestions) ? state._clarificationQuestions : [];
+
             // Pull past performance — auto-selected by relevance
             const bidContext = {
                 disciplines: state.disciplines || [],
@@ -175,6 +193,19 @@
                 rfpCriteria,
                 bomCategories,
                 pastProjects,
+                // v5.128.0: Full analysis data for comprehensive scope sections
+                deviceCounts,
+                bomItems,
+                laborData,
+                financialSummary,
+                cablePathway,
+                mdfIdf,
+                codeCompliance,
+                specialConditions,
+                devilsAdvocate,
+                crossValidator,
+                scopeExclusionScanner,
+                clarificationQs,
                 // Exclusions
                 exclusions: stateExclusions.length > 0 ? stateExclusions : cc.standardExclusions,
                 assumptions: stateAssumptions.length > 0 ? stateAssumptions : cc.standardAssumptions,
@@ -551,7 +582,13 @@ Do NOT mention AI or SmartPlans.`;
             const teamPage = this._renderTeamPage(ctx);
             const pastPerformancePage = this._renderPastPerformancePage(ctx);
             const compliancePage = this._renderCompliancePage(ctx, sections.complianceMatrix);
+            // v5.128.0: Comprehensive scope sections
+            const scopeOfWorkPage = this._renderScopeOfWorkPage(ctx);
+            const bomDetailPages = this._renderBomDetailPages(ctx);
+            const infrastructurePage = this._renderInfrastructurePage(ctx);
+            const laborPage = this._renderLaborPage(ctx);
             const pricingPage = this._renderPricingPage(ctx);
+            const clarificationsPage = this._renderClarificationsRiskPage(ctx);
             const exclusionsPage = this._renderExclusionsPage(ctx);
             const testimonialsPage = this._renderTestimonialsPage(ctx);
             const backCover = this._renderBackCover(ctx);
@@ -1164,11 +1201,21 @@ ${this._sectionDivider('05', 'Past Performance', `"References on request for eve
 ${pastPerformancePage}
 ${this._sectionDivider('06', 'Compliance Matrix', `"Every specification requirement — mapped, addressed, confirmed."`)}
 ${compliancePage}
-${this._sectionDivider('07', 'Investment', `"Firm fixed price. No surprises."`)}
+${this._sectionDivider('07', 'Scope of Work', `"Every device, every location, every system — documented and verified."`)}
+${scopeOfWorkPage}
+${this._sectionDivider('08', 'Bill of Materials', `"Complete material takeoff. Every line item. Every manufacturer. Every cost."`)}
+${bomDetailPages}
+${this._sectionDivider('09', 'Infrastructure & Cabling', `"The backbone that everything else rides on."`)}
+${infrastructurePage}
+${this._sectionDivider('10', 'Labor & Installation', `"Certified technicians. Phased execution. No shortcuts."`)}
+${laborPage}
+${this._sectionDivider('11', 'Investment', `"Firm fixed price. No surprises."`)}
 ${pricingPage}
-${this._sectionDivider('08', 'Exclusions, Assumptions & Clarifications', `"Honest scope boundaries are how good partners stay good partners."`)}
+${this._sectionDivider('12', 'Clarifications & Risk', `"Transparency today prevents change orders tomorrow."`)}
+${clarificationsPage}
+${this._sectionDivider('13', 'Exclusions, Assumptions & Clarifications', `"Honest scope boundaries are how good partners stay good partners."`)}
 ${exclusionsPage}
-${this._sectionDivider('09', 'Client Voices', `"Don't take our word for it."`)}
+${this._sectionDivider('14', 'Client Voices', `"Don't take our word for it."`)}
 ${testimonialsPage}
 ${backCover}
 
@@ -1557,13 +1604,13 @@ ${backCover}
 <div class="page">
   <div class="page-header">
     <div class="ph-brand">${esc(cc.legalName)}</div>
-    <div class="ph-ref">Section 07 · Investment</div>
+    <div class="ph-ref">Section 11 · Investment</div>
   </div>
   <div class="page-body">
-    <div class="section-eyebrow">Section 07</div>
+    <div class="section-eyebrow">Section 11</div>
     <h2>Investment Summary</h2>
     <div class="gold-rule"></div>
-    <p class="body-copy">${esc(cc.legalName)} is pleased to offer the following firm fixed price for the complete scope of work described in this proposal. All pricing is guaranteed until <strong>${esc(ctx.validUntilStr)}</strong>.</p>
+    <p class="body-copy">${esc(cc.legalName)} is pleased to offer the following firm fixed price for the complete scope of work described in this proposal. See Sections 07–10 for detailed scope, materials, cabling infrastructure, and labor breakdown. All pricing is guaranteed until <strong>${esc(ctx.validUntilStr)}</strong>.</p>
 
     ${cats.length > 0 ? `<table class="data-table">
       <thead>
@@ -1588,7 +1635,7 @@ ${backCover}
   </div>
   <div class="page-footer">
     <span class="pf-company">${esc(cc.legalName)}</span>
-    <span>Section 07 · Investment</span>
+    <span>Section 11 · Investment</span>
   </div>
 </div>`;
         },
@@ -1599,10 +1646,10 @@ ${backCover}
 <div class="page">
   <div class="page-header">
     <div class="ph-brand">${esc(cc.legalName)}</div>
-    <div class="ph-ref">Section 08 · Exclusions & Assumptions</div>
+    <div class="ph-ref">Section 13 · Exclusions & Assumptions</div>
   </div>
   <div class="page-body">
-    <div class="section-eyebrow">Section 08</div>
+    <div class="section-eyebrow">Section 13</div>
     <h2>Exclusions, Assumptions & Clarifications</h2>
     <div class="gold-rule"></div>
     <p class="body-copy">The following scope boundaries apply to this proposal. Honest delineation up front is how we keep change-order friction to zero after award.</p>
@@ -1624,7 +1671,7 @@ ${backCover}
   </div>
   <div class="page-footer">
     <span class="pf-company">${esc(cc.legalName)}</span>
-    <span>Section 08 · Exclusions, Assumptions & Clarifications</span>
+    <span>Section 13 · Exclusions, Assumptions & Clarifications</span>
   </div>
 </div>`;
         },
@@ -1636,10 +1683,10 @@ ${backCover}
 <div class="page">
   <div class="page-header">
     <div class="ph-brand">${esc(cc.legalName)}</div>
-    <div class="ph-ref">Section 09 · Client Voices</div>
+    <div class="ph-ref">Section 14 · Client Voices</div>
   </div>
   <div class="page-body">
-    <div class="section-eyebrow">Section 09</div>
+    <div class="section-eyebrow">Section 14</div>
     <h2>In Our Clients' Words</h2>
     <div class="gold-rule"></div>
 
@@ -1657,7 +1704,495 @@ ${backCover}
   </div>
   <div class="page-footer">
     <span class="pf-company">${esc(cc.legalName)}</span>
-    <span>Section 09 · Client Voices</span>
+    <span>Section 14 · Client Voices</span>
+  </div>
+</div>`;
+        },
+
+        // ═══════════════════════════════════════════════════════
+        // v5.128.0 — Comprehensive Proposal Sections
+        // Five new sections that show EVERY aspect of the project
+        // ═══════════════════════════════════════════════════════
+
+        // ── SECTION 07: Detailed Scope of Work ──────────────
+        _renderScopeOfWorkPage(ctx) {
+            const cc = ctx.cc;
+            const counts = ctx.deviceCounts || {};
+            const disciplines = ctx.disciplines || [];
+            const scopeExcl = ctx.scopeExclusionScanner || {};
+            const delineations = ctx.scopeDelineations?.delineations || [];
+
+            // Build per-discipline device count tables
+            const DISCIPLINE_KEYWORDS = {
+                'CCTV': /camera|cctv|nvr|vms|dome|bullet|ptz|fisheye|panoram|surveillance|encoder|monitor/i,
+                'Access Control': /card\s*reader|access|rex|electric\s*strike|maglock|door\s*contact|controller|intercom|credential|keypad/i,
+                'Structured Cabling': /data\s*outlet|cat\s*6|keystone|patch\s*panel|wap|wireless|fiber|cable\s*tray|faceplate|j[\s-]?hook/i,
+                'Fire Alarm': /smoke|heat|pull\s*station|horn|strobe|duct|facp|fire|annunciator|nac|module/i,
+                'Audio Visual': /speaker|display|projector|amplifier|microphone|av\b|audio|dsp|touch\s*panel/i,
+                'Intrusion Detection': /motion|glass\s*break|intrusion|siren|keypad/i,
+                'Nurse Call Systems': /nurse|patient\s*station|pillow|dome\s*light|pull\s*cord|staff\s*station/i,
+                'Distributed Antenna Systems (DAS)': /antenna|bda|das|splitter|coupler/i,
+            };
+
+            let deviceTableHtml = '';
+            const countEntries = Object.entries(counts).filter(([k, v]) => {
+                const n = typeof v === 'object' ? (v.consensus || v.count || v.total || 0) : v;
+                return (parseFloat(n) || 0) > 0;
+            });
+
+            if (countEntries.length > 0) {
+                // Group by discipline
+                const grouped = {};
+                for (const disc of disciplines) grouped[disc] = [];
+
+                for (const [key, val] of countEntries) {
+                    const count = typeof val === 'object' ? (val.consensus || val.count || val.total || val) : val;
+                    let assigned = false;
+                    for (const [disc, regex] of Object.entries(DISCIPLINE_KEYWORDS)) {
+                        if (regex.test(key) && grouped[disc]) {
+                            grouped[disc].push({ device: key, qty: count });
+                            assigned = true;
+                            break;
+                        }
+                    }
+                    if (!assigned) {
+                        const fallback = disciplines[0] || 'Other';
+                        if (!grouped[fallback]) grouped[fallback] = [];
+                        grouped[fallback].push({ device: key, qty: count });
+                    }
+                }
+
+                for (const [disc, items] of Object.entries(grouped)) {
+                    if (items.length === 0) continue;
+                    deviceTableHtml += `
+                    <h4 style="margin-top:16pt;color:var(--teal-dark);font-size:12pt;">${esc(disc)}</h4>
+                    <table class="data-table" style="margin-top:6pt;">
+                      <thead><tr><th>Device Type</th><th style="text-align:right;width:1in;">Qty</th></tr></thead>
+                      <tbody>${items.map(i => `<tr>
+                        <td>${esc(String(i.device).replace(/_/g, ' '))}</td>
+                        <td style="text-align:right;font-family:${cc.fonts.mono};font-weight:700;">${typeof i.qty === 'number' ? i.qty : esc(String(i.qty))}</td>
+                      </tr>`).join('')}</tbody>
+                    </table>`;
+                }
+            } else {
+                deviceTableHtml = '<p class="body-copy" style="color:var(--gray);font-style:italic;">Device counts not available — analysis may still be in progress.</p>';
+            }
+
+            // Scope exclusions from Responsibility Matrix
+            const respMatrix = scopeExcl.responsibility_matrix || [];
+            const outOfScope = respMatrix.filter(r => !r.our_scope);
+            let scopeExclHtml = '';
+            if (outOfScope.length > 0) {
+                scopeExclHtml = `
+                <h4 style="margin-top:20pt;color:var(--navy);">Items Explicitly NOT in Our Scope</h4>
+                <p class="body-copy" style="font-size:9.5pt;color:var(--gray);margin-bottom:8pt;">Per the project Responsibility Matrix, the following are assigned to other trades:</p>
+                <table class="data-table" style="margin-top:4pt;">
+                  <thead><tr><th>Discipline</th><th>Responsible Party</th></tr></thead>
+                  <tbody>${outOfScope.map(r => `<tr>
+                    <td>${esc(r.discipline || 'Unknown')}</td>
+                    <td style="font-weight:600;color:#ef4444;">${esc(r.responsible_party || 'Other')}</td>
+                  </tr>`).join('')}</tbody>
+                </table>`;
+            }
+
+            // OFOI / Rough-In-Only items
+            let delineationHtml = '';
+            const critical = delineations.filter(d => d.severity === 'critical' || d.phrase_type === 'OFOI' || d.phrase_type === 'NIC' || d.phrase_type === 'rough_in_only');
+            if (critical.length > 0) {
+                delineationHtml = `
+                <h4 style="margin-top:20pt;color:var(--navy);">Scope Delineations from Documents</h4>
+                <ul style="margin:8pt 0 8pt 18pt;font-size:10pt;line-height:1.6;">
+                  ${critical.slice(0, 15).map(d => `<li style="margin:5pt 0;"><strong>${esc(d.phrase_type || 'NOTE')}:</strong> ${esc(d.affected_scope || d.exact_phrase || '')} — ${esc(d.contractor_responsibility || d.estimated_bom_correction || '')}</li>`).join('')}
+                </ul>`;
+            }
+
+            return `
+<div class="page">
+  <div class="page-header">
+    <div class="ph-brand">${esc(cc.legalName)}</div>
+    <div class="ph-ref">Section 07 · Scope of Work</div>
+  </div>
+  <div class="page-body">
+    <div class="section-eyebrow">Section 07</div>
+    <h2>Detailed Scope of Work</h2>
+    <div class="gold-rule"></div>
+    <p class="body-copy">${esc(cc.legalName)} shall furnish all labor, materials, equipment, tools, and supervision necessary to install the following low-voltage systems for <strong>${esc(ctx.projName)}</strong>. All quantities below are verified through our multi-read consensus engine and cross-referenced against equipment schedules where available.</p>
+
+    ${deviceTableHtml}
+    ${scopeExclHtml}
+    ${delineationHtml}
+  </div>
+  <div class="page-footer">
+    <span class="pf-company">${esc(cc.legalName)}</span>
+    <span>Section 07 · Detailed Scope of Work</span>
+  </div>
+</div>`;
+        },
+
+        // ── SECTION 08: Bill of Materials Detail ─────────────
+        _renderBomDetailPages(ctx) {
+            const cc = ctx.cc;
+            const cats = ctx.bomItems || [];
+            if (cats.length === 0) return '';
+
+            const ROWS_PER_PAGE = 28;
+            const pages = [];
+            let currentRows = [];
+            let pageIdx = 0;
+
+            const flushPage = (isLast) => {
+                if (currentRows.length === 0) return;
+                pageIdx++;
+                const pageNum = pageIdx === 1 ? '' : ` (continued, p${pageIdx})`;
+                pages.push(`
+<div class="page">
+  <div class="page-header">
+    <div class="ph-brand">${esc(cc.legalName)}</div>
+    <div class="ph-ref">Section 08 · Bill of Materials${esc(pageNum)}</div>
+  </div>
+  <div class="page-body" style="padding-bottom:0.4in;">
+    ${pageIdx === 1 ? `<div class="section-eyebrow">Section 08</div>
+    <h2>Bill of Materials</h2>
+    <div class="gold-rule"></div>
+    <p class="body-copy" style="margin-bottom:12pt;">Complete material takeoff with manufacturer, part number, and unit pricing. All quantities verified through multi-read consensus.</p>` : ''}
+    <table class="data-table" style="font-size:9pt;">
+      <thead><tr>
+        <th style="width:2.8in;">Item</th>
+        <th style="width:0.9in;">Mfg</th>
+        <th style="text-align:right;width:0.5in;">Qty</th>
+        <th style="text-align:right;width:0.5in;">Unit</th>
+        <th style="text-align:right;width:0.8in;">Unit Cost</th>
+        <th style="text-align:right;width:0.9in;">Ext Cost</th>
+      </tr></thead>
+      <tbody>
+        ${currentRows.join('')}
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer">
+    <span class="pf-company">${esc(cc.legalName)}</span>
+    <span>Section 08 · Bill of Materials</span>
+  </div>
+</div>`);
+                currentRows = [];
+            };
+
+            for (const cat of cats) {
+                const catName = cat.category || cat.name || 'Uncategorized';
+                const items = cat.items || [];
+                const subtotal = cat.subtotal || cat.total || items.reduce((s, i) => s + (parseFloat(i.ext_cost || i.extCost) || 0), 0);
+
+                // Category header row
+                currentRows.push(`<tr style="background:var(--light-gray);"><td colspan="6" style="font-weight:800;color:var(--navy);padding:6pt 4pt;font-size:10pt;">${esc(catName)}</td></tr>`);
+
+                for (const item of items) {
+                    if (currentRows.length >= ROWS_PER_PAGE) flushPage(false);
+                    const name = item.item || item.name || item.device_type || '';
+                    const mfg = item.mfg || item.manufacturer || '';
+                    const qty = item.qty || 0;
+                    const unit = item.unit || 'ea';
+                    const unitCost = parseFloat(item.unit_cost || item.unitCost) || 0;
+                    const extCost = parseFloat(item.ext_cost || item.extCost) || (qty * unitCost);
+                    currentRows.push(`<tr>
+                      <td style="font-size:8.5pt;">${esc(String(name).substring(0, 60))}</td>
+                      <td style="font-size:8pt;color:var(--gray);">${esc(String(mfg).substring(0, 20))}</td>
+                      <td style="text-align:right;font-family:${cc.fonts.mono};">${qty}</td>
+                      <td style="text-align:right;font-size:8pt;">${esc(unit)}</td>
+                      <td style="text-align:right;font-family:${cc.fonts.mono};">${fmtMoney(unitCost)}</td>
+                      <td style="text-align:right;font-family:${cc.fonts.mono};font-weight:700;">${fmtMoney(extCost)}</td>
+                    </tr>`);
+                }
+                // Subtotal row
+                currentRows.push(`<tr style="border-top:2px solid var(--navy);"><td colspan="5" style="text-align:right;font-weight:700;padding-right:8pt;font-size:9pt;">${esc(catName)} Subtotal</td><td style="text-align:right;font-family:${cc.fonts.mono};font-weight:800;color:var(--navy);">${fmtMoney(subtotal)}</td></tr>`);
+            }
+
+            // Grand total row
+            const grandTotal = cats.reduce((s, c) => {
+                const sub = c.subtotal || c.total || (c.items || []).reduce((ss, i) => ss + (parseFloat(i.ext_cost || i.extCost) || 0), 0);
+                return s + sub;
+            }, 0);
+            currentRows.push(`<tr style="border-top:3px double var(--gold);background:rgba(235,179,40,0.08);"><td colspan="5" style="text-align:right;font-weight:900;padding-right:8pt;font-size:10pt;color:var(--navy);">Material Grand Total</td><td style="text-align:right;font-family:${cc.fonts.mono};font-weight:900;font-size:11pt;color:var(--navy);">${fmtMoney(grandTotal)}</td></tr>`);
+
+            flushPage(true);
+            return pages.join('');
+        },
+
+        // ── SECTION 09: Infrastructure & Cabling ─────────────
+        _renderInfrastructurePage(ctx) {
+            const cc = ctx.cc;
+            const mdf = ctx.mdfIdf || {};
+            const cable = ctx.cablePathway || {};
+
+            // MDF/IDF rooms
+            const rooms = mdf.rooms || mdf.mdf_rooms || mdf.idf_rooms || [];
+            let roomsHtml = '';
+            if (Array.isArray(rooms) && rooms.length > 0) {
+                roomsHtml = `
+                <h4 style="margin-top:14pt;color:var(--navy);">MDF/IDF Telecommunications Rooms</h4>
+                <table class="data-table" style="margin-top:6pt;">
+                  <thead><tr><th>Room</th><th>Type</th><th>Equipment</th></tr></thead>
+                  <tbody>${rooms.slice(0, 20).map(r => `<tr>
+                    <td style="font-weight:600;">${esc(r.room_name || r.name || r.location || 'TR')}</td>
+                    <td>${esc(r.type || r.room_type || (r.is_mdf ? 'MDF' : 'IDF'))}</td>
+                    <td style="font-size:9pt;">${esc((r.equipment || r.items || []).slice(0, 5).map(e => typeof e === 'string' ? e : (e.name || e.item || '')).join(', ') || 'See BOM')}</td>
+                  </tr>`).join('')}</tbody>
+                </table>`;
+            } else if (mdf.total_rooms || mdf.mdf_count || mdf.idf_count) {
+                roomsHtml = `
+                <h4 style="margin-top:14pt;color:var(--navy);">MDF/IDF Telecommunications Rooms</h4>
+                <p class="body-copy">MDF Rooms: ${mdf.mdf_count || 1} · IDF Rooms: ${mdf.idf_count || 0} · Total: ${mdf.total_rooms || (mdf.mdf_count || 1) + (mdf.idf_count || 0)}</p>`;
+            }
+
+            // Cable pathway summary
+            let cableHtml = '';
+            const cableTypes = cable.cable_types || cable.cables || [];
+            const avgRun = cable.average_run_length || cable.avg_run_ft || null;
+            const totalFootage = cable.total_cable_footage || cable.total_ft || null;
+            if (Array.isArray(cableTypes) && cableTypes.length > 0) {
+                cableHtml = `
+                <h4 style="margin-top:18pt;color:var(--navy);">Cable Types & Quantities</h4>
+                <table class="data-table" style="margin-top:6pt;">
+                  <thead><tr><th>Cable Type</th><th style="text-align:right;">Qty / Footage</th><th>Pathway</th></tr></thead>
+                  <tbody>${cableTypes.slice(0, 15).map(c => `<tr>
+                    <td style="font-weight:600;">${esc(c.type || c.cable_type || c.name || '')}</td>
+                    <td style="text-align:right;font-family:${cc.fonts.mono};">${esc(String(c.total_footage || c.footage || c.qty || ''))}</td>
+                    <td style="font-size:9pt;color:var(--gray);">${esc(c.pathway || c.routing || '')}</td>
+                  </tr>`).join('')}</tbody>
+                </table>`;
+            }
+            if (avgRun || totalFootage) {
+                cableHtml += `<p class="body-copy" style="margin-top:8pt;font-size:9.5pt;color:var(--gray);">`;
+                if (avgRun) cableHtml += `Average cable run: ${avgRun} ft · `;
+                if (totalFootage) cableHtml += `Total estimated cable footage: ${Number(totalFootage).toLocaleString()} ft`;
+                cableHtml += `</p>`;
+            }
+
+            // Backbone / riser
+            const backbone = cable.backbone || cable.riser_cables || cable.fiber || [];
+            let backboneHtml = '';
+            if (Array.isArray(backbone) && backbone.length > 0) {
+                backboneHtml = `
+                <h4 style="margin-top:18pt;color:var(--navy);">Backbone & Riser Cables</h4>
+                <ul style="margin:8pt 0 8pt 18pt;font-size:10pt;line-height:1.6;">
+                  ${backbone.slice(0, 10).map(b => `<li style="margin:4pt 0;">${esc(typeof b === 'string' ? b : (b.type || b.cable_type || '') + (b.qty ? ': ' + b.qty : '') + (b.route ? ' (' + b.route + ')' : ''))}</li>`).join('')}
+                </ul>`;
+            }
+
+            return `
+<div class="page">
+  <div class="page-header">
+    <div class="ph-brand">${esc(cc.legalName)}</div>
+    <div class="ph-ref">Section 09 · Infrastructure & Cabling</div>
+  </div>
+  <div class="page-body">
+    <div class="section-eyebrow">Section 09</div>
+    <h2>Infrastructure & Cabling</h2>
+    <div class="gold-rule"></div>
+    <p class="body-copy">The following infrastructure scope covers all telecommunications rooms, horizontal and backbone cabling, pathways, and supporting hardware required for the systems described in Sections 07-08.</p>
+    ${roomsHtml}
+    ${cableHtml}
+    ${backboneHtml}
+    ${!roomsHtml && !cableHtml && !backboneHtml ? '<p class="body-copy" style="color:var(--gray);font-style:italic;">Detailed infrastructure data will be available after full plan analysis.</p>' : ''}
+  </div>
+  <div class="page-footer">
+    <span class="pf-company">${esc(cc.legalName)}</span>
+    <span>Section 09 · Infrastructure & Cabling</span>
+  </div>
+</div>`;
+        },
+
+        // ── SECTION 10: Labor & Installation ─────────────────
+        _renderLaborPage(ctx) {
+            const cc = ctx.cc;
+            const labor = ctx.laborData || {};
+            const fin = ctx.financialSummary || {};
+            const pw = ctx.prevailingWage || {};
+
+            // Labor phases
+            const phases = labor.phases || labor.labor_phases || [];
+            let phasesHtml = '';
+            if (Array.isArray(phases) && phases.length > 0) {
+                phasesHtml = `
+                <h4 style="margin-top:14pt;color:var(--navy);">Labor Hours by Phase</h4>
+                <table class="data-table" style="margin-top:6pt;">
+                  <thead><tr><th>Phase</th><th style="text-align:right;width:1in;">Hours</th><th style="text-align:right;width:1in;">Crew Size</th></tr></thead>
+                  <tbody>${phases.map(p => `<tr>
+                    <td style="font-weight:600;">${esc(p.phase || p.name || '')}</td>
+                    <td style="text-align:right;font-family:${cc.fonts.mono};">${esc(String(p.hours || p.labor_hours || ''))}</td>
+                    <td style="text-align:right;font-family:${cc.fonts.mono};">${esc(String(p.crew || p.crew_size || ''))}</td>
+                  </tr>`).join('')}</tbody>
+                </table>`;
+            }
+
+            // Total labor summary
+            const totalHours = labor.total_hours || labor.total_labor_hours || phases.reduce((s, p) => s + (parseFloat(p.hours || p.labor_hours) || 0), 0);
+            const totalLaborCost = parseFloat(labor.total_labor_cost || labor.labor_total) || 0;
+            let laborSummaryHtml = '';
+            if (totalHours > 0) {
+                laborSummaryHtml = `
+                <div style="margin-top:16pt;padding:16pt;background:var(--light-gray);border-left:4px solid var(--teal);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div><strong style="color:var(--navy);font-size:13pt;">Total Estimated Labor:</strong><br><span style="font-size:10pt;color:var(--gray);">${Math.round(totalHours).toLocaleString()} hours</span></div>
+                    ${totalLaborCost > 0 ? `<div style="text-align:right;"><strong style="color:var(--navy);font-family:${cc.fonts.mono};font-size:16pt;">${fmtMoney(totalLaborCost)}</strong><br><span style="font-size:9pt;color:var(--gray);">Fully burdened</span></div>` : ''}
+                  </div>
+                </div>`;
+            }
+
+            // Prevailing wage
+            let pwHtml = '';
+            if (pw.detected || pw.prevailing_wage_required || pw.agency) {
+                pwHtml = `
+                <h4 style="margin-top:20pt;color:var(--navy);">Prevailing Wage Compliance</h4>
+                <div style="padding:12pt;background:rgba(235,179,40,0.08);border:1px solid var(--gold);border-radius:6pt;margin-top:6pt;">
+                  <p class="body-copy" style="margin:0;font-size:10pt;">
+                    <strong style="color:var(--gold-dark);">Davis-Bacon / Prevailing Wage Required</strong><br>
+                    ${pw.agency ? `Agency: ${esc(pw.agency)}<br>` : ''}
+                    ${pw.wage_determination ? `Determination: ${esc(pw.wage_determination)}<br>` : ''}
+                    ${pw.classification ? `Classification: ${esc(pw.classification)}<br>` : ''}
+                    All labor rates in this proposal include prevailing wage rates, fringe benefits, and employer burden per the applicable wage determination.
+                  </p>
+                </div>`;
+            }
+
+            // Schedule of Values (Financial Engine SOV)
+            const sov = fin.schedule_of_values || fin.sov || fin.cost_breakdown || null;
+            let sovHtml = '';
+            if (sov && typeof sov === 'object') {
+                const sovEntries = Array.isArray(sov) ? sov : Object.entries(sov).map(([k, v]) => ({ category: k, amount: v }));
+                if (sovEntries.length > 0) {
+                    sovHtml = `
+                    <h4 style="margin-top:20pt;color:var(--navy);">Schedule of Values</h4>
+                    <table class="data-table" style="margin-top:6pt;">
+                      <thead><tr><th>Cost Category</th><th style="text-align:right;width:1.5in;">Amount</th></tr></thead>
+                      <tbody>${sovEntries.slice(0, 20).map(e => `<tr>
+                        <td style="font-weight:600;">${esc(e.category || e.name || e.line_item || '')}</td>
+                        <td style="text-align:right;font-family:${cc.fonts.mono};font-weight:700;">${fmtMoney(parseFloat(e.amount || e.value || e.cost) || 0)}</td>
+                      </tr>`).join('')}</tbody>
+                    </table>`;
+                }
+            }
+
+            return `
+<div class="page">
+  <div class="page-header">
+    <div class="ph-brand">${esc(cc.legalName)}</div>
+    <div class="ph-ref">Section 10 · Labor & Installation</div>
+  </div>
+  <div class="page-body">
+    <div class="section-eyebrow">Section 10</div>
+    <h2>Labor & Installation Plan</h2>
+    <div class="gold-rule"></div>
+    <p class="body-copy">All installation will be performed by ${esc(cc.legalName)}'s OSHA-30 certified, BICSI-trained technicians under the direct supervision of a dedicated project manager and field foreman.</p>
+    ${phasesHtml}
+    ${laborSummaryHtml}
+    ${pwHtml}
+    ${sovHtml}
+    ${!phasesHtml && !sovHtml ? '<p class="body-copy" style="color:var(--gray);font-style:italic;">Detailed labor breakdown will be available after full analysis.</p>' : ''}
+  </div>
+  <div class="page-footer">
+    <span class="pf-company">${esc(cc.legalName)}</span>
+    <span>Section 10 · Labor & Installation Plan</span>
+  </div>
+</div>`;
+        },
+
+        // ── SECTION 12: Clarifications & Risk Analysis ───────
+        _renderClarificationsRiskPage(ctx) {
+            const cc = ctx.cc;
+            const qs = ctx.clarificationQs || [];
+            const sc = ctx.specialConditions || {};
+            const da = ctx.devilsAdvocate || {};
+            const cv = ctx.crossValidator || {};
+            const code = ctx.codeCompliance || {};
+
+            // Open RFIs / Clarification Questions
+            const highSev = qs.filter(q => q.severity === 'high' || q.severity === 'critical');
+            let rfiHtml = '';
+            if (highSev.length > 0) {
+                rfiHtml = `
+                <h4 style="margin-top:14pt;color:var(--navy);">Pre-Bid Clarification Requests</h4>
+                <p class="body-copy" style="font-size:9.5pt;color:var(--gray);margin-bottom:6pt;">The following questions should be resolved prior to contract execution:</p>
+                <ol style="margin:6pt 0 12pt 18pt;font-size:10pt;line-height:1.7;">
+                  ${highSev.slice(0, 12).map(q => `<li style="margin:6pt 0;"><strong>${esc(q.question || q.text || '')}</strong>${q.context ? `<br><span style="font-size:9pt;color:var(--gray);">${esc(q.context)}</span>` : ''}</li>`).join('')}
+                </ol>`;
+            }
+
+            // Special Conditions
+            const permits = sc.permits || sc.permit_requirements || [];
+            const phasing = sc.phasing || sc.work_phasing || null;
+            const safety = sc.safety || sc.safety_requirements || [];
+            const subcontractors = sc.subcontractors || [];
+            let scHtml = '';
+            if (permits.length > 0 || phasing || safety.length > 0 || subcontractors.length > 0) {
+                scHtml = `<h4 style="margin-top:18pt;color:var(--navy);">Special Conditions & Site Requirements</h4><ul style="margin:8pt 0 8pt 18pt;font-size:10pt;line-height:1.7;">`;
+                for (const p of (Array.isArray(permits) ? permits : [permits]).slice(0, 6)) {
+                    scHtml += `<li style="margin:4pt 0;"><strong>Permit:</strong> ${esc(typeof p === 'string' ? p : (p.type || p.name || JSON.stringify(p)))}</li>`;
+                }
+                if (phasing) {
+                    scHtml += `<li style="margin:4pt 0;"><strong>Phasing:</strong> ${esc(typeof phasing === 'string' ? phasing : (phasing.description || JSON.stringify(phasing)))}</li>`;
+                }
+                for (const s of (Array.isArray(safety) ? safety : []).slice(0, 6)) {
+                    scHtml += `<li style="margin:4pt 0;"><strong>Safety:</strong> ${esc(typeof s === 'string' ? s : (s.requirement || s.description || JSON.stringify(s)))}</li>`;
+                }
+                for (const sub of (Array.isArray(subcontractors) ? subcontractors : []).slice(0, 4)) {
+                    scHtml += `<li style="margin:4pt 0;"><strong>Subcontractor:</strong> ${esc(typeof sub === 'string' ? sub : (sub.trade || sub.name || '') + ': ' + (sub.scope || sub.description || ''))}</li>`;
+                }
+                scHtml += '</ul>';
+            }
+
+            // Risk items from Devil's Advocate
+            const challenges = da.challenges || da.missed_items || da.issues || [];
+            const missedItems = da.missed_items || [];
+            let riskHtml = '';
+            if (Array.isArray(challenges) && challenges.length > 0) {
+                riskHtml = `
+                <h4 style="margin-top:18pt;color:var(--navy);">Potential Risk Items & Change Order Exposure</h4>
+                <p class="body-copy" style="font-size:9.5pt;color:var(--gray);margin-bottom:6pt;">Our adversarial analysis identified the following items that may require change orders or clarification:</p>
+                <table class="data-table" style="margin-top:6pt;font-size:9pt;">
+                  <thead><tr><th>Risk Item</th><th style="width:0.7in;">Severity</th><th style="text-align:right;width:1in;">Est. Impact</th></tr></thead>
+                  <tbody>${challenges.slice(0, 12).map(c => {
+                    const sev = c.severity || 'info';
+                    const sevColor = sev === 'critical' ? '#ef4444' : sev === 'high' ? '#f59e0b' : '#3b82f6';
+                    return `<tr>
+                      <td>${esc(c.description || c.issue || c.item || '')}</td>
+                      <td><span style="padding:2pt 8pt;border-radius:3pt;font-size:8pt;font-weight:700;color:white;background:${sevColor};text-transform:uppercase;">${esc(sev)}</span></td>
+                      <td style="text-align:right;font-family:${cc.fonts.mono};">${esc(c.estimated_impact || c.impact || '—')}</td>
+                    </tr>`;
+                  }).join('')}</tbody>
+                </table>`;
+            }
+
+            // Code Compliance
+            const codes = code.applicable_codes || code.codes || [];
+            let codeHtml = '';
+            if (Array.isArray(codes) && codes.length > 0) {
+                codeHtml = `
+                <h4 style="margin-top:18pt;color:var(--navy);">Applicable Codes & Standards</h4>
+                <ul style="margin:8pt 0 8pt 18pt;font-size:10pt;line-height:1.6;">
+                  ${codes.slice(0, 10).map(c => `<li style="margin:3pt 0;">${esc(typeof c === 'string' ? c : (c.code || c.standard || '') + (c.section ? ' §' + c.section : '') + (c.requirement ? ': ' + c.requirement : ''))}</li>`).join('')}
+                </ul>`;
+            }
+
+            return `
+<div class="page">
+  <div class="page-header">
+    <div class="ph-brand">${esc(cc.legalName)}</div>
+    <div class="ph-ref">Section 12 · Clarifications & Risk</div>
+  </div>
+  <div class="page-body">
+    <div class="section-eyebrow">Section 12</div>
+    <h2>Clarifications & Risk Analysis</h2>
+    <div class="gold-rule"></div>
+    <p class="body-copy">Transparency builds trust. The following items represent our proactive identification of areas that may affect project scope, schedule, or cost. We address them now rather than as change orders later.</p>
+    ${rfiHtml}
+    ${scHtml}
+    ${riskHtml}
+    ${codeHtml}
+    ${!rfiHtml && !scHtml && !riskHtml && !codeHtml ? '<p class="body-copy" style="color:var(--gray);font-style:italic;">No significant clarifications or risk items identified — scope is well-defined.</p>' : ''}
+  </div>
+  <div class="page-footer">
+    <span class="pf-company">${esc(cc.legalName)}</span>
+    <span>Section 12 · Clarifications & Risk Analysis</span>
   </div>
 </div>`;
         },
