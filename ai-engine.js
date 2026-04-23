@@ -55,6 +55,59 @@ const SmartBrains = {
     return h;
   },
 
+  // ─── Wave 9 (v5.128.6) — Claude availability probe ─────────────────────
+  // Lightweight GET that tells us whether ANTHROPIC_KEY is set as a
+  // Cloudflare secret. Cached on first call so we don't probe every brain.
+  _claudeAvailabilityCache: null,
+  async _checkClaudeAvailable() {
+    if (this._claudeAvailabilityCache !== null) return this._claudeAvailabilityCache;
+    try {
+      const res = await fetch('/api/ai/claude-invoke', { method: 'GET', headers: this._authHeaders() });
+      if (!res.ok) { this._claudeAvailabilityCache = false; return false; }
+      const data = await res.json();
+      this._claudeAvailabilityCache = !!data.configured;
+      return this._claudeAvailabilityCache;
+    } catch (_) {
+      this._claudeAvailabilityCache = false;
+      return false;
+    }
+  },
+
+  // ─── Wave 9 (v5.128.6) — Compare two provider outputs for a brain ──────
+  // Returns { agree: bool, diffPct: number, divergences: [{key, a, b, pctDiff}] }.
+  // Used by dual-provider cross-check: when Gemini + Claude both run the
+  // same brain, we compare their structured JSON outputs and escalate
+  // disagreements as HITL questions. Agreement = keys that exist in both
+  // have equal values (tolerance 10% for numerics).
+  _compareProviderOutputs(a, b, opts = {}) {
+    const tolerance = opts.tolerance ?? 0.10;
+    const divergences = [];
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object') {
+      return { agree: false, diffPct: 1.0, divergences: [{ key: '__root', reason: 'One or both outputs are non-objects' }] };
+    }
+    const walk = (pa, pb, path) => {
+      for (const k of Object.keys(pa || {})) {
+        const ak = pa[k], bk = pb?.[k];
+        const p = path ? `${path}.${k}` : k;
+        if (typeof ak === 'number' && typeof bk === 'number') {
+          const max = Math.max(Math.abs(ak), Math.abs(bk));
+          if (max > 0 && Math.abs(ak - bk) / max > tolerance) {
+            divergences.push({ key: p, a: ak, b: bk, pctDiff: Math.round((Math.abs(ak - bk) / max) * 1000) / 10 });
+          }
+        } else if (Array.isArray(ak) && Array.isArray(bk)) {
+          if (Math.abs(ak.length - bk.length) / Math.max(ak.length, bk.length, 1) > tolerance) {
+            divergences.push({ key: p, a: `${ak.length} items`, b: `${bk.length} items`, pctDiff: 100 });
+          }
+        } else if (ak && typeof ak === 'object' && bk && typeof bk === 'object') {
+          walk(ak, bk, p);
+        }
+      }
+    };
+    walk(a, b, '');
+    const diffPct = divergences.length === 0 ? 0 : Math.min(1, divergences.length / Math.max(Object.keys(a).length, 1));
+    return { agree: divergences.length === 0, diffPct, divergences };
+  },
+
   // ─── Wave 4.5 (v5.128.3) — Pro model-health pre-flight probe ──────────
   // Hits /api/ai/quota-check?model=<pro> and classifies the result:
   //   healthy  — all tested keys support Pro
@@ -249,6 +302,31 @@ const SmartBrains = {
     autoDetectNotesSheets: true,               // Wave 3: find general-notes pages inside plans
     deterministicCountTolerance: 0.10,         // Wave 4: >10% disagreement → deterministic wins
     deterministicCountingEnabled: true,        // Wave 4: master switch
+
+    // ═══════════════════════════════════════════════════════════
+    // Wave 9 — NEAR-PERFECT ACCURACY (v5.128.6)
+    // Multi-provider AI + deterministic labor hours + model pinning.
+    // Claude paths stay dormant if ANTHROPIC_KEY is not set (checked
+    // lazily via /api/ai/claude-invoke GET). Zero-downtime when
+    // Anthropic is not configured.
+    // ═══════════════════════════════════════════════════════════
+    enableClaudeFallback: true,                // use Claude when Pro model-health gate trips
+    enableClaudeCrossCheck: true,              // dual-provider on critical brains
+    claudeModel: 'claude-opus-4-7',            // explicit model — pinned
+    claudeCriticalBrains: [                    // brains that run on both providers and cross-check
+      'LEGEND_DECODER', 'MATERIAL_PRICER', 'CONSENSUS_ARBITRATOR', 'DEVILS_ADVOCATE',
+    ],
+    // ── Model version pinning ──
+    // Surface the exact model strings so a silent bump upstream is
+    // visible in logs + tests. A mismatch between these and actual
+    // responses raises state._modelVersionDrift flags.
+    pinnedModels: {
+      geminiFlash: 'gemini-2.5-flash',
+      geminiPro:   'gemini-3.1-pro-preview',
+      claudeOpus:  'claude-opus-4-7',
+    },
+    deterministicLaborHoursEnabled: true,      // Wave 9: labor hours from NECA+actuals, not AI
+    laborHoursDisagreementTolerance: 0.25,     // >25% diff → deterministic wins, flag
   },
 
   // FIX #20: Session-level model blacklist — skip models that consistently 400
@@ -9900,7 +9978,16 @@ ${legendContext}
       state._modelHealth = healthCheck;
       const draftMode = state._draftModeAcknowledged === true;
       if (healthCheck.severity === 'critical' || healthCheck.severity === 'block') {
-        if (!draftMode) {
+        // Wave 9 — Before blocking, check whether Claude is available as
+        // a second provider. If yes, flip the whole run onto Claude and
+        // continue at near-Pro accuracy. If no, keep the Wave 4.5 gate.
+        const claudeOk = this.config.enableClaudeFallback && await this._checkClaudeAvailable();
+        if (claudeOk) {
+          console.warn(`[SmartBrains] ⚠️ Gemini Pro degraded (${healthCheck.unavailablePct}% unavailable) — FAILING OVER to Claude for this bid`);
+          state._aiProviderOverride = 'anthropic';
+          state._claudeFailoverActive = true;
+          // Do NOT throw — let the run proceed on Claude
+        } else if (!draftMode) {
           const err = new Error(`ACCURACY_GATE: Pro model degraded (${healthCheck.unavailablePct}% unavailable). Refusing to run a final bid on Flash fallbacks — accept draft mode to continue or wait for Pro to recover.`);
           err.code = 'MODEL_HEALTH_GATE';
           err.health = healthCheck;
@@ -12033,6 +12120,31 @@ ${legendContext}
     const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], filteredEncodedFiles, state, context, progressCallback);
     context.wave2_25 = wave225Results;
     console.log('[SmartBrains] ═══ Wave 2.25 Complete — Labor calculated ═══');
+
+    // ═══ WAVE 9 (v5.128.6) — DETERMINISTIC LABOR-HOURS RECONCILIATION ═══
+    // Labor Calculator AI produces hours-per-device. Wave 9 overrides
+    // any device-level hour that deviates >25% from NECA standard (or
+    // historical actuals rolling avg when available). Ensures labor
+    // hours stay defensible + reproducible. Parallel construction to
+    // Wave 4 for counts and Wave 7 for material prices.
+    try {
+      if (this.config.deterministicLaborHoursEnabled && typeof SmartPlansPricing !== 'undefined'
+          && wave225Results?.LABOR_CALCULATOR) {
+        const laborStats = SmartPlansPricing.reconcileLaborHours(
+          wave225Results.LABOR_CALCULATOR,
+          { benchmarks: state._priorBenchmarks || [], tolerance: this.config.laborHoursDisagreementTolerance ?? 0.25 },
+        );
+        state._wave9LaborStats = laborStats;
+        context._wave9LaborStats = laborStats;
+        if (laborStats.overridden > 0) {
+          console.warn(`[SmartBrains] ⏱️  Wave 9 labor reconciliation — overrode ${laborStats.overridden}/${laborStats.total} device hours (${laborStats.agreed} already agreed). Most disagreement on: ${laborStats.disagreements.slice(0, 3).map(d => `${d.device} (AI ${d.ai}h → ${d.deterministic}h, ${d.diffPct}% off)`).join(', ')}`);
+        } else if (laborStats.total > 0) {
+          console.log(`[SmartBrains] ⏱️  Wave 9 labor reconciliation — all ${laborStats.total} device hours within ±${Math.round((this.config.laborHoursDisagreementTolerance ?? 0.25) * 100)}% of NECA/actuals ✓`);
+        }
+      }
+    } catch (w9LErr) {
+      console.warn('[SmartBrains] Wave 9 labor reconcile errored non-fatally:', w9LErr?.message || w9LErr);
+    }
 
     // ─── v5.125.1 PHASE 0.5: Davis-Bacon Enforcement Validator ───
     // The Labor Calculator AI brain is told in the prompt to multiply base
