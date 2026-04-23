@@ -54,7 +54,11 @@ const SmartPlansPricing = {
      * Returns 0..1.
      */
     _tokenOverlap(query, candidate) {
-        const q = this._normalize(query).split(/\s+/).filter(w => w.length > 2);
+        // Wave 10 H5 (v5.128.7): filter >= 2 (was > 2). Two-char SKUs like
+        // "WAP", "NVR", "PLC", "AP" are extremely common in ELV estimating
+        // and were being rejected as having zero tokens, never matching
+        // live distributor prices even on exact part matches.
+        const q = this._normalize(query).split(/\s+/).filter(w => w.length >= 2);
         const c = this._normalize(candidate);
         if (q.length === 0) return 0;
         let hits = 0;
@@ -307,12 +311,16 @@ const SmartPlansPricing = {
         };
 
         walk(materialPricerResult.categories || materialPricerResult.material_categories);
-        // Recalculate overall total if present
-        if (materialPricerResult.grand_total !== undefined || materialPricerResult.total !== undefined) {
+        // Wave 10 H10: handle every plausible key the brain might use for the
+        // grand total. Pre-fix, a brain that named the field 'overall_total'
+        // or 'material_total' had its top-level sum stay stale even though
+        // line items were correctly re-priced + category subtotals updated.
+        const gtKeys = ['grand_total', 'total', 'overall_total', 'material_total', 'bom_total'];
+        const presentKeys = gtKeys.filter(k => materialPricerResult[k] !== undefined);
+        if (presentKeys.length > 0) {
             const cats = materialPricerResult.categories || materialPricerResult.material_categories || [];
             const total = cats.reduce((s, c) => s + (Number(c.subtotal) || 0), 0);
-            if (materialPricerResult.grand_total !== undefined) materialPricerResult.grand_total = total;
-            if (materialPricerResult.total !== undefined) materialPricerResult.total = total;
+            for (const k of presentKeys) materialPricerResult[k] = total;
         }
         return stats;
     },
@@ -396,12 +404,27 @@ const SmartPlansPricing = {
      */
     resolveLaborHours(deviceKey, opts = {}) {
         const { aiHours = null, benchmarks = null } = opts;
-        // 1. Actuals-based benchmark (cost_benchmarks row has avg_labor_hours)
-        if (benchmarks && Array.isArray(benchmarks)) {
-            const hit = benchmarks.find(b =>
-                this._normalize(b.item_name || '').includes(this._normalize(deviceKey).replace(/_/g, ' '))
+        // 1. Actuals-based benchmark (cost_benchmarks row has avg_labor_hours).
+        // Wave 10 M7 (v5.128.7): substring-only matching missed benchmarks with
+        // domain terminology ("Credential Access Module" vs "card_reader").
+        // Now tries substring first, falls back to token overlap >= 0.60.
+        if (benchmarks && Array.isArray(benchmarks) && benchmarks.length > 0) {
+            const deviceTokens = this._normalize(deviceKey).replace(/_/g, ' ');
+            // First pass: direct substring (fastest, handles "card reader" vs "Card Reader")
+            let hit = benchmarks.find(b =>
+                this._normalize(b.item_name || '').includes(deviceTokens)
                 && Number(b.sample_count) >= 5
                 && Number(b.avg_labor_hours) > 0);
+            // Fallback: token-overlap fuzzy match (0.60 threshold, matches other pricing logic)
+            if (!hit) {
+                let best = null; let bestScore = 0;
+                for (const b of benchmarks) {
+                    if (!b || Number(b.sample_count) < 5 || !(Number(b.avg_labor_hours) > 0)) continue;
+                    const score = this._tokenOverlap(deviceTokens, b.item_name || '');
+                    if (score > bestScore && score >= 0.60) { bestScore = score; best = b; }
+                }
+                hit = best;
+            }
             if (hit) {
                 return {
                     hoursPerUnit: Number(hit.avg_labor_hours),
@@ -435,7 +458,24 @@ const SmartPlansPricing = {
         const stats = { total: 0, overridden: 0, agreed: 0, disagreements: [] };
         if (!laborResult || typeof laborResult !== 'object') return stats;
         const { benchmarks = null, tolerance = 0.25 } = opts;
-        const phases = laborResult.phases || laborResult.breakdown || [];
+        // Wave 10 M8 (v5.128.7): handle every plausible LABOR_CALCULATOR
+        // output shape. Pre-fix, a brain that returned flat line_items[]
+        // directly (no phases wrapper) silently got zero reconciliation.
+        let phases;
+        if (Array.isArray(laborResult)) {
+            // Top-level is already a flat array of line items — wrap in one synthetic phase
+            phases = [{ items: laborResult }];
+        } else if (Array.isArray(laborResult.phases)) {
+            phases = laborResult.phases;
+        } else if (Array.isArray(laborResult.breakdown)) {
+            phases = laborResult.breakdown;
+        } else if (Array.isArray(laborResult.line_items)) {
+            phases = [{ items: laborResult.line_items }];
+        } else if (Array.isArray(laborResult.items)) {
+            phases = [{ items: laborResult.items }];
+        } else {
+            return stats;
+        }
         if (!Array.isArray(phases)) return stats;
         for (const phase of phases) {
             const items = phase.items || phase.line_items || [];
