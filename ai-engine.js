@@ -11394,6 +11394,67 @@ ${legendContext}
     const wave2Results = await this._runWave(2, ['MATERIAL_PRICER'], filteredEncodedFiles, state, context, progressCallback);
     context.wave2 = wave2Results;
 
+    // ═══ WAVE 7 (v5.128.4) — POST-PROCESS MATERIAL PRICER WITH LIVE PRICES ═══
+    // The AI Material Pricer generated prices from its prompt context. Those
+    // prices are approximate and age quickly. Walk every line item and try
+    // to upgrade it to a live distributor quote or company rate-library
+    // entry. When nothing better exists, the AI price stays. Every item
+    // gets a _priceSource stamp so the Master Report / UI can show
+    // provenance.
+    try {
+      if (typeof SmartPlansPricing !== 'undefined' && wave2Results?.MATERIAL_PRICER) {
+        // Prime live-price caches (distributor + rate library) once
+        await SmartPlansPricing.primeCaches(this._authHeaders());
+        const tier = state.pricingTier || state.pricingConfig?.tier || 'mid';
+        const regionKey = state.regionalMultiplier || 'national_average';
+        // Gather any user BOM overrides that were already applied
+        const userOverrides = {};
+        if (state.bomOverrides && typeof state.bomOverrides === 'object') {
+          for (const [name, ov] of Object.entries(state.bomOverrides)) {
+            if (ov && Number.isFinite(Number(ov.unit_cost))) userOverrides[name] = Number(ov.unit_cost);
+          }
+        }
+        const priceStats = SmartPlansPricing.rePriceMaterialPricerOutput(
+          wave2Results.MATERIAL_PRICER,
+          { tier, regionKey, userOverrides },
+        );
+        state._livePricingStats = priceStats;
+        context._livePricingStats = priceStats;
+        const live = (priceStats.distributor || 0) + (priceStats.rate_library || 0) + (priceStats.user_override || 0);
+        console.log(`[SmartBrains] 💵 Wave 7 — Re-priced ${priceStats.total} item(s): ${live} from live sources (${priceStats.distributor} distributor, ${priceStats.rate_library} rate library, ${priceStats.user_override} user), ${priceStats.static_db} static DB, ${priceStats.ai_fallback} AI fallback. BOM delta: $${Math.round(priceStats.deltaTotal).toLocaleString()}`);
+      }
+    } catch (w7Err) {
+      console.warn('[SmartBrains] Wave 7 live-pricing post-process errored non-fatally:', w7Err?.message || w7Err);
+    }
+
+    // ═══ WAVE 7 (v5.128.4) — RESOLVE PREVAILING WAGE FROM STATE/COUNTY ═══
+    // The estimator's state/county selection (Step 0) now drives the wage
+    // table selection. California → CA_PREVAILING_WAGES county lookup.
+    // Other states → NATIONAL_PREVAILING_WAGES metro zone lookup. If the
+    // AI Labor Calculator uses prevailing-wage labor, this becomes the
+    // source of truth instead of the old CA-only assumption.
+    try {
+      if (typeof SmartPlansPricing !== 'undefined' && (state.projectState || state.projectCounty)) {
+        const wageType = state.prevailingWage === 'davis-bacon' ? 'davis-bacon'
+                         : state.prevailingWage === 'pla' ? 'pla'
+                         : 'dir';
+        const wageResolution = SmartPlansPricing.resolveWageRates({
+          state: state.projectState || '',
+          county: state.projectCounty || '',
+          wageType,
+        });
+        if (wageResolution) {
+          state._resolvedWageRates = wageResolution;
+          context._resolvedWageRates = wageResolution;
+          console.log(`[SmartBrains] 👷 Wave 7 — Prevailing wage resolved: ${wageResolution.zoneLabel} via ${wageResolution.source}, blended $${wageResolution.blended.toFixed(2)}/hr`);
+        } else if (state.prevailingWage && state.prevailingWage !== 'No' && state.prevailingWage !== '') {
+          console.warn(`[SmartBrains] ⚠️ Wave 7 — Prevailing wage requested but no rate table found for state=${state.projectState}, county=${state.projectCounty}. Labor Calculator will use generic rates.`);
+        }
+      }
+    } catch (wwErr) {
+      console.warn('[SmartBrains] Wave 7 wage resolution errored non-fatally:', wwErr?.message || wwErr);
+    }
+
     // ── Post-Pricer Discipline Coverage Check (scope-aware) ──
     // Verify Material Pricer didn't silently drop IN-SCOPE disciplines
     // Disciplines excluded by the Responsibility Matrix are EXPECTED to be missing

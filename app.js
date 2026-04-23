@@ -957,6 +957,11 @@ const state = {
   _pwCounty: "",              // CA prevailing wage county selection
   _pwState: "",               // National prevailing wage state selection
   _pwMetro: "",               // National prevailing wage metro area selection
+  // Wave 7 (v5.128.4): Explicit state/county for wage-table selection.
+  // Feeds SmartPlansPricing.resolveWageRates during analysis so non-CA
+  // projects stop silently using generic rates.
+  projectState: "",           // 2-letter state abbreviation, e.g. 'CA', 'TX'
+  projectCounty: "",          // CA only — county name from CA_PREVAILING_WAGES.countyMap
   workShift: "",
   priorEstimate: "",
   salesperson: null,          // { firstName, lastName, title, phone, email, office } — selected salesperson
@@ -4181,6 +4186,73 @@ function scrollContentTop() {
 
 
 // ═══════════════════════════════════════════════════════════════
+// WAVE 7 (v5.128.4) — State/County picker render helpers
+//
+// Driven by prevailing-wages-ca.js (CA_PREVAILING_WAGES) and
+// prevailing-wages-national.js (NATIONAL_PREVAILING_WAGES) which are
+// now loaded in index.html. These helpers are pure string builders —
+// they read globals but don't mutate state.
+// ═══════════════════════════════════════════════════════════════
+function _renderStateOptions(selected) {
+  // Always list CA first because county-level rates only exist for CA.
+  // Then every state the national table has metro zones for.
+  const STATE_NAMES = { AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia' };
+  const nationalStates = (typeof NATIONAL_PREVAILING_WAGES !== 'undefined') ? NATIONAL_PREVAILING_WAGES.getStates() : [];
+  // De-dupe + order: CA first, then everything else alphabetical
+  const seen = new Set(['CA']);
+  const ordered = ['CA'];
+  for (const st of nationalStates) { if (!seen.has(st)) { seen.add(st); ordered.push(st); } }
+  return ordered.map(st => {
+    const label = STATE_NAMES[st] || st;
+    const sel = (st === selected) ? ' selected' : '';
+    return `<option value="${esc(st)}"${sel}>${esc(st)} — ${esc(label)}</option>`;
+  }).join('');
+}
+
+function _renderCountyOptions(selectedState, selectedCounty) {
+  if (selectedState !== 'CA') {
+    return `<option value="">— Not applicable —</option>`;
+  }
+  if (typeof CA_PREVAILING_WAGES === 'undefined') {
+    return `<option value="">— Wage table not loaded —</option>`;
+  }
+  const counties = CA_PREVAILING_WAGES.getCounties();
+  const opts = [`<option value="">— Select a county —</option>`];
+  for (const c of counties) {
+    const sel = (c === selectedCounty) ? ' selected' : '';
+    opts.push(`<option value="${esc(c)}"${sel}>${esc(c)}</option>`);
+  }
+  return opts.join('');
+}
+
+function _renderWageZonePreview(st) {
+  const stateU = (st.projectState || '').toUpperCase();
+  if (!stateU) return 'No state selected — labor will use generic non-prevailing-wage rates.';
+  // CA + county → show zone label + blended rate
+  if (stateU === 'CA' && typeof CA_PREVAILING_WAGES !== 'undefined' && st.projectCounty) {
+    const zoneLabel = CA_PREVAILING_WAGES.getZoneLabel(st.projectCounty);
+    const blended = CA_PREVAILING_WAGES.getBlendedRate(st.projectCounty, 'davis-bacon');
+    if (blended) {
+      return `✅ Zone: <strong>${esc(zoneLabel)}</strong> · Blended Davis-Bacon rate: <strong>$${blended.blended.toFixed(2)}/hr</strong>`;
+    }
+  }
+  if (stateU === 'CA' && !st.projectCounty) {
+    return '⚠️ California selected — pick a county to lock the rate zone.';
+  }
+  if (typeof NATIONAL_PREVAILING_WAGES !== 'undefined') {
+    const metros = NATIONAL_PREVAILING_WAGES.getMetrosForState(stateU);
+    if (metros.length > 0) {
+      const zone = metros[0];
+      const blended = NATIONAL_PREVAILING_WAGES.getBlendedRate(zone.key);
+      if (blended) {
+        return `✅ Metro zone: <strong>${esc(zone.label)}</strong> · Blended Davis-Bacon rate: <strong>$${blended.blended.toFixed(2)}/hr</strong>${metros.length > 1 ? ` <span style="opacity:0.7;">(${metros.length - 1} other metro zones in ${esc(stateU)} — using first match)</span>` : ''}`;
+      }
+    }
+  }
+  return `⚠️ No prevailing-wage rates found for <strong>${esc(stateU)}</strong> — labor will use generic rates.`;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // STEP RENDERERS
 // ═══════════════════════════════════════════════════════════════
 
@@ -4344,6 +4416,32 @@ function renderStep0(container) {
       <label class="form-label" for="project-location">Project Location</label>
       <p class="form-hint">City and state of the project site. Used by the AI for regional context (prevailing wage area, material availability, climate). Travel and per diem are configured separately in <strong>Stage 7</strong> after the AI analysis — they are not calculated automatically from this field.</p>
       <input class="form-input accuracy-critical" type="text" id="project-location" value="${esc(state.projectLocation)}" placeholder="e.g., Austin, TX or Miami, FL">
+    </div>
+
+    <!-- Wave 7 (v5.128.4): State/County picker drives prevailing-wage selection.
+         Without this, non-CA projects were silently using generic rates — a 20–30%
+         labor error. When a state is CA, a county dropdown appears for county-level
+         granularity. Other states fall through to the metro-zone national table. -->
+    <div class="form-group">
+      <label class="form-label">Prevailing-Wage Jurisdiction</label>
+      <p class="form-hint">Locks the labor rate table to the right state/county. Selecting <strong>California</strong> then a county uses CA DIR + Davis-Bacon rates for that IBEW zone. Other states use the national metro-zone table. Leave blank if prevailing wage doesn't apply.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+        <div>
+          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">State</label>
+          <select class="form-input accuracy-critical" id="project-state">
+            <option value="">— Not specified —</option>
+            ${_renderStateOptions(state.projectState)}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">County <span style="color:var(--text-muted);font-weight:400;">(CA only)</span></label>
+          <select class="form-input accuracy-critical" id="project-county">
+            <option value="">— Select state first —</option>
+            ${_renderCountyOptions(state.projectState, state.projectCounty)}
+          </select>
+        </div>
+      </div>
+      <div id="wage-zone-preview" style="margin-top:8px;font-size:11px;color:var(--text-muted);">${_renderWageZonePreview(state)}</div>
     </div>
 
     <div class="form-group">
@@ -4878,6 +4976,34 @@ function renderStep0(container) {
     // Smart Defaults: auto-detect regional multiplier + PW state from location
     if (SmartDefaults.onLocationChanged()) renderStep0(container);
   });
+
+  // Wave 7 (v5.128.4) — state/county pickers drive prevailing-wage resolution.
+  // CA selection reveals the county dropdown; other states clear the county
+  // field and fall through to the national metro-zone table at analysis time.
+  const stateSelect = document.getElementById("project-state");
+  if (stateSelect) {
+    stateSelect.value = state.projectState || '';
+    stateSelect.addEventListener("change", () => {
+      state.projectState = stateSelect.value;
+      // Reset county when switching states — the county list is CA-specific
+      if (state.projectState !== 'CA') state.projectCounty = '';
+      _refreshWageZonePreview();
+      // Re-render only the wage section to refresh the county dropdown
+      const countySel = document.getElementById("project-county");
+      if (countySel) countySel.innerHTML = _renderCountyOptions(state.projectState, state.projectCounty);
+    });
+  }
+  const countySelect = document.getElementById("project-county");
+  if (countySelect) {
+    countySelect.addEventListener("change", () => {
+      state.projectCounty = countySelect.value;
+      _refreshWageZonePreview();
+    });
+  }
+  function _refreshWageZonePreview() {
+    const el = document.getElementById("wage-zone-preview");
+    if (el) el.innerHTML = _renderWageZonePreview(state);
+  }
 
   const sheetSizeSelect = document.getElementById("plan-sheet-size");
   if (sheetSizeSelect) {
