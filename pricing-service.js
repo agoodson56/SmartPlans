@@ -317,6 +317,190 @@ const SmartPlansPricing = {
         return stats;
     },
 
+    // ═══════════════════════════════════════════════════════════
+    // WAVE 9 (v5.128.6) — DETERMINISTIC LABOR HOURS
+    //
+    // NECA-standard install labor hours per device, by discipline.
+    // The LLM Labor Calculator historically did this math itself and
+    // drifted ~1-2% per bid. Wave 9 shifts labor hours into the same
+    // deterministic model Wave 4 applied to counts:
+    //
+    //   1. If project_actuals has enough samples (n >= 5) for this
+    //      device type, use the historical rolling average (ground truth).
+    //   2. Else fall back to the NECA standard in the table below.
+    //   3. Else trust the AI's number and stamp _laborHoursSource=ai.
+    //
+    // Every hour written back to the BOM carries a _laborHoursSource
+    // tag so the estimator can audit provenance.
+    // ═══════════════════════════════════════════════════════════
+
+    // Keyed by the classifier's `device` tag (same taxonomy as the vector
+    // extractor's DEVICE_PREFIX_MAP in ai-engine.js). Hours are install +
+    // terminate + test. Foreman/PM coordination lives in Labor Calculator's
+    // percentage overhead, not here.
+    NECA_LABOR_HOURS: {
+        // CCTV
+        'camera':              { install: 1.8, terminate: 0.8, test: 0.4 }, // 3.0 hrs baseline IP fixed dome
+        'fixed_dome':          { install: 1.8, terminate: 0.8, test: 0.4 },
+        'ptz_camera':          { install: 2.5, terminate: 1.0, test: 0.6 },
+        'nvr':                 { install: 3.0, terminate: 2.0, test: 2.0 },
+        // Access Control
+        'card_reader':         { install: 1.2, terminate: 0.6, test: 0.3 }, // 2.1 hrs baseline
+        'electric_strike':     { install: 0.8, terminate: 0.4, test: 0.3 },
+        'maglock':             { install: 1.0, terminate: 0.5, test: 0.3 },
+        'electric_lock':       { install: 1.0, terminate: 0.5, test: 0.3 },
+        'door_position_switch':{ install: 0.4, terminate: 0.2, test: 0.1 },
+        'request_to_exit':     { install: 0.6, terminate: 0.3, test: 0.2 },
+        'intercom':            { install: 1.5, terminate: 0.8, test: 0.4 },
+        // Structured Cabling
+        'data_outlet':         { install: 0.4, terminate: 0.3, test: 0.15 }, // 0.85 hrs per drop
+        'voice_outlet':        { install: 0.4, terminate: 0.3, test: 0.15 },
+        'wireless_ap':         { install: 1.3, terminate: 0.5, test: 0.4 },
+        // Fire Alarm
+        'smoke_detector':      { install: 0.8, terminate: 0.3, test: 0.2 },
+        'heat_detector':       { install: 0.8, terminate: 0.3, test: 0.2 },
+        'duct_detector':       { install: 1.2, terminate: 0.4, test: 0.3 },
+        'pull_station':        { install: 0.6, terminate: 0.3, test: 0.1 },
+        'horn_strobe':         { install: 0.7, terminate: 0.3, test: 0.3 },
+        'strobe':              { install: 0.6, terminate: 0.25, test: 0.25 },
+        'facp':                { install: 6.0, terminate: 4.0, test: 4.0 },
+        // Audio Visual
+        'speaker':             { install: 0.8, terminate: 0.4, test: 0.2 },
+        'dsp':                 { install: 2.5, terminate: 1.5, test: 1.5 },
+        // Nurse Call
+        'nurse_call_station':  { install: 1.0, terminate: 0.5, test: 0.3 },
+        'master_station':      { install: 3.0, terminate: 1.5, test: 1.5 },
+        // Intrusion
+        'motion_detector':     { install: 0.7, terminate: 0.3, test: 0.2 },
+        'glass_break':         { install: 0.5, terminate: 0.25, test: 0.15 },
+    },
+
+    /**
+     * Sum of install + terminate + test hours for a device. Returns
+     * 0 for unknown device types (never NaN).
+     */
+    necaStandardHours(deviceKey) {
+        const row = this.NECA_LABOR_HOURS[deviceKey];
+        if (!row) return 0;
+        return Math.round(((row.install || 0) + (row.terminate || 0) + (row.test || 0)) * 100) / 100;
+    },
+
+    /**
+     * Resolve the authoritative labor-hours-per-unit for a device.
+     * Order of preference:
+     *   1. Rolling actuals average if n >= 5 samples (ground truth)
+     *   2. NECA standard table
+     *   3. AI fallback from the opts.aiHours parameter
+     *
+     * Returns { hoursPerUnit, source, confidence, sampleCount? }.
+     */
+    resolveLaborHours(deviceKey, opts = {}) {
+        const { aiHours = null, benchmarks = null } = opts;
+        // 1. Actuals-based benchmark (cost_benchmarks row has avg_labor_hours)
+        if (benchmarks && Array.isArray(benchmarks)) {
+            const hit = benchmarks.find(b =>
+                this._normalize(b.item_name || '').includes(this._normalize(deviceKey).replace(/_/g, ' '))
+                && Number(b.sample_count) >= 5
+                && Number(b.avg_labor_hours) > 0);
+            if (hit) {
+                return {
+                    hoursPerUnit: Number(hit.avg_labor_hours),
+                    source: 'actuals_rolling_avg',
+                    confidence: Math.min(1, Number(hit.sample_count) / 20),
+                    sampleCount: Number(hit.sample_count),
+                };
+            }
+        }
+        // 2. NECA standard
+        const neca = this.necaStandardHours(deviceKey);
+        if (neca > 0) {
+            return { hoursPerUnit: neca, source: 'neca_standard', confidence: 0.85 };
+        }
+        // 3. AI fallback
+        if (Number.isFinite(Number(aiHours)) && Number(aiHours) > 0) {
+            return { hoursPerUnit: Number(aiHours), source: 'ai_fallback', confidence: 0.40 };
+        }
+        return { hoursPerUnit: 0, source: 'unresolved', confidence: 0 };
+    },
+
+    /**
+     * Post-process LABOR_CALCULATOR brain output. For each line/phase
+     * that carries a device identifier, compute the deterministic hour
+     * figure and compare against the AI number. If the absolute delta
+     * exceeds `tolerance`, override with deterministic + flag.
+     *
+     * Returns stats { total, overridden, agreed, disagreements: [...] }.
+     */
+    reconcileLaborHours(laborResult, opts = {}) {
+        const stats = { total: 0, overridden: 0, agreed: 0, disagreements: [] };
+        if (!laborResult || typeof laborResult !== 'object') return stats;
+        const { benchmarks = null, tolerance = 0.25 } = opts;
+        const phases = laborResult.phases || laborResult.breakdown || [];
+        if (!Array.isArray(phases)) return stats;
+        for (const phase of phases) {
+            const items = phase.items || phase.line_items || [];
+            if (!Array.isArray(items)) continue;
+            for (const item of items) {
+                if (!item || typeof item !== 'object') continue;
+                stats.total++;
+                const deviceKey = item.device_key || item.device || this._guessDeviceKey(item.item || item.name || '');
+                if (!deviceKey) continue;
+                const aiHours = Number(item.hours_per_unit || item.hoursPerUnit || item.hours || 0);
+                const resolution = this.resolveLaborHours(deviceKey, { aiHours, benchmarks });
+                if (resolution.source === 'ai_fallback' || resolution.source === 'unresolved') continue;
+                const det = resolution.hoursPerUnit;
+                if (aiHours > 0 && det > 0) {
+                    const diff = Math.abs(aiHours - det) / Math.max(aiHours, det);
+                    if (diff > tolerance) {
+                        stats.overridden++;
+                        stats.disagreements.push({ device: deviceKey, ai: aiHours, deterministic: det, source: resolution.source, diffPct: Math.round(diff * 1000) / 10 });
+                        item.hours_per_unit = det;
+                        item.hoursPerUnit = det;
+                        // Recompute total hours for the item if qty is present
+                        const qty = Number(item.qty || item.quantity || 0);
+                        if (qty > 0) {
+                            const newTotal = Math.round(det * qty * 100) / 100;
+                            item.total_hours = newTotal;
+                            item.totalHours = newTotal;
+                        }
+                    } else {
+                        stats.agreed++;
+                    }
+                }
+                item._laborHoursSource = resolution.source;
+                item._laborHoursConfidence = resolution.confidence;
+                if (resolution.sampleCount) item._laborHoursSampleCount = resolution.sampleCount;
+            }
+        }
+        return stats;
+    },
+
+    // Best-effort guess of a device_key from a free-form item name.
+    _guessDeviceKey(name) {
+        const n = this._normalize(name);
+        if (!n) return null;
+        if (/\b(camera|dome|bullet|ptz|fisheye|panoram|turret)\b/i.test(n)) return 'camera';
+        if (/\bnvr\b|network.?video.?recorder/i.test(n)) return 'nvr';
+        if (/\bcard.?reader\b|\breader\b/i.test(n)) return 'card_reader';
+        if (/electric.?strike/i.test(n)) return 'electric_strike';
+        if (/maglock|magnetic.?lock/i.test(n)) return 'maglock';
+        if (/smoke.?detector/i.test(n)) return 'smoke_detector';
+        if (/heat.?detector/i.test(n)) return 'heat_detector';
+        if (/duct.?(smoke.?)?detector/i.test(n)) return 'duct_detector';
+        if (/pull.?station/i.test(n)) return 'pull_station';
+        if (/horn.?strobe|strobe.?horn/i.test(n)) return 'horn_strobe';
+        if (/\bstrobe\b/i.test(n)) return 'strobe';
+        if (/\bfacp\b|fire.?alarm.?control/i.test(n)) return 'facp';
+        if (/\bwap\b|wireless.?access.?point/i.test(n)) return 'wireless_ap';
+        if (/data.?outlet|rj.?45.?outlet|cat.?6/i.test(n)) return 'data_outlet';
+        if (/voice.?outlet/i.test(n)) return 'voice_outlet';
+        if (/motion.?detect/i.test(n)) return 'motion_detector';
+        if (/glass.?break/i.test(n)) return 'glass_break';
+        if (/nurse.?call/i.test(n)) return 'nurse_call_station';
+        if (/\bspeaker\b/i.test(n)) return 'speaker';
+        return null;
+    },
+
     /**
      * Select the correct prevailing-wage rate table based on
      * project location (state/county). Wave 7 adds the wiring so

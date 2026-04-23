@@ -55,6 +55,7 @@ jobs:
             tests/human-in-the-loop.test.js \
             tests/accuracy-floor.test.js \
             tests/live-pricing-wages.test.js \
-            tests/learning-loop.test.js
+            tests/learning-loop.test.js \
+            tests/near-perfect.test.js
         env:
           CI: true
