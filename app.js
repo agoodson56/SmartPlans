@@ -9437,7 +9437,7 @@ function renderStep7(container) {
           <span class="proposal-gen-btn__icon"><i data-lucide="file-check" style="width:24px;height:24px;"></i></span>
           <div>
             <div class="proposal-gen-btn__title">Generate Full Proposal (10+ pages)</div>
-            <div class="proposal-gen-btn__sub">Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications</div>
+            <div class="proposal-gen-btn__sub">Complete proposal with detailed scope, pricing tables, and qualifications</div>
           </div>
           <span class="proposal-gen-btn__arrow">→</span>
         </div>
@@ -9475,18 +9475,6 @@ function renderStep7(container) {
     <p class="step-subheading">Your AI-powered estimate is ready. Check the <strong style="color:#237078;">Bid Readiness Score</strong> below to see how much manual review it needs.</p>
 
     ${buildBidReadinessCard(state)}
-
-    <!-- v5.125.0 Auto-Proposal One-Click Button -->
-    <div id="auto-proposal-cta" style="margin:18px 0 22px 0;padding:24px 28px;background:linear-gradient(135deg,#0F2942 0%,#237078 55%,#2B828B 100%);border-radius:14px;border-left:5px solid #EBB328;box-shadow:0 8px 32px rgba(15,41,66,0.25);display:flex;align-items:center;gap:22px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:260px;">
-        <div style="font-size:10px;color:#EBB328;font-weight:800;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">SmartPlans · Auto-Proposal</div>
-        <div style="font-size:20px;color:#ffffff;font-weight:800;line-height:1.3;margin-bottom:4px;">One-Click Complete Bid Package</div>
-        <div style="font-size:12.5px;color:rgba(255,255,255,0.78);line-height:1.55;">Generates a send-ready Fortune 500 proposal using 5 AI brains: project understanding, technical approach, cover letter, executive summary, and compliance matrix. Pulls credentials from <a href="https://www.3dtsi.com" target="_blank" style="color:#EBB328;font-weight:700;text-decoration:none;">3dtsi.com</a> automatically. <a href="#" data-action="open-company-profile" style="color:#EBB328;font-weight:700;text-decoration:none;">Edit Company Profile →</a></div>
-      </div>
-      <button data-action="generate-complete-bid-package" style="padding:16px 28px;border:none;border-radius:10px;background:linear-gradient(135deg,#EBB328,#C99518);color:#0F2942;font-weight:900;font-size:14px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;box-shadow:0 8px 24px rgba(235,179,40,0.4);white-space:nowrap;transition:transform 0.15s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-        ⚡ Generate Complete Bid Package
-      </button>
-    </div>
 
     <div class="results-hero">
       <div class="results-top">
@@ -10666,6 +10654,9 @@ function renderStep7(container) {
   const proposalBtn = document.getElementById("btn-generate-proposal");
   if (proposalBtn) {
     proposalBtn.addEventListener("click", () => {
+      // Pre-flight gate (Wave 11 C5 + C6 were previously wired to the
+      // removed v2 path only; now shared across both proposal buttons).
+      if (!_canExportProposal()) return;
       proposalBtn.disabled = true;
       proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generating Proposal…';
       proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'AI is crafting your professional proposal — please wait';
@@ -10677,7 +10668,7 @@ function renderStep7(container) {
         proposalBtn.disabled = false;
         proposalBtn.classList.remove('generating');
         proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Full Proposal (10+ pages)';
-        proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications';
+        proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete proposal with detailed scope, pricing tables, and qualifications';
         // Show the PDF button after successful generation
         const pdfProposalBtn = document.getElementById('btn-pdf-proposal');
         if (pdfProposalBtn && ProposalGenerator._lastFullProposalHTML) pdfProposalBtn.style.display = 'block';
@@ -10692,7 +10683,7 @@ function renderStep7(container) {
           proposalBtn.disabled = false;
           proposalBtn.classList.remove('error');
           proposalBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generate Full Proposal (10+ pages)';
-          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete Fortune 500-grade proposal with detailed scope, pricing tables, and qualifications';
+          proposalBtn.querySelector('.proposal-gen-btn__sub').textContent = 'Complete proposal with detailed scope, pricing tables, and qualifications';
         }, 5000);
       });
     });
@@ -10702,6 +10693,8 @@ function renderStep7(container) {
   const execBtn = document.getElementById("btn-generate-exec-proposal");
   if (execBtn) {
     execBtn.addEventListener("click", () => {
+      // Pre-flight gate (same helper as Full Proposal).
+      if (!_canExportProposal()) return;
       execBtn.disabled = true;
       execBtn.querySelector('.proposal-gen-btn__title').textContent = 'Generating Executive Proposal…';
       execBtn.querySelector('.proposal-gen-btn__sub').textContent = 'AI is crafting your 3-page executive summary — please wait';
@@ -13523,7 +13516,7 @@ function exportRFIs(format) {
     </tr>`;
   }).join('');
 
-  // ─── Build Fortune 500-grade Word document ───
+  // ─── Build professional Word document ───
   const wordHtml = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office"
       xmlns:w="urn:schemas-microsoft-com:office:word"
@@ -14512,26 +14505,26 @@ function _setDeep(obj, path, val) {
 }
 
 /**
- * One-click "Generate Complete Bid Package". Routes to the new v2
- * pipeline in proposal-generator-v2.js. Shows a progress overlay.
+ * Pre-flight export gate shared by BOTH proposal buttons (Full + Executive).
+ * Returns true if export may proceed, false if it should be blocked/aborted.
+ *
+ * Preserved gates (originally wired only to the removed v2 path):
+ *   • Wave 11 C6 — Prevailing-wage completeness (CA county required)
+ *   • Wave 2B / Wave 10 M1 / Wave 11 C5 — Unanswered clarification ack
+ *     with sessionStorage persistence + UUID-scoped bid key
+ *
+ * Removed in this commit: the Auto-Proposal / generateCompleteBidPackage
+ * entry point and the proposal-generator-v2 "Fortune 500" pipeline.
+ * The two original proposals (Full 10+ pages, Executive 3 pages) now call
+ * this helper before they render.
  */
-async function generateCompleteBidPackage() {
-  if (typeof ProposalGenerator === 'undefined' || typeof ProposalGenerator.generateCompleteBidPackage !== 'function') {
-    spToast('Proposal generator v2 not loaded — reload the page', 'error');
-    return;
-  }
+function _canExportProposal() {
   if (!state.analysisComplete && !state.aiAnalysis) {
-    spToast('Run analysis first before generating a bid package', 'warning');
-    return;
+    spToast('Run analysis first before generating a proposal', 'warning');
+    return false;
   }
 
-  // ═══ Wave 11 C6 (v5.128.8) — Prevailing-wage completeness gate ═══
-  // Pre-Wave-11 a CA bid with no county set state._wageResolutionIncomplete
-  // but nothing actually blocked export. Labor ran on generic rates, the
-  // proposal shipped with ~$60-100k underbid on Davis-Bacon, and only a
-  // console.error logged the problem. Now: if the flag is set, block the
-  // export with a clear directive and return — estimator must go back to
-  // Step 0 and pick a county before shipping.
+  // ═══ Wave 11 C6 — Prevailing-wage completeness gate ═══
   if (state._wageResolutionIncomplete) {
     const wr = state._resolvedWageRates || {};
     const msg =
@@ -14542,31 +14535,15 @@ async function generateCompleteBidPackage() {
       `Davis-Bacon / state prevailing wage, typically underbidding by $60-100k+.\n\n` +
       `Click OK to return to the bid setup, or Cancel to close this dialog.`;
     if (confirm(msg)) {
-      // Jump back to Step 0 so estimator can fix it
       if (typeof goToStep === 'function') goToStep(0);
     }
-    return;
+    return false;
   }
 
-  // ═══ v5.128.2 (Wave 2B) — Export gating ═══
-  // Unanswered HIGH/CRITICAL clarification questions block the proposal
-  // download so an estimator can't accidentally ship a bid with an
-  // unresolved ambiguity baked in. The estimator must either answer the
-  // question, accept the AI best guess, or explicitly acknowledge the gap.
-  //
-  // Wave 10 M1: ack flag was resetting on every re-render, making the
-  // estimator click OK repeatedly. Now persisted in sessionStorage per
-  // estimate ID so a mid-flow re-render doesn't wipe the acknowledgement.
-  // The flag clears when a new analysis starts (state.brainResults reset).
+  // ═══ Wave 2B + Wave 10 M1 + Wave 11 C5 — Unanswered clarification ack ═══
   const gatingEnabled = (typeof SmartBrains !== 'undefined' && SmartBrains.config?.clarificationBlockExport !== false);
   if (gatingEnabled) {
     const unanswered = Array.isArray(state._unansweredClarifications) ? state._unansweredClarifications : [];
-    // Wave 11 C5 (v5.128.8): UUID-based ack key instead of 'current' fallback.
-    // Pre-fix, two bids running back-to-back without an explicit estimateId
-    // both fell back to 'sp_clarif_ack_current' and silently shared the ack.
-    // Bid #2 inherited Bid #1's "ok to ship anyway" and shipped with
-    // unreviewed clarifications. Now every bid without an estimateId gets
-    // its own UUID generated once at first gate-check.
     let bidKey = state.estimateId || state._estimateId || state._clarificationAckBidId;
     if (!bidKey) {
       const rnd = (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -14576,7 +14553,6 @@ async function generateCompleteBidPackage() {
       bidKey = rnd;
     }
     const ackKey = `sp_clarif_ack_${bidKey}`;
-    // Restore from sessionStorage if set
     try {
       if (!state._unansweredClarificationsAcknowledged && sessionStorage.getItem(ackKey)) {
         state._unansweredClarificationsAcknowledged = true;
@@ -14594,63 +14570,14 @@ async function generateCompleteBidPackage() {
         `Click OK to ACKNOWLEDGE the gap and ship anyway (this choice will be logged).\n` +
         `Click Cancel to go answer the questions first.`
       );
-      if (!proceed) return;
+      if (!proceed) return false;
       state._unansweredClarificationsAcknowledged = true;
-      // Wave 10 M1: persist ack so re-renders don't re-prompt
       try { sessionStorage.setItem(ackKey, String(Date.now())); } catch (_) {}
       console.warn(`[Export] User acknowledged ${unanswered.length} unanswered clarification(s) and chose to ship anyway`);
     }
   }
 
-  // Build progress overlay
-  const overlay = document.createElement('div');
-  overlay.id = 'bid-package-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:10002;background:rgba(15,23,42,0.85);display:flex;align-items:center;justify-content:center;padding:20px;';
-  overlay.innerHTML = `
-    <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:32px 36px;box-shadow:0 20px 60px rgba(0,0,0,0.4);text-align:center;">
-      <div style="font-size:11px;color:#C99518;font-weight:800;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">SmartPlans · Auto-Proposal</div>
-      <h2 style="font-size:22px;color:#0F2942;margin:0 0 4px 0;font-weight:800;">Generating Complete Bid Package</h2>
-      <div style="font-size:13px;color:#6B7280;margin-bottom:24px;">5-brain proposal pipeline · Fortune 500 layout</div>
-
-      <div style="background:#F4F6F8;border-radius:10px;height:14px;overflow:hidden;margin-bottom:10px;">
-        <div id="bp-bar" style="height:100%;width:2%;background:linear-gradient(90deg,#EBB328,#237078);transition:width 0.3s ease;"></div>
-      </div>
-      <div id="bp-pct" style="font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:1px;">2%</div>
-      <div id="bp-msg" style="font-size:13px;color:#237078;font-weight:600;margin-top:14px;line-height:1.5;">Preparing bid package…</div>
-
-      <div style="margin-top:22px;padding:12px 16px;background:rgba(235,179,40,0.08);border-left:3px solid #EBB328;border-radius:6px;font-size:11px;color:#4A5568;line-height:1.5;text-align:left;">
-        <strong style="color:#0F2942;">Running 5 AI brains in sequence:</strong><br>
-        1. Project Understanding writer<br>
-        2. Technical Approach writer<br>
-        3. Cover Letter writer<br>
-        4. Executive Summary writer<br>
-        5. Compliance Matrix generator<br>
-        <span style="color:#9CA3AF;font-size:10px;margin-top:4px;display:block;">Estimated time: 45-90 seconds</span>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  const progress = (pct, msg) => {
-    const bar = document.getElementById('bp-bar');
-    const pctEl = document.getElementById('bp-pct');
-    const msgEl = document.getElementById('bp-msg');
-    if (bar) bar.style.width = Math.max(2, Math.min(100, pct)) + '%';
-    if (pctEl) pctEl.textContent = Math.round(pct) + '%';
-    if (msgEl) msgEl.textContent = msg;
-  };
-
-  try {
-    await ProposalGenerator.generateCompleteBidPackage(state, progress);
-    // Keep overlay visible briefly to show success
-    progress(100, '✓ Bid package ready');
-    setTimeout(() => { document.getElementById('bid-package-overlay')?.remove(); }, 1200);
-  } catch (err) {
-    console.error('[AutoProposal] Failed:', err);
-    const msgEl = document.getElementById('bp-msg');
-    if (msgEl) msgEl.innerHTML = `<span style="color:#EF4444;">✗ Generation failed: ${esc(err.message || 'unknown error')}</span>`;
-    setTimeout(() => { document.getElementById('bid-package-overlay')?.remove(); }, 4000);
-  }
+  return true;
 }
 
 /**
@@ -18283,7 +18210,7 @@ function buildBidReadinessCard(st) {
         <div style="flex-basis:100%;padding:12px 16px;background:rgba(16,185,129,0.12);border-left:3px solid #10b981;border-radius:6px;margin-top:4px;">
           <div style="font-size:11px;font-weight:800;color:#10b981;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">✓ Ready to Send</div>
           <div style="font-size:12.5px;color:rgba(255,255,255,0.85);line-height:1.55;">
-            All quality signals are green. Click "Generate Complete Bid Package" above to produce the Fortune 500 proposal, or export the BOM to Excel.
+            All quality signals are green. Use the "Generate Full Proposal" or "Generate Executive Proposal" buttons above, or export the BOM to Excel.
           </div>
         </div>`}
     </div>
@@ -19646,9 +19573,6 @@ document.addEventListener("DOMContentLoaded", async () => {
           break;
         case 'open-company-profile':
           openCompanyProfileEditor();
-          break;
-        case 'generate-complete-bid-package':
-          generateCompleteBidPackage();
           break;
         case 'fix-missing-sheets':
           fixMissingSheets();
