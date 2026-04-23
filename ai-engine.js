@@ -7603,7 +7603,29 @@ Return ONLY valid JSON:
 
       // ── BRAIN 9: Consensus Arbitrator (Wave 1.75) ─────────────
       CONSENSUS_ARBITRATOR: () => `You are a SENIOR CONSENSUS ANALYST. Multiple independent teams just counted every device symbol on the same construction drawings using different methodologies. Your job is to find the TRUTH.
+${(() => {
+  // Wave 10 C3 (v5.128.7): inject deterministic ground truth when Wave 4
+  // reconcile produced overrides. pdf.js reads EXACT text labels from the
+  // PDF content stream — it cannot hallucinate. When the AI scanners
+  // disagree with these counts by any margin, the deterministic count
+  // wins AND arbitrator must honor it, not outvote it via 3-of-5 AI agreement.
+  const det = context._deterministicCounts?.perDevice || null;
+  const overrides = context.wave1?.SYMBOL_SCANNER?._deterministicOverrides || [];
+  if (!det || overrides.length === 0) return '';
+  return `
+═══ 🎯 DETERMINISTIC GROUND TRUTH (Wave 4 pdf.js extraction — AUTHORITATIVE) ═══
+These counts came from pdf.js extracting EXACT text labels from the PDF
+content stream (e.g., "CR-12", "C-47"). Not a visual guess. Use these as
+the FINAL consensus count for these devices — do NOT average against the
+AI scanner reads below. If SYMBOL_SCANNER / SHADOW_SCANNER / QUADRANT_SCANNER
+disagree with these numbers, those AI counts are WRONG.
 
+${JSON.stringify(det, null, 2)}
+
+Deterministic overrides applied (AI was off by >10%):
+${overrides.map(o => `  • ${o.device}: AI=${o.ai}, pdf.js=${o.deterministic} (${o.diffPct}% disagreement) — USE ${o.deterministic}`).join('\n')}
+`;
+})()}
 READ 1 — Systematic Scan (Symbol Scanner):
 ${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2)}
 
@@ -11390,6 +11412,44 @@ ${legendContext}
     const wave15Results = await this._runWave(1.5, wave15Keys, filteredEncodedFiles, state, context, progressCallback);
     context.wave1_5 = wave15Results;
     console.log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (5 brains) ═══');
+
+    // ═══ WAVE 10 C3 (v5.128.7) — CASCADE DETERMINISTIC OVERRIDES TO WAVE 1.5 SCANNERS ═══
+    // Wave 4 already overrode SYMBOL_SCANNER.totals, but CONSENSUS_ARBITRATOR
+    // reads from 4 other scanners too (SHADOW_SCANNER, QUADRANT_SCANNER,
+    // ZOOM_SCANNER.grand_totals, PER_FLOOR_ANALYZER). Those ran on the AI
+    // and still carry the pre-correction numbers, so a 3-of-5 AI majority
+    // was silently outvoting the deterministic truth. Cascade the override
+    // to all of them now so every read the arbitrator sees is consistent.
+    // (Plus the CONSENSUS_ARBITRATOR prompt now includes a "DETERMINISTIC
+    // GROUND TRUTH — AUTHORITATIVE" block as a belt-and-suspenders safety.)
+    try {
+      const symbolOverrides = wave1Results.SYMBOL_SCANNER?._deterministicOverrides || [];
+      if (symbolOverrides.length > 0 && wave15Results) {
+        const cascadeTargets = [
+          ['SHADOW_SCANNER', 'totals'],
+          ['QUADRANT_SCANNER', 'totals'],
+          ['ZOOM_SCANNER', 'grand_totals'],
+          ['PER_FLOOR_ANALYZER', 'totals'],
+        ];
+        let cascaded = 0;
+        for (const [scanner, field] of cascadeTargets) {
+          const obj = wave15Results[scanner];
+          if (!obj || typeof obj !== 'object') continue;
+          if (!obj[field] || typeof obj[field] !== 'object') obj[field] = {};
+          for (const d of symbolOverrides) {
+            obj[field][d.device] = d.deterministic;
+            cascaded++;
+          }
+          obj._deterministicOverridesCascaded = (obj._deterministicOverridesCascaded || 0) + symbolOverrides.length;
+        }
+        if (cascaded > 0) {
+          console.log(`[SmartBrains] 🎯 Wave 10 C3 — Cascaded ${symbolOverrides.length} deterministic override(s) across ${cascadeTargets.length} Wave 1.5 scanners (${cascaded} total writes) so CONSENSUS_ARBITRATOR can't outvote them`);
+        }
+        context.wave1_5 = wave15Results;
+      }
+    } catch (c3Err) {
+      console.warn('[SmartBrains] Wave 10 C3 cascade errored non-fatally:', c3Err?.message || c3Err);
+    }
 
     // ═══ WAVE 1.75: Consensus Resolution ═══
     progressCallback(50, '⚖️ Wave 1.75: Building consensus from 3 reads…', this._brainStatus);

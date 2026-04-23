@@ -274,6 +274,29 @@ describe('Wave 4 — pipeline wiring', () => {
     });
 });
 
+describe('Wave 10 C3 — Deterministic override cascade (was outvoted by AI consensus)', () => {
+    it('Override cascades to SHADOW_SCANNER / QUADRANT_SCANNER / ZOOM_SCANNER / PER_FLOOR_ANALYZER after Wave 1.5', () => {
+        expect(AI_ENGINE_SRC).toMatch(/CASCADE DETERMINISTIC OVERRIDES TO WAVE 1\.5 SCANNERS/);
+        expect(AI_ENGINE_SRC).toMatch(/\['SHADOW_SCANNER', 'totals'\]/);
+        expect(AI_ENGINE_SRC).toMatch(/\['QUADRANT_SCANNER', 'totals'\]/);
+        expect(AI_ENGINE_SRC).toMatch(/\['ZOOM_SCANNER', 'grand_totals'\]/);
+        expect(AI_ENGINE_SRC).toMatch(/\['PER_FLOOR_ANALYZER', 'totals'\]/);
+    });
+
+    it('CONSENSUS_ARBITRATOR prompt carries a DETERMINISTIC GROUND TRUTH block when overrides exist', () => {
+        expect(AI_ENGINE_SRC).toMatch(/DETERMINISTIC GROUND TRUTH \(Wave 4 pdf\.js extraction — AUTHORITATIVE\)/);
+        expect(AI_ENGINE_SRC).toMatch(/do NOT average against the/);
+    });
+
+    it('Cascade uses symbolOverrides from Wave 4 reconcile output, not a separate source', () => {
+        expect(AI_ENGINE_SRC).toMatch(/wave1Results\.SYMBOL_SCANNER\?\._deterministicOverrides/);
+    });
+
+    it('Cascade is wrapped in try/catch so a single scanner with bad shape does not blow up analysis', () => {
+        expect(AI_ENGINE_SRC).toMatch(/Wave 10 C3 cascade errored non-fatally/);
+    });
+});
+
 // ───────────────────────────────────────────────────────────────
 // Wave 4.5 — Pro model-health pre-flight gate
 // ───────────────────────────────────────────────────────────────
