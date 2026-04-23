@@ -36,6 +36,8 @@ jobs:
       # REQUIRED — blocking suite must pass for the build to go green.
       # These tests pin every bug that shipped in v5.126.x and every
       # quality feature that shipped in v5.127.x so nothing can regress.
+      # v5.128.1 added the pricing-formula + amtrak-golden-bids suites
+      # as Wave 1 accuracy gates — they MUST stay blocking.
       - name: Blocking test suite (BLOCKING)
         run: |
           npx vitest run \
@@ -47,6 +49,8 @@ jobs:
             tests/bid-corrections.test.js \
             tests/vector-extractor.test.js \
             tests/keynote-expansion.test.js \
-            tests/match-line.test.js
+            tests/match-line.test.js \
+            tests/pricing-formula.test.js \
+            tests/amtrak-golden-bids.test.js
         env:
           CI: true

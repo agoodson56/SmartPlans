@@ -106,13 +106,29 @@
             const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
             const refNum = `3DTSI-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 9000 + 1000)}`;
 
-            // Extract grand total from state (use legacy helper if present)
+            // Extract grand total from state via the UNIFIED entry point.
+            // Before v5.128.1 this tried `this._extractGrandTotal`, which V2 never defined,
+            // so grandTotal was silently null and the proposal PDF shipped with no dollar figure.
+            // Fix: delegate to SmartPlansFinancials (wraps _getFullyLoadedTotal) so Master Report,
+            // JSON export, and Proposal PDF always show the same number and same source.
             let grandTotal = null;
+            let grandTotalSource = null;
+            let grandTotalCalibration = null;
             try {
-                if (typeof this._extractGrandTotal === 'function') {
+                if (typeof SmartPlansFinancials !== 'undefined' && typeof SmartPlansExport !== 'undefined') {
+                    const analysis = state.aiAnalysis || '';
+                    let bom = SmartPlansExport._extractBOMFromAnalysis ? SmartPlansExport._extractBOMFromAnalysis(analysis) : null;
+                    if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') bom = SmartPlansExport._applyUserBOMEdits(bom, state);
+                    if (bom && typeof SmartPlansExport._applyTransitAdjustments === 'function') SmartPlansExport._applyTransitAdjustments(bom, state);
+                    if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
+                    const gt = SmartPlansFinancials.grandTotal(state, bom);
+                    grandTotal = gt.total > 0 ? gt.total : null;
+                    grandTotalSource = gt.source;
+                    grandTotalCalibration = gt.calibration;
+                } else if (typeof this._extractGrandTotal === 'function') {
                     grandTotal = this._extractGrandTotal(state);
                 }
-            } catch (e) { /* fall through */ }
+            } catch (e) { console.warn('[ProposalGenV2] grandTotal resolution failed:', e); }
 
             const projName = sanitize(state.projectName, 200) || 'Untitled Project';
             const safeName = projName.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').substring(0, 60);

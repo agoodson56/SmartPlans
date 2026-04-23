@@ -1039,11 +1039,12 @@ const state = {
   },
   burdenRate: 35, // percentage
   includeBurden: true,
+  // Mirrors DEFAULT_MARKUPS_SSOT in pricing-database.js. Keep in sync.
   markup: {
     material: 50,
     labor: 50,
     equipment: 15,
-    subcontractor: 10,
+    subcontractor: 15,
   },
 
   // Files (arrays of {name, size, type, base64?, rawFile?})
@@ -1826,7 +1827,8 @@ function startNewBid() {
   state.failedBrains = null;
 
   // Reset markups to defaults (transit override was persisting after toggle-off)
-  state.markup = { material: 50, labor: 50, equipment: 15, subcontractor: 10 };
+  // Mirrors DEFAULT_MARKUPS_SSOT in pricing-database.js. Keep in sync.
+  state.markup = { material: 50, labor: 50, equipment: 15, subcontractor: 15 };
   state.burdenRate = 35;
   state.includeBurden = true;
 
@@ -4975,10 +4977,11 @@ function renderStep0(container) {
           state.markup.subcontractor = state._preTransitMarkups.subcontractor;
           state._preTransitMarkups = null;
         } else {
+          // Mirrors DEFAULT_MARKUPS_SSOT in pricing-database.js. Keep in sync.
           state.markup.material = 50;
           state.markup.labor = 50;
           state.markup.equipment = 15;
-          state.markup.subcontractor = 10;
+          state.markup.subcontractor = 15;
         }
       }
       renderStep0(container);

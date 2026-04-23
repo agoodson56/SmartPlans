@@ -5978,7 +5978,7 @@ Return ONLY valid JSON:
 
 PROJECT: ${context.projectName} | Location: ${context.projectLocation || 'Not specified'}
 PREVAILING WAGE: ${context.prevailingWage || 'No'}
-MARKUP: Material ${context.markup?.material || 50}% | Labor ${context.markup?.labor || 50}% | Equipment ${context.markup?.equipment || 15}% | Subcontractor ${context.markup?.subcontractor || 10}%
+MARKUP: Material ${context.markup?.material || 50}% | Labor ${context.markup?.labor || 50}% | Equipment ${context.markup?.equipment || 15}% | Subcontractor ${context.markup?.subcontractor || 15}%
 
 ═══ MATERIAL PRICER OUTPUT (USE THESE EXACT TOTALS) ═══
 ${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 6000)}
@@ -6239,10 +6239,11 @@ Return ONLY valid JSON:
 
       // ── BRAIN 10: Report Writer ──────────────────────────────
       REPORT_WRITER: () => {
+        // Defaults mirror DEFAULT_MARKUPS_SSOT in pricing-database.js.
         const matMarkup = context.markup?.material || 50;
         const labMarkup = context.markup?.labor || 50;
         const eqMarkup = context.markup?.equipment || 15;
-        const subMarkup = context.markup?.subcontractor || 10;
+        const subMarkup = context.markup?.subcontractor || 15;
         return `You are a SENIOR CONSTRUCTION ESTIMATOR producing a COMPLETE BID PACKAGE.
 
 This is a REAL BID that will be submitted to win a construction project. It MUST contain:

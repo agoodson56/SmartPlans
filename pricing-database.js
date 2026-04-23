@@ -500,11 +500,17 @@ const PRICING_DB = {
                 other: 2.00,
             },
         },
+        // ═══════════════════════════════════════════════════════════
+        // DEFAULT MARKUPS — SINGLE SOURCE OF TRUTH
+        // Every other file that defaults markup percentages MUST mirror
+        // these values. Searchable anchor: DEFAULT_MARKUPS_SSOT.
+        // Changed v5.128.1: subcontractor 10 → 15 (company standard).
+        // ═══════════════════════════════════════════════════════════
         markup: {
             material: 50, // percentage markup
             labor: 50,
             equipment: 15,
-            subcontractor: 10,
+            subcontractor: 15,
         },
     },
 
