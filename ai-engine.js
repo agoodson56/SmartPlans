@@ -5159,7 +5159,12 @@ ${priorCorrections.slice(0, 30).map(c => {
     const dir = Number(c.delta_pct) > 0 ? 'RAISED' : 'LOWERED';
     const field = c.field_changed === 'qty' ? 'qty' : 'unit cost';
     const delta = Math.abs(Number(c.delta_pct) || 0).toFixed(1);
-    return `  • "${c.item_name}" (${c.discipline || 'any'}) — estimators ${dir} the ${field} by ${delta}% (${c.original_value} → ${c.corrected_value}) on ${c.project_name || 'previous bid'}`;
+    // Wave 10 H11 (v5.128.7): sanitize item + project names before embedding
+    // into the prompt. An estimator who named an item with backticks/asterisks
+    // or prompt-injection bait like '**HIDDEN_INSTRUCTION:**' could steer
+    // Material Pricer. Strip markdown + cap to 100 chars.
+    const sanitize = (s) => String(s || '').replace(/[*_`<>|]/g, '').slice(0, 100);
+    return `  • "${sanitize(c.item_name)}" (${sanitize(c.discipline) || 'any'}) — estimators ${dir} the ${field} by ${delta}% (${c.original_value} → ${c.corrected_value}) on ${sanitize(c.project_name) || 'previous bid'}`;
 }).join('\n')}
 
 For the items above, start at the CORRECTED values, not your usual default. If your training or context
@@ -6142,13 +6147,32 @@ EXAMPLE:
 REPORT THIS in your output: add a top-level field "prevailing_wage_applied": true and "prevailing_wage_multiplier": ${pwMultiplier} so downstream brains can verify.
 ` : '';
 
+        // Wave 10 M12 (v5.128.7): feedback loop also runs on Labor Calculator.
+        // Pre-fix only Material Pricer got 'LEARNED FROM PAST ESTIMATOR EDITS'.
+        // Labor corrections (hours_per_unit edits from past bid_corrections)
+        // now inform the Labor Calculator prompt too — the loop is symmetric.
+        const laborCorrections = (context._priorBidCorrections || []).filter(c =>
+            c.field_changed === 'hours_per_unit' || c.field_changed === 'labor_hours' || /hour/i.test(String(c.field_changed))
+        );
+        const laborCorrectionsBlock = laborCorrections.length > 0 ? `
+
+═══ LEARNED FROM PAST ESTIMATOR LABOR-HOUR EDITS (Wave 10 M12) ═══
+${laborCorrections.slice(0, 20).map(c => {
+    const dir = Number(c.delta_pct) > 0 ? 'RAISED' : 'LOWERED';
+    const delta = Math.abs(Number(c.delta_pct) || 0).toFixed(1);
+    const sanitize = (s) => String(s || '').replace(/[*_\`<>|]/g, '').slice(0, 100);
+    return `  • "${sanitize(c.item_name)}" (${sanitize(c.discipline) || 'any'}) — estimators ${dir} the hours by ${delta}% on ${sanitize(c.project_name) || 'previous bid'}`;
+}).join('\n')}
+Apply these lessons now — these came from real actuals on real bids.
+` : '';
+
         return `You are a CONSTRUCTION LABOR ESTIMATOR using NECA labor standards.
 
 PROJECT: ${context.projectName} | Type: ${context.projectType}
 LABOR MARKUP: ${context.markup?.labor || 50}%
 BURDEN RATE: ${context.includeBurden ? context.burdenRate + '%' : 'Not applied'}
 PREVAILING WAGE: ${pwRequired ? (pwType.toUpperCase() + ' REQUIRED — SEE MANDATORY OVERRIDE BELOW') : (context.prevailingWage || 'No')}
-WORK SHIFT: ${context.workShift || 'Standard'}${pwBlock}
+WORK SHIFT: ${context.workShift || 'Standard'}${pwBlock}${laborCorrectionsBlock}
 
 LABOR RATES:
 ${Object.entries(context.laborRates || {}).map(([k, v]) =>
@@ -10106,9 +10130,17 @@ ${legendContext}
       const corrPromises = [];
       // Fetch up to 25 corrections per discipline, capped at 150 total
       if (projectType && disciplines.length > 0) {
+        // Wave 10 M14 (v5.128.7): per-discipline failure reporting. Pre-fix
+        // errors were swallowed into a generic empty-array fallback — now
+        // each failing discipline logs its own error so estimators can see
+        // which feedback loop broke.
         for (const disc of disciplines.slice(0, 6)) {
           const url = `/api/bid-corrections?project_type=${encodeURIComponent(projectType)}&discipline=${encodeURIComponent(disc)}&limit=25`;
-          corrPromises.push(fetch(url, { headers }).then(r => r.ok ? r.json() : { corrections: [] }).catch(() => ({ corrections: [] })));
+          corrPromises.push(
+            fetch(url, { headers })
+              .then(r => r.ok ? r.json() : (console.warn(`[Wave 8 preload] corrections ${disc} → ${r.status}`), { corrections: [] }))
+              .catch(err => (console.warn(`[Wave 8 preload] corrections ${disc} fetch failed:`, err?.message || err), { corrections: [] }))
+          );
         }
       } else if (projectType) {
         corrPromises.push(fetch(`/api/bid-corrections?project_type=${encodeURIComponent(projectType)}&limit=100`, { headers }).then(r => r.ok ? r.json() : { corrections: [] }).catch(() => ({ corrections: [] })));
@@ -11786,10 +11818,18 @@ ${legendContext}
             if (ov && Number.isFinite(Number(ov.unit_cost))) userOverrides[name] = Number(ov.unit_cost);
           }
         }
+        // Wave 10 D1 (v5.128.7): deep-clone MATERIAL_PRICER before repricing
+        // so the _priceSource / _priceConfidence / _priceDistributor stamps
+        // don't leak into downstream brain prompts via JSON.stringify.
+        // Pre-fix, Labor Calculator saw "_priceSource": "distributor" in its
+        // context payload, which risked confusing the AI. The clean original
+        // lives at wave2Results._unrePricedMaterialPricer for audit.
+        const cleanOriginal = JSON.parse(JSON.stringify(wave2Results.MATERIAL_PRICER));
         const priceStats = SmartPlansPricing.rePriceMaterialPricerOutput(
           wave2Results.MATERIAL_PRICER,
           { tier, regionKey, userOverrides },
         );
+        wave2Results._unrePricedMaterialPricer = cleanOriginal;
         state._livePricingStats = priceStats;
         context._livePricingStats = priceStats;
         const live = (priceStats.distributor || 0) + (priceStats.rate_library || 0) + (priceStats.user_override || 0);
