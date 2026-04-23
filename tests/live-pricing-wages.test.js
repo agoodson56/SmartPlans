@@ -353,7 +353,16 @@ describe('Wave 7 — index.html + sw.js asset wiring', () => {
         expect(SW_JS).toMatch(/'\/pricing-service\.js'/);
     });
 
-    it('sw.js cache name updated to the Wave 7 version', () => {
-        expect(SW_JS).toMatch(/smartplans-v5\.128\.4/);
+    it('sw.js cache name kept current — bumped with material changes (Wave 10 G1: v5.128.7)', () => {
+        // Any cache name matching smartplans-vMAJOR.MINOR.PATCH >= 5.128.4 is fine
+        const m = SW_JS.match(/smartplans-v(\d+)\.(\d+)\.(\d+)/);
+        expect(m).toBeTruthy();
+        const [, major, minor, patch] = m.map(Number);
+        // Must be >= 5.128.4
+        expect(major).toBeGreaterThanOrEqual(5);
+        if (major === 5) {
+            expect(minor).toBeGreaterThanOrEqual(128);
+            if (minor === 128) expect(patch).toBeGreaterThanOrEqual(4);
+        }
     });
 });

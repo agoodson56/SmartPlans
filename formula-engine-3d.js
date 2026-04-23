@@ -913,6 +913,14 @@ const FormulaEngine3D = {
                             result._calibrationTarget = calibratedTarget;
                             result._calibrationBenchmark = benchmark.key;
                             result._calibrationScaleFactor = scaleFactor;
+                            // Wave 10 M3: margin reconstruction invariant check.
+                            // grandTotalSELL - grandTotalCOS should equal grossMargin.
+                            // If rounding drifted by more than $100 on a rescale, log it.
+                            const reconstruction = result.grandTotalSELL - result.grandTotalCOS;
+                            const drift = Math.abs(reconstruction - result.grossMargin);
+                            if (drift > 100) {
+                                console.warn(`[3D Engine v2] Margin reconstruction drift after calibration: grossMargin=${result.grossMargin}, reconstruction=${reconstruction}, drift=$${drift.toFixed(2)}`);
+                            }
                         }
                     } else {
                         console.log(`[3D Engine v2]   ✅ Within ±6% of benchmark — no calibration needed`);
