@@ -3929,7 +3929,7 @@ const SmartBrains = {
     RISER_DIAGRAM_ANALYZER: ['risers', 'backbone_cables'],
     DEVICE_LOCATOR: ['devices'],
     SCOPE_EXCLUSION_SCANNER: ['exclusions'],
-    ZOOM_SCANNER: ['quadrant_counts', 'zoom_findings'],
+    ZOOM_SCANNER: ['quadrant_counts', 'zoom_findings', 'grand_totals'], // Wave 11 C3: grand_totals now required so Wave 4 cascade can guarantee target existence
     PER_FLOOR_ANALYZER: ['floor_breakdown', 'anomalies'],
     OVERLAP_DETECTOR: ['overlapping_areas', 'potential_duplicates'],
     ESTIMATE_CORRECTOR: ['corrected_categories', 'correction_log'],
@@ -5163,9 +5163,21 @@ ${priorCorrections.slice(0, 30).map(c => {
     // into the prompt. An estimator who named an item with backticks/asterisks
     // or prompt-injection bait like '**HIDDEN_INSTRUCTION:**' could steer
     // Material Pricer. Strip markdown + cap to 100 chars.
-    const sanitize = (s) => String(s || '').replace(/[*_`<>|]/g, '').slice(0, 100);
-    return `  • "${sanitize(c.item_name)}" (${sanitize(c.discipline) || 'any'}) — estimators ${dir} the ${field} by ${delta}% (${c.original_value} → ${c.corrected_value}) on ${sanitize(c.project_name) || 'previous bid'}`;
-}).join('\n')}
+    // Wave 11 M1 + M2 + M11 (v5.128.8): expanded sanitization —
+    //   * Strip more markdown/prompt-steering chars: []()^:;{}
+    //   * Strip smart quotes (U+2018/2019/201C/201D)
+    //   * Strip newlines / tabs that break the bullet structure
+    //   * Skip the bullet entirely if sanitized name is empty
+    const sanitize = (s) => String(s || '')
+      .replace(/[*_\`<>|"'\[\](){}^:;]/g, '')
+      .replace(/[\u2018\u2019\u201C\u201D]/g, '')
+      .replace(/[\r\n\t]/g, ' ')
+      .slice(0, 100)
+      .trim();
+    const itemClean = sanitize(c.item_name);
+    if (!itemClean) return ''; // skip — nothing useful to reference
+    return `  • "${itemClean}" (${sanitize(c.discipline) || 'any'}) — estimators ${dir} the ${field} by ${delta}% (${c.original_value} → ${c.corrected_value}) on ${sanitize(c.project_name) || 'previous bid'}`;
+}).filter(Boolean).join('\n')}
 
 For the items above, start at the CORRECTED values, not your usual default. If your training or context
 suggests a different number, override yourself with the estimator's corrected history — they have
@@ -6147,22 +6159,31 @@ EXAMPLE:
 REPORT THIS in your output: add a top-level field "prevailing_wage_applied": true and "prevailing_wage_multiplier": ${pwMultiplier} so downstream brains can verify.
 ` : '';
 
-        // Wave 10 M12 (v5.128.7): feedback loop also runs on Labor Calculator.
-        // Pre-fix only Material Pricer got 'LEARNED FROM PAST ESTIMATOR EDITS'.
-        // Labor corrections (hours_per_unit edits from past bid_corrections)
-        // now inform the Labor Calculator prompt too — the loop is symmetric.
+        // Wave 11 C7 (v5.128.8): Labor-hour feedback block is DORMANT until
+        // the BOM-edit UI captures labor-hour corrections. Pre-Wave-11, the
+        // filter looked for `field_changed === 'hours_per_unit'`, but the
+        // only UI path (see _logBidCorrection in app.js) captures `qty` and
+        // `unit_cost` only — never labor hours. So the block was always empty.
+        // Rather than ship a prompt block that advertises feedback we never
+        // capture, keep the block but only emit when the correction source
+        // is REAL (has a non-empty array). Once a UI path adds labor-hour
+        // edits, this lights up automatically.
+        //
+        // If you're seeing this comment and want to enable the UI side,
+        // search for `_logBidCorrection` and extend it to capture a third
+        // field_changed value: 'labor_hours'.
         const laborCorrections = (context._priorBidCorrections || []).filter(c =>
-            c.field_changed === 'hours_per_unit' || c.field_changed === 'labor_hours' || /hour/i.test(String(c.field_changed))
+            c.field_changed === 'hours_per_unit' || c.field_changed === 'labor_hours'
         );
         const laborCorrectionsBlock = laborCorrections.length > 0 ? `
 
-═══ LEARNED FROM PAST ESTIMATOR LABOR-HOUR EDITS (Wave 10 M12) ═══
+═══ LEARNED FROM PAST ESTIMATOR LABOR-HOUR EDITS ═══
 ${laborCorrections.slice(0, 20).map(c => {
     const dir = Number(c.delta_pct) > 0 ? 'RAISED' : 'LOWERED';
     const delta = Math.abs(Number(c.delta_pct) || 0).toFixed(1);
-    const sanitize = (s) => String(s || '').replace(/[*_\`<>|]/g, '').slice(0, 100);
+    const sanitize = (s) => String(s || '').replace(/[*_\`<>|"'\[\](){}^:;\t\n\r]/g, '').replace(/[\u201C\u201D\u2018\u2019]/g, '').slice(0, 100);
     return `  • "${sanitize(c.item_name)}" (${sanitize(c.discipline) || 'any'}) — estimators ${dir} the hours by ${delta}% on ${sanitize(c.project_name) || 'previous bid'}`;
-}).join('\n')}
+}).filter(line => !/^\s*•\s*""\s*/.test(line)).join('\n')}
 Apply these lessons now — these came from real actuals on real bids.
 ` : '';
 
@@ -6183,7 +6204,12 @@ ${Object.entries(context.laborRates || {}).map(([k, v]) =>
 ${JSON.stringify(consensusCounts, null, 2).substring(0, 5000)}
 
 MATERIAL PRICER OUTPUT (actual priced quantities — match your labor to THESE):
-${JSON.stringify(context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000)}
+${/* Wave 11 H1 (v5.128.8): read the un-stamped clean copy first so
+     Wave 7 _priceSource / _priceConfidence / _priceDistributor metadata
+     doesn't leak into Labor Calculator's context. Fall back to the live
+     MATERIAL_PRICER if the clean copy wasn't captured (first-bid path
+     where Wave 7 may not have run). */''}
+${JSON.stringify(context.wave2?._unrePricedMaterialPricer || context.wave2?.MATERIAL_PRICER || {}, null, 2).substring(0, 8000)}
 
 ═══ RATE LIBRARY — KNOWN LABOR HOURS FROM PAST PROJECTS ═══
 ${(() => {
@@ -9409,26 +9435,55 @@ ${rfp.mwbe_requirements?.goal_pct > 0 ? `⚠️ ${rfp.mwbe_requirements.type} go
         && useJsonMode
         && parsed && typeof parsed === 'object' && !parsed._parseFailed;
       if (canCrossCheck) {
-        try {
-          const claudeReady = await this._checkClaudeAvailable();
-          if (claudeReady) {
-            const claudeRaw = await this._invokeBrain(key, brain, prompt, fileParts, useJsonMode, { providerOverride: 'anthropic' });
-            const claudeParsed = this._parseJSON(claudeRaw);
-            if (claudeParsed && typeof claudeParsed === 'object') {
-              const compare = this._compareProviderOutputs(parsed, claudeParsed, { tolerance: 0.10 });
-              parsed._crossCheckCompared = true;
-              parsed._crossCheckSecondaryProvider = 'anthropic';
-              if (!compare.agree) {
-                console.warn(`[CrossCheck:${brain.name}] ⚠️ Gemini + Claude disagree on ${compare.divergences.length} field(s): ${compare.divergences.slice(0, 3).map(d => d.key).join(', ')}`);
-                parsed._crossCheckDisagreements = compare.divergences.slice(0, 30);
-                this._wave10CrossCheckDisagreements.push({ brain: key, divergences: compare.divergences.slice(0, 30) });
-              } else if (this.config.DEBUG) {
-                console.log(`[CrossCheck:${brain.name}] Gemini + Claude agree ✓`);
+        // ─── Wave 11 C1 + C2 (v5.128.8) — Cross-check feasibility guards ───
+        // Pre-Wave-11 we unconditionally fired the Claude call. Two silent
+        // failure modes were caught by the audit:
+        //   C1: Claude cannot resolve Gemini File API URIs (fileData refs).
+        //       If any part is a fileData ref, Claude gets NO visual input
+        //       for the cross-check and hallucinates. "Disagreements" we
+        //       record are Claude blindness, not real disagreement.
+        //   C2: Anthropic message-size limit is ~32 MB. Inline base64 plan
+        //       PDFs routinely hit this, causing 400s we logged as "failed
+        //       secondary call" without clarity.
+        // Fix: refuse to cross-check when fileData refs exist OR when the
+        // estimated inline payload exceeds 25 MB. Stamp the skip reason
+        // on the parsed object so the Results UI can show "cross-check
+        // skipped: visual input unavailable to secondary provider".
+        const fileDataCount = fileParts.filter(p => p && p.fileData).length;
+        // Estimate inline payload bytes: base64 length × 0.75 ≈ raw bytes
+        const inlineBytes = fileParts.reduce((s, p) => {
+          const b64 = p?.inlineData?.data;
+          return s + (typeof b64 === 'string' ? Math.ceil(b64.length * 0.75) : 0);
+        }, 0);
+        const CROSS_CHECK_MAX_INLINE_BYTES = 25 * 1024 * 1024;
+        if (fileDataCount > 0) {
+          parsed._crossCheckSkipped = 'fileData-refs-not-resolvable-by-secondary';
+          if (this.config.DEBUG) console.log(`[CrossCheck:${brain.name}] Skipped — ${fileDataCount} fileData ref(s) cannot cross to Claude (would cause visual-input blindness)`);
+        } else if (inlineBytes > CROSS_CHECK_MAX_INLINE_BYTES) {
+          parsed._crossCheckSkipped = `inline-payload-${Math.round(inlineBytes/1048576)}MB-exceeds-${Math.round(CROSS_CHECK_MAX_INLINE_BYTES/1048576)}MB-limit`;
+          console.warn(`[CrossCheck:${brain.name}] Skipped — inline payload ~${Math.round(inlineBytes/1048576)} MB exceeds Anthropic ~32 MB message limit`);
+        } else {
+          try {
+            const claudeReady = await this._checkClaudeAvailable();
+            if (claudeReady) {
+              const claudeRaw = await this._invokeBrain(key, brain, prompt, fileParts, useJsonMode, { providerOverride: 'anthropic' });
+              const claudeParsed = this._parseJSON(claudeRaw);
+              if (claudeParsed && typeof claudeParsed === 'object') {
+                const compare = this._compareProviderOutputs(parsed, claudeParsed, { tolerance: 0.10 });
+                parsed._crossCheckCompared = true;
+                parsed._crossCheckSecondaryProvider = 'anthropic';
+                if (!compare.agree) {
+                  console.warn(`[CrossCheck:${brain.name}] ⚠️ Gemini + Claude disagree on ${compare.divergences.length} field(s): ${compare.divergences.slice(0, 3).map(d => d.key).join(', ')}`);
+                  parsed._crossCheckDisagreements = compare.divergences.slice(0, 30);
+                  this._wave10CrossCheckDisagreements.push({ brain: key, divergences: compare.divergences.slice(0, 30) });
+                } else if (this.config.DEBUG) {
+                  console.log(`[CrossCheck:${brain.name}] Gemini + Claude agree ✓`);
+                }
               }
             }
+          } catch (ccErr) {
+            console.warn(`[CrossCheck:${brain.name}] secondary call failed (non-fatal):`, ccErr?.message || ccErr);
           }
-        } catch (ccErr) {
-          console.warn(`[CrossCheck:${brain.name}] secondary call failed (non-fatal):`, ccErr?.message || ccErr);
         }
       }
 
@@ -10178,6 +10233,11 @@ ${legendContext}
           console.warn(`[SmartBrains] ⚠️ Gemini Pro degraded (${healthCheck.unavailablePct}% unavailable) — FAILING OVER to Claude for this bid`);
           state._aiProviderOverride = 'anthropic';
           state._claudeFailoverActive = true;
+          // Wave 11 M6 (v5.128.8): sync draft-mode flag so UI tags + PDF
+          // watermark logic see one consistent signal. Pre-fix, source tag
+          // said "DRAFT — Claude fallback" but watermark code only checked
+          // _draftModeActive, producing inconsistent signals.
+          state._draftModeActive = true;
           // Wave 10 C1: ALSO mirror to SmartBrains._providerOverride so
           // _invokeBrain actually routes to Claude. Without this mirror,
           // the state flag was cosmetic.
@@ -11829,7 +11889,14 @@ ${legendContext}
           wave2Results.MATERIAL_PRICER,
           { tier, regionKey, userOverrides },
         );
+        // Wave 11 H1 (v5.128.8): expose clean (un-stamped) copy on BOTH
+        // wave2Results and context so Labor Calculator's prompt can read
+        // MATERIAL_PRICER without _priceSource / _priceConfidence stamps
+        // leaking into its context. Pre-Wave-11 the clone was created on
+        // wave2Results but nothing ever read it.
         wave2Results._unrePricedMaterialPricer = cleanOriginal;
+        if (!context.wave2) context.wave2 = wave2Results;
+        context.wave2._unrePricedMaterialPricer = cleanOriginal;
         state._livePricingStats = priceStats;
         context._livePricingStats = priceStats;
         const live = (priceStats.distributor || 0) + (priceStats.rate_library || 0) + (priceStats.user_override || 0);

@@ -369,7 +369,7 @@ const SmartPlansPricing = {
         'ptz_camera':          { install: 2.5, terminate: 1.0, test: 0.6 }, // 4.1 hrs
         'nvr':                 { install: 3.0, terminate: 2.0, test: 2.0 }, // 7.0 hrs — rack-mount NVR w/ video channels configured
         // Access Control
-        'card_reader':         { install: 1.2, terminate: 0.6, test: 0.3 }, // 2.1 hrs — TODO(verify): single-reader door w/ pre-run cable. Retrofit adds 1-2 hrs.
+        'card_reader':         { install: 1.2, terminate: 0.6, test: 0.3, verified: false }, // 2.1 hrs — TODO(verify) Wave 11 H2: flagged unverified, reconcile trusts AI instead of overriding down.
         'electric_strike':     { install: 0.8, terminate: 0.4, test: 0.3 },
         'maglock':             { install: 1.0, terminate: 0.5, test: 0.3 },
         'electric_lock':       { install: 1.0, terminate: 0.5, test: 0.3 },
@@ -379,7 +379,7 @@ const SmartPlansPricing = {
         // Structured Cabling
         'data_outlet':         { install: 0.4, terminate: 0.3, test: 0.15 }, // 0.85 hrs per drop, single-jack Cat6A
         'voice_outlet':        { install: 0.4, terminate: 0.3, test: 0.15 },
-        'wireless_ap':         { install: 1.3, terminate: 0.5, test: 0.4 }, // TODO(verify): ceiling-mount WAP w/ PoE, no rigging
+        'wireless_ap':         { install: 1.3, terminate: 0.5, test: 0.4, verified: false }, // 2.2 hrs — TODO(verify) Wave 11 H2: flagged unverified.
         // Fire Alarm
         'smoke_detector':      { install: 0.8, terminate: 0.3, test: 0.2 },
         'heat_detector':       { install: 0.8, terminate: 0.3, test: 0.2 },
@@ -387,7 +387,7 @@ const SmartPlansPricing = {
         'pull_station':        { install: 0.6, terminate: 0.3, test: 0.1 },
         'horn_strobe':         { install: 0.7, terminate: 0.3, test: 0.3 },
         'strobe':              { install: 0.6, terminate: 0.25, test: 0.25 },
-        'facp':                { install: 6.0, terminate: 4.0, test: 4.0 }, // 14.0 hrs — TODO(verify): larger panels (>100 devices) may need 18-24. Adjust via actuals.
+        'facp':                { install: 6.0, terminate: 4.0, test: 4.0, verified: false }, // 14.0 hrs — TODO(verify) Wave 11 H2: flagged unverified.
         // Audio Visual
         'speaker':             { install: 0.8, terminate: 0.4, test: 0.2 },
         'dsp':                 { install: 2.5, terminate: 1.5, test: 1.5 },
@@ -454,9 +454,20 @@ const SmartPlansPricing = {
         // because the table is best-effort estimates (see provenance note on
         // NECA_LABOR_HOURS), not NECA-book-verified. Actuals-rolling-avg
         // (confidence up to 1.0) supersedes this whenever n >= 5 samples.
+        // Wave 11 H2: surface verified flag so reconcile knows whether to
+        // trust this value. Rows tagged verified:false are best-effort guesses
+        // and should NOT override AI-produced hours (which may reflect reality
+        // better).
         const neca = this.necaStandardHours(deviceKey);
         if (neca > 0) {
-            return { hoursPerUnit: neca, source: 'neca_standard', confidence: 0.70 };
+            const row = this.NECA_LABOR_HOURS[deviceKey];
+            const verified = row && row.verified !== false; // default: treated verified unless explicit false
+            return {
+                hoursPerUnit: neca,
+                source: 'neca_standard',
+                confidence: verified ? 0.70 : 0.45,
+                verified,
+            };
         }
         // 3. AI fallback
         if (Number.isFinite(Number(aiHours)) && Number(aiHours) > 0) {
@@ -510,7 +521,16 @@ const SmartPlansPricing = {
                 const det = resolution.hoursPerUnit;
                 if (aiHours > 0 && det > 0) {
                     const diff = Math.abs(aiHours - det) / Math.max(aiHours, det);
-                    if (diff > tolerance) {
+                    // Wave 11 H2 (v5.128.8): do NOT override AI with NECA when
+                    // the NECA row is flagged verified:false. On unverified rows
+                    // the AI-produced hours may reflect reality better than a
+                    // best-effort estimate — overriding down silently undercounted
+                    // labor (e.g., card_reader: NECA 2.1 hrs, AI 3.5 hrs → pre-fix
+                    // would override to 2.1, losing 1.4 hrs × 50 doors = 70 hrs
+                    // ≈ $3,500 per bid). Now unverified NECA is a sanity check,
+                    // not an override.
+                    const isUnverifiedNeca = resolution.source === 'neca_standard' && resolution.verified === false;
+                    if (diff > tolerance && !isUnverifiedNeca) {
                         stats.overridden++;
                         stats.disagreements.push({ device: deviceKey, ai: aiHours, deterministic: det, source: resolution.source, diffPct: Math.round(diff * 1000) / 10 });
                         item.hours_per_unit = det;
@@ -522,12 +542,17 @@ const SmartPlansPricing = {
                             item.total_hours = newTotal;
                             item.totalHours = newTotal;
                         }
+                    } else if (isUnverifiedNeca && diff > tolerance) {
+                        // Record the disagreement for visibility without overriding
+                        stats.unverifiedSkipped = (stats.unverifiedSkipped || 0) + 1;
+                        stats.disagreements.push({ device: deviceKey, ai: aiHours, deterministic: det, source: 'neca_unverified', diffPct: Math.round(diff * 1000) / 10, action: 'ai-preserved' });
                     } else {
                         stats.agreed++;
                     }
                 }
                 item._laborHoursSource = resolution.source;
                 item._laborHoursConfidence = resolution.confidence;
+                if (resolution.verified === false) item._laborHoursUnverified = true;
                 if (resolution.sampleCount) item._laborHoursSampleCount = resolution.sampleCount;
             }
         }

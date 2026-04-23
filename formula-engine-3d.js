@@ -792,6 +792,14 @@ const FormulaEngine3D = {
             grandTotalSELL: this._round(grandSELL),
             grossMargin: grandMargin,
             grossMarginPct: grandMarginPct,
+            // Wave 11 M15 (v5.128.8): initialize calibration flags at result
+            // construction so they're always false for every code path —
+            // even for non-transit bids that skip the calibration block
+            // entirely. Pre-fix, a non-transit result could technically
+            // inherit stale flags from a reused result object. Fresh `const`
+            // scoping makes reuse unlikely but this is defense in depth.
+            _calibrated: false,
+            _calibrationRejected: false,
         };
 
         // ── Transit Benchmark Calibration ──

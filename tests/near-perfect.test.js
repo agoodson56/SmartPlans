@@ -67,9 +67,14 @@ describe('Wave 9 — /api/ai/claude-invoke graceful degrade', () => {
         expect(v >= '2024-06-15').toBe(true);
     });
 
-    it('Wave 10 H6: Claude translator enforces role alternation with bridge turns', () => {
-        expect(CLAUDE_PROXY_SRC).toMatch(/prevRole === role/);
+    it('Wave 11 C4: Claude translator enforces role alternation via final-pass loop (not pair-wise)', () => {
+        // Pre-Wave-11 code was `if (prevRole === role) insert bridge`.
+        // Wave 11 moved to a final-pass loop that bridges every same-role
+        // adjacency found — handles 3+ consecutive same-role turns.
+        expect(CLAUDE_PROXY_SRC).toMatch(/Final-pass alternation enforcement/);
+        expect(CLAUDE_PROXY_SRC).toMatch(/for \(const msg of messages\)/);
         expect(CLAUDE_PROXY_SRC).toMatch(/Understood\./);
+        expect(CLAUDE_PROXY_SRC).toMatch(/messages\.length = 0/);
     });
 
     it('Wave 10 M4: systemInstruction parts are concatenated, not just parts[0]', () => {

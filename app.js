@@ -1764,6 +1764,27 @@ function startNewBid() {
   // Reset estimate link (next save creates new record)
   state.estimateId = null;
 
+  // Wave 11 M14 (v5.128.8): clear Wave 10 state fields that previously
+  // leaked between bids. Pre-fix, a bid that tripped draft mode or had
+  // incomplete wage resolution would carry those flags into the next bid.
+  state._draftModeActive = false;
+  state._draftModeAcknowledged = false;
+  state._claudeFailoverActive = false;
+  state._livePricingStats = null;
+  state._resolvedWageRates = null;
+  state._wageResolutionIncomplete = false;
+  state._wave4Disagreements = null;
+  state._wave9LaborStats = null;
+  state._unansweredClarifications = [];
+  state._unansweredClarificationsAcknowledged = false;
+  state._clarificationTimedOut = false;
+  state._clarificationAckBidId = null; // force a fresh UUID for the next bid
+  state._priorBidCorrections = null;
+  state._priorBenchmarks = null;
+  state._detectedLegendPages = null;
+  state._detectedNotesPages = null;
+  state._deterministicCounts = null;
+
   // Reset supplier & BOM edits
   state.supplierPriceOverrides = {};
   state.manualBomItems = [];
@@ -12713,11 +12734,16 @@ async function runGeminiAnalysis(updateProgress) {
         // different fingerprints, breaking pre-fill + duplicating the learning
         // loop forever. Now: strip dashes/underscores/dots/slashes/quotes,
         // then collapse other non-word chars, then collapse whitespace.
+        // Wave 11 M9 (v5.128.8): broaden punctuation normalization to cover
+        // PDF-extracted quirks (smart quotes, ellipsis, middle dot, NBSP).
         const norm = (s) => String(s || '')
             .trim()
             .toLowerCase()
-            .replace(/[-_\./\\—–'"`]/g, ' ')
-            .replace(/[^\w\s]/g, '')
+            .replace(/[\u00A0]/g, ' ')             // non-breaking space → space
+            .replace(/[\u2018\u2019\u201C\u201D]/g, '') // smart quotes stripped
+            .replace(/[\u2026\u00B7]/g, ' ')        // ellipsis / middle dot → space
+            .replace(/[-_\./\\—–'"`]/g, ' ')       // ASCII punctuation → space
+            .replace(/[^\w\s]/g, '')                // any other non-word → stripped
             .replace(/\s+/g, ' ')
             .slice(0, 200);
         const source = q.source || 'UNKNOWN';
@@ -12997,9 +13023,18 @@ async function runGeminiAnalysis(updateProgress) {
     // Pro model is degraded beyond the configured threshold. Catch that
     // specific error so we can show a structured blocker with a "continue
     // in draft mode" override — instead of the generic crash screen.
+    // Wave 11 M3 (v5.128.8): try/finally ensures the provider override
+    // flag is cleared even if runFullAnalysis throws mid-flight. Pre-fix,
+    // a Claude failover that was set and then the analysis threw would
+    // leave `SmartBrains._providerOverride = 'anthropic'` for the next bid.
     let result;
     try {
-      result = await SmartBrains.runFullAnalysis(state, updateProgress);
+      try {
+        result = await SmartBrains.runFullAnalysis(state, updateProgress);
+      } finally {
+        // Always clear transient provider override so next bid starts clean
+        if (typeof SmartBrains !== 'undefined') SmartBrains._providerOverride = null;
+      }
     } catch (err) {
       if (err && err.code === 'MODEL_HEALTH_GATE') {
         state.analyzing = false;
@@ -13020,7 +13055,11 @@ async function runGeminiAnalysis(updateProgress) {
           state._draftModeAcknowledged = true;
           if (typeof spToast === 'function') spToast('Continuing in DRAFT mode — bid will be watermarked "do not submit"', 'warn');
           // Retry — now the gate lets it through and sets state._draftModeActive
-          result = await SmartBrains.runFullAnalysis(state, updateProgress);
+          try {
+            result = await SmartBrains.runFullAnalysis(state, updateProgress);
+          } finally {
+            if (typeof SmartBrains !== 'undefined') SmartBrains._providerOverride = null;
+          }
         } else {
           if (typeof spToast === 'function') spToast('Analysis cancelled — Pro model degraded. Wait and retry.', 'info');
           render();
@@ -14486,6 +14525,29 @@ async function generateCompleteBidPackage() {
     return;
   }
 
+  // ═══ Wave 11 C6 (v5.128.8) — Prevailing-wage completeness gate ═══
+  // Pre-Wave-11 a CA bid with no county set state._wageResolutionIncomplete
+  // but nothing actually blocked export. Labor ran on generic rates, the
+  // proposal shipped with ~$60-100k underbid on Davis-Bacon, and only a
+  // console.error logged the problem. Now: if the flag is set, block the
+  // export with a clear directive and return — estimator must go back to
+  // Step 0 and pick a county before shipping.
+  if (state._wageResolutionIncomplete) {
+    const wr = state._resolvedWageRates || {};
+    const msg =
+      `🚦 EXPORT BLOCKED — Prevailing wage resolution is incomplete.\n\n` +
+      `Reason: ${wr.reason || 'unknown'}\n` +
+      `${wr.message || 'Return to Step 0 and complete the state/county selection.'}\n\n` +
+      `Shipping this bid now would use generic labor rates instead of the ` +
+      `Davis-Bacon / state prevailing wage, typically underbidding by $60-100k+.\n\n` +
+      `Click OK to return to the bid setup, or Cancel to close this dialog.`;
+    if (confirm(msg)) {
+      // Jump back to Step 0 so estimator can fix it
+      if (typeof goToStep === 'function') goToStep(0);
+    }
+    return;
+  }
+
   // ═══ v5.128.2 (Wave 2B) — Export gating ═══
   // Unanswered HIGH/CRITICAL clarification questions block the proposal
   // download so an estimator can't accidentally ship a bid with an
@@ -14499,8 +14561,21 @@ async function generateCompleteBidPackage() {
   const gatingEnabled = (typeof SmartBrains !== 'undefined' && SmartBrains.config?.clarificationBlockExport !== false);
   if (gatingEnabled) {
     const unanswered = Array.isArray(state._unansweredClarifications) ? state._unansweredClarifications : [];
-    const estimateId = state.estimateId || state._estimateId || 'current';
-    const ackKey = `sp_clarif_ack_${estimateId}`;
+    // Wave 11 C5 (v5.128.8): UUID-based ack key instead of 'current' fallback.
+    // Pre-fix, two bids running back-to-back without an explicit estimateId
+    // both fell back to 'sp_clarif_ack_current' and silently shared the ack.
+    // Bid #2 inherited Bid #1's "ok to ship anyway" and shipped with
+    // unreviewed clarifications. Now every bid without an estimateId gets
+    // its own UUID generated once at first gate-check.
+    let bidKey = state.estimateId || state._estimateId || state._clarificationAckBidId;
+    if (!bidKey) {
+      const rnd = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `bid-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      state._clarificationAckBidId = rnd;
+      bidKey = rnd;
+    }
+    const ackKey = `sp_clarif_ack_${bidKey}`;
     // Restore from sessionStorage if set
     try {
       if (!state._unansweredClarificationsAcknowledged && sessionStorage.getItem(ackKey)) {
