@@ -1148,6 +1148,23 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
   // Uses _computeFullBreakdown (deterministic) — NOT the Financial Engine AI total,
   // which uses a different formula and often produces a lower, inconsistent number.
   _extractGrandTotal(state) {
+    // v5.128.1: Prefer the UNIFIED entry point so V1, V2, and Export always agree.
+    try {
+      if (typeof SmartPlansFinancials !== 'undefined' && typeof SmartPlansExport !== 'undefined') {
+        const analysis = state.aiAnalysis || '';
+        let bom = SmartPlansExport._extractBOMFromAnalysis ? SmartPlansExport._extractBOMFromAnalysis(analysis) : null;
+        if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') bom = SmartPlansExport._applyUserBOMEdits(bom, state);
+        if (bom && typeof SmartPlansExport._applyTransitAdjustments === 'function') SmartPlansExport._applyTransitAdjustments(bom, state);
+        if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
+        const gt = SmartPlansFinancials.grandTotal(state, bom);
+        if (gt?.total > 1000) {
+          if (gt.breakdown) state._bomBreakdown = gt.breakdown;
+          state._bomGrandTotal = gt.total;
+          console.log(`[ProposalGen] Grand total from SmartPlansFinancials (${gt.source}): $${gt.total.toLocaleString()}`);
+          return gt.total;
+        }
+      }
+    } catch (e) { console.warn('[ProposalGen] SmartPlansFinancials delegation failed, falling back:', e); }
     // ALWAYS recompute from BOM to avoid stale cached values from Financial Engine AI
     try {
       if (typeof SmartPlansExport !== 'undefined') {

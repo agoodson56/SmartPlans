@@ -159,6 +159,8 @@ npx wrangler pages dev . --d1 DB=smartplans-db
 
 ## PRICING FORMULA (Single Source of Truth)
 
+**Canonical formula — pinned by `tests/pricing-formula.test.js` (Wave 1, v5.128.1):**
+
 ```
 Materials × (1 + matPct) = matSell
 Labor × (1 + labPct) = labSell
@@ -166,18 +168,27 @@ Equipment × (1 + eqPct) = eqSell
 Subs × (1 + subPct) = subSell
 Burden = laborBase × burdenRate (35% of BASE labor, not sell)
 
-profitSubtotal = matSell + labSell + eqSell + subSell + burden
-contingency = profitSubtotal × 10% (travel excluded)
-grandTotal = profitSubtotal + travel + contingency
+profitSubtotal     = matSell + labSell + eqSell + subSell + burden   (no travel)
+bonds              = profitSubtotal × bondsPct                        (tier-based)
+preContingencyBase = profitSubtotal + bonds
+contingency        = preContingencyBase × contingencyPct              (travel excluded)
+grandTotal         = preContingencyBase + contingency + travel        (travel pass-through)
 ```
 
-### Default Markups (from pricing-database.js):
-- Material: 65%
-- Labor: 65%
-- Equipment: 25%
-- Subcontractor: 15%
-- Burden: 35% of base labor
-- Contingency: 10% of profit subtotal
+Travel is a pass-through: it is never marked up by bonds, never included in the
+contingency base, and added LAST to the grand total.
+
+### Default Markups — SINGLE SOURCE OF TRUTH (v5.128.1):
+Defined in `pricing-database.js` → `PRICING_DB.laborRates.markup` with searchable
+anchor `DEFAULT_MARKUPS_SSOT`. Every other file mirrors these values.
+
+- Material: **50%**
+- Labor: **50%**
+- Equipment: **15%**
+- Subcontractor: **15%**
+- Burden: 35% of BASE labor
+- Contingency: 10% of preContingencyBase
+- Bonds: 1.5% (budget) / 2.0% (mid) / 2.5% (premium)
 
 ### Transit Calibration:
 - Find closest Amtrak bid by camera count

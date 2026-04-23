@@ -127,12 +127,16 @@
 
 ## Markup Defaults
 
+**Source of truth:** `pricing-database.js` → `PRICING_DB.laborRates.markup`
+(searchable anchor: `DEFAULT_MARKUPS_SSOT`). Pinned by
+`tests/pricing-formula.test.js` as of v5.128.1.
+
 | Category | Default Markup |
 |----------|---------------|
-| Material | 15% |
-| Labor | 25% |
-| Equipment | 10% |
-| Subcontractor | 12% |
+| Material | 50% |
+| Labor | 50% |
+| Equipment | 15% |
+| Subcontractor | 15% |
 
 > Markup percentages are editable in the Project Setup step before analysis.
 

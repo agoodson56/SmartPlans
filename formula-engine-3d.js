@@ -875,19 +875,38 @@ const FormulaEngine3D = {
                         const calibratedTarget = this._round(targetTotal * targetMult);
                         const scaleFactor = calibratedTarget / formulaTotal;
 
-                        console.warn(`[3D Engine v2] ⚠️ CALIBRATING ${direction}: formula ${Math.round(Math.abs(deviation - 1) * 100)}% ${direction.toLowerCase()}`);
-                        console.warn(`[3D Engine v2]   Scaling from $${formulaTotal.toLocaleString()} → $${calibratedTarget.toLocaleString()} (factor: ${scaleFactor.toFixed(3)})`);
+                        // ─── CALIBRATION SAFETY BOUNDS ───
+                        // If the scale factor is outside [0.85, 1.20], the most likely
+                        // explanation is a miscounted camera pool (benchmark ≠ scope) or a
+                        // corrupt formula total — NOT that the formula is 30% wrong.
+                        // Calibrating anyway would either undercut the bid (SELL drops below
+                        // COS, negative margin) or double the bid (instantly uncompetitive).
+                        // Safer to skip and let the estimator eyeball the console warning.
+                        const MIN_SCALE = 0.85;
+                        const MAX_SCALE = 1.20;
+                        if (scaleFactor < MIN_SCALE || scaleFactor > MAX_SCALE) {
+                            console.error(`[3D Engine v2] ⛔ CALIBRATION REJECTED — scale factor ${scaleFactor.toFixed(3)} outside safe bounds [${MIN_SCALE}, ${MAX_SCALE}]`);
+                            console.error(`[3D Engine v2]   Likely cause: camera count mismatch or bad benchmark. Keeping formula total $${formulaTotal.toLocaleString()}.`);
+                            result._calibrated = false;
+                            result._calibrationRejected = true;
+                            result._calibrationRejectionReason = `scale factor ${scaleFactor.toFixed(3)} outside [${MIN_SCALE}, ${MAX_SCALE}]`;
+                            result._calibrationAttemptedTarget = calibratedTarget;
+                            result._calibrationBenchmark = benchmark.key;
+                        } else {
+                            console.warn(`[3D Engine v2] ⚠️ CALIBRATING ${direction}: formula ${Math.round(Math.abs(deviation - 1) * 100)}% ${direction.toLowerCase()}`);
+                            console.warn(`[3D Engine v2]   Scaling from $${formulaTotal.toLocaleString()} → $${calibratedTarget.toLocaleString()} (factor: ${scaleFactor.toFixed(3)})`);
 
-                        // Preserve original margin percentage (don't scale COS by SELL factor)
-                        const origMarginPct = result.grandTotalSELL > 0 ? (result.grossMargin / result.grandTotalSELL) : 0.25;
-                        result.grandTotalSELL = calibratedTarget;
-                        result.grandTotalCOS = this._round(calibratedTarget * (1 - origMarginPct));
-                        result.grossMargin = this._round(result.grandTotalSELL - result.grandTotalCOS);
-                        result.grossMarginPct = result.grandTotalSELL > 0 ? this._round((result.grossMargin / result.grandTotalSELL) * 100) : 0;
-                        result._calibrated = true;
-                        result._calibrationTarget = calibratedTarget;
-                        result._calibrationBenchmark = benchmark.key;
-                        result._calibrationScaleFactor = scaleFactor;
+                            // Preserve original margin percentage (don't scale COS by SELL factor)
+                            const origMarginPct = result.grandTotalSELL > 0 ? (result.grossMargin / result.grandTotalSELL) : 0.25;
+                            result.grandTotalSELL = calibratedTarget;
+                            result.grandTotalCOS = this._round(calibratedTarget * (1 - origMarginPct));
+                            result.grossMargin = this._round(result.grandTotalSELL - result.grandTotalCOS);
+                            result.grossMarginPct = result.grandTotalSELL > 0 ? this._round((result.grossMargin / result.grandTotalSELL) * 100) : 0;
+                            result._calibrated = true;
+                            result._calibrationTarget = calibratedTarget;
+                            result._calibrationBenchmark = benchmark.key;
+                            result._calibrationScaleFactor = scaleFactor;
+                        }
                     } else {
                         console.log(`[3D Engine v2]   ✅ Within ±6% of benchmark — no calibration needed`);
                     }

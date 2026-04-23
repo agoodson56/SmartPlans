@@ -74,7 +74,7 @@ export function mockState(overrides = {}) {
     disciplines: ['Structured Cabling', 'CCTV', 'Access Control', 'Fire Alarm'],
     pricingTier: 'mid',
     regionalMultiplier: 'national_average',
-    markup: { material: 50, labor: 50, equipment: 15, subcontractor: 10 },
+    markup: { material: 50, labor: 50, equipment: 15, subcontractor: 15 },
     laborRates: { electrician: 85 },
     includeBurden: true,
     burdenRate: 35,

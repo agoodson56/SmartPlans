@@ -478,10 +478,11 @@ const SmartPlansExport = {
         // Number("") = 0, Number(0) = 0, Number("50") = 50, Number(null) = 0
         // Use Number.isFinite() to allow explicit 0% while defaulting empty/null/undefined
         const _pct = (v, def) => { const n = Number(v); return Number.isFinite(n) && v !== '' && v !== null && v !== undefined ? n : def; };
+        // Defaults mirror DEFAULT_MARKUPS_SSOT in pricing-database.js. Keep in sync.
         const matPct = _pct(cfg.material, 50) / 100;
         const labPct = _pct(cfg.labor, 50) / 100;
         const eqPct = _pct(cfg.equipment, 15) / 100;
-        const subPct = _pct(cfg.subcontractor, 10) / 100;
+        const subPct = _pct(cfg.subcontractor, 15) / 100;
         const rawBurden = _pct(state.pricingConfig?.burdenRate, 35);
         const burdenRate = rawBurden >= 1 ? rawBurden / 100 : rawBurden;
         const includeBurden = state.pricingConfig?.includeBurden !== false;
@@ -522,11 +523,22 @@ const SmartPlansExport = {
         const pricingTier = state.pricingTier || state.pricingConfig?.tier || 'mid';
         const tierBondRates = { budget: 0.015, mid: 0.02, premium: 0.025 };
         const bondsPct = tierBondRates[pricingTier] || 0.02;
-        const preBondSubtotal = this._round(matSell + labSell + eqSell + subSell + burden + travel);
-        const bonds = this._round(preBondSubtotal * bondsPct);
-        let subtotal = this._round(preBondSubtotal + bonds);
-        let contingency = this._round(subtotal * contingencyPct);
-        let grandTotal = this._round(subtotal + contingency);
+        // ─── CANONICAL FORMULA (HANDOFF.md: "contingency × 10% (travel excluded)") ───
+        // Travel is a pass-through: it is NOT marked up by bonds, NOT included in the
+        // contingency base, and added LAST to the grand total. Pre-fix travel was rolled
+        // into preBondSubtotal, causing bonds+contingency to be applied to travel — a
+        // systematic ~12% overstatement of every travel dollar on every bid.
+        //   profitSubtotal     = mat + lab + eq + sub + burden           (no travel)
+        //   bonds              = profitSubtotal × bondsPct
+        //   preContingencyBase = profitSubtotal + bonds
+        //   contingency        = preContingencyBase × contingencyPct     (no travel)
+        //   grandTotal         = preContingencyBase + contingency + travel
+        const profitSubtotal = this._round(matSell + labSell + eqSell + subSell + burden);
+        const bonds = this._round(profitSubtotal * bondsPct);
+        const preContingencyBase = this._round(profitSubtotal + bonds);
+        const contingency = this._round(preContingencyBase * contingencyPct);
+        const subtotal = preContingencyBase; // kept for output-contract compatibility
+        const grandTotal = this._round(preContingencyBase + contingency + travel);
 
         // ── 3D Engine Reference Comparison (logging only, no scaling) ──
         // FormulaEngine3D double-marks AI BOM prices. Log the delta for diagnostics
@@ -3587,9 +3599,10 @@ Return ONLY the JSON array. No other text.`;
 
             const matWithMarkup = materialCost * (1 + matPct / 100);
             const labWithMarkup = laborCost * (1 + labPct / 100);
-            // AUDIT FIX C7: Equipment 15%, subs 10%, travel 0% (pass-through)
+            // AUDIT FIX C7: Equipment 15%, subs 15%, travel 0% (pass-through)
+            // Defaults mirror DEFAULT_MARKUPS_SSOT in pricing-database.js.
             const eqWithMarkup = equipCost * (1 + (bs.equipmentMarkup || 15) / 100);
-            const subWithMarkup = subCost * (1 + (bs.subcontractorMarkup || 10) / 100);
+            const subWithMarkup = subCost * (1 + (bs.subcontractorMarkup || 15) / 100);
             const subtotalWithMarkup = matWithMarkup + labWithMarkup + eqWithMarkup + subWithMarkup + travelCost;
             const contingencyAmt = this._round(subtotalWithMarkup * (contingencyPct / 100));
             const finalPrice = this._round(subtotalWithMarkup + contingencyAmt);
@@ -3651,4 +3664,60 @@ Return ONLY the JSON array. No other text.`;
 // Make available globally
 if (typeof window !== "undefined") {
     window.SmartPlansExport = SmartPlansExport;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UNIFIED GRAND-TOTAL ENTRY POINT — SmartPlansFinancials
+// Every consumer (Export engine, Proposal generator, Results UI card,
+// JSON export) MUST call SmartPlansFinancials.grandTotal(state, bom).
+// This wraps _getFullyLoadedTotal and returns structured output so
+// callers can render the source ("transit calibrated", "BOM formula",
+// etc.) in the UI — no more three-paths-three-answers problem.
+// ═══════════════════════════════════════════════════════════════
+const SmartPlansFinancials = {
+    /**
+     * Compute the authoritative grand total for a bid.
+     * @param {object} state - application state
+     * @param {object} bom   - parsed BOM (may be null/empty)
+     * @returns {{ total: number, source: string, breakdown?: object, calibration?: object }}
+     */
+    grandTotal(state, bom) {
+        const total = SmartPlansExport._getFullyLoadedTotal(state, bom) || 0;
+        // Determine source in priority order (matches _getFullyLoadedTotal)
+        let source = 'unknown';
+        let breakdown = null;
+        let calibration = null;
+        if (state?.bidStrategy?.applied) {
+            source = 'bid-strategy (user-applied per-category markups)';
+        } else if (state?.isTransitRailroad && state?._engine3DResult?.grandTotalSELL > 1000) {
+            const e3d = state._engine3DResult;
+            source = e3d._calibrated
+                ? `FormulaEngine3D (transit, calibrated to ${e3d._calibrationBenchmark})`
+                : e3d._calibrationRejected
+                    ? `FormulaEngine3D (transit, calibration REJECTED: ${e3d._calibrationRejectionReason})`
+                    : 'FormulaEngine3D (transit, within ±6% of benchmark)';
+            if (e3d._calibrated || e3d._calibrationRejected) {
+                calibration = {
+                    applied: !!e3d._calibrated,
+                    rejected: !!e3d._calibrationRejected,
+                    rejectionReason: e3d._calibrationRejectionReason || null,
+                    benchmark: e3d._calibrationBenchmark || null,
+                    target: e3d._calibrationTarget || e3d._calibrationAttemptedTarget || null,
+                    scaleFactor: e3d._calibrationScaleFactor || null,
+                };
+            }
+        } else if (bom?.categories?.length > 0) {
+            source = 'deterministic BOM breakdown (canonical formula)';
+            try { breakdown = SmartPlansExport._computeFullBreakdown(state, bom); } catch (e) { /* non-fatal */ }
+        } else {
+            source = 'Financial Engine AI fallback or raw BOM (no breakdown available)';
+        }
+        return { total, source, breakdown, calibration };
+    },
+};
+if (typeof window !== 'undefined') {
+    window.SmartPlansFinancials = SmartPlansFinancials;
+}
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports.SmartPlansFinancials = SmartPlansFinancials;
 }
