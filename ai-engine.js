@@ -73,6 +73,17 @@ const SmartBrains = {
     timeout: 150000,                         // 2.5 min for standard brains
     proTimeout: 300000,                      // 5 min for Pro (deep reasoning)
     DEBUG: false,                            // FIX #18: Gate verbose logging behind debug flag
+
+    // ═══════════════════════════════════════════════════════════
+    // Wave 2B — HUMAN-IN-THE-LOOP POLICY (v5.128.2)
+    // Policy: whenever the system is uncertain, stop and ask a human.
+    // Below 75% confidence = escalate. Above = trust the AI.
+    // ═══════════════════════════════════════════════════════════
+    clarificationConfidenceThreshold: 0.75,   // stop-and-ask below this (0..1)
+    clarificationSkipTimeoutMs: 15 * 60 * 1000, // 15 min → use AI best guess + flag
+    clarificationPersistAnswers: true,         // save answers to D1 for future pre-fill
+    clarificationBlockExport: true,            // unanswered HIGH/CRITICAL blocks proposal export
+    disputeDisagreementThreshold: 0.20,        // reads differ by >20% → clarification question
   },
 
   // FIX #20: Session-level model blacklist — skip models that consistently 400
@@ -6692,7 +6703,7 @@ You MUST include a "multiplier_map" object in your response showing each prefix 
 If the legend shows 2D and 4D symbols, return: "multiplier_map": {"1D": 1, "2D": 2, "4D": 4}
 If you don't find any multiplier symbols, return: "multiplier_map": {}
 
-═══ AMBIGUOUS SYMBOL REPORTING — REQUIRED FIELDS (v5.126.4) ═══
+═══ AMBIGUOUS SYMBOL REPORTING — REQUIRED FIELDS (v5.128.2) ═══
 When you flag a symbol as ambiguous, the estimator will be asked to resolve
 it via a pop-up dialog. The pop-up MUST include enough context for the
 estimator to physically verify the symbol on the drawings. Without this,
@@ -6700,8 +6711,21 @@ estimators skip the question and the analysis guesses wrong.
 
 For EVERY entry in "ambiguous_symbols", you MUST provide these fields:
   - symbol_id           : short ID you assigned to the symbol (e.g., "S5")
-  - reason              : why the symbol is ambiguous
+  - reason              : one-line summary of why the symbol is ambiguous
+  - reason_detailed     : 2-3 sentence explanation of what makes this
+                          specific symbol hard to classify. Mention the
+                          visual properties (shape, label, size), how it
+                          differs from look-alikes in the legend, and any
+                          supporting text (keynotes, spec refs) you cross-
+                          checked. An estimator should be able to read this
+                          and know exactly what to look at on the plan.
   - could_be            : array of 2-5 possible device types
+  - option_explanations : OBJECT mapping each "could_be" entry to a one-
+                          sentence reason it is plausible. Example:
+                          { "smoke_detector": "Matches the ceiling-mount
+                          symbol used on sheet E-0.2, and the legend entry
+                          SD-180 is a standard smoke-detector label." }
+                          Provide an entry for EVERY option in could_be.
   - legend_label        : the EXACT text shown next to the symbol on the legend
   - visual              : short plain-English description of the symbol shape
   - first_seen_sheet    : the sheet number where the symbol FIRST appears on
@@ -6711,15 +6735,25 @@ For EVERY entry in "ambiguous_symbols", you MUST provide these fields:
                           C-4 near the main entry", "upper-left corner by the
                           nurses' station", "along the east corridor"). Be
                           specific enough that an estimator can scroll to it.
+  - first_seen_x_pct    : REQUIRED — horizontal position of the symbol on
+                          the sheet as a percentage from the LEFT EDGE (0 =
+                          far left, 100 = far right). Integer 0-100.
+  - first_seen_y_pct    : REQUIRED — vertical position of the symbol on the
+                          sheet as a percentage from the TOP EDGE (0 = top,
+                          100 = bottom). Integer 0-100.
+  - confidence          : OPTIONAL — integer 0-100 indicating how confident
+                          you are in the best guess within could_be. Below
+                          75 triggers the stop-and-ask dialog.
   - occurrence_count    : integer estimate of how many times this ambiguous
                           symbol appears across ALL uploaded plan sheets
   - all_sheets          : array of sheet numbers where the symbol appears
                           (e.g., ["E-0.2", "E-1.0", "E-1.1"])
 
-If you cannot confidently determine first_seen_sheet or first_seen_area,
-still provide the symbol as ambiguous but set those fields to null. Do NOT
-omit the symbol from the list — we would rather have a question with no
-location than no question at all.
+If you cannot confidently determine first_seen_sheet, first_seen_area,
+first_seen_x_pct, or first_seen_y_pct, still provide the symbol as
+ambiguous but set those fields to null. Do NOT omit the symbol from the
+list — we would rather have a question with no location than no question
+at all.
 
 Return ONLY valid JSON:
 {
@@ -6732,11 +6766,20 @@ Return ONLY valid JSON:
     {
       "symbol_id": "S5",
       "reason": "Similar shape to smoke detector — differentiated only by a 3-letter label",
-      "could_be": ["smoke_detector", "heat_detector"],
+      "reason_detailed": "On sheet E-0.2 the legend shows two nearly identical 180 sq-unit circular symbols, one labelled SD-180 (smoke) and one labelled HD-180 (heat). The plan symbol uses the SD-180 label but the keynote callout near it references NFPA 72 duct-smoke detectors, which are a different product line. Without confirmation, counts could double or miss ~14 devices.",
+      "could_be": ["smoke_detector", "heat_detector", "duct_smoke_detector"],
+      "option_explanations": {
+        "smoke_detector": "Legend SD-180 is the standard smoke-detector label, and the symbol is ceiling-mounted in conditioned spaces.",
+        "heat_detector": "The 180 sq-unit sizing matches the HD-180 heat-detector entry on the legend.",
+        "duct_smoke_detector": "Adjacent keynote K-14 references NFPA 72 duct smoke detectors in return plenums, which typically use the same symbol."
+      },
       "legend_label": "SD-180",
       "visual": "White circle with 3-letter label, ~180 sq units",
       "first_seen_sheet": "E-0.2",
       "first_seen_area": "Grid C-4, near the main entry lobby",
+      "first_seen_x_pct": 42,
+      "first_seen_y_pct": 68,
+      "confidence": 62,
       "occurrence_count": 14,
       "all_sheets": ["E-0.2", "E-1.0", "E-1.1"]
     }
@@ -10684,14 +10727,23 @@ ${legendContext}
       for (const a of legendAmbig) {
         const sheetList = Array.isArray(a.all_sheets) ? a.all_sheets : [];
         const firstSheet = a.first_seen_sheet || (sheetList[0] || null);
+        // v5.128.2: honor confidence threshold — skip "ambiguous" items the AI is
+        // actually confident about (>= 75%). Everything else still surfaces as HIGH.
+        const conf = Number.isFinite(Number(a.confidence)) ? Number(a.confidence) / 100 : null;
+        const threshold = this.config?.clarificationConfidenceThreshold ?? 0.75;
+        if (conf !== null && conf >= threshold) {
+          if (this.config?.DEBUG) console.log(`[SmartBrains] Skipping ambiguous symbol ${a.symbol_id} — confidence ${Math.round(conf * 100)}% >= threshold ${Math.round(threshold * 100)}%`);
+          continue;
+        }
+        const severity = (conf !== null && conf < 0.50) ? 'critical' : 'high';
         clarificationQuestions.push({
           id: `legend-${a.symbol_id}`,
           category: 'Symbol Identification',
           question: `Symbol "${a.legend_label || a.symbol_id}" is ambiguous: ${a.reason}. It could be: ${(a.could_be || []).join(' or ')}. Which is correct?`,
           options: a.could_be || [],
-          severity: 'high',
+          severity,
           source: 'LEGEND_DECODER',
-          // v5.126.4 location context fields
+          // Location context fields
           symbolId: a.symbol_id || null,
           legendLabel: a.legend_label || a.symbol_id || null,
           visualDescription: a.visual || null,
@@ -10700,6 +10752,12 @@ ${legendContext}
           occurrenceCount: parseInt(a.occurrence_count) || 0,
           allSheets: sheetList,
           reason: a.reason || '',
+          // v5.128.2 — Wave 2B additions
+          reasonDetailed: a.reason_detailed || null,
+          optionExplanations: (a.option_explanations && typeof a.option_explanations === 'object') ? a.option_explanations : null,
+          firstSeenXPct: Number.isFinite(Number(a.first_seen_x_pct)) ? Math.round(Number(a.first_seen_x_pct)) : null,
+          firstSeenYPct: Number.isFinite(Number(a.first_seen_y_pct)) ? Math.round(Number(a.first_seen_y_pct)) : null,
+          confidence: conf,
         });
       }
 
@@ -10828,8 +10886,39 @@ ${legendContext}
           }
         }
       } else {
-        console.warn(`[SmartBrains] Re-Scanner failed — using Consensus Arbitrator values as-is (safe fallback)`);
-        this._brainStatus['TARGETED_RESCANNER'] = { status: 'done', progress: 100, result: { _skipped: true, reason: 'Parse failed — consensus values used' }, error: null };
+        // v5.128.2 (Wave 2B, audit AI-4 fix): Silent re-scanner failure used to
+        // just log a warning and leave the estimator unaware that several
+        // count disputes were never resolved. Now: flag it loudly AND surface
+        // a Checkpoint-B clarification question per unresolved dispute so the
+        // estimator can adjudicate or accept the AI's best guess.
+        console.error(`[SmartBrains] ⛔ Targeted Re-Scanner FAILED — ${disputes.length} dispute(s) remain unresolved`);
+        this._brainStatus['TARGETED_RESCANNER'] = { status: 'done', progress: 100, result: { _skipped: true, reason: 'Re-scanner failed — disputes escalated to human' }, error: null };
+        context._disputesUnresolved = true;
+        state._disputesUnresolved = true;
+        // Escalate each significant dispute to the human-in-the-loop modal.
+        const escalated = [];
+        for (const d of disputes) {
+          const counts = [d.read1, d.read2, d.read3].filter(n => Number.isFinite(Number(n))).map(n => Math.round(Number(n)));
+          const optionSet = Array.from(new Set(counts));
+          if (optionSet.length === 0) continue;
+          escalated.push({
+            id: `dispute-${d.item_name || d.device || d.key || escalated.length}`,
+            category: 'Count Dispute',
+            question: `The three reads disagree on "${d.item_name || d.device || d.key || 'this item'}": ${counts.join(' vs ')}. Targeted Re-Scanner failed to resolve. Which count is correct?`,
+            options: optionSet.map(n => `Use count ${n}`).concat(['Investigate further']),
+            severity: (d.variance_pct || 0) > 30 ? 'critical' : 'high',
+            source: 'TARGETED_RESCANNER',
+            legendLabel: d.item_name || d.device || d.key || null,
+            visualDescription: `Reads: ${counts.join(', ')} (variance ${d.variance_pct || '?'}%)`,
+            firstSeenSheet: d.sheet || null,
+            firstSeenArea: d.area || null,
+            occurrenceCount: Math.max(...counts, 0),
+            reason: `Re-scanner failed after detecting ${d.variance_pct || '?'}% variance between reads`,
+            reasonDetailed: `Symbol Scanner, Shadow Scanner, and Quadrant Scanner each produced a different count for this item (${counts.join(' / ')}). The Targeted Re-Scanner brain was run to break the tie but its output could not be parsed or returned an error. Until you pick the correct count, Material Pricer will use the Consensus Arbitrator's best-guess value, which may differ from reality by more than 20%.`,
+            confidence: null,
+          });
+        }
+        context._pendingDisputeEscalations = escalated;
       }
     } else {
       const skipReason = allDisputes.length === 0 ? 'No disputes' : `${allDisputes.length} minor dispute(s) below threshold — consensus values sufficient`;
@@ -10839,6 +10928,39 @@ ${legendContext}
       }
     }
     console.log(`[SmartBrains] ═══ Wave 1.75 Complete — ${allDisputes.length} dispute(s) total, ${disputes.length} required re-scan ═══`);
+
+    // ═══ CHECKPOINT B (v5.128.2, Wave 2B) ═══
+    // If re-scanner failed and left disputes unresolved, pause here and ask
+    // the human which count to use before Material Pricer locks in prices.
+    const pendingEsc = context._pendingDisputeEscalations || [];
+    if (pendingEsc.length > 0 && state._clarificationCallback) {
+      console.warn(`[SmartBrains] ❓ Checkpoint B — ${pendingEsc.length} unresolved dispute(s) escalated to human`);
+      progressCallback(57, `❓ ${pendingEsc.length} count dispute(s) need your input…`, this._brainStatus);
+      try {
+        const bAnswers = await state._clarificationCallback(pendingEsc);
+        if (bAnswers && typeof bAnswers === 'object') {
+          context._clarificationAnswers = { ...(context._clarificationAnswers || {}), ...bAnswers };
+          state._clarificationAnswers = context._clarificationAnswers;
+          // Apply answers to consensus counts so downstream brains honor them
+          for (const q of pendingEsc) {
+            const chosen = bAnswers[q.id];
+            if (!chosen || typeof chosen !== 'string') continue;
+            const match = chosen.match(/use count\s+(\d+)/i);
+            if (!match) continue;
+            const n = parseInt(match[1], 10);
+            const key = q.legendLabel;
+            if (key && context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts?.[key]) {
+              context.wave1_75.CONSENSUS_ARBITRATOR.consensus_counts[key].consensus = n;
+              context.wave1_75.CONSENSUS_ARBITRATOR.consensus_counts[key].confidence = 'human-resolved';
+              context.wave1_75.CONSENSUS_ARBITRATOR.consensus_counts[key].method = 'checkpoint-b';
+            }
+          }
+          console.log(`[SmartBrains] ✅ Checkpoint B — ${Object.keys(bAnswers).length} dispute(s) resolved by estimator`);
+        }
+      } catch (e) {
+        console.warn('[SmartBrains] Checkpoint B callback failed — continuing with consensus values:', e.message);
+      }
+    }
 
     // ═══ AUTO-DETECT MISSING DISCIPLINES from consensus counts & equipment schedules ═══
     // If the drawings show Access Control, CCTV, etc. but user didn't select them, add them now.

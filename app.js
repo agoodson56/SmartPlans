@@ -12355,21 +12355,117 @@ async function runGeminiAnalysis(updateProgress) {
       console.warn('[SmartPlans] Could not compute office distance:', e.message);
     }
 
+    // ═══ CLARIFICATION PERSISTENCE HELPERS (v5.128.2, Wave 2B) ═══
+    // A clarification "fingerprint" is a normalized key that identifies the
+    // same ambiguity across bids: source + legend label + visual description
+    // (plus any other source-specific stable keys). When two bids produce
+    // identical fingerprints, the second bid's modal pre-fills from the first
+    // bid's answer.
+    function _clarificationFingerprint(q) {
+        if (!q) return '';
+        const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 200);
+        const source = q.source || 'UNKNOWN';
+        const label = norm(q.legendLabel || q.symbolId);
+        const visual = norm(q.visualDescription);
+        const category = norm(q.category);
+        return `${source}|${label}|${visual}|${category}`;
+    }
+
+    async function _persistClarificationAnswers(state, questions, answers) {
+        if (!state?.pricingConfig?.clarificationPersistAnswers && typeof SmartBrains !== 'undefined' &&
+            SmartBrains.config?.clarificationPersistAnswers === false) return;
+        const records = [];
+        for (const q of questions) {
+            const chosen = answers[q.id];
+            if (!chosen) continue;
+            records.push({
+                fingerprint: _clarificationFingerprint(q),
+                question_id: q.id,
+                category: q.category,
+                source: q.source,
+                legend_label: q.legendLabel,
+                visual: q.visualDescription,
+                first_seen_sheet: q.firstSeenSheet,
+                chosen_option: chosen,
+                options_json: Array.isArray(q.options) ? JSON.stringify(q.options) : null,
+                confidence: Number.isFinite(q.confidence) ? q.confidence : null,
+                estimate_id: state?.estimateId || null,
+                project_name: state?.projectName || null,
+            });
+        }
+        if (records.length === 0) return;
+        try {
+            await fetch('/api/clarification-answers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...(typeof _sessionToken !== 'undefined' && _sessionToken ? { 'X-Session-Token': _sessionToken } : {}), ...(typeof _appToken !== 'undefined' && _appToken ? { 'X-App-Token': _appToken } : {}) },
+                body: JSON.stringify({ answers: records }),
+            });
+        } catch (e) { console.warn('[Clarification] persist fetch failed:', e.message); }
+    }
+
+    async function _lookupPriorAnswers(questions) {
+        const results = {};
+        if (!Array.isArray(questions) || questions.length === 0) return results;
+        await Promise.all(questions.map(async (q) => {
+            const fp = _clarificationFingerprint(q);
+            if (!fp || fp.split('|').filter(Boolean).length < 2) return;
+            try {
+                const res = await fetch(`/api/clarification-answers?fingerprint=${encodeURIComponent(fp)}&limit=1`, {
+                    headers: { ...(typeof _sessionToken !== 'undefined' && _sessionToken ? { 'X-Session-Token': _sessionToken } : {}), ...(typeof _appToken !== 'undefined' && _appToken ? { 'X-App-Token': _appToken } : {}) },
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                const prior = (data.answers || [])[0];
+                if (prior?.chosen_option) results[q.id] = prior.chosen_option;
+            } catch (_) { /* non-fatal */ }
+        }));
+        return results;
+    }
+
     // ═══ INTERACTIVE CLARIFICATION CALLBACK ═══
     // When the analysis engine encounters ambiguities after Wave 1, this callback
     // pauses the analysis and shows questions to the estimator via a modal dialog.
+    // v5.128.2 (Wave 2B): Pre-fills answers from prior bids when the fingerprint
+    // matches, adds 15-minute timeout, persists new answers for future pre-fill,
+    // and records unanswered questions on state for export gating.
     state._clarificationCallback = (questions) => {
-      return new Promise((resolve) => {
+      return new Promise(async (resolve) => {
         const highPriority = questions.filter(q => q.severity === 'high' || q.severity === 'critical');
         if (highPriority.length === 0) { resolve({}); return; }
 
-        // v5.126.4: Rebuilt modal with LOCATION CONTEXT.
-        // Each question now shows: sheet number, area description, occurrence
-        // count, legend label + visual description, and a list of all sheets
-        // where the symbol appears — so the estimator can physically open
-        // their PDF viewer and verify before answering.
+        // v5.128.2 (Wave 2B): Pre-fill answers from prior bids where the fingerprint matches.
+        // If every question has a prior answer, we resolve automatically without popping the modal.
+        let priorAnswers = {};
+        try { priorAnswers = await _lookupPriorAnswers(highPriority); } catch (_) { /* non-fatal */ }
+        const stillNeedingHuman = highPriority.filter(q => !priorAnswers[q.id]);
+        if (stillNeedingHuman.length === 0 && Object.keys(priorAnswers).length > 0) {
+            console.log(`[Clarification] ✅ All ${highPriority.length} question(s) pre-filled from prior bids — skipping modal`);
+            if (typeof spToast === 'function') {
+                spToast(`Pre-filled ${highPriority.length} clarification(s) from prior bids`, 'success');
+            }
+            resolve(priorAnswers);
+            return;
+        }
+        if (Object.keys(priorAnswers).length > 0) {
+            console.log(`[Clarification] Pre-filled ${Object.keys(priorAnswers).length} of ${highPriority.length} questions from prior bids`);
+        }
+
+        // v5.128.2 (Wave 2B): Modal carries coordinates (x%/y%), detailed reason,
+        // per-option explanation tooltips, and confidence-score pill. All of these
+        // map directly to fields the LEGEND_DECODER schema now requires.
         const _formatSheetBadge = (sheet) => sheet ? `<span style="display:inline-block;padding:4px 10px;border-radius:6px;background:#EBB328;color:#0F2942;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:800;letter-spacing:0.5px;">${esc(sheet)}</span>` : `<span style="display:inline-block;padding:4px 10px;border-radius:6px;background:#475569;color:#cbd5e1;font-size:11px;font-style:italic;">sheet unknown</span>`;
         const _formatArea = (area) => area ? `<span style="color:#e2e8f0;font-size:12.5px;">at <strong style="color:#ffffff;">${esc(area)}</strong></span>` : `<span style="color:#94a3b8;font-size:11px;font-style:italic;">location not identified</span>`;
+        const _formatCoordPill = (x, y) => {
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return '';
+            // Display as "@ 42% × 68%" — x from left, y from top
+            return `<span title="From top-left corner of the sheet. Open the PDF and jump to roughly ${x}% across, ${y}% down." style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;background:rgba(56,189,248,0.18);color:#7dd3fc;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.3px;">📍 ${x}% × ${y}%</span>`;
+        };
+        const _formatConfPill = (conf) => {
+            if (!Number.isFinite(conf)) return '';
+            const pct = Math.round(conf * 100);
+            const color = pct < 50 ? '#ef4444' : (pct < 75 ? '#f59e0b' : '#22c55e');
+            return `<span title="AI's confidence in its best guess. Below 75% = stop-and-ask." style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.08);color:${color};font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.3px;">⚖️ ${pct}% conf</span>`;
+        };
 
         const modalHtml = `
           <div id="clarification-modal" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -12380,12 +12476,14 @@ async function runGeminiAnalysis(updateProgress) {
               ${highPriority.map((q, i) => `
                 <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:0;margin-bottom:14px;overflow:hidden;">
 
-                  <!-- Location strip: sheet + area + occurrence count -->
+                  <!-- Location strip: sheet + area + coordinates + confidence -->
                   <div style="background:linear-gradient(135deg,#0F2942,#237078);padding:12px 18px;border-bottom:1px solid #334155;">
                     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
                       <span style="font-size:10px;font-weight:800;color:#EBB328;letter-spacing:2px;text-transform:uppercase;">Look on</span>
                       ${_formatSheetBadge(q.firstSeenSheet)}
+                      ${_formatCoordPill(q.firstSeenXPct, q.firstSeenYPct)}
                       ${_formatArea(q.firstSeenArea)}
+                      ${_formatConfPill(q.confidence)}
                       ${q.occurrenceCount > 0 ? `<span style="margin-left:auto;padding:3px 10px;border-radius:10px;background:rgba(235,179,40,0.15);color:#EBB328;font-size:11px;font-weight:700;letter-spacing:0.5px;">×${q.occurrenceCount} occurrences</span>` : ''}
                     </div>
                     ${Array.isArray(q.allSheets) && q.allSheets.length > 1 ? `
@@ -12404,11 +12502,32 @@ async function runGeminiAnalysis(updateProgress) {
                         ${q.visualDescription ? `<div style="flex:1;padding-left:${q.legendLabel ? '12px' : '0'};border-left:${q.legendLabel ? '1px solid #334155' : 'none'};"><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Visual</div><div style="color:#e2e8f0;font-size:12.5px;line-height:1.45;">${esc(q.visualDescription)}</div></div>` : ''}
                       </div>` : ''}
 
+                    ${q.reasonDetailed ? `
+                      <div style="margin-bottom:12px;padding:10px 12px;background:rgba(99,102,241,0.08);border-left:3px solid #6366f1;border-radius:0 8px 8px 0;">
+                        <div style="font-size:9px;color:#a5b4fc;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px;font-weight:800;">Why this is ambiguous</div>
+                        <div style="color:#e2e8f0;font-size:12.5px;line-height:1.55;">${esc(q.reasonDetailed)}</div>
+                      </div>` : ''}
+
                     <div style="color:#ffffff;font-size:14.5px;line-height:1.55;margin-bottom:14px;font-weight:500;">${esc(q.question || '')}</div>
 
                     <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                      ${(q.options || []).map((opt) => `<button class="clarify-option" data-qid="${esc(q.id || '')}" data-val="${esc(String(opt || ''))}" style="padding:10px 16px;border-radius:8px;border:2px solid #475569;background:#0f172a;color:#ffffff;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.15s;">${esc(String(opt || ''))}</button>`).join('')}
+                      ${(q.options || []).map((opt) => {
+                        const why = q.optionExplanations && typeof q.optionExplanations === 'object' ? q.optionExplanations[opt] : '';
+                        const tooltip = why ? ` title="${esc(String(why))}"` : '';
+                        return `<button class="clarify-option" data-qid="${esc(q.id || '')}" data-val="${esc(String(opt || ''))}"${tooltip} style="padding:10px 16px;border-radius:8px;border:2px solid #475569;background:#0f172a;color:#ffffff;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.15s;">${esc(String(opt || ''))}</button>`;
+                      }).join('')}
                     </div>
+                    ${q.optionExplanations && Object.keys(q.optionExplanations).length > 0 ? `
+                      <details style="margin-top:10px;">
+                        <summary style="cursor:pointer;font-size:11px;color:#94a3b8;font-weight:600;user-select:none;">▸ Why each option is plausible</summary>
+                        <div style="margin-top:8px;padding:8px 12px;background:#0f172a;border-radius:6px;border:1px solid #334155;">
+                          ${Object.entries(q.optionExplanations).map(([opt, why]) => `
+                            <div style="margin-bottom:6px;font-size:11.5px;line-height:1.5;">
+                              <span style="color:#EBB328;font-family:'JetBrains Mono',monospace;font-weight:700;">${esc(opt)}</span>
+                              <span style="color:#cbd5e1;"> — ${esc(String(why || ''))}</span>
+                            </div>`).join('')}
+                        </div>
+                      </details>` : ''}
                   </div>
                 </div>
               `).join('')}
@@ -12427,7 +12546,9 @@ async function runGeminiAnalysis(updateProgress) {
         wrapper.innerHTML = modalHtml;
         document.body.appendChild(wrapper.firstElementChild);
 
-        const answers = {};
+        // Seed with pre-filled answers from prior bids so the estimator only has to
+        // confirm rather than re-answer every time the same symbol shows up.
+        const answers = { ...priorAnswers };
         const modal = document.getElementById('clarification-modal');
 
         // Handle option clicks
@@ -12445,8 +12566,42 @@ async function runGeminiAnalysis(updateProgress) {
           btn.style.borderColor = 'var(--accent-sky,#38bdf8)';
         });
 
-        document.getElementById('clarify-skip')?.addEventListener('click', () => { modal.remove(); resolve({}); });
-        document.getElementById('clarify-submit')?.addEventListener('click', () => { modal.remove(); resolve(answers); });
+        document.getElementById('clarify-skip')?.addEventListener('click', () => {
+            clearTimeout(_timeoutHandle);
+            modal.remove();
+            state._unansweredClarifications = (state._unansweredClarifications || []).concat(highPriority.map(q => q.id));
+            resolve({ __skipped: true });
+        });
+        document.getElementById('clarify-submit')?.addEventListener('click', () => {
+            clearTimeout(_timeoutHandle);
+            modal.remove();
+            // Any question the estimator did not answer (i.e. not in `answers`)
+            // is recorded as unanswered so the Export gate can enforce it.
+            const unanswered = highPriority.filter(q => !answers[q.id]).map(q => q.id);
+            if (unanswered.length > 0) {
+                state._unansweredClarifications = (state._unansweredClarifications || []).concat(unanswered);
+            }
+            // Persist answers to D1 so the same ambiguity on a future bid can pre-fill.
+            _persistClarificationAnswers(state, highPriority, answers).catch(err => console.warn('[Clarification] Persist failed (non-fatal):', err.message));
+            resolve(answers);
+        });
+
+        // v5.128.2 (Wave 2B) — 15-minute skip timeout.
+        // If the estimator walks away, use AI best guess so analysis can finish.
+        // Unanswered questions get recorded on state for the Results page banner.
+        const timeoutMs = (typeof SmartBrains !== 'undefined' && SmartBrains.config?.clarificationSkipTimeoutMs)
+            || 15 * 60 * 1000;
+        const _timeoutHandle = setTimeout(() => {
+            console.warn(`[Clarification] ${Math.round(timeoutMs / 60000)}-minute timeout elapsed — using AI best guess for unanswered questions`);
+            const unanswered = highPriority.filter(q => !answers[q.id]).map(q => q.id);
+            state._unansweredClarifications = (state._unansweredClarifications || []).concat(unanswered);
+            state._clarificationTimedOut = true;
+            if (typeof spToast === 'function') {
+                spToast(`Clarification timeout — used AI best guess for ${unanswered.length} question(s). Review on the Results page.`, 'warn');
+            }
+            if (modal && modal.parentNode) modal.remove();
+            resolve(answers);
+        }, timeoutMs);
       });
     };
 
@@ -13906,6 +14061,32 @@ async function generateCompleteBidPackage() {
   if (!state.analysisComplete && !state.aiAnalysis) {
     spToast('Run analysis first before generating a bid package', 'warning');
     return;
+  }
+
+  // ═══ v5.128.2 (Wave 2B) — Export gating ═══
+  // Unanswered HIGH/CRITICAL clarification questions block the proposal
+  // download so an estimator can't accidentally ship a bid with an
+  // unresolved ambiguity baked in. The estimator must either answer the
+  // question, accept the AI best guess, or explicitly acknowledge the gap.
+  const gatingEnabled = (typeof SmartBrains !== 'undefined' && SmartBrains.config?.clarificationBlockExport !== false);
+  if (gatingEnabled) {
+    const unanswered = Array.isArray(state._unansweredClarifications) ? state._unansweredClarifications : [];
+    const acknowledged = state._unansweredClarificationsAcknowledged === true;
+    if (unanswered.length > 0 && !acknowledged) {
+      const proceed = confirm(
+        `🚦 Export blocked: ${unanswered.length} clarification question(s) were skipped or timed out ` +
+        `during analysis and have not been answered.\n\n` +
+        `Proceeding will ship a proposal that uses the AI's best guess for those items. ` +
+        `Revenue impact per unanswered question is typically $5k–$50k.\n\n` +
+        `Recommended: close this dialog, scroll to the "Open Uncertainties" card on the ` +
+        `Results page, and answer each one.\n\n` +
+        `Click OK to ACKNOWLEDGE the gap and ship anyway (this choice will be logged).\n` +
+        `Click Cancel to go answer the questions first.`
+      );
+      if (!proceed) return;
+      state._unansweredClarificationsAcknowledged = true;
+      console.warn(`[Export] User acknowledged ${unanswered.length} unanswered clarification(s) and chose to ship anyway`);
+    }
   }
 
   // Build progress overlay

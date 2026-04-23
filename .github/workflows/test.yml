@@ -51,6 +51,7 @@ jobs:
             tests/keynote-expansion.test.js \
             tests/match-line.test.js \
             tests/pricing-formula.test.js \
-            tests/amtrak-golden-bids.test.js
+            tests/amtrak-golden-bids.test.js \
+            tests/human-in-the-loop.test.js
         env:
           CI: true
