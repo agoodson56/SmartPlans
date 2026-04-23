@@ -4997,11 +4997,44 @@ HOW TO APPLY:
 5. Add a top-level "scope_adjustments_applied" array in your output listing each correction you made so downstream brains can audit it
 ` : '';
 
+        // ─── Wave 8 (v5.128.5) — Estimator Feedback Loop Block ───
+        // Injects patterns learned from past bid_corrections for the same
+        // project_type + discipline so Material Pricer stops making the
+        // same mistake twice. The loop = estimator edits → DB → prompt.
+        const priorCorrections = context._priorBidCorrections || [];
+        const correctionsBlock = priorCorrections.length > 0 ? `
+
+═══ LEARNED FROM PAST ESTIMATOR EDITS (v5.128.5 Feedback Loop) ═══
+On prior ${context.projectType || 'similar'} bids, estimators corrected your output for these items.
+Apply these lessons now — do NOT repeat the same mistakes:
+
+${priorCorrections.slice(0, 30).map(c => {
+    const dir = Number(c.delta_pct) > 0 ? 'RAISED' : 'LOWERED';
+    const field = c.field_changed === 'qty' ? 'qty' : 'unit cost';
+    const delta = Math.abs(Number(c.delta_pct) || 0).toFixed(1);
+    return `  • "${c.item_name}" (${c.discipline || 'any'}) — estimators ${dir} the ${field} by ${delta}% (${c.original_value} → ${c.corrected_value}) on ${c.project_name || 'previous bid'}`;
+}).join('\n')}
+
+For the items above, start at the CORRECTED values, not your usual default. If your training or context
+suggests a different number, override yourself with the estimator's corrected history — they have
+ground-truth actuals you don't.
+` : '';
+        // ─── Wave 8 benchmark block — compare to historical per-item actuals ───
+        const benchmarks = context._priorBenchmarks || [];
+        const benchmarksBlock = benchmarks.length > 0 ? `
+
+═══ HISTORICAL UNIT-COST BENCHMARKS (from project_actuals rollup) ═══
+${benchmarks.slice(0, 20).map(b => `  • ${b.item_name} — avg $${Number(b.avg_unit_cost || 0).toFixed(2)} (min $${Number(b.min_unit_cost || 0).toFixed(2)}, max $${Number(b.max_unit_cost || 0).toFixed(2)}, n=${b.sample_count})`).join('\n')}
+
+Use these as a sanity check. If your unit cost is outside ±25% of the benchmark average and n≥5,
+add a "benchmark_divergence_note" field in your output explaining why THIS bid differs.
+` : '';
+
         return `You are a CONSTRUCTION MATERIAL PRICING SPECIALIST. Calculate exact material costs.
 
 PROJECT: ${context.projectName}
 PRICING TIER: ${tier.toUpperCase()} | REGION: ${regionKey} (${regionMult}× multiplier)
-MATERIAL MARKUP: ${context.markup?.material || 50}%${scopeBlock}
+MATERIAL MARKUP: ${context.markup?.material || 50}%${scopeBlock}${correctionsBlock}${benchmarksBlock}
 ${bp.total_gross_sf ? `\n═══ BUILDING PROFILE (from Building Profiler — use for validation) ═══
 Building Type: ${bp.building_type || 'unknown'} ${bp.building_subtype ? '(' + bp.building_subtype + ')' : ''}
 Total SF: ${(bp.total_gross_sf || 0).toLocaleString()} | Floors: ${bp.num_floors || '?'} | Rooms: ${bp.total_rooms || '?'} | Doors: ${bp.total_doors || '?'}
@@ -9822,6 +9855,39 @@ ${legendContext}
     console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
     console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
 
+    // ═══ WAVE 8 (v5.128.5) — ESTIMATOR FEEDBACK LOOP PRELOAD ═══════════════
+    // Pull the most recent bid_corrections for this project_type + each
+    // selected discipline, and the current cost_benchmarks snapshot.
+    // Both get injected into Material Pricer's prompt so the AI starts
+    // from what real estimators corrected on past bids of this type —
+    // not from its generic priors.
+    try {
+      const projectType = state.projectType || '';
+      const disciplines = Array.isArray(state.disciplines) ? state.disciplines : [];
+      const headers = this._authHeaders();
+      const corrPromises = [];
+      // Fetch up to 25 corrections per discipline, capped at 150 total
+      if (projectType && disciplines.length > 0) {
+        for (const disc of disciplines.slice(0, 6)) {
+          const url = `/api/bid-corrections?project_type=${encodeURIComponent(projectType)}&discipline=${encodeURIComponent(disc)}&limit=25`;
+          corrPromises.push(fetch(url, { headers }).then(r => r.ok ? r.json() : { corrections: [] }).catch(() => ({ corrections: [] })));
+        }
+      } else if (projectType) {
+        corrPromises.push(fetch(`/api/bid-corrections?project_type=${encodeURIComponent(projectType)}&limit=100`, { headers }).then(r => r.ok ? r.json() : { corrections: [] }).catch(() => ({ corrections: [] })));
+      }
+      const bmPromise = fetch('/api/benchmarks', { headers }).then(r => r.ok ? r.json() : { benchmarks: [] }).catch(() => ({ benchmarks: [] }));
+      const [corrResults, bmResult] = await Promise.all([Promise.all(corrPromises), bmPromise]);
+      const merged = [];
+      for (const r of corrResults) merged.push(...(r.corrections || []));
+      state._priorBidCorrections = merged.slice(0, 150);
+      state._priorBenchmarks = (bmResult.benchmarks || []).slice(0, 200);
+      console.log(`[SmartBrains] 🔁 Wave 8 feedback loop — loaded ${state._priorBidCorrections.length} prior correction(s), ${state._priorBenchmarks.length} benchmark row(s)`);
+    } catch (w8PreErr) {
+      console.warn('[SmartBrains] Wave 8 preload errored non-fatally:', w8PreErr?.message || w8PreErr);
+      state._priorBidCorrections = state._priorBidCorrections || [];
+      state._priorBenchmarks = state._priorBenchmarks || [];
+    }
+
     // ═══ WAVE 4.5 (v5.128.3) — MODEL-HEALTH PRE-FLIGHT ═══════════════════
     // Accuracy-critical bids MUST run on Gemini 3.1 Pro. When Pro goes down
     // and brains silently fall back to Flash, Sacramento dropped from
@@ -9985,6 +10051,9 @@ ${legendContext}
       // Pre-computed distance to nearest 3D office (injected into AI prompts to prevent incorrect travel costs)
       nearestOfficeDistance: state._nearestOfficeDistance ?? undefined,
       nearestOfficeName: state._nearestOfficeName ?? undefined,
+      // Wave 8 (v5.128.5) — estimator feedback loop inputs preloaded earlier
+      _priorBidCorrections: state._priorBidCorrections || [],
+      _priorBenchmarks: state._priorBenchmarks || [],
       wave0: null, wave1: null, wave1_5: null, wave1_75: null,
       wave2: null, wave2_25: null, wave2_5_fin: null, wave2_75: null,
       wave3: null, wave3_5: null, wave3_75: null,

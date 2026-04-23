@@ -54,6 +54,7 @@ jobs:
             tests/amtrak-golden-bids.test.js \
             tests/human-in-the-loop.test.js \
             tests/accuracy-floor.test.js \
-            tests/live-pricing-wages.test.js
+            tests/live-pricing-wages.test.js \
+            tests/learning-loop.test.js
         env:
           CI: true

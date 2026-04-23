@@ -4186,6 +4186,138 @@ function scrollContentTop() {
 
 
 // ═══════════════════════════════════════════════════════════════
+// WAVE 8 (v5.128.5) — Learning-loop UI: drift alert + accuracy dashboard
+//
+// Both panels pull from D1 via the new endpoints:
+//   GET /api/benchmarks?category=<category>
+//   GET /api/accuracy-dashboard?project_type=<type>
+// They render into reserved divs on Step 7 (#wave8-drift-alert and
+// #wave8-accuracy-dashboard). A no-op if the endpoints return nothing
+// (fresh installs with no actuals yet — common for the first few bids).
+// ═══════════════════════════════════════════════════════════════
+async function _loadWave8Panels() {
+  const driftEl = document.getElementById('wave8-drift-alert');
+  const dashEl = document.getElementById('wave8-accuracy-dashboard');
+  if (!driftEl && !dashEl) return;
+
+  // ── Pull the accuracy dashboard first (one call covers both panels) ──
+  const projectType = state.projectType || '';
+  const url = projectType
+    ? `/api/accuracy-dashboard?project_type=${encodeURIComponent(projectType)}`
+    : `/api/accuracy-dashboard`;
+  let data = null;
+  try {
+    const res = await fetch(url, { headers: authHeaders() });
+    if (res.ok) data = await res.json();
+  } catch (e) { /* non-fatal */ }
+
+  // ── Drift alert: compare current bid vs rolling overall variance ──
+  if (driftEl && data?.rolling) {
+    driftEl.innerHTML = _renderWave8DriftAlert(data);
+  }
+
+  // ── Accuracy dashboard card ──
+  if (dashEl) {
+    dashEl.innerHTML = _renderWave8Dashboard(data, projectType);
+    dashEl.dataset.loaded = '1';
+  }
+}
+
+function _renderWave8DriftAlert(data) {
+  const rolling = data.rolling || {};
+  if (!rolling.line_count || rolling.line_count < 5) return ''; // not enough data yet
+  const bidTotal = (typeof SmartPlansFinancials !== 'undefined' && typeof SmartPlansExport !== 'undefined')
+    ? (() => {
+        try {
+          const analysis = state.aiAnalysis || '';
+          let bom = SmartPlansExport._extractBOMFromAnalysis ? SmartPlansExport._extractBOMFromAnalysis(analysis) : null;
+          if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') bom = SmartPlansExport._applyUserBOMEdits(bom, state);
+          const gt = SmartPlansFinancials.grandTotal(state, bom);
+          return gt?.total || 0;
+        } catch (_) { return 0; }
+      })()
+    : 0;
+  if (bidTotal <= 0) return '';
+
+  // Compare this bid's total vs the rolling avg_total_per_project the
+  // dashboard implies. We don't have "per project avg bid" directly, so
+  // use the overall signed variance as a directional gut check:
+  //   if rolling shows bids HISTORICALLY ran high by 8%, and this bid is
+  //   sized similarly, prompt the estimator to reconsider.
+  const signed = Number(rolling.avg_signed_variance_pct) || 0;
+  const abs = Math.abs(signed);
+  if (abs < 10) return ''; // below threshold — no alert
+  const direction = signed > 0 ? 'OVER-BID' : 'UNDER-BID';
+  const color = signed > 0 ? '#f59e0b' : '#ef4444';
+  const bg = signed > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(239,68,68,0.08)';
+  const n = rolling.line_count;
+  const accPct = Number(rolling.accuracy_pct || 0).toFixed(1);
+  return `
+    <div class="info-card" style="margin-bottom:12px;border-left:4px solid ${color};background:${bg};padding:12px 16px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <span style="font-size:18px;">📉</span>
+        <span style="font-weight:800;color:${color};font-size:14px;letter-spacing:0.3px;">DRIFT ALERT — historical bids ${direction} actuals by ${abs.toFixed(1)}%</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary,#cbd5e1);line-height:1.55;">
+        Across ${n} past actuals for this project type, bids ran ${direction === 'OVER-BID' ? 'above' : 'below'} actual cost by an average of ${abs.toFixed(1)}%. Rolling accuracy: <strong>${accPct}%</strong>. ${signed > 0 ? 'Consider trimming ~' + abs.toFixed(0) + '% to stay competitive.' : 'Consider adding ' + abs.toFixed(0) + '% buffer to protect margin.'} Review the BOM below against recent actuals before submitting.
+      </div>
+    </div>`;
+}
+
+function _renderWave8Dashboard(data, projectType) {
+  if (!data || !data.rolling || data.rolling.line_count === 0) {
+    return `
+      <div class="info-card" style="margin-bottom:12px;border-left:3px solid #6366f1;background:rgba(99,102,241,0.04);padding:12px 16px;">
+        <div style="font-weight:700;font-size:13px;color:#a5b4fc;margin-bottom:4px;">📊 Accuracy Dashboard — no data yet</div>
+        <div style="font-size:11.5px;color:var(--text-secondary,#94a3b8);line-height:1.5;">
+          When you record project actuals via the Actuals tab on a completed estimate, this panel will show rolling bid-vs-actual variance, worst-drift categories, and win rate. Each new bid after that sees more informed prompts and tighter benchmarks.
+        </div>
+      </div>`;
+  }
+  const r = data.rolling;
+  const acc = Number(r.accuracy_pct || 0);
+  const accColor = acc >= 96 ? '#22c55e' : acc >= 90 ? '#eab308' : '#ef4444';
+  const worst = Array.isArray(data.worstCategories) ? data.worstCategories.slice(0, 5) : [];
+  const winPct = data.winRateProjectType != null ? data.winRateProjectType
+    : (data.winRate != null ? data.winRate : null);
+  const winLabel = data.winRateProjectType != null
+    ? `win rate in ${projectType}`
+    : 'overall win rate';
+  return `
+    <div class="info-card" style="margin-bottom:12px;border-left:4px solid #6366f1;background:rgba(99,102,241,0.06);padding:14px 16px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:16px;">📊</span>
+        <span style="font-weight:800;font-size:13px;color:#a5b4fc;letter-spacing:0.5px;text-transform:uppercase;">Accuracy Dashboard — learning loop</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));gap:10px;margin-bottom:10px;">
+        <div style="padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+          <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Rolling accuracy</div>
+          <div style="font-size:22px;font-weight:800;color:${accColor};margin-top:2px;">${acc.toFixed(1)}%</div>
+          <div style="font-size:10px;color:#64748b;">${r.line_count} line-item actuals</div>
+        </div>
+        <div style="padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+          <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Overall variance</div>
+          <div style="font-size:22px;font-weight:800;color:${Math.abs(r.overall_variance_pct || 0) < 5 ? '#22c55e' : '#f59e0b'};margin-top:2px;">${(r.overall_variance_pct || 0) > 0 ? '+' : ''}${Number(r.overall_variance_pct || 0).toFixed(1)}%</div>
+          <div style="font-size:10px;color:#64748b;">bids vs actuals, signed</div>
+        </div>
+        ${winPct != null ? `
+        <div style="padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+          <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Win rate</div>
+          <div style="font-size:22px;font-weight:800;color:#22d3ee;margin-top:2px;">${Number(winPct).toFixed(1)}%</div>
+          <div style="font-size:10px;color:#64748b;">${esc(winLabel)}</div>
+        </div>` : ''}
+      </div>
+      ${worst.length > 0 ? `
+        <div style="padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);">
+          <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Worst-drift categories (avg abs variance)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${worst.map(w => `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:14px;background:rgba(239,68,68,0.12);color:#fca5a5;font-size:11px;font-weight:600;">${esc(w.category || 'Uncategorized')} <span style="color:#fecaca;opacity:0.7;">${Number(w.avg_abs_variance_pct).toFixed(1)}%</span></span>`).join('')}
+          </div>
+        </div>` : ''}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // WAVE 7 (v5.128.4) — State/County picker render helpers
 //
 // Driven by prevailing-wages-ca.js (CA_PREVAILING_WAGES) and
@@ -9346,6 +9478,10 @@ function renderStep7(container) {
 
     ${failedBrainsBanner}
     ${sheetFilterBanner}
+    <!-- Wave 8 (v5.128.5): Drift alert + accuracy dashboard.
+         Two IDs reserved here so async fetches can target them without a re-render. -->
+    <div id="wave8-drift-alert"></div>
+    <div id="wave8-accuracy-dashboard" data-loaded="0"></div>
     ${(() => {
       const ss = state._scopeSummary;
       if (!ss || (ss.inScope.length === 0 && ss.outScope.length === 0)) return '';
@@ -9965,6 +10101,11 @@ function renderStep7(container) {
   if (typeof lucide !== 'undefined') {
     try { lucide.createIcons(); } catch(e) { console.warn('Lucide createIcons failed:', e); }
   }
+
+  // Wave 8 (v5.128.5): load drift alert + accuracy dashboard asynchronously
+  // so they don't block the initial results render. Both targets are div
+  // placeholders we injected above the BOM table.
+  _loadWave8Panels().catch(err => console.warn('[Wave 8] Panel load failed:', err));
 
   // ── BOM Table: toggle, edit, reset handlers ──
   const bomToggle = document.getElementById('bom-table-toggle');
