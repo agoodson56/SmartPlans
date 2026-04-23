@@ -56,6 +56,7 @@ jobs:
             tests/accuracy-floor.test.js \
             tests/live-pricing-wages.test.js \
             tests/learning-loop.test.js \
-            tests/near-perfect.test.js
+            tests/near-perfect.test.js \
+            tests/wave11-audit-followup.test.js
         env:
           CI: true

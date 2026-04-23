@@ -139,9 +139,17 @@
                     let bom = SmartPlansExport._extractBOMFromAnalysis ? SmartPlansExport._extractBOMFromAnalysis(analysis) : null;
                     if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') bom = SmartPlansExport._applyUserBOMEdits(bom, state);
                     const fallbackTotal = SmartPlansExport._getFullyLoadedTotal(state, bom) || 0;
-                    if (fallbackTotal > 1000) {
+                    // Wave 11 M7 + M8 (v5.128.8): threshold aligned with the
+                    // primary path (> 0, not > 1000) so tiny projects don't
+                    // silently lose their grand total. Source tag cleanly
+                    // distinguishes "full L2 fallback" from "L2 retry after
+                    // partial primary execution" — no leading space.
+                    if (fallbackTotal > 0) {
                         grandTotal = fallbackTotal;
-                        grandTotalSource = (grandTotalSource || '') + ' [L2 fallback: SmartPlansFinancials path threw]';
+                        const hadPrimarySource = grandTotalSource && grandTotalSource.trim() !== '';
+                        grandTotalSource = hadPrimarySource
+                            ? `${grandTotalSource.trim()} (L2 retry: primary threw mid-execution)`
+                            : '[L2 fallback: SmartPlansFinancials path threw]';
                         console.warn('[ProposalGenV2] L2 fallback activated — used _getFullyLoadedTotal directly, bypassing SmartPlansFinancials');
                     }
                 } catch (fbErr) { console.warn('[ProposalGenV2] L2 fallback also failed:', fbErr?.message || fbErr); }

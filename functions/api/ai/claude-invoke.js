@@ -177,23 +177,34 @@ function _translateGeminiToAnthropic(geminiBody, model) {
             // be Claude-compatible.
         }
         if (content.length > 0) {
-            // Wave 10 H6: Anthropic requires strict alternation user→assistant→user→…
-            // If this turn has the same role as the previous accepted turn,
-            // insert a synthetic bridging turn so Anthropic doesn't 400.
-            const prevRole = messages.length > 0 ? messages[messages.length - 1].role : null;
-            if (prevRole === role) {
-                const bridgeRole = role === 'user' ? 'assistant' : 'user';
-                messages.push({ role: bridgeRole, content: [{ type: 'text', text: 'Understood.' }] });
-            }
             messages.push({ role, content });
         }
     }
 
+    // Wave 11 C4 (v5.128.8): Final-pass alternation enforcement.
+    // Pre-fix the inline bridge only handled PAIRS of same-role turns.
+    // A Gemini context with 3+ consecutive model/user turns (e.g.
+    // REPORT_WRITER clarification loops) still produced invalid output
+    // after the inline bridge. This post-pass iterates until the sequence
+    // strictly alternates user → assistant → user → …, bridging every
+    // same-role adjacency it finds.
+    const alternated = [];
+    for (const msg of messages) {
+        const prev = alternated[alternated.length - 1];
+        if (prev && prev.role === msg.role) {
+            const bridgeRole = msg.role === 'user' ? 'assistant' : 'user';
+            alternated.push({ role: bridgeRole, content: [{ type: 'text', text: 'Understood.' }] });
+        }
+        alternated.push(msg);
+    }
     // Anthropic also requires the FIRST message to be role='user'. If the
     // Gemini brain started with an assistant/model turn, prepend a stub.
-    if (messages.length > 0 && messages[0].role !== 'user') {
-        messages.unshift({ role: 'user', content: [{ type: 'text', text: 'Continue.' }] });
+    if (alternated.length > 0 && alternated[0].role !== 'user') {
+        alternated.unshift({ role: 'user', content: [{ type: 'text', text: 'Continue.' }] });
     }
+    // Overwrite messages with the validated sequence
+    messages.length = 0;
+    messages.push(...alternated);
 
     // If every turn had only fileData and nothing made it through, inject
     // a stub text message so Anthropic doesn't 400 on empty content.
