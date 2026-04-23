@@ -12708,7 +12708,18 @@ async function runGeminiAnalysis(updateProgress) {
     // bid's answer.
     function _clarificationFingerprint(q) {
         if (!q) return '';
-        const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 200);
+        // Wave 10 H4 (v5.128.7): normalize punctuation too, not just whitespace.
+        // 'card-reader' vs 'card_reader' vs 'card.reader' used to produce 3
+        // different fingerprints, breaking pre-fill + duplicating the learning
+        // loop forever. Now: strip dashes/underscores/dots/slashes/quotes,
+        // then collapse other non-word chars, then collapse whitespace.
+        const norm = (s) => String(s || '')
+            .trim()
+            .toLowerCase()
+            .replace(/[-_\./\\—–'"`]/g, ' ')
+            .replace(/[^\w\s]/g, '')
+            .replace(/\s+/g, ' ')
+            .slice(0, 200);
         const source = q.source || 'UNKNOWN';
         const label = norm(q.legendLabel || q.symbolId);
         const visual = norm(q.visualDescription);
@@ -12751,19 +12762,40 @@ async function runGeminiAnalysis(updateProgress) {
     async function _lookupPriorAnswers(questions) {
         const results = {};
         if (!Array.isArray(questions) || questions.length === 0) return results;
+        // Wave 10 H2 + M2 (v5.128.7):
+        //   - Per-fetch 5s timeout so a slow endpoint can't hang the modal.
+        //   - Per-failure logging so 401/500/timeout are visible, not silent.
+        //   - Warn loudly if >50% of fetches fail.
+        let attempts = 0; let failures = 0;
         await Promise.all(questions.map(async (q) => {
             const fp = _clarificationFingerprint(q);
             if (!fp || fp.split('|').filter(Boolean).length < 2) return;
+            attempts++;
+            let signal;
+            if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+                signal = AbortSignal.timeout(5000);
+            } else {
+                const ctrl = new AbortController();
+                setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, 5000);
+                signal = ctrl.signal;
+            }
             try {
                 const res = await fetch(`/api/clarification-answers?fingerprint=${encodeURIComponent(fp)}&limit=1`, {
                     headers: { ...(typeof _sessionToken !== 'undefined' && _sessionToken ? { 'X-Session-Token': _sessionToken } : {}), ...(typeof _appToken !== 'undefined' && _appToken ? { 'X-App-Token': _appToken } : {}) },
+                    signal,
                 });
-                if (!res.ok) return;
+                if (!res.ok) { failures++; console.warn(`[Clarification] pre-fill ${q.id} → ${res.status}`); return; }
                 const data = await res.json();
                 const prior = (data.answers || [])[0];
                 if (prior?.chosen_option) results[q.id] = prior.chosen_option;
-            } catch (_) { /* non-fatal */ }
+            } catch (err) {
+                failures++;
+                console.warn(`[Clarification] pre-fill ${q.id} failed:`, err?.name === 'AbortError' ? 'timeout (>5s)' : (err?.message || err));
+            }
         }));
+        if (attempts > 5 && failures / attempts > 0.5) {
+            console.error(`[Clarification] Pre-fill success rate ${Math.round((1 - failures/attempts) * 100)}% (${failures}/${attempts} failed) — /api/clarification-answers may be down. Estimator will have to re-answer instead of pre-filling.`);
+        }
         return results;
     }
 
@@ -12911,13 +12943,23 @@ async function runGeminiAnalysis(updateProgress) {
           btn.style.borderColor = 'var(--accent-sky,#38bdf8)';
         });
 
+        // Wave 10 H1 (v5.128.7): single-resolve guard. Timer + submit click
+        // racing used to double-append state._unansweredClarifications,
+        // inflating export-gate counts and falsely blocking export. Now only
+        // the first handler wins. Double-resolves on promises are silently
+        // ignored by JS, but state side-effects were not — hence this guard.
+        let resolved = false;
         document.getElementById('clarify-skip')?.addEventListener('click', () => {
+            if (resolved) return;
+            resolved = true;
             clearTimeout(_timeoutHandle);
             modal.remove();
             state._unansweredClarifications = (state._unansweredClarifications || []).concat(highPriority.map(q => q.id));
             resolve({ __skipped: true });
         });
         document.getElementById('clarify-submit')?.addEventListener('click', () => {
+            if (resolved) return;
+            resolved = true;
             clearTimeout(_timeoutHandle);
             modal.remove();
             // Any question the estimator did not answer (i.e. not in `answers`)
@@ -12932,11 +12974,11 @@ async function runGeminiAnalysis(updateProgress) {
         });
 
         // v5.128.2 (Wave 2B) — 15-minute skip timeout.
-        // If the estimator walks away, use AI best guess so analysis can finish.
-        // Unanswered questions get recorded on state for the Results page banner.
         const timeoutMs = (typeof SmartBrains !== 'undefined' && SmartBrains.config?.clarificationSkipTimeoutMs)
             || 15 * 60 * 1000;
         const _timeoutHandle = setTimeout(() => {
+            if (resolved) return;
+            resolved = true;
             console.warn(`[Clarification] ${Math.round(timeoutMs / 60000)}-minute timeout elapsed — using AI best guess for unanswered questions`);
             const unanswered = highPriority.filter(q => !answers[q.id]).map(q => q.id);
             state._unansweredClarifications = (state._unansweredClarifications || []).concat(unanswered);
