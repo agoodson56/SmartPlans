@@ -55,10 +55,90 @@ describe('Wave 9 — /api/ai/claude-invoke graceful degrade', () => {
 
     it('translates Gemini request shape to Anthropic Messages API', () => {
         expect(CLAUDE_PROXY_SRC).toMatch(/_translateGeminiToAnthropic/);
-        expect(CLAUDE_PROXY_SRC).toMatch(/anthropic-version.*2023-06-01/);
+        // Wave 10 C7: anthropic-version bumped to 2024-06-15 for PDF support
+        expect(CLAUDE_PROXY_SRC).toMatch(/anthropic-version.*2024-06-15/);
         expect(CLAUDE_PROXY_SRC).toMatch(/x-api-key/);
     });
 
+    it('Wave 10 C7: anthropic-version is >= 2024-06-15 (PDF documents supported)', () => {
+        const m = CLAUDE_PROXY_SRC.match(/'anthropic-version':\s*'(\d{4}-\d{2}-\d{2})'/);
+        expect(m).toBeTruthy();
+        const v = m[1];
+        expect(v >= '2024-06-15').toBe(true);
+    });
+
+    it('Wave 10 H6: Claude translator enforces role alternation with bridge turns', () => {
+        expect(CLAUDE_PROXY_SRC).toMatch(/prevRole === role/);
+        expect(CLAUDE_PROXY_SRC).toMatch(/Understood\./);
+    });
+
+    it('Wave 10 M4: systemInstruction parts are concatenated, not just parts[0]', () => {
+        expect(CLAUDE_PROXY_SRC).toMatch(/si\.parts\.map.*\.join/);
+    });
+});
+
+describe('Wave 10 C1 — Claude provider override honored by _invokeBrain', () => {
+    it('_invokeBrain accepts opts.providerOverride and checks SmartBrains._providerOverride', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/opts\.providerOverride \|\| this\._providerOverride/);
+        expect(AI_ENGINE).toMatch(/const useClaude = providerOverride === 'anthropic'/);
+    });
+
+    it('_invokeBrain routes to /api/ai/claude-invoke when override active', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/useClaude \? '\/api\/ai\/claude-invoke'/);
+    });
+
+    it('runFullAnalysis mirrors state override onto SmartBrains._providerOverride', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/this\._providerOverride = 'anthropic'/);
+    });
+
+    it('runFullAnalysis resets _providerOverride to null at start', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/this\._providerOverride = null/);
+    });
+});
+
+describe('Wave 10 C2 — Dual-provider cross-check is actually wired', () => {
+    it('_runSingleBrain calls _compareProviderOutputs for critical brains', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/claudeCriticalBrains.*\.includes\(key\)/);
+        expect(AI_ENGINE).toMatch(/_compareProviderOutputs\(parsed, claudeParsed/);
+    });
+
+    it('Cross-check records disagreements on parsed._crossCheckDisagreements', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/parsed\._crossCheckDisagreements/);
+    });
+
+    it('Cross-check is SKIPPED when already failing over to Claude (no redundancy gain)', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/this\._providerOverride !== 'anthropic'/);
+    });
+
+    it('Cross-check aggregates disagreements on SmartBrains._wave10CrossCheckDisagreements', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/_wave10CrossCheckDisagreements/);
+    });
+});
+
+describe('Wave 10 L4 — Claude availability cache has TTL', () => {
+    it('_checkClaudeAvailable cache invalidates after TTL', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/_claudeAvailabilityTTLMs/);
+        expect(AI_ENGINE).toMatch(/Date\.now\(\) - this\._claudeAvailabilityCachedAt/);
+    });
+});
+
+describe('Wave 10 M10 — AbortSignal.timeout has manual fallback', () => {
+    it('_checkProModelHealth falls back to AbortController + setTimeout when AbortSignal.timeout is undefined', () => {
+        const AI_ENGINE = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8');
+        expect(AI_ENGINE).toMatch(/ctrl = new AbortController/);
+    });
+});
+
+describe('Wave 9 — Claude proxy translation + payload limits (originally inside first describe)', () => {
     it('translates Anthropic response shape back to Gemini shape', () => {
         expect(CLAUDE_PROXY_SRC).toMatch(/_translateAnthropicToGemini/);
         expect(CLAUDE_PROXY_SRC).toMatch(/candidates:\s*\[/);

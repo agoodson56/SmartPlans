@@ -58,20 +58,35 @@ const SmartBrains = {
   // ─── Wave 9 (v5.128.6) — Claude availability probe ─────────────────────
   // Lightweight GET that tells us whether ANTHROPIC_KEY is set as a
   // Cloudflare secret. Cached on first call so we don't probe every brain.
+  // Wave 10 L4: TTL added so a mid-session key swap/revocation is detected.
   _claudeAvailabilityCache: null,
+  _claudeAvailabilityCachedAt: 0,
+  _claudeAvailabilityTTLMs: 5 * 60 * 1000, // 5 min
   async _checkClaudeAvailable() {
-    if (this._claudeAvailabilityCache !== null) return this._claudeAvailabilityCache;
+    const fresh = this._claudeAvailabilityCache !== null
+      && (Date.now() - this._claudeAvailabilityCachedAt) < this._claudeAvailabilityTTLMs;
+    if (fresh) return this._claudeAvailabilityCache;
     try {
       const res = await fetch('/api/ai/claude-invoke', { method: 'GET', headers: this._authHeaders() });
-      if (!res.ok) { this._claudeAvailabilityCache = false; return false; }
+      if (!res.ok) { this._claudeAvailabilityCache = false; this._claudeAvailabilityCachedAt = Date.now(); return false; }
       const data = await res.json();
       this._claudeAvailabilityCache = !!data.configured;
+      this._claudeAvailabilityCachedAt = Date.now();
       return this._claudeAvailabilityCache;
     } catch (_) {
       this._claudeAvailabilityCache = false;
+      this._claudeAvailabilityCachedAt = Date.now();
       return false;
     }
   },
+
+  // ─── Wave 10 (v5.128.7) — Provider override, honored by _invokeBrain ───
+  // When runFullAnalysis decides to fail over from Gemini to Claude, it sets
+  // SmartBrains._providerOverride='anthropic'. _invokeBrain checks this on
+  // every call and routes to /api/ai/claude-invoke + claudeModel when set.
+  // Resets to null at the start of every runFullAnalysis so a prior bid's
+  // failover state can't leak into the next bid.
+  _providerOverride: null,
 
   // ─── Wave 9 (v5.128.6) — Compare two provider outputs for a brain ──────
   // Returns { agree: bool, diffPct: number, divergences: [{key, a, b, pctDiff}] }.
@@ -120,7 +135,18 @@ const SmartBrains = {
     const blockThresholdPct = (this.config.proDegradedBlockThreshold ?? 30);
     const url = `/api/ai/quota-check?model=${encodeURIComponent(proModel)}`;
     try {
-      const res = await fetch(url, { headers: this._authHeaders(), signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(15000) : undefined });
+      // Wave 10 M10: AbortSignal.timeout is missing on older browsers. Fall
+      // back to a manual AbortController + setTimeout so Safari < 16.4 + older
+      // Edge still get a bounded probe instead of a hang.
+      let signal;
+      if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+        signal = AbortSignal.timeout(15000);
+      } else {
+        const ctrl = new AbortController();
+        setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, 15000);
+        signal = ctrl.signal;
+      }
+      const res = await fetch(url, { headers: this._authHeaders(), signal });
       if (!res.ok) {
         return { severity: 'warning', message: `Health probe returned ${res.status}`, unavailablePct: null, model: proModel, _probeFailed: true };
       }
@@ -3077,13 +3103,25 @@ const SmartBrains = {
   // BRAIN INVOCATION — Call Gemini with retry & key rotation
   // ═══════════════════════════════════════════════════════════
 
-  async _invokeBrain(brainKey, brainDef, promptText, fileParts, useJsonMode) {
+  async _invokeBrain(brainKey, brainDef, promptText, fileParts, useJsonMode, opts = {}) {
     const maxRetries = this.config.maxRetries;
     let lastError = null;
 
+    // ─── Wave 10 C1 (v5.128.7) — Provider override honored ───
+    // opts.providerOverride beats SmartBrains._providerOverride (cross-check
+    // uses opts to force Claude for the second call). When either is
+    // 'anthropic', route to the Claude proxy + model instead of Gemini.
+    const providerOverride = opts.providerOverride || this._providerOverride || null;
+    const useClaude = providerOverride === 'anthropic';
+
     // Determine model and URL up front (accessible in fallback block)
-    let modelName = brainDef.useProModel ? (this.config.proModel || this.config.model) : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
-    const url = this.config.proxyEndpoint;
+    let modelName = useClaude
+      ? (this.config.claudeModel || 'claude-opus-4-7')
+      : (brainDef.useProModel ? (this.config.proModel || this.config.model)
+         : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel
+         : this.config.model);
+    const url = useClaude ? '/api/ai/claude-invoke' : this.config.proxyEndpoint;
+    if (useClaude && this.config.DEBUG) console.log(`[Brain:${brainDef.name}] Provider override → Claude (${modelName})`);
 
     // Check for uploaded file URIs — needed for key pinning in both main loop and fallback
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
@@ -9248,6 +9286,43 @@ ${rfp.mwbe_requirements?.goal_pct > 0 ? `⚠️ ${rfp.mwbe_requirements.type} go
         parsed = rawResult; // Report writer returns markdown
       }
 
+      // ─── Wave 10 C2 (v5.128.7) — Dual-provider cross-check ───
+      // For claudeCriticalBrains, fire a SECOND call to Claude with the
+      // same prompt, then compare structured outputs via _compareProviderOutputs.
+      // On disagreement > 10%, flag the primary result + record a HITL
+      // disagreement so the estimator can arbitrate. Skip cross-check if
+      // we're already failing over to Claude (no redundancy to gain).
+      const canCrossCheck =
+        this.config.enableClaudeCrossCheck
+        && Array.isArray(this.config.claudeCriticalBrains)
+        && this.config.claudeCriticalBrains.includes(key)
+        && this._providerOverride !== 'anthropic'
+        && useJsonMode
+        && parsed && typeof parsed === 'object' && !parsed._parseFailed;
+      if (canCrossCheck) {
+        try {
+          const claudeReady = await this._checkClaudeAvailable();
+          if (claudeReady) {
+            const claudeRaw = await this._invokeBrain(key, brain, prompt, fileParts, useJsonMode, { providerOverride: 'anthropic' });
+            const claudeParsed = this._parseJSON(claudeRaw);
+            if (claudeParsed && typeof claudeParsed === 'object') {
+              const compare = this._compareProviderOutputs(parsed, claudeParsed, { tolerance: 0.10 });
+              parsed._crossCheckCompared = true;
+              parsed._crossCheckSecondaryProvider = 'anthropic';
+              if (!compare.agree) {
+                console.warn(`[CrossCheck:${brain.name}] ⚠️ Gemini + Claude disagree on ${compare.divergences.length} field(s): ${compare.divergences.slice(0, 3).map(d => d.key).join(', ')}`);
+                parsed._crossCheckDisagreements = compare.divergences.slice(0, 30);
+                this._wave10CrossCheckDisagreements.push({ brain: key, divergences: compare.divergences.slice(0, 30) });
+              } else if (this.config.DEBUG) {
+                console.log(`[CrossCheck:${brain.name}] Gemini + Claude agree ✓`);
+              }
+            }
+          }
+        } catch (ccErr) {
+          console.warn(`[CrossCheck:${brain.name}] secondary call failed (non-fatal):`, ccErr?.message || ccErr);
+        }
+      }
+
       // ── Schema Validation + Auto-Retry (up to MAX_VALIDATION_RETRIES attempts) ──
       const validation = this._validateBrainOutput(key, parsed);
       if (!validation.valid) {
@@ -9986,6 +10061,10 @@ ${legendContext}
           console.warn(`[SmartBrains] ⚠️ Gemini Pro degraded (${healthCheck.unavailablePct}% unavailable) — FAILING OVER to Claude for this bid`);
           state._aiProviderOverride = 'anthropic';
           state._claudeFailoverActive = true;
+          // Wave 10 C1: ALSO mirror to SmartBrains._providerOverride so
+          // _invokeBrain actually routes to Claude. Without this mirror,
+          // the state flag was cosmetic.
+          this._providerOverride = 'anthropic';
           // Do NOT throw — let the run proceed on Claude
         } else if (!draftMode) {
           const err = new Error(`ACCURACY_GATE: Pro model degraded (${healthCheck.unavailablePct}% unavailable). Refusing to run a final bid on Flash fallbacks — accept draft mode to continue or wait for Pro to recover.`);
@@ -10010,6 +10089,11 @@ ${legendContext}
     // (until page reload) even if the GCP project was restored.
     if (this._deadSlots) this._deadSlots.clear();
     if (this._deadSlotReasons) this._deadSlotReasons.clear();
+    // Wave 10 C1: reset provider override so a prior bid's failover can't
+    // leak into the next bid. Also reset Claude availability cache so
+    // re-probing happens if a full 5 min elapsed since last check.
+    this._providerOverride = null;
+    this._wave10CrossCheckDisagreements = [];
     if (this._circuitBreaker) {
       this._circuitBreaker.consecutive429s = 0;
       this._circuitBreaker.trippedUntil = 0;
