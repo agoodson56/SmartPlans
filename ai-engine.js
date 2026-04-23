@@ -171,6 +171,15 @@ const SmartBrains = {
   // confidence scores. Regex + keyword scoring — no network, no AI.
   _detectLegendAndNotesSheets(vectorPages) {
     if (!Array.isArray(vectorPages) || vectorPages.length === 0) return { legendPages: [], notesPages: [] };
+    // Wave 10 H7 + M15 (v5.128.7): tightened legend patterns.
+    // BEFORE: /\babbreviations?\b/i matched every title block that
+    // contained the word "ABBREVIATIONS" (i.e. most sheets) and
+    // /(^|\s)legend(\s|$)/i matched marketing copy like "the legend of
+    // sustainable building". That flooded detection with noise.
+    // AFTER: require legend/notes keywords to appear with a supporting
+    // anchor word (schedule, symbols, abbreviations, key, device) OR as
+    // the only meaningful phrase on a short label. Weak single-word
+    // matches ("legend") now need TWO hits or a size gate to qualify.
     const LEGEND_PATTERNS = [
       /\bsymbol\s+legend\b/i,
       /\bsymbol\s+schedule\b/i,
@@ -178,9 +187,16 @@ const SmartBrains = {
       /\bdevice\s+schedule\b/i,
       /\bdevice\s+legend\b/i,
       /\blegend\s+(and|&|\&)\s+(abbreviation|symbol)/i,
-      /\babbreviations?\b/i,
+      /\blegend\s+(and|&|\&)\s+notes?\b/i,
+      /\b(symbol|device|drawing|sheet)\s+abbreviations?\b/i,
       /\bkey\s+notes?\s+legend\b/i,
+      /\bsymbol\s+key\b/i,
+    ];
+    // "LEGEND" or "ABBREVIATIONS" alone count as a HALF-match — only
+    // flagged if accompanied by another signal OR many of them cluster.
+    const WEAK_LEGEND_PATTERNS = [
       /(^|\s)legend(\s|$)/i,
+      /\babbreviations?\b/i,
     ];
     const NOTES_PATTERNS = [
       /\bgeneral\s+notes?\b/i,
@@ -199,6 +215,13 @@ const SmartBrains = {
       const pageText = page.textItems.map(t => (t && t.str) || '').join(' ').slice(0, 50000);
       let legendScore = 0;
       for (const rx of LEGEND_PATTERNS) if (rx.test(pageText)) legendScore += 1;
+      // Weak matches count HALF, and only if accompanied by other signals
+      let weakLegendHits = 0;
+      for (const rx of WEAK_LEGEND_PATTERNS) if (rx.test(pageText)) weakLegendHits += 1;
+      if (legendScore > 0 && weakLegendHits > 0) legendScore += 0.5 * weakLegendHits;
+      // Pure-weak detection: only flag if MULTIPLE weak signals cluster
+      // (e.g., "LEGEND" + "ABBREVIATIONS" on the same page)
+      else if (weakLegendHits >= 2) legendScore += 0.75;
       let notesScore = 0;
       for (const rx of NOTES_PATTERNS) if (rx.test(pageText)) notesScore += 1;
       const avgItemLen = page.textItems.length > 0
@@ -2158,7 +2181,15 @@ const SmartBrains = {
 
       // Cap at 60 pages per file to keep the loop bounded on huge sets.
       // Beyond that we still report totalPages but stop scanning.
+      // Wave 10 M11 (v5.128.7): log a warning when we truncate. Large
+      // transit/infrastructure plan sets can be 80-120 pages and
+      // legend/notes often live on the last few — silent drop was a
+      // hidden accuracy leak. Estimator sees the warning in DevTools
+      // and can split the PDF or raise the cap.
       const pageLimit = Math.min(totalPages, 60);
+      if (totalPages > pageLimit) {
+        console.warn(`[VectorExtract] ⚠️  Plan set has ${totalPages} pages; extracting only first ${pageLimit} (capped for bounded loop). Legend/notes on sheet ${pageLimit + 1}+ will NOT be auto-detected. Consider splitting the PDF if the legend lives on a late sheet.`);
+      }
 
       for (let p = 1; p <= pageLimit; p++) {
         try {
@@ -6998,7 +7029,25 @@ Return the proposal as formatted Markdown text.`;
 
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
+${(() => {
+  // Wave 10 C4 (v5.128.7): if the plan set has an embedded legend page
+  // (detected by _detectLegendAndNotesSheets), tell the AI exactly where
+  // to look. Pre-Wave-10 the detection populated state but nothing in the
+  // prompt consumed it — the green "legend auto-detected" banner was
+  // cosmetic.
+  const detected = context._detectedLegendPages || [];
+  if (!Array.isArray(detected) || detected.length === 0) return '';
+  const top = detected.slice(0, 5).map(p => `  • ${p.sheetId || 'page ' + p.pageNum}${p.confidence >= 0.75 ? ' (high-confidence)' : ''}`).join('\n');
+  return `
+═══ AUTO-DETECTED LEGEND PAGES (look here first) ═══
+SmartPlans pre-scanned the uploaded plan set and found legend content on these sheets.
+Prioritize reading these pages — they almost certainly contain the symbol key:
+${top}
 
+If the separately uploaded legend file is also present, use BOTH. The auto-detected
+legend pages are inside the plan PDFs, not a separate file.
+`;
+})()}
 INSTRUCTIONS:
 1. Study every symbol on the legend sheet(s) meticulously
 2. For each symbol, describe its visual appearance (shape, fill, letters, size)
@@ -8963,6 +9012,20 @@ CRITICAL: Be EXHAUSTIVE. Every "by others" and "OFOI" you miss is a potential $5
 
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
+${(() => {
+  // Wave 10 M9 (v5.128.7): feed auto-detected notes pages (if any) so the
+  // AI prioritizes scanning them. Pre-Wave-10 the detection was wired to
+  // state but the prompt never used it.
+  const detected = context._detectedNotesPages || [];
+  if (!Array.isArray(detected) || detected.length === 0) return '';
+  const top = detected.slice(0, 5).map(p => `  • ${p.sheetId || 'page ' + p.pageNum}${p.confidence >= 0.75 ? ' (high-confidence)' : ''}`).join('\n');
+  return `
+═══ AUTO-DETECTED NOTES PAGES (prioritize these) ═══
+SmartPlans pre-scanned the plan set and found notes content on these sheets.
+These almost certainly contain keynote tables / general notes / specs:
+${top}
+`;
+})()}
 
 BACKGROUND — What keynotes actually are:
 Each drawing sheet has a "KEYNOTES" or "GENERAL NOTES" box, typically in the title block or along one edge of the sheet. Numbered items (1, 2, 3... or sometimes A, B, C) are referenced throughout the plan view with little numbered bubbles. 80% of the scope surprises on any project live in these notes — NOT in the BOM.

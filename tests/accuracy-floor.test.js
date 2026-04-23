@@ -95,13 +95,23 @@ describe('Wave 3 — _detectLegendAndNotesSheets pure function', () => {
         expect(result.notesPages).toHaveLength(0);
     });
 
-    it('sorts output highest-confidence first', () => {
+    it('sorts output highest-confidence first (Wave 10 H7: single weak "LEGEND" no longer flags on its own)', () => {
         const pages = [
-            { pageNum: 1, sheetId: 'A', textItems: [{ str: 'LEGEND' }] }, // one match
-            { pageNum: 2, sheetId: 'B', textItems: [{ str: 'SYMBOL LEGEND' }, { str: 'ABBREVIATIONS' }] }, // two matches
+            // Wave 10 H7: a lone "LEGEND" keyword is too weak — would false-positive on marketing copy
+            { pageNum: 1, sheetId: 'A', textItems: [{ str: 'LEGEND' }] },
+            // Strong match — compound "SYMBOL LEGEND" + weak "ABBREVIATIONS" boost
+            { pageNum: 2, sheetId: 'B', textItems: [{ str: 'SYMBOL LEGEND' }, { str: 'ABBREVIATIONS' }] },
+            // Two weak signals clustered on same page ARE enough
+            { pageNum: 3, sheetId: 'C', textItems: [{ str: 'LEGEND' }, { str: 'ABBREVIATIONS' }] },
         ];
         const result = SmartBrains._detectLegendAndNotesSheets(pages);
+        // B wins — strongest score
         expect(result.legendPages[0].sheetId).toBe('B');
+        // A (lone weak) is filtered out
+        expect(result.legendPages.find(p => p.sheetId === 'A')).toBeUndefined();
+        // C (clustered weak) is flagged
+        expect(result.legendPages.find(p => p.sheetId === 'C')).toBeTruthy();
+        // Sort order: B first, C second
         expect(result.legendPages[0].confidence).toBeGreaterThanOrEqual(result.legendPages[1].confidence);
     });
 
@@ -271,6 +281,36 @@ describe('Wave 4 — pipeline wiring', () => {
 
     it('>25% disagreement is CRITICAL severity (bid-blocking)', () => {
         expect(AI_ENGINE_SRC).toMatch(/d\.diffPct > 25 \? 'critical' : 'high'/);
+    });
+});
+
+describe('Wave 10 C4 — Detected legend/notes pages actually consumed by AI', () => {
+    it('LEGEND_DECODER prompt lists auto-detected legend pages when present', () => {
+        expect(AI_ENGINE_SRC).toMatch(/AUTO-DETECTED LEGEND PAGES \(look here first\)/);
+        expect(AI_ENGINE_SRC).toMatch(/context\._detectedLegendPages/);
+    });
+
+    it('KEYNOTE_EXTRACTOR prompt lists auto-detected notes pages when present', () => {
+        expect(AI_ENGINE_SRC).toMatch(/AUTO-DETECTED NOTES PAGES \(prioritize these\)/);
+        expect(AI_ENGINE_SRC).toMatch(/context\._detectedNotesPages/);
+    });
+});
+
+describe('Wave 10 H7 + M15 — Legend detection regex tightened (was flooding on ABBREVIATIONS title blocks)', () => {
+    it('WEAK_LEGEND_PATTERNS require a supporting signal to count', () => {
+        expect(AI_ENGINE_SRC).toMatch(/WEAK_LEGEND_PATTERNS/);
+        expect(AI_ENGINE_SRC).toMatch(/weakLegendHits >= 2/);
+    });
+
+    it('strong patterns require compound anchors (symbol/device/drawing abbreviations, not plain abbreviations)', () => {
+        expect(AI_ENGINE_SRC).toMatch(/\\b\(symbol\|device\|drawing\|sheet\)\\s\+abbreviations\?\\b/);
+    });
+});
+
+describe('Wave 10 M11 — Vector extraction warns on 60+ page truncation', () => {
+    it('logs a warning when plan set exceeds pageLimit', () => {
+        expect(AI_ENGINE_SRC).toMatch(/Plan set has \$\{totalPages\} pages; extracting only first/);
+        expect(AI_ENGINE_SRC).toMatch(/will NOT be auto-detected/);
     });
 });
 
