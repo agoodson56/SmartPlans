@@ -330,7 +330,10 @@ const UsageStats = {
 
 const STEPS = [
   { id: "setup", title: "Project Setup", subtitle: "Let's get started", icon: "📋" },
-  { id: "legend", title: "Symbol Legend", subtitle: "Upload your key", icon: "🔑" },
+  // Legend step is hidden: legend sheets are auto-extracted from the plan PDFs
+  // per division during analysis. Kept in the array so existing numeric step
+  // indices (case 2 = plans, case 5 = review, etc.) stay stable.
+  { id: "legend", title: "Symbol Legend", subtitle: "Auto-extracted from plans", icon: "🔑", hidden: true },
   { id: "plans", title: "Floor Plans", subtitle: "Upload drawings", icon: "📐" },
   { id: "specs", title: "Specifications", subtitle: "Upload spec docs", icon: "📄" },
   { id: "addenda", title: "Addenda", subtitle: "Changes & updates", icon: "📝" },
@@ -338,6 +341,29 @@ const STEPS = [
   { id: "travel", title: "Travel & Costs", subtitle: "Per diem & incidentals", icon: "✈️" },
   { id: "results", title: "Results & RFIs", subtitle: "Analysis complete", icon: "✅" },
 ];
+
+// Helpers for skipping hidden steps when navigating with Next/Back
+function _nextVisibleStep(i) {
+  let next = i + 1;
+  while (next < STEPS.length && STEPS[next].hidden) next++;
+  return next;
+}
+function _prevVisibleStep(i) {
+  let prev = i - 1;
+  while (prev >= 0 && STEPS[prev].hidden) prev--;
+  return prev;
+}
+function _visibleStepsCount() {
+  return STEPS.filter(s => !s.hidden).length;
+}
+function _visibleStepIndex(i) {
+  // 1-based ordinal among visible steps; returns 0 if current step is hidden
+  let ord = 0;
+  for (let k = 0; k <= i && k < STEPS.length; k++) {
+    if (!STEPS[k].hidden) ord++;
+  }
+  return ord;
+}
 
 const DISCIPLINES = [
   // Division 27 — Communications
@@ -3950,7 +3976,8 @@ function renderStepNav() {
   const nav = document.getElementById("step-nav");
   if (!nav) return;
   let html = "";
-  STEPS.forEach((step, i) => {
+  const visibleSteps = STEPS.map((s, i) => ({ s, i })).filter(x => !x.s.hidden);
+  visibleSteps.forEach(({ s: step, i }, visIdx) => {
     const isActive = i === state.currentStep;
     const isCompleted = state.completedSteps.has(step.id);
     const isClickable = isCompleted || i <= state.currentStep;
@@ -3965,7 +3992,7 @@ function renderStepNav() {
         <div class="step-circle">${isCompleted ? "✓" : step.icon}</div>
         <span class="step-label">${step.title}</span>
       </button>
-      ${i < STEPS.length - 1 ? `<div class="step-connector${isCompleted ? " done" : ""}"></div>` : ""}
+      ${visIdx < visibleSteps.length - 1 ? `<div class="step-connector${isCompleted ? " done" : ""}"></div>` : ""}
     </div>`;
   });
   nav.innerHTML = html;
@@ -4143,7 +4170,7 @@ function renderFooter() {
     <button class="footer-btn footer-btn--back" id="btn-back" ${state.currentStep === 0 ? "disabled" : ""}>&larr; Back</button>
     <div style="display:flex;align-items:center;gap:12px;">
       ${showSave ? '<button class="footer-btn footer-btn--back" id="btn-save-draft" style="border-color:rgba(129,140,248,0.3);color:var(--accent-indigo);">💾 Save</button>' : ''}
-      <span class="footer-step-indicator">Step ${state.currentStep + 1} of ${STEPS.length}</span>
+      <span class="footer-step-indicator">Step ${_visibleStepIndex(state.currentStep)} of ${_visibleStepsCount()}</span>
     </div>
     <button class="footer-btn footer-btn--next" id="btn-next" ${!can || (state.currentStep === 5 && QuotaMonitor.isBlocked()) ? "disabled" : ""}>
       ${state.currentStep === 5 ? "🔍 Begin Analysis" : state.currentStep === 6 ? "📊 View Results →" : "Next →"}
@@ -4151,8 +4178,9 @@ function renderFooter() {
   `;
 
   document.getElementById("btn-back").addEventListener("click", () => {
-    if (state.currentStep > 0) {
-      state.currentStep--;
+    const prev = _prevVisibleStep(state.currentStep);
+    if (prev >= 0) {
+      state.currentStep = prev;
       render();
       scrollContentTop();
     }
@@ -4189,7 +4217,7 @@ function renderFooter() {
       AnalysisTimer.start();
       render();
     } else {
-      state.currentStep++;
+      state.currentStep = _nextVisibleStep(state.currentStep);
       render();
       scrollContentTop();
     }
@@ -4596,32 +4624,6 @@ function renderStep0(container) {
       <label class="form-label" for="project-location">Project Location</label>
       <p class="form-hint">City and state of the project site. Used by the AI for regional context (prevailing wage area, material availability, climate). Travel and per diem are configured separately in <strong>Stage 7</strong> after the AI analysis — they are not calculated automatically from this field.</p>
       <input class="form-input accuracy-critical" type="text" id="project-location" value="${esc(state.projectLocation)}" placeholder="e.g., Austin, TX or Miami, FL">
-    </div>
-
-    <!-- Wave 7 (v5.128.4): State/County picker drives prevailing-wage selection.
-         Without this, non-CA projects were silently using generic rates — a 20–30%
-         labor error. When a state is CA, a county dropdown appears for county-level
-         granularity. Other states fall through to the metro-zone national table. -->
-    <div class="form-group">
-      <label class="form-label">Prevailing-Wage Jurisdiction</label>
-      <p class="form-hint">Locks the labor rate table to the right state/county. Selecting <strong>California</strong> then a county uses CA DIR + Davis-Bacon rates for that IBEW zone. Other states use the national metro-zone table. Leave blank if prevailing wage doesn't apply.</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
-        <div>
-          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">State</label>
-          <select class="form-input accuracy-critical" id="project-state">
-            <option value="">— Not specified —</option>
-            ${_renderStateOptions(state.projectState)}
-          </select>
-        </div>
-        <div>
-          <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">County <span style="color:var(--text-muted);font-weight:400;">(CA only)</span></label>
-          <select class="form-input accuracy-critical" id="project-county">
-            <option value="">— Select state first —</option>
-            ${_renderCountyOptions(state.projectState, state.projectCounty)}
-          </select>
-        </div>
-      </div>
-      <div id="wage-zone-preview" style="margin-top:8px;font-size:11px;color:var(--text-muted);">${_renderWageZonePreview(state)}</div>
     </div>
 
     <div class="form-group">
@@ -5662,7 +5664,6 @@ function renderStep4(container) {
 function renderStep5(container) {
   const accuracy = getAccuracyEstimate();
   const fileRows = [
-    { label: "Symbol Legend", count: state.legendFiles.length, icon: "🔑" },
     { label: "Floor Plans", count: state.planFiles.length, icon: "📐" },
     { label: "Specifications", count: state.specFiles.length, icon: "📄" },
     { label: "Addenda", count: state.addendaFiles.length, icon: "📝" },

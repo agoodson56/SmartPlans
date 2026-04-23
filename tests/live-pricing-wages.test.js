@@ -314,10 +314,14 @@ describe('Wave 7 — app.js state + UI wiring', () => {
         expect(APP_JS_SRC).toMatch(/projectCounty:\s*""/);
     });
 
-    it('Step 0 renders state dropdown + county dropdown + wage zone preview', () => {
-        expect(APP_JS_SRC).toMatch(/id="project-state"/);
-        expect(APP_JS_SRC).toMatch(/id="project-county"/);
-        expect(APP_JS_SRC).toMatch(/id="wage-zone-preview"/);
+    it('Step 0 renders prevailing-wage pickers inside the Davis-Bacon block', () => {
+        // v5.128.10: The standalone "Prevailing-Wage Jurisdiction" block was
+        // retired — it duplicated the CA county + state/metro pickers that
+        // already live inside the Davis-Bacon active card. The Davis-Bacon
+        // block exposes pw-county / pw-state / pw-metro when active.
+        expect(APP_JS_SRC).toMatch(/id="pw-county"/);
+        expect(APP_JS_SRC).toMatch(/id="pw-state"/);
+        expect(APP_JS_SRC).toMatch(/id="pw-metro"/);
     });
 
     it('state change handler clears county when switching away from CA', () => {

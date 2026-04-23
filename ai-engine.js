@@ -3306,6 +3306,20 @@ const SmartBrains = {
         // The zero-timeout proxy always returns 200 with SSE stream.
         // Errors come through as _proxyError events in the stream.
         // Non-proxy responses (direct API) may still return error codes.
+
+        // v5.128.10 (bid-hang fix): If the Claude proxy returns 504 with
+        // anthropic_timeout, the upstream to Anthropic is unresponsive. All 5
+        // retries will repeat the same 90s wait → ~8-9 min of no progress.
+        // Break out immediately and let the Gemini fallback take over.
+        if (useClaude && response.status === 504) {
+          const errData = await response.json().catch(() => ({}));
+          if (errData?.error === 'anthropic_timeout') {
+            console.warn(`[Brain:${brainDef.name}] Claude upstream timed out — skipping remaining Claude retries, falling back to Gemini`);
+            lastError = new Error(`Claude upstream timeout: ${errData.detail || 'no response from Anthropic'}`);
+            break;
+          }
+        }
+
         if (response.status === 429 || response.status === 403 || response.status >= 500) {
           // v5.126.2: Differentiate 403 (permanent) from 429 (transient)
           if (response.status === 403) {

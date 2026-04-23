@@ -64,19 +64,37 @@ export async function onRequestPost(context) {
         // added in a future wave if per-token progress is needed.
         const anthropicUrl = 'https://api.anthropic.com/v1/messages';
         const started = Date.now();
-        // Wave 10 C7 (v5.128.7): bump anthropic-version so PDF document
-        // content blocks (added 2024-06-15) are recognized. The previous
-        // '2023-06-01' value predated PDF support and caused silent drops.
-        const upstream = await fetch(anthropicUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': '2024-06-15',
-                'anthropic-beta': 'pdfs-2024-09-25',
-            },
-            body: JSON.stringify(anthropicBody),
-        });
+        // v5.128.10 (bid-hang fix): Bound the upstream fetch with an
+        // AbortController. Previously a hung Anthropic connection would stall
+        // until Cloudflare's ~30s wall-clock killed the Worker, then the client
+        // would retry up to 5× (see ai-engine.config.maxRetries) producing the
+        // "20 min stuck in the same spot" symptom. 90s is long enough for
+        // Claude Opus thinking but short enough to fail fast on a true hang.
+        const upstreamController = new AbortController();
+        const upstreamTimer = setTimeout(() => upstreamController.abort(), 90000);
+
+        let upstream;
+        try {
+            upstream = await fetch(anthropicUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2024-06-15',
+                    'anthropic-beta': 'pdfs-2024-09-25',
+                },
+                body: JSON.stringify(anthropicBody),
+                signal: upstreamController.signal,
+            });
+        } catch (fetchErr) {
+            clearTimeout(upstreamTimer);
+            const msg = fetchErr?.name === 'AbortError'
+                ? `Anthropic upstream timed out after 90s (no response received)`
+                : `Anthropic upstream fetch failed: ${fetchErr?.message || fetchErr}`;
+            console.warn(`[ClaudeProxy] Brain ${brainSlot} aborted: ${msg}`);
+            return Response.json({ error: 'anthropic_timeout', status: 504, detail: msg }, { status: 504 });
+        }
+        clearTimeout(upstreamTimer);
 
         const upstreamText = await upstream.text();
         let upstreamData;
