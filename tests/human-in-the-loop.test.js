@@ -146,8 +146,11 @@ describe('Wave 2B — 15-minute skip timeout, persistence, and pre-fill are wire
 });
 
 describe('Wave 2B — export is gated on unanswered HIGH/CRITICAL questions', () => {
-    it('generateCompleteBidPackage checks state._unansweredClarifications before proceeding', () => {
-        expect(APP_JS_SRC).toMatch(/generateCompleteBidPackage/);
+    it('_canExportProposal checks state._unansweredClarifications before proceeding', () => {
+        // Wave 11+: the v2 "generateCompleteBidPackage" path was removed.
+        // The gating logic was extracted into _canExportProposal() which is
+        // called from both remaining buttons (Full + Executive proposal).
+        expect(APP_JS_SRC).toMatch(/_canExportProposal/);
         expect(APP_JS_SRC).toMatch(/clarificationBlockExport/);
         expect(APP_JS_SRC).toMatch(/state\._unansweredClarifications/);
     });
@@ -155,6 +158,13 @@ describe('Wave 2B — export is gated on unanswered HIGH/CRITICAL questions', ()
     it('gating requires explicit user acknowledgement via confirm() before shipping', () => {
         expect(APP_JS_SRC).toMatch(/state\._unansweredClarificationsAcknowledged/);
         expect(APP_JS_SRC).toMatch(/acknowledged .*unanswered clarification.*ship anyway/i);
+    });
+
+    it('both remaining proposal buttons call _canExportProposal() pre-flight gate', () => {
+        // Full Proposal button
+        expect(APP_JS_SRC).toMatch(/btn-generate-proposal[\s\S]{0,800}_canExportProposal\(\)/);
+        // Executive Proposal button
+        expect(APP_JS_SRC).toMatch(/btn-generate-exec-proposal[\s\S]{0,800}_canExportProposal\(\)/);
     });
 });
 

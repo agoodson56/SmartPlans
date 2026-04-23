@@ -1,4 +1,4 @@
-const CACHE_NAME = 'smartplans-v5.128.7';
+const CACHE_NAME = 'smartplans-v5.128.9';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -13,7 +13,6 @@ const APP_SHELL = [
     '/prevailing-wages-ca.js',
     '/prevailing-wages-national.js',
     '/proposal-generator.js',
-    '/proposal-generator-v2.js',
     '/company-credentials.js',
     '/rate-library.js',
     '/styles.css',

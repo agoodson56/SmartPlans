@@ -23,7 +23,9 @@ const AI_ENGINE_SRC = readFileSync(join(__dirname, '..', 'ai-engine.js'), 'utf-8
 const APP_JS_SRC = readFileSync(join(__dirname, '..', 'app.js'), 'utf-8');
 const CLAUDE_PROXY_SRC = readFileSync(join(__dirname, '..', 'functions', 'api', 'ai', 'claude-invoke.js'), 'utf-8');
 const PRICING_SERVICE_SRC = readFileSync(join(__dirname, '..', 'pricing-service.js'), 'utf-8');
-const PROPOSAL_V2_SRC = readFileSync(join(__dirname, '..', 'proposal-generator-v2.js'), 'utf-8');
+// proposal-generator-v2.js was removed in the Fortune 500 cleanup — V1 is the
+// only proposal generator now (powers both Full + Executive proposal buttons).
+const PROPOSAL_V1_SRC = readFileSync(join(__dirname, '..', 'proposal-generator.js'), 'utf-8');
 const FORMULA_3D_SRC = readFileSync(join(__dirname, '..', 'formula-engine-3d.js'), 'utf-8');
 
 let SmartBrains, SmartPlansPricing;
@@ -94,10 +96,13 @@ describe('Wave 11 C5 — UUID-based clarification ack key', () => {
 });
 
 describe('Wave 11 C6 — CA wage incomplete hard export gate', () => {
-    it('generateCompleteBidPackage blocks when _wageResolutionIncomplete is set', () => {
+    it('_canExportProposal blocks when _wageResolutionIncomplete is set', () => {
+        // Post-Fortune-500-removal: the gate lives in _canExportProposal() which
+        // both Full Proposal + Executive Proposal buttons call before rendering.
         expect(APP_JS_SRC).toMatch(/Prevailing-wage completeness gate/);
         expect(APP_JS_SRC).toMatch(/state\._wageResolutionIncomplete/);
         expect(APP_JS_SRC).toMatch(/EXPORT BLOCKED.*Prevailing wage/);
+        expect(APP_JS_SRC).toMatch(/_canExportProposal/);
     });
 
     it('gate message explains the $60-100k underbid risk', () => {
@@ -228,13 +233,13 @@ describe('Wave 11 M15 — calibration flags always initialized at result constru
     });
 });
 
-describe('Wave 11 M7 + M8 — L2 fallback threshold aligned + source tag cleanup', () => {
-    it('fallback threshold is >0, matching SmartPlansFinancials primary path', () => {
-        expect(PROPOSAL_V2_SRC).toMatch(/fallbackTotal > 0/);
-    });
-
-    it('source tag distinguishes full fallback vs partial-then-fallback, no leading space', () => {
-        expect(PROPOSAL_V2_SRC).toMatch(/hadPrimarySource/);
-        expect(PROPOSAL_V2_SRC).toMatch(/L2 retry: primary threw mid-execution/);
+describe('Wave 11 M7 + M8 — L2 fallback (retired with proposal-generator-v2)', () => {
+    // The L2 fallback logic lived in proposal-generator-v2.js, which was removed
+    // in the Fortune 500 cleanup. proposal-generator.js (V1) has its own priority
+    // stack fallback that pre-dates Wave 11 and is still in place. The M7+M8 tests
+    // specifically targeted the v2 implementation and no longer apply.
+    it('proposal-generator.js V1 still has its priority-stack fallback when SmartPlansFinancials throws', () => {
+        expect(PROPOSAL_V1_SRC).toMatch(/_extractGrandTotal/);
+        expect(PROPOSAL_V1_SRC).toMatch(/SmartPlansFinancials delegation failed/);
     });
 });
