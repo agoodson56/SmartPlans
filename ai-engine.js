@@ -11050,6 +11050,10 @@ ${legendContext}
           }
           context.wave1 = wave1Results;
           state._wave4Disagreements = disagreements;
+          // Wave 10 A4: also sync to context so downstream brains (Labor
+          // Calculator, Financial Engine, Report Writer) can read the list
+          // via their standard context access pattern.
+          context._wave4Disagreements = disagreements;
 
           // Escalate each disagreement as a HITL clarification question so the
           // estimator can confirm the deterministic count or override it.
@@ -11457,8 +11461,13 @@ ${legendContext}
         try {
           const answers = await state._clarificationCallback(clarificationQuestions);
           if (answers && typeof answers === 'object') {
-            context._clarificationAnswers = answers;
-            state._clarificationAnswers = answers;
+            // Wave 10 A3 (v5.128.7): MERGE answers instead of overwriting. A
+            // bid can fire Checkpoint A (Wave 4 count questions + Wave 1
+            // ambiguities) and then Checkpoint B (dispute resolution). Prior
+            // to this fix, Checkpoint B's assignment wiped Checkpoint A's
+            // answers. Now every checkpoint's answers accumulate.
+            context._clarificationAnswers = { ...(context._clarificationAnswers || {}), ...answers };
+            state._clarificationAnswers = context._clarificationAnswers;
             console.log(`[SmartBrains] ✅ Estimator provided ${Object.keys(answers).length} clarification answer(s) — resuming analysis`);
           }
         } catch (e) {
