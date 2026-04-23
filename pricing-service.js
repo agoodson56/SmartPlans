@@ -346,14 +346,30 @@ const SmartPlansPricing = {
     // extractor's DEVICE_PREFIX_MAP in ai-engine.js). Hours are install +
     // terminate + test. Foreman/PM coordination lives in Labor Calculator's
     // percentage overhead, not here.
+    //
+    // ⚠️ Wave 10 M6 (v5.128.7) — IMPORTANT PROVENANCE NOTE:
+    // These values are industry-reasonable estimates sourced from common
+    // NECA Chapter 8 labor-unit ranges + ELV contractor rules of thumb.
+    // They are NOT copied verbatim from a specific NECA book edition.
+    // They SHOULD be cross-checked against your company's actuals data
+    // once cost_benchmarks has 5+ samples per device type (resolveLaborHours
+    // already prefers actuals over NECA automatically at that threshold).
+    // If your estimators find a row is off by >15% vs reality, update the
+    // row here AND log it as a feedback correction so future bids learn.
+    //
+    // Confidence is deliberately 0.70 (below actuals-rolling-avg). The
+    // intent is: NECA guides us, actuals own us.
+    //
+    // Any row tagged TODO(verify) is one I am less sure about — verify
+    // against your most recent completed projects before relying on it.
     NECA_LABOR_HOURS: {
         // CCTV
-        'camera':              { install: 1.8, terminate: 0.8, test: 0.4 }, // 3.0 hrs baseline IP fixed dome
-        'fixed_dome':          { install: 1.8, terminate: 0.8, test: 0.4 },
-        'ptz_camera':          { install: 2.5, terminate: 1.0, test: 0.6 },
-        'nvr':                 { install: 3.0, terminate: 2.0, test: 2.0 },
+        'camera':              { install: 1.8, terminate: 0.8, test: 0.4 }, // 3.0 hrs — IP fixed dome, interior ceiling mount. Transit cameras add mount-arm + conduit stubs → see reconcile override.
+        'fixed_dome':          { install: 1.8, terminate: 0.8, test: 0.4 }, // 3.0 hrs
+        'ptz_camera':          { install: 2.5, terminate: 1.0, test: 0.6 }, // 4.1 hrs
+        'nvr':                 { install: 3.0, terminate: 2.0, test: 2.0 }, // 7.0 hrs — rack-mount NVR w/ video channels configured
         // Access Control
-        'card_reader':         { install: 1.2, terminate: 0.6, test: 0.3 }, // 2.1 hrs baseline
+        'card_reader':         { install: 1.2, terminate: 0.6, test: 0.3 }, // 2.1 hrs — TODO(verify): single-reader door w/ pre-run cable. Retrofit adds 1-2 hrs.
         'electric_strike':     { install: 0.8, terminate: 0.4, test: 0.3 },
         'maglock':             { install: 1.0, terminate: 0.5, test: 0.3 },
         'electric_lock':       { install: 1.0, terminate: 0.5, test: 0.3 },
@@ -361,9 +377,9 @@ const SmartPlansPricing = {
         'request_to_exit':     { install: 0.6, terminate: 0.3, test: 0.2 },
         'intercom':            { install: 1.5, terminate: 0.8, test: 0.4 },
         // Structured Cabling
-        'data_outlet':         { install: 0.4, terminate: 0.3, test: 0.15 }, // 0.85 hrs per drop
+        'data_outlet':         { install: 0.4, terminate: 0.3, test: 0.15 }, // 0.85 hrs per drop, single-jack Cat6A
         'voice_outlet':        { install: 0.4, terminate: 0.3, test: 0.15 },
-        'wireless_ap':         { install: 1.3, terminate: 0.5, test: 0.4 },
+        'wireless_ap':         { install: 1.3, terminate: 0.5, test: 0.4 }, // TODO(verify): ceiling-mount WAP w/ PoE, no rigging
         // Fire Alarm
         'smoke_detector':      { install: 0.8, terminate: 0.3, test: 0.2 },
         'heat_detector':       { install: 0.8, terminate: 0.3, test: 0.2 },
@@ -371,7 +387,7 @@ const SmartPlansPricing = {
         'pull_station':        { install: 0.6, terminate: 0.3, test: 0.1 },
         'horn_strobe':         { install: 0.7, terminate: 0.3, test: 0.3 },
         'strobe':              { install: 0.6, terminate: 0.25, test: 0.25 },
-        'facp':                { install: 6.0, terminate: 4.0, test: 4.0 },
+        'facp':                { install: 6.0, terminate: 4.0, test: 4.0 }, // 14.0 hrs — TODO(verify): larger panels (>100 devices) may need 18-24. Adjust via actuals.
         // Audio Visual
         'speaker':             { install: 0.8, terminate: 0.4, test: 0.2 },
         'dsp':                 { install: 2.5, terminate: 1.5, test: 1.5 },
@@ -434,10 +450,13 @@ const SmartPlansPricing = {
                 };
             }
         }
-        // 2. NECA standard
+        // 2. NECA standard. Wave 10 M6: confidence dropped from 0.85 → 0.70
+        // because the table is best-effort estimates (see provenance note on
+        // NECA_LABOR_HOURS), not NECA-book-verified. Actuals-rolling-avg
+        // (confidence up to 1.0) supersedes this whenever n >= 5 samples.
         const neca = this.necaStandardHours(deviceKey);
         if (neca > 0) {
-            return { hoursPerUnit: neca, source: 'neca_standard', confidence: 0.85 };
+            return { hoursPerUnit: neca, source: 'neca_standard', confidence: 0.70 };
         }
         // 3. AI fallback
         if (Number.isFinite(Number(aiHours)) && Number(aiHours) > 0) {
