@@ -11815,7 +11815,16 @@ ${legendContext}
           county: state.projectCounty || '',
           wageType,
         });
-        if (wageResolution) {
+        if (wageResolution && wageResolution.incomplete) {
+          // Wave 10 C6: CA + no county is now explicitly incomplete, not silent null.
+          // Surface the block loudly and set a state flag so the UI can render a red
+          // banner AND gate export until resolved. This prevents a $60-100k underbid
+          // from silently shipping on a Davis-Bacon job.
+          state._resolvedWageRates = wageResolution;
+          context._resolvedWageRates = wageResolution;
+          state._wageResolutionIncomplete = true;
+          console.error(`[SmartBrains] ⛔ Wave 10 C6 — Wage resolution INCOMPLETE: ${wageResolution.message} Analysis will continue but labor rates will NOT reflect prevailing wage — estimator MUST fix before export.`);
+        } else if (wageResolution) {
           state._resolvedWageRates = wageResolution;
           context._resolvedWageRates = wageResolution;
           console.log(`[SmartBrains] 👷 Wave 7 — Prevailing wage resolved: ${wageResolution.zoneLabel} via ${wageResolution.source}, blended $${wageResolution.blended.toFixed(2)}/hr`);

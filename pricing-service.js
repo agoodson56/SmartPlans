@@ -515,13 +515,36 @@ const SmartPlansPricing = {
         const stateU = String(state || '').trim().toUpperCase();
         const countyTrimmed = String(county || '').trim();
 
-        // California has full county-level granularity via CA_PREVAILING_WAGES
-        if ((stateU === 'CA' || stateU === 'CALIFORNIA') && typeof CA_PREVAILING_WAGES !== 'undefined' && countyTrimmed) {
-            const rates = CA_PREVAILING_WAGES.getRates(countyTrimmed, wageType);
-            const blended = CA_PREVAILING_WAGES.getBlendedRate(countyTrimmed, wageType);
-            const zoneLabel = CA_PREVAILING_WAGES.getZoneLabel(countyTrimmed);
-            if (rates && blended) {
-                return { blended: blended.blended, tables: rates, zoneLabel, source: 'CA_PREVAILING_WAGES', state: 'CA', county: countyTrimmed };
+        // Wave 10 C6 (v5.128.7): CA + missing county now returns an
+        // explicit `incomplete: true` result instead of silently falling
+        // through to the national table (which has no CA entries) and
+        // returning null. Pre-fix the estimator saw no warning, silently
+        // got zero prevailing-wage uplift, and could under-bid Davis-Bacon
+        // jobs by $60-100k. Callers MUST check `.incomplete` before using.
+        if ((stateU === 'CA' || stateU === 'CALIFORNIA')) {
+            if (!countyTrimmed) {
+                return {
+                    incomplete: true,
+                    reason: 'CA_COUNTY_REQUIRED',
+                    message: 'California requires a county selection — prevailing wage rates vary by IBEW zone. Pick a county on Step 0 before running analysis.',
+                    state: 'CA',
+                };
+            }
+            if (typeof CA_PREVAILING_WAGES !== 'undefined') {
+                const rates = CA_PREVAILING_WAGES.getRates(countyTrimmed, wageType);
+                const blended = CA_PREVAILING_WAGES.getBlendedRate(countyTrimmed, wageType);
+                const zoneLabel = CA_PREVAILING_WAGES.getZoneLabel(countyTrimmed);
+                if (rates && blended) {
+                    return { blended: blended.blended, tables: rates, zoneLabel, source: 'CA_PREVAILING_WAGES', state: 'CA', county: countyTrimmed };
+                }
+                // Valid CA but unknown county — also incomplete, not silent null
+                return {
+                    incomplete: true,
+                    reason: 'CA_COUNTY_UNKNOWN',
+                    message: `County "${countyTrimmed}" is not in CA_PREVAILING_WAGES. Check spelling or pick another county.`,
+                    state: 'CA',
+                    county: countyTrimmed,
+                };
             }
         }
 

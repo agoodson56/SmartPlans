@@ -867,6 +867,13 @@ const FormulaEngine3D = {
                 console.log(`[3D Engine v2]   Target: $${targetTotal.toLocaleString()} | Formula: $${formulaTotal.toLocaleString()}`);
                 console.log(`[3D Engine v2]   Subs: ${(subPctOfTotal * 100).toFixed(0)}% of total`);
 
+                // Wave 10 H3 (v5.128.7): explicit init so _calibrated and
+                // _calibrationRejected can never both be true due to a prior
+                // branch leaving a stale value set. SmartPlansFinancials
+                // consumer reads these as mutually exclusive flags — this
+                // enforces that invariant.
+                result._calibrated = false;
+                result._calibrationRejected = false;
                 if (subPctOfTotal <= 0.40 && targetTotal > 0 && formulaTotal > 0) {
                     const deviation = formulaTotal / targetTotal;
                     if (deviation > 1.06 || deviation < 0.94) {
