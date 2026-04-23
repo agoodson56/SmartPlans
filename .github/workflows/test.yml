@@ -52,6 +52,7 @@ jobs:
             tests/match-line.test.js \
             tests/pricing-formula.test.js \
             tests/amtrak-golden-bids.test.js \
-            tests/human-in-the-loop.test.js
+            tests/human-in-the-loop.test.js \
+            tests/accuracy-floor.test.js
         env:
           CI: true

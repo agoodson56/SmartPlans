@@ -5184,12 +5184,63 @@ function renderStep2(container) {
   function updatePlanCount() {
     const el = document.getElementById("plans-count");
     if (state.planFiles.length > 0) {
-      el.innerHTML = `<div class="upload-count">✓ ${state.planFiles.length} sheet${state.planFiles.length !== 1 ? "s" : ""} uploaded. I'll analyze each one individually and provide counts per sheet.</div>`;
+      // v5.128.3 (Wave 3): If vector extraction completed and found
+      // legend/notes sheets embedded in the uploaded plans, show a
+      // compact panel telling the estimator they no longer need to
+      // upload a separate legend file. Detection happens during the
+      // plan-upload encoding pass, so results are available immediately.
+      const det = _renderDetectedLegendNotesBanner();
+      el.innerHTML = `<div class="upload-count">✓ ${state.planFiles.length} sheet${state.planFiles.length !== 1 ? "s" : ""} uploaded. I'll analyze each one individually and provide counts per sheet.</div>${det}`;
     } else {
       el.innerHTML = "";
     }
   }
   updatePlanCount();
+
+  // Re-run the banner whenever vector-extraction finishes on a newly
+  // uploaded file. The encoder writes state._detectedLegendPages once
+  // detection is complete; refresh the panel on an interval until the
+  // step unmounts (cheap — just DOM string swap).
+  const _detectedBannerPoll = setInterval(() => {
+    const el = document.getElementById("plans-count");
+    if (!el || state.planFiles.length === 0) { clearInterval(_detectedBannerPoll); return; }
+    updatePlanCount();
+  }, 1500);
+  // Stop polling after 2 min max
+  setTimeout(() => clearInterval(_detectedBannerPoll), 120000);
+}
+
+// ─── Wave 3 (v5.128.3) — Detected legend + notes banner ───
+// Small inline HTML block shown on Step 2 (Plans) confirming the
+// pre-pass scanner found legend / notes pages embedded in the plan
+// set. Source of truth: state._detectedLegendPages / _detectedNotesPages,
+// populated by ai-engine.js during vector extraction.
+function _renderDetectedLegendNotesBanner() {
+  const legend = Array.isArray(state._detectedLegendPages) ? state._detectedLegendPages : [];
+  const notes = Array.isArray(state._detectedNotesPages) ? state._detectedNotesPages : [];
+  if (legend.length === 0 && notes.length === 0) return '';
+  const row = (pages, icon, label) => {
+    if (pages.length === 0) return '';
+    const top = pages.slice(0, 5).map(p => {
+      const sheet = p.sheetId || `p.${p.pageNum}`;
+      const confPct = Math.round((p.confidence || 0) * 100);
+      return `<span style="display:inline-block;padding:3px 10px;margin:2px 4px 2px 0;border-radius:6px;background:rgba(34,197,94,0.12);color:#15803d;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;border:1px solid rgba(34,197,94,0.3);" title="${confPct}% confidence">${esc(sheet)} <span style="opacity:0.6;">${confPct}%</span></span>`;
+    }).join('');
+    const more = pages.length > 5 ? `<span style="font-size:11px;color:#6b7280;">+${pages.length - 5} more</span>` : '';
+    return `<div style="margin-top:4px;"><span style="font-size:11px;font-weight:700;color:#15803d;text-transform:uppercase;letter-spacing:1px;">${icon} ${label}:</span> ${top}${more}</div>`;
+  };
+  return `
+    <div style="margin-top:10px;padding:12px 14px;background:linear-gradient(135deg,rgba(34,197,94,0.08),rgba(16,185,129,0.04));border-left:3px solid #22c55e;border-radius:0 8px 8px 0;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="font-size:16px;">🎯</span>
+        <span style="font-size:12px;font-weight:800;color:#15803d;letter-spacing:0.5px;">Auto-detected inside your plans</span>
+      </div>
+      <div style="font-size:12px;color:#374151;line-height:1.5;">
+        SmartPlans scanned the uploaded sheets and found your legend and notes embedded. You <strong>don't need to upload a separate legend file</strong> unless you want to supplement these.
+      </div>
+      ${row(legend, '🔍', 'Legend pages')}
+      ${row(notes, '📝', 'Notes pages')}
+    </div>`;
 }
 
 
@@ -12606,7 +12657,43 @@ async function runGeminiAnalysis(updateProgress) {
     };
 
     // ═══ USE MULTI-BRAIN ENGINE ═══
-    const result = await SmartBrains.runFullAnalysis(state, updateProgress);
+    // v5.128.3 (Wave 4.5): runFullAnalysis throws MODEL_HEALTH_GATE when the
+    // Pro model is degraded beyond the configured threshold. Catch that
+    // specific error so we can show a structured blocker with a "continue
+    // in draft mode" override — instead of the generic crash screen.
+    let result;
+    try {
+      result = await SmartBrains.runFullAnalysis(state, updateProgress);
+    } catch (err) {
+      if (err && err.code === 'MODEL_HEALTH_GATE') {
+        state.analyzing = false;
+        AnalysisTimer.stop();
+        const h = err.health || {};
+        const msg =
+          `🚦 ACCURACY GATE — Gemini 3.1 Pro is degraded.\n\n` +
+          `${h.unavailable || '?'} of ${h.tested || '?'} Pro keys are currently unavailable ` +
+          `(${h.unavailablePct ?? '?'}% degraded, gate triggers above ${h.blockThresholdPct ?? 30}%).\n\n` +
+          `Running this bid now would fall back to Gemini 2.5 Flash, which on transit ` +
+          `projects has historically produced bids 40–60% off the target.\n\n` +
+          `RECOMMENDED: wait 15–30 min and retry.\n\n` +
+          `OR: click OK to continue in DRAFT MODE — the bid will run on Flash fallbacks ` +
+          `and the final Proposal will carry a "DRAFT — do not submit" watermark. ` +
+          `Use this only for internal review or preview, not for a submitted bid.`;
+        const acceptDraft = confirm(msg);
+        if (acceptDraft) {
+          state._draftModeAcknowledged = true;
+          if (typeof spToast === 'function') spToast('Continuing in DRAFT mode — bid will be watermarked "do not submit"', 'warn');
+          // Retry — now the gate lets it through and sets state._draftModeActive
+          result = await SmartBrains.runFullAnalysis(state, updateProgress);
+        } else {
+          if (typeof spToast === 'function') spToast('Analysis cancelled — Pro model degraded. Wait and retry.', 'info');
+          render();
+          return;
+        }
+      } else {
+        throw err;
+      }
+    }
 
     // Check if user hit Stop during analysis
     if (window._analysisAborted) {
