@@ -108,7 +108,55 @@ export async function onRequestPost(context) {
         }
 
         await env.DB.batch(allStmts);
-        return Response.json({ success: true, inserted }, { status: 201 });
+
+        // Wave 8 (v5.128.5) — Auto-aggregate actuals into cost_benchmarks.
+        // Old behavior: benchmarks only refreshed when someone manually hit
+        // POST /api/benchmarks. That meant the feedback loop was cold: new
+        // actuals came in but the next bid's benchmark comparison was stale.
+        // New behavior: every actuals save rolls the latest aggregates into
+        // cost_benchmarks so the NEXT bid sees up-to-date averages.
+        let benchmarksRefreshed = 0;
+        try {
+            const aggregated = await env.DB.prepare(`
+                SELECT item_name, category,
+                    AVG(actual_unit_cost) as avg_unit_cost,
+                    MIN(actual_unit_cost) as min_unit_cost,
+                    MAX(actual_unit_cost) as max_unit_cost,
+                    AVG(actual_labor_hours) as avg_labor_hours,
+                    COUNT(*) as sample_count
+                FROM project_actuals
+                WHERE actual_unit_cost > 0
+                GROUP BY LOWER(item_name), category
+                LIMIT 5000
+            `).all();
+            const rows = aggregated.results || [];
+            if (rows.length > 0) {
+                const stmts = [env.DB.prepare('DELETE FROM cost_benchmarks')];
+                for (const r of rows) {
+                    stmts.push(env.DB.prepare(`
+                        INSERT INTO cost_benchmarks
+                            (id, item_name, category, avg_unit_cost, min_unit_cost, max_unit_cost, avg_labor_hours, sample_count)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    `).bind(
+                        crypto.randomUUID().replace(/-/g, ''),
+                        r.item_name,
+                        r.category,
+                        Math.round((r.avg_unit_cost || 0) * 100) / 100,
+                        Math.round((r.min_unit_cost || 0) * 100) / 100,
+                        Math.round((r.max_unit_cost || 0) * 100) / 100,
+                        Math.round((r.avg_labor_hours || 0) * 100) / 100,
+                        r.sample_count || 0,
+                    ));
+                }
+                await env.DB.batch(stmts);
+                benchmarksRefreshed = rows.length;
+            }
+        } catch (aggErr) {
+            // Non-fatal — actuals saved even if rollup fails. Log and continue.
+            console.error('Auto-aggregate into cost_benchmarks failed:', aggErr.message);
+        }
+
+        return Response.json({ success: true, inserted, benchmarksRefreshed }, { status: 201 });
     } catch (err) {
         console.error('Failed to save actuals:', err.message);
         return Response.json({ error: 'Failed to save actuals' }, { status: 500 });
