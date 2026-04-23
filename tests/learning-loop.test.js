@@ -154,14 +154,31 @@ describe('Wave 8 — Drift alert + Accuracy dashboard on Results page', () => {
         expect(APP_JS_SRC).toMatch(/\/api\/accuracy-dashboard/);
     });
 
-    it('drift alert only fires when line_count >= 5 and |signed| >= 10%', () => {
+    it('drift alert only fires when line_count >= 5 and |signed| >= threshold', () => {
         expect(APP_JS_SRC).toMatch(/rolling\.line_count < 5/);
-        expect(APP_JS_SRC).toMatch(/if \(abs < 10\) return ''/);
+        // Wave 10 L3: threshold is now configurable via state.driftAlertThresholdPct
+        expect(APP_JS_SRC).toMatch(/if \(abs < threshold\) return ''/);
     });
 
-    it('drift alert distinguishes OVER-BID vs UNDER-BID direction', () => {
+    it('drift alert distinguishes OVER-BID vs UNDER-BID direction (Wave 10 C5: signs corrected)', () => {
         expect(APP_JS_SRC).toMatch(/OVER-BID/);
         expect(APP_JS_SRC).toMatch(/UNDER-BID/);
+    });
+
+    it('Wave 10 C5: positive signed variance → UNDER-BID label (actuals ran higher than bid = we under-bid)', () => {
+        // This pins the sign fix. signed > 0 → UNDER-BID (used to say OVER-BID, which was catastrophically wrong)
+        expect(APP_JS_SRC).toMatch(/const direction = signed > 0 \? 'UNDER-BID' : 'OVER-BID'/);
+    });
+
+    it('Wave 10 C5: advice text tells estimator to ADD buffer (not trim) when under-bidding historically', () => {
+        // Under-bid → need to ADD money to protect margin
+        expect(APP_JS_SRC).toMatch(/ADDING.*buffer to protect margin/);
+        // Over-bid → need to TRIM to stay competitive
+        expect(APP_JS_SRC).toMatch(/TRIMMING.*stay competitive/);
+    });
+
+    it('Wave 10 L3: drift threshold is configurable via state.driftAlertThresholdPct', () => {
+        expect(APP_JS_SRC).toMatch(/state\.driftAlertThresholdPct/);
     });
 
     it('dashboard renders empty state when no actuals yet', () => {

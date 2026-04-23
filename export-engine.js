@@ -3687,15 +3687,36 @@ const SmartPlansFinancials = {
         let source = 'unknown';
         let breakdown = null;
         let calibration = null;
+
+        // Wave 10 C1-new (v5.128.7): source tag now includes live-pricing
+        // provenance (Wave 7) and draft-mode flag (Wave 9). Two things
+        // the old tag hid from the estimator:
+        //   • _livePricingStats  → how many BOM items priced from
+        //                          distributor quotes / rate library vs static DB
+        //   • _draftModeActive / _claudeFailoverActive → whether Gemini Pro
+        //                          degraded and the bid ran on Claude
+        // Both affect how much confidence the estimator should have, and
+        // whether the proposal should carry a "draft — do not submit" watermark.
+        const lpStats = state?._livePricingStats;
+        const liveCount = lpStats ? ((lpStats.distributor || 0) + (lpStats.rate_library || 0) + (lpStats.user_override || 0)) : 0;
+        const totalItems = lpStats?.total || 0;
+        const livePricingSuffix = totalItems > 0
+            ? ` + live pricing (${liveCount}/${totalItems} from distributor/rate-lib)`
+            : '';
+        const draftSuffix = (state?._draftModeActive || state?._claudeFailoverActive)
+            ? ' [DRAFT — Claude fallback or model-health override]'
+            : '';
+
         if (state?.bidStrategy?.applied) {
-            source = 'bid-strategy (user-applied per-category markups)';
+            source = `bid-strategy (user-applied per-category markups)${livePricingSuffix}${draftSuffix}`;
         } else if (state?.isTransitRailroad && state?._engine3DResult?.grandTotalSELL > 1000) {
             const e3d = state._engine3DResult;
-            source = e3d._calibrated
+            const base = e3d._calibrated
                 ? `FormulaEngine3D (transit, calibrated to ${e3d._calibrationBenchmark})`
                 : e3d._calibrationRejected
                     ? `FormulaEngine3D (transit, calibration REJECTED: ${e3d._calibrationRejectionReason})`
                     : 'FormulaEngine3D (transit, within ±6% of benchmark)';
+            source = base + livePricingSuffix + draftSuffix;
             if (e3d._calibrated || e3d._calibrationRejected) {
                 calibration = {
                     applied: !!e3d._calibrated,
@@ -3707,12 +3728,19 @@ const SmartPlansFinancials = {
                 };
             }
         } else if (bom?.categories?.length > 0) {
-            source = 'deterministic BOM breakdown (canonical formula)';
+            source = `deterministic BOM breakdown (canonical formula)${livePricingSuffix}${draftSuffix}`;
             try { breakdown = SmartPlansExport._computeFullBreakdown(state, bom); } catch (e) { /* non-fatal */ }
         } else {
-            source = 'Financial Engine AI fallback or raw BOM (no breakdown available)';
+            source = `Financial Engine AI fallback or raw BOM (no breakdown available)${draftSuffix}`;
         }
-        return { total, source, breakdown, calibration };
+        return {
+            total,
+            source,
+            breakdown,
+            calibration,
+            livePricing: lpStats || null,
+            draftMode: !!(state?._draftModeActive || state?._claudeFailoverActive),
+        };
     },
 };
 if (typeof window !== 'undefined') {

@@ -54,7 +54,11 @@ const SmartPlansPricing = {
      * Returns 0..1.
      */
     _tokenOverlap(query, candidate) {
-        const q = this._normalize(query).split(/\s+/).filter(w => w.length > 2);
+        // Wave 10 H5 (v5.128.7): filter >= 2 (was > 2). Two-char SKUs like
+        // "WAP", "NVR", "PLC", "AP" are extremely common in ELV estimating
+        // and were being rejected as having zero tokens, never matching
+        // live distributor prices even on exact part matches.
+        const q = this._normalize(query).split(/\s+/).filter(w => w.length >= 2);
         const c = this._normalize(candidate);
         if (q.length === 0) return 0;
         let hits = 0;
@@ -307,12 +311,16 @@ const SmartPlansPricing = {
         };
 
         walk(materialPricerResult.categories || materialPricerResult.material_categories);
-        // Recalculate overall total if present
-        if (materialPricerResult.grand_total !== undefined || materialPricerResult.total !== undefined) {
+        // Wave 10 H10: handle every plausible key the brain might use for the
+        // grand total. Pre-fix, a brain that named the field 'overall_total'
+        // or 'material_total' had its top-level sum stay stale even though
+        // line items were correctly re-priced + category subtotals updated.
+        const gtKeys = ['grand_total', 'total', 'overall_total', 'material_total', 'bom_total'];
+        const presentKeys = gtKeys.filter(k => materialPricerResult[k] !== undefined);
+        if (presentKeys.length > 0) {
             const cats = materialPricerResult.categories || materialPricerResult.material_categories || [];
             const total = cats.reduce((s, c) => s + (Number(c.subtotal) || 0), 0);
-            if (materialPricerResult.grand_total !== undefined) materialPricerResult.grand_total = total;
-            if (materialPricerResult.total !== undefined) materialPricerResult.total = total;
+            for (const k of presentKeys) materialPricerResult[k] = total;
         }
         return stats;
     },
@@ -338,14 +346,30 @@ const SmartPlansPricing = {
     // extractor's DEVICE_PREFIX_MAP in ai-engine.js). Hours are install +
     // terminate + test. Foreman/PM coordination lives in Labor Calculator's
     // percentage overhead, not here.
+    //
+    // ⚠️ Wave 10 M6 (v5.128.7) — IMPORTANT PROVENANCE NOTE:
+    // These values are industry-reasonable estimates sourced from common
+    // NECA Chapter 8 labor-unit ranges + ELV contractor rules of thumb.
+    // They are NOT copied verbatim from a specific NECA book edition.
+    // They SHOULD be cross-checked against your company's actuals data
+    // once cost_benchmarks has 5+ samples per device type (resolveLaborHours
+    // already prefers actuals over NECA automatically at that threshold).
+    // If your estimators find a row is off by >15% vs reality, update the
+    // row here AND log it as a feedback correction so future bids learn.
+    //
+    // Confidence is deliberately 0.70 (below actuals-rolling-avg). The
+    // intent is: NECA guides us, actuals own us.
+    //
+    // Any row tagged TODO(verify) is one I am less sure about — verify
+    // against your most recent completed projects before relying on it.
     NECA_LABOR_HOURS: {
         // CCTV
-        'camera':              { install: 1.8, terminate: 0.8, test: 0.4 }, // 3.0 hrs baseline IP fixed dome
-        'fixed_dome':          { install: 1.8, terminate: 0.8, test: 0.4 },
-        'ptz_camera':          { install: 2.5, terminate: 1.0, test: 0.6 },
-        'nvr':                 { install: 3.0, terminate: 2.0, test: 2.0 },
+        'camera':              { install: 1.8, terminate: 0.8, test: 0.4 }, // 3.0 hrs — IP fixed dome, interior ceiling mount. Transit cameras add mount-arm + conduit stubs → see reconcile override.
+        'fixed_dome':          { install: 1.8, terminate: 0.8, test: 0.4 }, // 3.0 hrs
+        'ptz_camera':          { install: 2.5, terminate: 1.0, test: 0.6 }, // 4.1 hrs
+        'nvr':                 { install: 3.0, terminate: 2.0, test: 2.0 }, // 7.0 hrs — rack-mount NVR w/ video channels configured
         // Access Control
-        'card_reader':         { install: 1.2, terminate: 0.6, test: 0.3 }, // 2.1 hrs baseline
+        'card_reader':         { install: 1.2, terminate: 0.6, test: 0.3 }, // 2.1 hrs — TODO(verify): single-reader door w/ pre-run cable. Retrofit adds 1-2 hrs.
         'electric_strike':     { install: 0.8, terminate: 0.4, test: 0.3 },
         'maglock':             { install: 1.0, terminate: 0.5, test: 0.3 },
         'electric_lock':       { install: 1.0, terminate: 0.5, test: 0.3 },
@@ -353,9 +377,9 @@ const SmartPlansPricing = {
         'request_to_exit':     { install: 0.6, terminate: 0.3, test: 0.2 },
         'intercom':            { install: 1.5, terminate: 0.8, test: 0.4 },
         // Structured Cabling
-        'data_outlet':         { install: 0.4, terminate: 0.3, test: 0.15 }, // 0.85 hrs per drop
+        'data_outlet':         { install: 0.4, terminate: 0.3, test: 0.15 }, // 0.85 hrs per drop, single-jack Cat6A
         'voice_outlet':        { install: 0.4, terminate: 0.3, test: 0.15 },
-        'wireless_ap':         { install: 1.3, terminate: 0.5, test: 0.4 },
+        'wireless_ap':         { install: 1.3, terminate: 0.5, test: 0.4 }, // TODO(verify): ceiling-mount WAP w/ PoE, no rigging
         // Fire Alarm
         'smoke_detector':      { install: 0.8, terminate: 0.3, test: 0.2 },
         'heat_detector':       { install: 0.8, terminate: 0.3, test: 0.2 },
@@ -363,7 +387,7 @@ const SmartPlansPricing = {
         'pull_station':        { install: 0.6, terminate: 0.3, test: 0.1 },
         'horn_strobe':         { install: 0.7, terminate: 0.3, test: 0.3 },
         'strobe':              { install: 0.6, terminate: 0.25, test: 0.25 },
-        'facp':                { install: 6.0, terminate: 4.0, test: 4.0 },
+        'facp':                { install: 6.0, terminate: 4.0, test: 4.0 }, // 14.0 hrs — TODO(verify): larger panels (>100 devices) may need 18-24. Adjust via actuals.
         // Audio Visual
         'speaker':             { install: 0.8, terminate: 0.4, test: 0.2 },
         'dsp':                 { install: 2.5, terminate: 1.5, test: 1.5 },
@@ -396,12 +420,27 @@ const SmartPlansPricing = {
      */
     resolveLaborHours(deviceKey, opts = {}) {
         const { aiHours = null, benchmarks = null } = opts;
-        // 1. Actuals-based benchmark (cost_benchmarks row has avg_labor_hours)
-        if (benchmarks && Array.isArray(benchmarks)) {
-            const hit = benchmarks.find(b =>
-                this._normalize(b.item_name || '').includes(this._normalize(deviceKey).replace(/_/g, ' '))
+        // 1. Actuals-based benchmark (cost_benchmarks row has avg_labor_hours).
+        // Wave 10 M7 (v5.128.7): substring-only matching missed benchmarks with
+        // domain terminology ("Credential Access Module" vs "card_reader").
+        // Now tries substring first, falls back to token overlap >= 0.60.
+        if (benchmarks && Array.isArray(benchmarks) && benchmarks.length > 0) {
+            const deviceTokens = this._normalize(deviceKey).replace(/_/g, ' ');
+            // First pass: direct substring (fastest, handles "card reader" vs "Card Reader")
+            let hit = benchmarks.find(b =>
+                this._normalize(b.item_name || '').includes(deviceTokens)
                 && Number(b.sample_count) >= 5
                 && Number(b.avg_labor_hours) > 0);
+            // Fallback: token-overlap fuzzy match (0.60 threshold, matches other pricing logic)
+            if (!hit) {
+                let best = null; let bestScore = 0;
+                for (const b of benchmarks) {
+                    if (!b || Number(b.sample_count) < 5 || !(Number(b.avg_labor_hours) > 0)) continue;
+                    const score = this._tokenOverlap(deviceTokens, b.item_name || '');
+                    if (score > bestScore && score >= 0.60) { bestScore = score; best = b; }
+                }
+                hit = best;
+            }
             if (hit) {
                 return {
                     hoursPerUnit: Number(hit.avg_labor_hours),
@@ -411,10 +450,13 @@ const SmartPlansPricing = {
                 };
             }
         }
-        // 2. NECA standard
+        // 2. NECA standard. Wave 10 M6: confidence dropped from 0.85 → 0.70
+        // because the table is best-effort estimates (see provenance note on
+        // NECA_LABOR_HOURS), not NECA-book-verified. Actuals-rolling-avg
+        // (confidence up to 1.0) supersedes this whenever n >= 5 samples.
         const neca = this.necaStandardHours(deviceKey);
         if (neca > 0) {
-            return { hoursPerUnit: neca, source: 'neca_standard', confidence: 0.85 };
+            return { hoursPerUnit: neca, source: 'neca_standard', confidence: 0.70 };
         }
         // 3. AI fallback
         if (Number.isFinite(Number(aiHours)) && Number(aiHours) > 0) {
@@ -435,7 +477,24 @@ const SmartPlansPricing = {
         const stats = { total: 0, overridden: 0, agreed: 0, disagreements: [] };
         if (!laborResult || typeof laborResult !== 'object') return stats;
         const { benchmarks = null, tolerance = 0.25 } = opts;
-        const phases = laborResult.phases || laborResult.breakdown || [];
+        // Wave 10 M8 (v5.128.7): handle every plausible LABOR_CALCULATOR
+        // output shape. Pre-fix, a brain that returned flat line_items[]
+        // directly (no phases wrapper) silently got zero reconciliation.
+        let phases;
+        if (Array.isArray(laborResult)) {
+            // Top-level is already a flat array of line items — wrap in one synthetic phase
+            phases = [{ items: laborResult }];
+        } else if (Array.isArray(laborResult.phases)) {
+            phases = laborResult.phases;
+        } else if (Array.isArray(laborResult.breakdown)) {
+            phases = laborResult.breakdown;
+        } else if (Array.isArray(laborResult.line_items)) {
+            phases = [{ items: laborResult.line_items }];
+        } else if (Array.isArray(laborResult.items)) {
+            phases = [{ items: laborResult.items }];
+        } else {
+            return stats;
+        }
         if (!Array.isArray(phases)) return stats;
         for (const phase of phases) {
             const items = phase.items || phase.line_items || [];
@@ -515,13 +574,36 @@ const SmartPlansPricing = {
         const stateU = String(state || '').trim().toUpperCase();
         const countyTrimmed = String(county || '').trim();
 
-        // California has full county-level granularity via CA_PREVAILING_WAGES
-        if ((stateU === 'CA' || stateU === 'CALIFORNIA') && typeof CA_PREVAILING_WAGES !== 'undefined' && countyTrimmed) {
-            const rates = CA_PREVAILING_WAGES.getRates(countyTrimmed, wageType);
-            const blended = CA_PREVAILING_WAGES.getBlendedRate(countyTrimmed, wageType);
-            const zoneLabel = CA_PREVAILING_WAGES.getZoneLabel(countyTrimmed);
-            if (rates && blended) {
-                return { blended: blended.blended, tables: rates, zoneLabel, source: 'CA_PREVAILING_WAGES', state: 'CA', county: countyTrimmed };
+        // Wave 10 C6 (v5.128.7): CA + missing county now returns an
+        // explicit `incomplete: true` result instead of silently falling
+        // through to the national table (which has no CA entries) and
+        // returning null. Pre-fix the estimator saw no warning, silently
+        // got zero prevailing-wage uplift, and could under-bid Davis-Bacon
+        // jobs by $60-100k. Callers MUST check `.incomplete` before using.
+        if ((stateU === 'CA' || stateU === 'CALIFORNIA')) {
+            if (!countyTrimmed) {
+                return {
+                    incomplete: true,
+                    reason: 'CA_COUNTY_REQUIRED',
+                    message: 'California requires a county selection — prevailing wage rates vary by IBEW zone. Pick a county on Step 0 before running analysis.',
+                    state: 'CA',
+                };
+            }
+            if (typeof CA_PREVAILING_WAGES !== 'undefined') {
+                const rates = CA_PREVAILING_WAGES.getRates(countyTrimmed, wageType);
+                const blended = CA_PREVAILING_WAGES.getBlendedRate(countyTrimmed, wageType);
+                const zoneLabel = CA_PREVAILING_WAGES.getZoneLabel(countyTrimmed);
+                if (rates && blended) {
+                    return { blended: blended.blended, tables: rates, zoneLabel, source: 'CA_PREVAILING_WAGES', state: 'CA', county: countyTrimmed };
+                }
+                // Valid CA but unknown county — also incomplete, not silent null
+                return {
+                    incomplete: true,
+                    reason: 'CA_COUNTY_UNKNOWN',
+                    message: `County "${countyTrimmed}" is not in CA_PREVAILING_WAGES. Check spelling or pick another county.`,
+                    state: 'CA',
+                    county: countyTrimmed,
+                };
             }
         }
 

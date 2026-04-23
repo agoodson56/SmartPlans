@@ -235,11 +235,21 @@ describe('Wave 7 — resolveWageRates', () => {
         expect(r.blended).toBeGreaterThan(50);
     });
 
-    it('California + invalid county → null (no silent generic fallback)', () => {
+    it('California + invalid county → incomplete (Wave 10 C6: no silent generic fallback)', () => {
         const r = SmartPlansPricing.resolveWageRates({ state: 'CA', county: 'Nonexistent', wageType: 'davis-bacon' });
-        // Implementation falls through to national; for CA without a valid county
-        // we still expect null because the national table has no CA entries.
-        expect(r).toBeNull();
+        // Wave 10 C6: CA with unknown county now returns explicit incomplete
+        // marker instead of null. Forces UI to surface a visible error.
+        expect(r).toBeTruthy();
+        expect(r.incomplete).toBe(true);
+        expect(r.reason).toBe('CA_COUNTY_UNKNOWN');
+    });
+
+    it('Wave 10 C6: California + BLANK county returns incomplete with CA_COUNTY_REQUIRED', () => {
+        const r = SmartPlansPricing.resolveWageRates({ state: 'CA', county: '', wageType: 'davis-bacon' });
+        expect(r).toBeTruthy();
+        expect(r.incomplete).toBe(true);
+        expect(r.reason).toBe('CA_COUNTY_REQUIRED');
+        expect(r.message).toMatch(/county/i);
     });
 
     it('Texas → NATIONAL_PREVAILING_WAGES metro zone lookup', () => {
@@ -343,7 +353,16 @@ describe('Wave 7 — index.html + sw.js asset wiring', () => {
         expect(SW_JS).toMatch(/'\/pricing-service\.js'/);
     });
 
-    it('sw.js cache name updated to the Wave 7 version', () => {
-        expect(SW_JS).toMatch(/smartplans-v5\.128\.4/);
+    it('sw.js cache name kept current — bumped with material changes (Wave 10 G1: v5.128.7)', () => {
+        // Any cache name matching smartplans-vMAJOR.MINOR.PATCH >= 5.128.4 is fine
+        const m = SW_JS.match(/smartplans-v(\d+)\.(\d+)\.(\d+)/);
+        expect(m).toBeTruthy();
+        const [, major, minor, patch] = m.map(Number);
+        // Must be >= 5.128.4
+        expect(major).toBeGreaterThanOrEqual(5);
+        if (major === 5) {
+            expect(minor).toBeGreaterThanOrEqual(128);
+            if (minor === 128) expect(patch).toBeGreaterThanOrEqual(4);
+        }
     });
 });

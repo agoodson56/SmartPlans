@@ -130,6 +130,23 @@
                 }
             } catch (e) { console.warn('[ProposalGenV2] grandTotal resolution failed:', e); }
 
+            // Wave 10 L2 (v5.128.7): if SmartPlansFinancials threw and we still
+            // have no grandTotal, fall back to the legacy V1 priority stack so
+            // the proposal doesn't ship with $0 / 'See Schedule of Values'.
+            if ((!grandTotal || grandTotal <= 0) && typeof SmartPlansExport !== 'undefined' && typeof SmartPlansExport._getFullyLoadedTotal === 'function') {
+                try {
+                    const analysis = state.aiAnalysis || '';
+                    let bom = SmartPlansExport._extractBOMFromAnalysis ? SmartPlansExport._extractBOMFromAnalysis(analysis) : null;
+                    if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') bom = SmartPlansExport._applyUserBOMEdits(bom, state);
+                    const fallbackTotal = SmartPlansExport._getFullyLoadedTotal(state, bom) || 0;
+                    if (fallbackTotal > 1000) {
+                        grandTotal = fallbackTotal;
+                        grandTotalSource = (grandTotalSource || '') + ' [L2 fallback: SmartPlansFinancials path threw]';
+                        console.warn('[ProposalGenV2] L2 fallback activated — used _getFullyLoadedTotal directly, bypassing SmartPlansFinancials');
+                    }
+                } catch (fbErr) { console.warn('[ProposalGenV2] L2 fallback also failed:', fbErr?.message || fbErr); }
+            }
+
             const projName = sanitize(state.projectName, 200) || 'Untitled Project';
             const safeName = projName.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').substring(0, 60);
 

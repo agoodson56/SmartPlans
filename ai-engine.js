@@ -58,20 +58,35 @@ const SmartBrains = {
   // ─── Wave 9 (v5.128.6) — Claude availability probe ─────────────────────
   // Lightweight GET that tells us whether ANTHROPIC_KEY is set as a
   // Cloudflare secret. Cached on first call so we don't probe every brain.
+  // Wave 10 L4: TTL added so a mid-session key swap/revocation is detected.
   _claudeAvailabilityCache: null,
+  _claudeAvailabilityCachedAt: 0,
+  _claudeAvailabilityTTLMs: 5 * 60 * 1000, // 5 min
   async _checkClaudeAvailable() {
-    if (this._claudeAvailabilityCache !== null) return this._claudeAvailabilityCache;
+    const fresh = this._claudeAvailabilityCache !== null
+      && (Date.now() - this._claudeAvailabilityCachedAt) < this._claudeAvailabilityTTLMs;
+    if (fresh) return this._claudeAvailabilityCache;
     try {
       const res = await fetch('/api/ai/claude-invoke', { method: 'GET', headers: this._authHeaders() });
-      if (!res.ok) { this._claudeAvailabilityCache = false; return false; }
+      if (!res.ok) { this._claudeAvailabilityCache = false; this._claudeAvailabilityCachedAt = Date.now(); return false; }
       const data = await res.json();
       this._claudeAvailabilityCache = !!data.configured;
+      this._claudeAvailabilityCachedAt = Date.now();
       return this._claudeAvailabilityCache;
     } catch (_) {
       this._claudeAvailabilityCache = false;
+      this._claudeAvailabilityCachedAt = Date.now();
       return false;
     }
   },
+
+  // ─── Wave 10 (v5.128.7) — Provider override, honored by _invokeBrain ───
+  // When runFullAnalysis decides to fail over from Gemini to Claude, it sets
+  // SmartBrains._providerOverride='anthropic'. _invokeBrain checks this on
+  // every call and routes to /api/ai/claude-invoke + claudeModel when set.
+  // Resets to null at the start of every runFullAnalysis so a prior bid's
+  // failover state can't leak into the next bid.
+  _providerOverride: null,
 
   // ─── Wave 9 (v5.128.6) — Compare two provider outputs for a brain ──────
   // Returns { agree: bool, diffPct: number, divergences: [{key, a, b, pctDiff}] }.
@@ -120,7 +135,18 @@ const SmartBrains = {
     const blockThresholdPct = (this.config.proDegradedBlockThreshold ?? 30);
     const url = `/api/ai/quota-check?model=${encodeURIComponent(proModel)}`;
     try {
-      const res = await fetch(url, { headers: this._authHeaders(), signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(15000) : undefined });
+      // Wave 10 M10: AbortSignal.timeout is missing on older browsers. Fall
+      // back to a manual AbortController + setTimeout so Safari < 16.4 + older
+      // Edge still get a bounded probe instead of a hang.
+      let signal;
+      if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+        signal = AbortSignal.timeout(15000);
+      } else {
+        const ctrl = new AbortController();
+        setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, 15000);
+        signal = ctrl.signal;
+      }
+      const res = await fetch(url, { headers: this._authHeaders(), signal });
       if (!res.ok) {
         return { severity: 'warning', message: `Health probe returned ${res.status}`, unavailablePct: null, model: proModel, _probeFailed: true };
       }
@@ -145,6 +171,15 @@ const SmartBrains = {
   // confidence scores. Regex + keyword scoring — no network, no AI.
   _detectLegendAndNotesSheets(vectorPages) {
     if (!Array.isArray(vectorPages) || vectorPages.length === 0) return { legendPages: [], notesPages: [] };
+    // Wave 10 H7 + M15 (v5.128.7): tightened legend patterns.
+    // BEFORE: /\babbreviations?\b/i matched every title block that
+    // contained the word "ABBREVIATIONS" (i.e. most sheets) and
+    // /(^|\s)legend(\s|$)/i matched marketing copy like "the legend of
+    // sustainable building". That flooded detection with noise.
+    // AFTER: require legend/notes keywords to appear with a supporting
+    // anchor word (schedule, symbols, abbreviations, key, device) OR as
+    // the only meaningful phrase on a short label. Weak single-word
+    // matches ("legend") now need TWO hits or a size gate to qualify.
     const LEGEND_PATTERNS = [
       /\bsymbol\s+legend\b/i,
       /\bsymbol\s+schedule\b/i,
@@ -152,9 +187,16 @@ const SmartBrains = {
       /\bdevice\s+schedule\b/i,
       /\bdevice\s+legend\b/i,
       /\blegend\s+(and|&|\&)\s+(abbreviation|symbol)/i,
-      /\babbreviations?\b/i,
+      /\blegend\s+(and|&|\&)\s+notes?\b/i,
+      /\b(symbol|device|drawing|sheet)\s+abbreviations?\b/i,
       /\bkey\s+notes?\s+legend\b/i,
+      /\bsymbol\s+key\b/i,
+    ];
+    // "LEGEND" or "ABBREVIATIONS" alone count as a HALF-match — only
+    // flagged if accompanied by another signal OR many of them cluster.
+    const WEAK_LEGEND_PATTERNS = [
       /(^|\s)legend(\s|$)/i,
+      /\babbreviations?\b/i,
     ];
     const NOTES_PATTERNS = [
       /\bgeneral\s+notes?\b/i,
@@ -173,6 +215,13 @@ const SmartBrains = {
       const pageText = page.textItems.map(t => (t && t.str) || '').join(' ').slice(0, 50000);
       let legendScore = 0;
       for (const rx of LEGEND_PATTERNS) if (rx.test(pageText)) legendScore += 1;
+      // Weak matches count HALF, and only if accompanied by other signals
+      let weakLegendHits = 0;
+      for (const rx of WEAK_LEGEND_PATTERNS) if (rx.test(pageText)) weakLegendHits += 1;
+      if (legendScore > 0 && weakLegendHits > 0) legendScore += 0.5 * weakLegendHits;
+      // Pure-weak detection: only flag if MULTIPLE weak signals cluster
+      // (e.g., "LEGEND" + "ABBREVIATIONS" on the same page)
+      else if (weakLegendHits >= 2) legendScore += 0.75;
       let notesScore = 0;
       for (const rx of NOTES_PATTERNS) if (rx.test(pageText)) notesScore += 1;
       const avgItemLen = page.textItems.length > 0
@@ -2132,7 +2181,15 @@ const SmartBrains = {
 
       // Cap at 60 pages per file to keep the loop bounded on huge sets.
       // Beyond that we still report totalPages but stop scanning.
+      // Wave 10 M11 (v5.128.7): log a warning when we truncate. Large
+      // transit/infrastructure plan sets can be 80-120 pages and
+      // legend/notes often live on the last few — silent drop was a
+      // hidden accuracy leak. Estimator sees the warning in DevTools
+      // and can split the PDF or raise the cap.
       const pageLimit = Math.min(totalPages, 60);
+      if (totalPages > pageLimit) {
+        console.warn(`[VectorExtract] ⚠️  Plan set has ${totalPages} pages; extracting only first ${pageLimit} (capped for bounded loop). Legend/notes on sheet ${pageLimit + 1}+ will NOT be auto-detected. Consider splitting the PDF if the legend lives on a late sheet.`);
+      }
 
       for (let p = 1; p <= pageLimit; p++) {
         try {
@@ -3077,13 +3134,25 @@ const SmartBrains = {
   // BRAIN INVOCATION — Call Gemini with retry & key rotation
   // ═══════════════════════════════════════════════════════════
 
-  async _invokeBrain(brainKey, brainDef, promptText, fileParts, useJsonMode) {
+  async _invokeBrain(brainKey, brainDef, promptText, fileParts, useJsonMode, opts = {}) {
     const maxRetries = this.config.maxRetries;
     let lastError = null;
 
+    // ─── Wave 10 C1 (v5.128.7) — Provider override honored ───
+    // opts.providerOverride beats SmartBrains._providerOverride (cross-check
+    // uses opts to force Claude for the second call). When either is
+    // 'anthropic', route to the Claude proxy + model instead of Gemini.
+    const providerOverride = opts.providerOverride || this._providerOverride || null;
+    const useClaude = providerOverride === 'anthropic';
+
     // Determine model and URL up front (accessible in fallback block)
-    let modelName = brainDef.useProModel ? (this.config.proModel || this.config.model) : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel : this.config.model;
-    const url = this.config.proxyEndpoint;
+    let modelName = useClaude
+      ? (this.config.claudeModel || 'claude-opus-4-7')
+      : (brainDef.useProModel ? (this.config.proModel || this.config.model)
+         : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel
+         : this.config.model);
+    const url = useClaude ? '/api/ai/claude-invoke' : this.config.proxyEndpoint;
+    if (useClaude && this.config.DEBUG) console.log(`[Brain:${brainDef.name}] Provider override → Claude (${modelName})`);
 
     // Check for uploaded file URIs — needed for key pinning in both main loop and fallback
     const hasUploadedFiles = fileParts.some(p => p.fileData?.fileUri);
@@ -5090,7 +5159,12 @@ ${priorCorrections.slice(0, 30).map(c => {
     const dir = Number(c.delta_pct) > 0 ? 'RAISED' : 'LOWERED';
     const field = c.field_changed === 'qty' ? 'qty' : 'unit cost';
     const delta = Math.abs(Number(c.delta_pct) || 0).toFixed(1);
-    return `  • "${c.item_name}" (${c.discipline || 'any'}) — estimators ${dir} the ${field} by ${delta}% (${c.original_value} → ${c.corrected_value}) on ${c.project_name || 'previous bid'}`;
+    // Wave 10 H11 (v5.128.7): sanitize item + project names before embedding
+    // into the prompt. An estimator who named an item with backticks/asterisks
+    // or prompt-injection bait like '**HIDDEN_INSTRUCTION:**' could steer
+    // Material Pricer. Strip markdown + cap to 100 chars.
+    const sanitize = (s) => String(s || '').replace(/[*_`<>|]/g, '').slice(0, 100);
+    return `  • "${sanitize(c.item_name)}" (${sanitize(c.discipline) || 'any'}) — estimators ${dir} the ${field} by ${delta}% (${c.original_value} → ${c.corrected_value}) on ${sanitize(c.project_name) || 'previous bid'}`;
 }).join('\n')}
 
 For the items above, start at the CORRECTED values, not your usual default. If your training or context
@@ -6073,13 +6147,32 @@ EXAMPLE:
 REPORT THIS in your output: add a top-level field "prevailing_wage_applied": true and "prevailing_wage_multiplier": ${pwMultiplier} so downstream brains can verify.
 ` : '';
 
+        // Wave 10 M12 (v5.128.7): feedback loop also runs on Labor Calculator.
+        // Pre-fix only Material Pricer got 'LEARNED FROM PAST ESTIMATOR EDITS'.
+        // Labor corrections (hours_per_unit edits from past bid_corrections)
+        // now inform the Labor Calculator prompt too — the loop is symmetric.
+        const laborCorrections = (context._priorBidCorrections || []).filter(c =>
+            c.field_changed === 'hours_per_unit' || c.field_changed === 'labor_hours' || /hour/i.test(String(c.field_changed))
+        );
+        const laborCorrectionsBlock = laborCorrections.length > 0 ? `
+
+═══ LEARNED FROM PAST ESTIMATOR LABOR-HOUR EDITS (Wave 10 M12) ═══
+${laborCorrections.slice(0, 20).map(c => {
+    const dir = Number(c.delta_pct) > 0 ? 'RAISED' : 'LOWERED';
+    const delta = Math.abs(Number(c.delta_pct) || 0).toFixed(1);
+    const sanitize = (s) => String(s || '').replace(/[*_\`<>|]/g, '').slice(0, 100);
+    return `  • "${sanitize(c.item_name)}" (${sanitize(c.discipline) || 'any'}) — estimators ${dir} the hours by ${delta}% on ${sanitize(c.project_name) || 'previous bid'}`;
+}).join('\n')}
+Apply these lessons now — these came from real actuals on real bids.
+` : '';
+
         return `You are a CONSTRUCTION LABOR ESTIMATOR using NECA labor standards.
 
 PROJECT: ${context.projectName} | Type: ${context.projectType}
 LABOR MARKUP: ${context.markup?.labor || 50}%
 BURDEN RATE: ${context.includeBurden ? context.burdenRate + '%' : 'Not applied'}
 PREVAILING WAGE: ${pwRequired ? (pwType.toUpperCase() + ' REQUIRED — SEE MANDATORY OVERRIDE BELOW') : (context.prevailingWage || 'No')}
-WORK SHIFT: ${context.workShift || 'Standard'}${pwBlock}
+WORK SHIFT: ${context.workShift || 'Standard'}${pwBlock}${laborCorrectionsBlock}
 
 LABOR RATES:
 ${Object.entries(context.laborRates || {}).map(([k, v]) =>
@@ -6960,7 +7053,25 @@ Return the proposal as formatted Markdown text.`;
 
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
+${(() => {
+  // Wave 10 C4 (v5.128.7): if the plan set has an embedded legend page
+  // (detected by _detectLegendAndNotesSheets), tell the AI exactly where
+  // to look. Pre-Wave-10 the detection populated state but nothing in the
+  // prompt consumed it — the green "legend auto-detected" banner was
+  // cosmetic.
+  const detected = context._detectedLegendPages || [];
+  if (!Array.isArray(detected) || detected.length === 0) return '';
+  const top = detected.slice(0, 5).map(p => `  • ${p.sheetId || 'page ' + p.pageNum}${p.confidence >= 0.75 ? ' (high-confidence)' : ''}`).join('\n');
+  return `
+═══ AUTO-DETECTED LEGEND PAGES (look here first) ═══
+SmartPlans pre-scanned the uploaded plan set and found legend content on these sheets.
+Prioritize reading these pages — they almost certainly contain the symbol key:
+${top}
 
+If the separately uploaded legend file is also present, use BOTH. The auto-detected
+legend pages are inside the plan PDFs, not a separate file.
+`;
+})()}
 INSTRUCTIONS:
 1. Study every symbol on the legend sheet(s) meticulously
 2. For each symbol, describe its visual appearance (shape, fill, letters, size)
@@ -7565,7 +7676,29 @@ Return ONLY valid JSON:
 
       // ── BRAIN 9: Consensus Arbitrator (Wave 1.75) ─────────────
       CONSENSUS_ARBITRATOR: () => `You are a SENIOR CONSENSUS ANALYST. Multiple independent teams just counted every device symbol on the same construction drawings using different methodologies. Your job is to find the TRUTH.
+${(() => {
+  // Wave 10 C3 (v5.128.7): inject deterministic ground truth when Wave 4
+  // reconcile produced overrides. pdf.js reads EXACT text labels from the
+  // PDF content stream — it cannot hallucinate. When the AI scanners
+  // disagree with these counts by any margin, the deterministic count
+  // wins AND arbitrator must honor it, not outvote it via 3-of-5 AI agreement.
+  const det = context._deterministicCounts?.perDevice || null;
+  const overrides = context.wave1?.SYMBOL_SCANNER?._deterministicOverrides || [];
+  if (!det || overrides.length === 0) return '';
+  return `
+═══ 🎯 DETERMINISTIC GROUND TRUTH (Wave 4 pdf.js extraction — AUTHORITATIVE) ═══
+These counts came from pdf.js extracting EXACT text labels from the PDF
+content stream (e.g., "CR-12", "C-47"). Not a visual guess. Use these as
+the FINAL consensus count for these devices — do NOT average against the
+AI scanner reads below. If SYMBOL_SCANNER / SHADOW_SCANNER / QUADRANT_SCANNER
+disagree with these numbers, those AI counts are WRONG.
 
+${JSON.stringify(det, null, 2)}
+
+Deterministic overrides applied (AI was off by >10%):
+${overrides.map(o => `  • ${o.device}: AI=${o.ai}, pdf.js=${o.deterministic} (${o.diffPct}% disagreement) — USE ${o.deterministic}`).join('\n')}
+`;
+})()}
 READ 1 — Systematic Scan (Symbol Scanner):
 ${JSON.stringify(context.wave1?.SYMBOL_SCANNER?.totals || {}, null, 2)}
 
@@ -8903,6 +9036,20 @@ CRITICAL: Be EXHAUSTIVE. Every "by others" and "OFOI" you miss is a potential $5
 
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
+${(() => {
+  // Wave 10 M9 (v5.128.7): feed auto-detected notes pages (if any) so the
+  // AI prioritizes scanning them. Pre-Wave-10 the detection was wired to
+  // state but the prompt never used it.
+  const detected = context._detectedNotesPages || [];
+  if (!Array.isArray(detected) || detected.length === 0) return '';
+  const top = detected.slice(0, 5).map(p => `  • ${p.sheetId || 'page ' + p.pageNum}${p.confidence >= 0.75 ? ' (high-confidence)' : ''}`).join('\n');
+  return `
+═══ AUTO-DETECTED NOTES PAGES (prioritize these) ═══
+SmartPlans pre-scanned the plan set and found notes content on these sheets.
+These almost certainly contain keynote tables / general notes / specs:
+${top}
+`;
+})()}
 
 BACKGROUND — What keynotes actually are:
 Each drawing sheet has a "KEYNOTES" or "GENERAL NOTES" box, typically in the title block or along one edge of the sheet. Numbered items (1, 2, 3... or sometimes A, B, C) are referenced throughout the plan view with little numbered bubbles. 80% of the scope surprises on any project live in these notes — NOT in the BOM.
@@ -9246,6 +9393,43 @@ ${rfp.mwbe_requirements?.goal_pct > 0 ? `⚠️ ${rfp.mwbe_requirements.type} go
         }
       } else {
         parsed = rawResult; // Report writer returns markdown
+      }
+
+      // ─── Wave 10 C2 (v5.128.7) — Dual-provider cross-check ───
+      // For claudeCriticalBrains, fire a SECOND call to Claude with the
+      // same prompt, then compare structured outputs via _compareProviderOutputs.
+      // On disagreement > 10%, flag the primary result + record a HITL
+      // disagreement so the estimator can arbitrate. Skip cross-check if
+      // we're already failing over to Claude (no redundancy to gain).
+      const canCrossCheck =
+        this.config.enableClaudeCrossCheck
+        && Array.isArray(this.config.claudeCriticalBrains)
+        && this.config.claudeCriticalBrains.includes(key)
+        && this._providerOverride !== 'anthropic'
+        && useJsonMode
+        && parsed && typeof parsed === 'object' && !parsed._parseFailed;
+      if (canCrossCheck) {
+        try {
+          const claudeReady = await this._checkClaudeAvailable();
+          if (claudeReady) {
+            const claudeRaw = await this._invokeBrain(key, brain, prompt, fileParts, useJsonMode, { providerOverride: 'anthropic' });
+            const claudeParsed = this._parseJSON(claudeRaw);
+            if (claudeParsed && typeof claudeParsed === 'object') {
+              const compare = this._compareProviderOutputs(parsed, claudeParsed, { tolerance: 0.10 });
+              parsed._crossCheckCompared = true;
+              parsed._crossCheckSecondaryProvider = 'anthropic';
+              if (!compare.agree) {
+                console.warn(`[CrossCheck:${brain.name}] ⚠️ Gemini + Claude disagree on ${compare.divergences.length} field(s): ${compare.divergences.slice(0, 3).map(d => d.key).join(', ')}`);
+                parsed._crossCheckDisagreements = compare.divergences.slice(0, 30);
+                this._wave10CrossCheckDisagreements.push({ brain: key, divergences: compare.divergences.slice(0, 30) });
+              } else if (this.config.DEBUG) {
+                console.log(`[CrossCheck:${brain.name}] Gemini + Claude agree ✓`);
+              }
+            }
+          }
+        } catch (ccErr) {
+          console.warn(`[CrossCheck:${brain.name}] secondary call failed (non-fatal):`, ccErr?.message || ccErr);
+        }
       }
 
       // ── Schema Validation + Auto-Retry (up to MAX_VALIDATION_RETRIES attempts) ──
@@ -9946,9 +10130,17 @@ ${legendContext}
       const corrPromises = [];
       // Fetch up to 25 corrections per discipline, capped at 150 total
       if (projectType && disciplines.length > 0) {
+        // Wave 10 M14 (v5.128.7): per-discipline failure reporting. Pre-fix
+        // errors were swallowed into a generic empty-array fallback — now
+        // each failing discipline logs its own error so estimators can see
+        // which feedback loop broke.
         for (const disc of disciplines.slice(0, 6)) {
           const url = `/api/bid-corrections?project_type=${encodeURIComponent(projectType)}&discipline=${encodeURIComponent(disc)}&limit=25`;
-          corrPromises.push(fetch(url, { headers }).then(r => r.ok ? r.json() : { corrections: [] }).catch(() => ({ corrections: [] })));
+          corrPromises.push(
+            fetch(url, { headers })
+              .then(r => r.ok ? r.json() : (console.warn(`[Wave 8 preload] corrections ${disc} → ${r.status}`), { corrections: [] }))
+              .catch(err => (console.warn(`[Wave 8 preload] corrections ${disc} fetch failed:`, err?.message || err), { corrections: [] }))
+          );
         }
       } else if (projectType) {
         corrPromises.push(fetch(`/api/bid-corrections?project_type=${encodeURIComponent(projectType)}&limit=100`, { headers }).then(r => r.ok ? r.json() : { corrections: [] }).catch(() => ({ corrections: [] })));
@@ -9986,6 +10178,10 @@ ${legendContext}
           console.warn(`[SmartBrains] ⚠️ Gemini Pro degraded (${healthCheck.unavailablePct}% unavailable) — FAILING OVER to Claude for this bid`);
           state._aiProviderOverride = 'anthropic';
           state._claudeFailoverActive = true;
+          // Wave 10 C1: ALSO mirror to SmartBrains._providerOverride so
+          // _invokeBrain actually routes to Claude. Without this mirror,
+          // the state flag was cosmetic.
+          this._providerOverride = 'anthropic';
           // Do NOT throw — let the run proceed on Claude
         } else if (!draftMode) {
           const err = new Error(`ACCURACY_GATE: Pro model degraded (${healthCheck.unavailablePct}% unavailable). Refusing to run a final bid on Flash fallbacks — accept draft mode to continue or wait for Pro to recover.`);
@@ -10010,6 +10206,11 @@ ${legendContext}
     // (until page reload) even if the GCP project was restored.
     if (this._deadSlots) this._deadSlots.clear();
     if (this._deadSlotReasons) this._deadSlotReasons.clear();
+    // Wave 10 C1: reset provider override so a prior bid's failover can't
+    // leak into the next bid. Also reset Claude availability cache so
+    // re-probing happens if a full 5 min elapsed since last check.
+    this._providerOverride = null;
+    this._wave10CrossCheckDisagreements = [];
     if (this._circuitBreaker) {
       this._circuitBreaker.consecutive429s = 0;
       this._circuitBreaker.trippedUntil = 0;
@@ -10881,6 +11082,10 @@ ${legendContext}
           }
           context.wave1 = wave1Results;
           state._wave4Disagreements = disagreements;
+          // Wave 10 A4: also sync to context so downstream brains (Labor
+          // Calculator, Financial Engine, Report Writer) can read the list
+          // via their standard context access pattern.
+          context._wave4Disagreements = disagreements;
 
           // Escalate each disagreement as a HITL clarification question so the
           // estimator can confirm the deterministic count or override it.
@@ -11288,8 +11493,13 @@ ${legendContext}
         try {
           const answers = await state._clarificationCallback(clarificationQuestions);
           if (answers && typeof answers === 'object') {
-            context._clarificationAnswers = answers;
-            state._clarificationAnswers = answers;
+            // Wave 10 A3 (v5.128.7): MERGE answers instead of overwriting. A
+            // bid can fire Checkpoint A (Wave 4 count questions + Wave 1
+            // ambiguities) and then Checkpoint B (dispute resolution). Prior
+            // to this fix, Checkpoint B's assignment wiped Checkpoint A's
+            // answers. Now every checkpoint's answers accumulate.
+            context._clarificationAnswers = { ...(context._clarificationAnswers || {}), ...answers };
+            state._clarificationAnswers = context._clarificationAnswers;
             console.log(`[SmartBrains] ✅ Estimator provided ${Object.keys(answers).length} clarification answer(s) — resuming analysis`);
           }
         } catch (e) {
@@ -11306,6 +11516,44 @@ ${legendContext}
     const wave15Results = await this._runWave(1.5, wave15Keys, filteredEncodedFiles, state, context, progressCallback);
     context.wave1_5 = wave15Results;
     console.log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (5 brains) ═══');
+
+    // ═══ WAVE 10 C3 (v5.128.7) — CASCADE DETERMINISTIC OVERRIDES TO WAVE 1.5 SCANNERS ═══
+    // Wave 4 already overrode SYMBOL_SCANNER.totals, but CONSENSUS_ARBITRATOR
+    // reads from 4 other scanners too (SHADOW_SCANNER, QUADRANT_SCANNER,
+    // ZOOM_SCANNER.grand_totals, PER_FLOOR_ANALYZER). Those ran on the AI
+    // and still carry the pre-correction numbers, so a 3-of-5 AI majority
+    // was silently outvoting the deterministic truth. Cascade the override
+    // to all of them now so every read the arbitrator sees is consistent.
+    // (Plus the CONSENSUS_ARBITRATOR prompt now includes a "DETERMINISTIC
+    // GROUND TRUTH — AUTHORITATIVE" block as a belt-and-suspenders safety.)
+    try {
+      const symbolOverrides = wave1Results.SYMBOL_SCANNER?._deterministicOverrides || [];
+      if (symbolOverrides.length > 0 && wave15Results) {
+        const cascadeTargets = [
+          ['SHADOW_SCANNER', 'totals'],
+          ['QUADRANT_SCANNER', 'totals'],
+          ['ZOOM_SCANNER', 'grand_totals'],
+          ['PER_FLOOR_ANALYZER', 'totals'],
+        ];
+        let cascaded = 0;
+        for (const [scanner, field] of cascadeTargets) {
+          const obj = wave15Results[scanner];
+          if (!obj || typeof obj !== 'object') continue;
+          if (!obj[field] || typeof obj[field] !== 'object') obj[field] = {};
+          for (const d of symbolOverrides) {
+            obj[field][d.device] = d.deterministic;
+            cascaded++;
+          }
+          obj._deterministicOverridesCascaded = (obj._deterministicOverridesCascaded || 0) + symbolOverrides.length;
+        }
+        if (cascaded > 0) {
+          console.log(`[SmartBrains] 🎯 Wave 10 C3 — Cascaded ${symbolOverrides.length} deterministic override(s) across ${cascadeTargets.length} Wave 1.5 scanners (${cascaded} total writes) so CONSENSUS_ARBITRATOR can't outvote them`);
+        }
+        context.wave1_5 = wave15Results;
+      }
+    } catch (c3Err) {
+      console.warn('[SmartBrains] Wave 10 C3 cascade errored non-fatally:', c3Err?.message || c3Err);
+    }
 
     // ═══ WAVE 1.75: Consensus Resolution ═══
     progressCallback(50, '⚖️ Wave 1.75: Building consensus from 3 reads…', this._brainStatus);
@@ -11570,10 +11818,18 @@ ${legendContext}
             if (ov && Number.isFinite(Number(ov.unit_cost))) userOverrides[name] = Number(ov.unit_cost);
           }
         }
+        // Wave 10 D1 (v5.128.7): deep-clone MATERIAL_PRICER before repricing
+        // so the _priceSource / _priceConfidence / _priceDistributor stamps
+        // don't leak into downstream brain prompts via JSON.stringify.
+        // Pre-fix, Labor Calculator saw "_priceSource": "distributor" in its
+        // context payload, which risked confusing the AI. The clean original
+        // lives at wave2Results._unrePricedMaterialPricer for audit.
+        const cleanOriginal = JSON.parse(JSON.stringify(wave2Results.MATERIAL_PRICER));
         const priceStats = SmartPlansPricing.rePriceMaterialPricerOutput(
           wave2Results.MATERIAL_PRICER,
           { tier, regionKey, userOverrides },
         );
+        wave2Results._unrePricedMaterialPricer = cleanOriginal;
         state._livePricingStats = priceStats;
         context._livePricingStats = priceStats;
         const live = (priceStats.distributor || 0) + (priceStats.rate_library || 0) + (priceStats.user_override || 0);
@@ -11599,7 +11855,16 @@ ${legendContext}
           county: state.projectCounty || '',
           wageType,
         });
-        if (wageResolution) {
+        if (wageResolution && wageResolution.incomplete) {
+          // Wave 10 C6: CA + no county is now explicitly incomplete, not silent null.
+          // Surface the block loudly and set a state flag so the UI can render a red
+          // banner AND gate export until resolved. This prevents a $60-100k underbid
+          // from silently shipping on a Davis-Bacon job.
+          state._resolvedWageRates = wageResolution;
+          context._resolvedWageRates = wageResolution;
+          state._wageResolutionIncomplete = true;
+          console.error(`[SmartBrains] ⛔ Wave 10 C6 — Wage resolution INCOMPLETE: ${wageResolution.message} Analysis will continue but labor rates will NOT reflect prevailing wage — estimator MUST fix before export.`);
+        } else if (wageResolution) {
           state._resolvedWageRates = wageResolution;
           context._resolvedWageRates = wageResolution;
           console.log(`[SmartBrains] 👷 Wave 7 — Prevailing wage resolved: ${wageResolution.zoneLabel} via ${wageResolution.source}, blended $${wageResolution.blended.toFixed(2)}/hr`);

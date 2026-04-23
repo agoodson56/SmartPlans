@@ -64,12 +64,16 @@ export async function onRequestPost(context) {
         // added in a future wave if per-token progress is needed.
         const anthropicUrl = 'https://api.anthropic.com/v1/messages';
         const started = Date.now();
+        // Wave 10 C7 (v5.128.7): bump anthropic-version so PDF document
+        // content blocks (added 2024-06-15) are recognized. The previous
+        // '2023-06-01' value predated PDF support and caused silent drops.
         const upstream = await fetch(anthropicUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
+                'anthropic-version': '2024-06-15',
+                'anthropic-beta': 'pdfs-2024-09-25',
             },
             body: JSON.stringify(anthropicBody),
         });
@@ -128,9 +132,20 @@ export async function onRequestGet({ env }) {
 // Gemini File API stay Gemini-only; Claude brains run on inline
 // base64 for compatibility with SmartBrains encoded files.
 function _translateGeminiToAnthropic(geminiBody, model) {
-    const systemInstruction = geminiBody.systemInstruction?.parts?.[0]?.text
-        || geminiBody.systemInstruction?.text
-        || (typeof geminiBody.systemInstruction === 'string' ? geminiBody.systemInstruction : null);
+    // Wave 10 M4: concat ALL systemInstruction parts, not just parts[0].
+    // A Gemini brain that uses multiple parts for system context was
+    // losing everything after the first.
+    let systemInstruction = null;
+    if (geminiBody.systemInstruction) {
+        const si = geminiBody.systemInstruction;
+        if (typeof si === 'string') {
+            systemInstruction = si;
+        } else if (Array.isArray(si.parts)) {
+            systemInstruction = si.parts.map(p => p?.text || '').filter(Boolean).join('\n\n') || null;
+        } else if (typeof si.text === 'string') {
+            systemInstruction = si.text;
+        }
+    }
 
     const contents = Array.isArray(geminiBody.contents) ? geminiBody.contents : [];
     const messages = [];
@@ -161,7 +176,23 @@ function _translateGeminiToAnthropic(geminiBody, model) {
             // Claude has no equivalent. Brain must provide inlineData to
             // be Claude-compatible.
         }
-        if (content.length > 0) messages.push({ role, content });
+        if (content.length > 0) {
+            // Wave 10 H6: Anthropic requires strict alternation user→assistant→user→…
+            // If this turn has the same role as the previous accepted turn,
+            // insert a synthetic bridging turn so Anthropic doesn't 400.
+            const prevRole = messages.length > 0 ? messages[messages.length - 1].role : null;
+            if (prevRole === role) {
+                const bridgeRole = role === 'user' ? 'assistant' : 'user';
+                messages.push({ role: bridgeRole, content: [{ type: 'text', text: 'Understood.' }] });
+            }
+            messages.push({ role, content });
+        }
+    }
+
+    // Anthropic also requires the FIRST message to be role='user'. If the
+    // Gemini brain started with an assistant/model turn, prepend a stub.
+    if (messages.length > 0 && messages[0].role !== 'user') {
+        messages.unshift({ role: 'user', content: [{ type: 'text', text: 'Continue.' }] });
     }
 
     // If every turn had only fileData and nothing made it through, inject

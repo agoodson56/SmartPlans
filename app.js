@@ -4200,6 +4200,15 @@ async function _loadWave8Panels() {
   const dashEl = document.getElementById('wave8-accuracy-dashboard');
   if (!driftEl && !dashEl) return;
 
+  // Wave 10 H9: guard authHeaders scope. If the helper isn't defined in
+  // this scope (future refactor, module boundary), log loudly and fail
+  // visibly instead of silently 401-ing and rendering empty.
+  if (typeof authHeaders !== 'function') {
+    console.error('[Wave 8] authHeaders() not in scope — dashboard/drift alert disabled. This is a BUG, not a network issue.');
+    if (dashEl) dashEl.innerHTML = `<div class="info-card" style="margin-bottom:12px;border-left:3px solid #ef4444;background:rgba(239,68,68,0.06);padding:10px 14px;font-size:12px;color:#fca5a5;">⚠️ Accuracy dashboard unavailable (auth scope error — check console).</div>`;
+    return;
+  }
+
   // ── Pull the accuracy dashboard first (one call covers both panels) ──
   const projectType = state.projectType || '';
   const url = projectType
@@ -4208,8 +4217,14 @@ async function _loadWave8Panels() {
   let data = null;
   try {
     const res = await fetch(url, { headers: authHeaders() });
-    if (res.ok) data = await res.json();
-  } catch (e) { /* non-fatal */ }
+    if (res.ok) {
+      data = await res.json();
+    } else {
+      console.warn(`[Wave 8] /api/accuracy-dashboard returned ${res.status} — dashboard empty`);
+    }
+  } catch (e) {
+    console.warn('[Wave 8] dashboard fetch failed:', e?.message || e);
+  }
 
   // ── Drift alert: compare current bid vs rolling overall variance ──
   if (driftEl && data?.rolling) {
@@ -4239,19 +4254,31 @@ function _renderWave8DriftAlert(data) {
     : 0;
   if (bidTotal <= 0) return '';
 
-  // Compare this bid's total vs the rolling avg_total_per_project the
-  // dashboard implies. We don't have "per project avg bid" directly, so
-  // use the overall signed variance as a directional gut check:
-  //   if rolling shows bids HISTORICALLY ran high by 8%, and this bid is
-  //   sized similarly, prompt the estimator to reconsider.
+  // Wave 10 C5 (v5.128.7): SIGN INVERSION BUG FIX.
+  //
+  // variance_pct is computed as (actual - bid) / bid × 100:
+  //   positive → actuals RAN HIGHER than bid → we UNDER-BID → lost margin
+  //   negative → actuals RAN LOWER  than bid → we OVER-BID → lost competitiveness
+  //
+  // Pre-Wave-10 the label was inverted: `signed > 0 → 'OVER-BID'` and the
+  // advice said "trim your bid". That told estimators to cut an already-too-
+  // low bid — the EXACT opposite of what they should do. This was the most
+  // damaging advice bug of the whole session. A test pin is added below so
+  // it cannot regress.
   const signed = Number(rolling.avg_signed_variance_pct) || 0;
   const abs = Math.abs(signed);
-  if (abs < 10) return ''; // below threshold — no alert
-  const direction = signed > 0 ? 'OVER-BID' : 'UNDER-BID';
-  const color = signed > 0 ? '#f59e0b' : '#ef4444';
-  const bg = signed > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(239,68,68,0.08)';
+  // Wave 10 L3: threshold now configurable via state.driftAlertThresholdPct
+  const threshold = Number(state.driftAlertThresholdPct) > 0 ? Number(state.driftAlertThresholdPct) : 10;
+  if (abs < threshold) return ''; // below threshold — no alert
+  const direction = signed > 0 ? 'UNDER-BID' : 'OVER-BID';
+  const color = signed > 0 ? '#ef4444' /* under-bid = money lost = red */ : '#f59e0b' /* over-bid = competitiveness lost = amber */;
+  const bg = signed > 0 ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)';
   const n = rolling.line_count;
   const accPct = Number(rolling.accuracy_pct || 0).toFixed(1);
+  const advice = signed > 0
+    ? `Consider ADDING ~${abs.toFixed(0)}% buffer to protect margin — historical bids LEFT MONEY ON THE TABLE.`
+    : `Consider TRIMMING ~${abs.toFixed(0)}% to stay competitive — historical bids ran ABOVE actual cost.`;
+  const above_or_below = signed > 0 ? 'BELOW' : 'ABOVE';
   return `
     <div class="info-card" style="margin-bottom:12px;border-left:4px solid ${color};background:${bg};padding:12px 16px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
@@ -4259,7 +4286,7 @@ function _renderWave8DriftAlert(data) {
         <span style="font-weight:800;color:${color};font-size:14px;letter-spacing:0.3px;">DRIFT ALERT — historical bids ${direction} actuals by ${abs.toFixed(1)}%</span>
       </div>
       <div style="font-size:12px;color:var(--text-secondary,#cbd5e1);line-height:1.55;">
-        Across ${n} past actuals for this project type, bids ran ${direction === 'OVER-BID' ? 'above' : 'below'} actual cost by an average of ${abs.toFixed(1)}%. Rolling accuracy: <strong>${accPct}%</strong>. ${signed > 0 ? 'Consider trimming ~' + abs.toFixed(0) + '% to stay competitive.' : 'Consider adding ' + abs.toFixed(0) + '% buffer to protect margin.'} Review the BOM below against recent actuals before submitting.
+        Across ${n} past actuals for this project type, bids ran ${above_or_below} actual cost by an average of ${abs.toFixed(1)}%. Rolling accuracy: <strong>${accPct}%</strong>. ${advice} Review the BOM below against recent actuals before submitting.
       </div>
     </div>`;
 }
@@ -12681,7 +12708,18 @@ async function runGeminiAnalysis(updateProgress) {
     // bid's answer.
     function _clarificationFingerprint(q) {
         if (!q) return '';
-        const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 200);
+        // Wave 10 H4 (v5.128.7): normalize punctuation too, not just whitespace.
+        // 'card-reader' vs 'card_reader' vs 'card.reader' used to produce 3
+        // different fingerprints, breaking pre-fill + duplicating the learning
+        // loop forever. Now: strip dashes/underscores/dots/slashes/quotes,
+        // then collapse other non-word chars, then collapse whitespace.
+        const norm = (s) => String(s || '')
+            .trim()
+            .toLowerCase()
+            .replace(/[-_\./\\—–'"`]/g, ' ')
+            .replace(/[^\w\s]/g, '')
+            .replace(/\s+/g, ' ')
+            .slice(0, 200);
         const source = q.source || 'UNKNOWN';
         const label = norm(q.legendLabel || q.symbolId);
         const visual = norm(q.visualDescription);
@@ -12724,19 +12762,40 @@ async function runGeminiAnalysis(updateProgress) {
     async function _lookupPriorAnswers(questions) {
         const results = {};
         if (!Array.isArray(questions) || questions.length === 0) return results;
+        // Wave 10 H2 + M2 (v5.128.7):
+        //   - Per-fetch 5s timeout so a slow endpoint can't hang the modal.
+        //   - Per-failure logging so 401/500/timeout are visible, not silent.
+        //   - Warn loudly if >50% of fetches fail.
+        let attempts = 0; let failures = 0;
         await Promise.all(questions.map(async (q) => {
             const fp = _clarificationFingerprint(q);
             if (!fp || fp.split('|').filter(Boolean).length < 2) return;
+            attempts++;
+            let signal;
+            if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+                signal = AbortSignal.timeout(5000);
+            } else {
+                const ctrl = new AbortController();
+                setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, 5000);
+                signal = ctrl.signal;
+            }
             try {
                 const res = await fetch(`/api/clarification-answers?fingerprint=${encodeURIComponent(fp)}&limit=1`, {
                     headers: { ...(typeof _sessionToken !== 'undefined' && _sessionToken ? { 'X-Session-Token': _sessionToken } : {}), ...(typeof _appToken !== 'undefined' && _appToken ? { 'X-App-Token': _appToken } : {}) },
+                    signal,
                 });
-                if (!res.ok) return;
+                if (!res.ok) { failures++; console.warn(`[Clarification] pre-fill ${q.id} → ${res.status}`); return; }
                 const data = await res.json();
                 const prior = (data.answers || [])[0];
                 if (prior?.chosen_option) results[q.id] = prior.chosen_option;
-            } catch (_) { /* non-fatal */ }
+            } catch (err) {
+                failures++;
+                console.warn(`[Clarification] pre-fill ${q.id} failed:`, err?.name === 'AbortError' ? 'timeout (>5s)' : (err?.message || err));
+            }
         }));
+        if (attempts > 5 && failures / attempts > 0.5) {
+            console.error(`[Clarification] Pre-fill success rate ${Math.round((1 - failures/attempts) * 100)}% (${failures}/${attempts} failed) — /api/clarification-answers may be down. Estimator will have to re-answer instead of pre-filling.`);
+        }
         return results;
     }
 
@@ -12884,13 +12943,23 @@ async function runGeminiAnalysis(updateProgress) {
           btn.style.borderColor = 'var(--accent-sky,#38bdf8)';
         });
 
+        // Wave 10 H1 (v5.128.7): single-resolve guard. Timer + submit click
+        // racing used to double-append state._unansweredClarifications,
+        // inflating export-gate counts and falsely blocking export. Now only
+        // the first handler wins. Double-resolves on promises are silently
+        // ignored by JS, but state side-effects were not — hence this guard.
+        let resolved = false;
         document.getElementById('clarify-skip')?.addEventListener('click', () => {
+            if (resolved) return;
+            resolved = true;
             clearTimeout(_timeoutHandle);
             modal.remove();
             state._unansweredClarifications = (state._unansweredClarifications || []).concat(highPriority.map(q => q.id));
             resolve({ __skipped: true });
         });
         document.getElementById('clarify-submit')?.addEventListener('click', () => {
+            if (resolved) return;
+            resolved = true;
             clearTimeout(_timeoutHandle);
             modal.remove();
             // Any question the estimator did not answer (i.e. not in `answers`)
@@ -12905,11 +12974,11 @@ async function runGeminiAnalysis(updateProgress) {
         });
 
         // v5.128.2 (Wave 2B) — 15-minute skip timeout.
-        // If the estimator walks away, use AI best guess so analysis can finish.
-        // Unanswered questions get recorded on state for the Results page banner.
         const timeoutMs = (typeof SmartBrains !== 'undefined' && SmartBrains.config?.clarificationSkipTimeoutMs)
             || 15 * 60 * 1000;
         const _timeoutHandle = setTimeout(() => {
+            if (resolved) return;
+            resolved = true;
             console.warn(`[Clarification] ${Math.round(timeoutMs / 60000)}-minute timeout elapsed — using AI best guess for unanswered questions`);
             const unanswered = highPriority.filter(q => !answers[q.id]).map(q => q.id);
             state._unansweredClarifications = (state._unansweredClarifications || []).concat(unanswered);
@@ -14422,9 +14491,22 @@ async function generateCompleteBidPackage() {
   // download so an estimator can't accidentally ship a bid with an
   // unresolved ambiguity baked in. The estimator must either answer the
   // question, accept the AI best guess, or explicitly acknowledge the gap.
+  //
+  // Wave 10 M1: ack flag was resetting on every re-render, making the
+  // estimator click OK repeatedly. Now persisted in sessionStorage per
+  // estimate ID so a mid-flow re-render doesn't wipe the acknowledgement.
+  // The flag clears when a new analysis starts (state.brainResults reset).
   const gatingEnabled = (typeof SmartBrains !== 'undefined' && SmartBrains.config?.clarificationBlockExport !== false);
   if (gatingEnabled) {
     const unanswered = Array.isArray(state._unansweredClarifications) ? state._unansweredClarifications : [];
+    const estimateId = state.estimateId || state._estimateId || 'current';
+    const ackKey = `sp_clarif_ack_${estimateId}`;
+    // Restore from sessionStorage if set
+    try {
+      if (!state._unansweredClarificationsAcknowledged && sessionStorage.getItem(ackKey)) {
+        state._unansweredClarificationsAcknowledged = true;
+      }
+    } catch (_) { /* sessionStorage disabled */ }
     const acknowledged = state._unansweredClarificationsAcknowledged === true;
     if (unanswered.length > 0 && !acknowledged) {
       const proceed = confirm(
@@ -14439,6 +14521,8 @@ async function generateCompleteBidPackage() {
       );
       if (!proceed) return;
       state._unansweredClarificationsAcknowledged = true;
+      // Wave 10 M1: persist ack so re-renders don't re-prompt
+      try { sessionStorage.setItem(ackKey, String(Date.now())); } catch (_) {}
       console.warn(`[Export] User acknowledged ${unanswered.length} unanswered clarification(s) and chose to ship anyway`);
     }
   }

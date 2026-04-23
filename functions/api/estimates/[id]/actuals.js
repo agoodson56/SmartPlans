@@ -139,7 +139,12 @@ export async function onRequestPost(context) {
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     `).bind(
                         crypto.randomUUID().replace(/-/g, ''),
-                        r.item_name,
+                        // Wave 10 H8: normalize item_name to lowercase on INSERT so
+                        // the aggregation (GROUP BY LOWER(item_name)) and future
+                        // lookups see a single deterministic case. Pre-fix, "CAMERA",
+                        // "Camera", "camera" grouped for averaging but stored with
+                        // non-deterministic case, fragmenting future lookups.
+                        String(r.item_name || '').toLowerCase(),
                         r.category,
                         Math.round((r.avg_unit_cost || 0) * 100) / 100,
                         Math.round((r.min_unit_cost || 0) * 100) / 100,
