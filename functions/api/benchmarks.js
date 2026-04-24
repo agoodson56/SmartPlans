@@ -3,7 +3,7 @@
 // POST /api/benchmarks — Recalculate all benchmarks from actuals data
 // ═══════════════════════════════════════════════════════════════
 
-import { isAllowedOrigin, timingSafeCompare } from '../_shared/cors.js';
+import { isAllowedOrigin, timingSafeCompare, validateSession } from '../_shared/cors.js';
 
 function corsHeaders(origin) {
     const headers = {};
@@ -11,6 +11,35 @@ function corsHeaders(origin) {
         headers['Access-Control-Allow-Origin'] = origin;
     }
     return headers;
+}
+
+// v5.128.10: Accept EITHER a valid session OR the legacy X-App-Token.
+// Pre-fix, benchmarks required X-App-Token only, so a logged-in user with
+// a session (but no app token) saw /api/benchmarks 401 on every bid and
+// the Wave 8 feedback loop loaded 0 benchmark rows. Matches the pattern
+// already used by rate-library.js, bid-corrections.js, etc.
+async function authorize(request, env) {
+    const origin = request.headers.get('Origin') || '';
+    if (origin && !isAllowedOrigin(origin)) {
+        return Response.json({ error: 'Origin not allowed' }, { status: 403 });
+    }
+
+    const sessionToken = request.headers.get('X-Session-Token') || '';
+    if (sessionToken && env.DB) {
+        const user = await validateSession(env.DB, sessionToken);
+        if (user) return null; // authorized via session
+    }
+
+    const envToken = env.ESTIMATES_TOKEN;
+    const appToken = request.headers.get('X-App-Token') || '';
+    if (envToken && appToken && timingSafeCompare(appToken, envToken)) {
+        return null; // authorized via legacy app token
+    }
+
+    return Response.json(
+        { error: 'Unauthorized — please log in or provide valid X-App-Token' },
+        { status: 401 }
+    );
 }
 
 export async function onRequestOptions(context) {
@@ -32,13 +61,8 @@ export async function onRequestGet(context) {
     const { env, request } = context;
     const origin = request.headers.get('Origin') || '';
 
-    if (origin && !isAllowedOrigin(origin)) {
-        return Response.json({ error: 'Origin not allowed' }, { status: 403 });
-    }
-
-    const envToken = env.ESTIMATES_TOKEN;
-    const token = request.headers.get('X-App-Token') || '';
-    if (!envToken || !timingSafeCompare(token, envToken)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    const authFail = await authorize(request, env);
+    if (authFail) return authFail;
 
     try {
         const url = new URL(request.url);

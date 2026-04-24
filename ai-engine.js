@@ -10183,7 +10183,10 @@ ${legendContext}
 
   async runFullAnalysis(state, progressCallback) {
     console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
-    console.log(`[SmartBrains] API Keys: ${this.config.apiKeys.length} | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
+    // v5.128.10: Keys are stored server-side as Cloudflare secrets (GEMINI_KEY_0…17)
+    // and selected per-request by the proxy. Log the proxy-managed slot count
+    // instead of apiKeys.length (which is always 0 by design and was misleading).
+    console.log(`[SmartBrains] API Keys: 18 proxy-managed (server-side) | Pro: ${this.config.proModel} | Accuracy: ${this.config.accuracyModel} | Flash: ${this.config.model}`);
     console.log(`[SmartBrains] 🚀 Gemini 3.1 Pro active — thinking mode enabled`);
 
     // ═══ WAVE 8 (v5.128.5) — ESTIMATOR FEEDBACK LOOP PRELOAD ═══════════════
