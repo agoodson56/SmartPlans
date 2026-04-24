@@ -361,7 +361,7 @@ const SmartBrains = {
     // ═══════════════════════════════════════════════════════════
     enableClaudeFallback: true,                // use Claude when Pro model-health gate trips
     enableClaudeCrossCheck: true,              // dual-provider on critical brains
-    claudeModel: 'claude-opus-4-7',            // explicit model — pinned
+    claudeModel: 'claude-opus-4-5',            // v5.128.17: downgraded from 4-7 — public API rejected 'claude-opus-4-7' with HTTP 400 (model not available on api.anthropic.com). 4-5 is the current public Opus.
     // v5.128.16 Stage 3: 30-minute hard budget. When bid time exceeds
     // bidBudgetSoftSkipMinutes, non-essential verifier waves (2.75 Reverse
     // Verifier, 3 Adversarial Audit, 3.5 Deep Accuracy, 3.75 Final
@@ -387,7 +387,7 @@ const SmartBrains = {
     pinnedModels: {
       geminiFlash: 'gemini-2.5-flash',
       geminiPro:   'gemini-3.1-pro-preview',
-      claudeOpus:  'claude-opus-4-7',
+      claudeOpus:  'claude-opus-4-5',
     },
     deterministicLaborHoursEnabled: true,      // Wave 9: labor hours from NECA+actuals, not AI
     laborHoursDisagreementTolerance: 0.25,     // >25% diff → deterministic wins, flag
@@ -3176,7 +3176,7 @@ const SmartBrains = {
 
     // Determine model and URL up front (accessible in fallback block)
     let modelName = useClaude
-      ? (this.config.claudeModel || 'claude-opus-4-7')
+      ? (this.config.claudeModel || 'claude-opus-4-5')
       : (brainDef.useProModel ? (this.config.proModel || this.config.model)
          : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel
          : this.config.model);
@@ -3374,7 +3374,10 @@ const SmartBrains = {
         // HTTP 400 = bad request (wrong model, File API refs, etc.) — don't retry, skip to next model
         if (response.status === 400) {
           const errData = await response.json().catch(() => ({}));
-          const msg400 = errData?.error?.message || 'Bad Request';
+          // v5.128.17: Claude proxy returns { error: 'anthropic_error', detail: '<Anthropic msg>' }
+          // where errData.error is a string. Previously read errData.error.message which is undefined
+          // on that shape → every Claude 400 logged as generic "Bad Request" with no diagnostic value.
+          const msg400 = errData?.detail || errData?.error?.message || errData?.error || 'Bad Request';
           // FIX #20: Blacklist the ACTUAL model sent (cache may override modelName)
           const actualModelSent = useCache ? cacheModel : modelName;
           _blacklistModel(actualModelSent);

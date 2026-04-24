@@ -179,8 +179,8 @@ describe('Wave 9 — config defaults', () => {
     it('enableClaudeCrossCheck defaults to true', () => {
         expect(SmartBrains.config.enableClaudeCrossCheck).toBe(true);
     });
-    it('claudeModel is pinned to claude-opus-4-7', () => {
-        expect(SmartBrains.config.claudeModel).toBe('claude-opus-4-7');
+    it('claudeModel is pinned to claude-opus-4-5', () => {
+        expect(SmartBrains.config.claudeModel).toBe('claude-opus-4-5');
     });
     it('claudeCriticalBrains includes the four high-stakes brains', () => {
         expect(SmartBrains.config.claudeCriticalBrains).toContain('LEGEND_DECODER');
@@ -191,7 +191,7 @@ describe('Wave 9 — config defaults', () => {
     it('pinnedModels carries exact version strings for all providers', () => {
         expect(SmartBrains.config.pinnedModels.geminiFlash).toBe('gemini-2.5-flash');
         expect(SmartBrains.config.pinnedModels.geminiPro).toBe('gemini-3.1-pro-preview');
-        expect(SmartBrains.config.pinnedModels.claudeOpus).toBe('claude-opus-4-7');
+        expect(SmartBrains.config.pinnedModels.claudeOpus).toBe('claude-opus-4-5');
     });
     it('deterministicLaborHoursEnabled defaults to true', () => {
         expect(SmartBrains.config.deterministicLaborHoursEnabled).toBe(true);
@@ -213,7 +213,7 @@ describe('Wave 9 — _checkClaudeAvailable probe', () => {
     });
 
     it('returns true when probe says configured', async () => {
-        const mockFetch = () => Promise.resolve({ ok: true, json: async () => ({ configured: true, model: 'claude-opus-4-7' }) });
+        const mockFetch = () => Promise.resolve({ ok: true, json: async () => ({ configured: true, model: 'claude-opus-4-5' }) });
         const engine = loadAiEngine({ fetch: mockFetch });
         const available = await engine._checkClaudeAvailable();
         expect(available).toBe(true);

@@ -46,7 +46,7 @@ export async function onRequestPost(context) {
 
         // ── 2. Extract SmartBrains metadata (identical to Gemini proxy) ──
         const brainSlot = body._brainSlot || 0;
-        const requestedModel = body._model || 'claude-opus-4-7';
+        const requestedModel = body._model || 'claude-opus-4-5';
         // Strip SmartPlans-internal fields before translation
         delete body._brainSlot;
         delete body._model;
@@ -143,7 +143,7 @@ export async function onRequestGet({ env }) {
     const configured = !!(env.ANTHROPIC_KEY || env.ANTHROPIC_KEY_BACKUP);
     return Response.json({
         configured,
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-5',
         note: configured ? 'Claude is available as an AI provider' : 'ANTHROPIC_KEY not set — Claude paths are dormant',
     });
 }
