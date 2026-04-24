@@ -1872,6 +1872,9 @@ function startNewBid() {
   // Reset stale pricing/engine state that was leaking between bids
   state._restoredFinancials = null;
   state._engine3DResult = null;
+  // v5.128.12: fresh bid run → clear any prior bid-total lock so the new run recomputes
+  state._lockedBidTotal = null;
+  state._lockedBidTotalSource = null;
   state._bomBreakdown = null;
   state._bomGrandTotal = null;
   state._bomValidationWarnings = null;
@@ -5130,6 +5133,8 @@ function renderStep0(container) {
       ? state.disciplines.filter(x => x !== d)
       : [...state.disciplines, d];
     state.disciplines = next;
+    // v5.128.12: discipline change → bid total must recompute
+    if (typeof SmartPlansFinancials !== 'undefined') SmartPlansFinancials.clearLock(state);
     // v5.126.0: Sticky touched flag — once set, the cascade is FORBIDDEN from
     // touching disciplines for the rest of the session.
     state._disciplinesUserTouched = true;
@@ -5379,6 +5384,7 @@ function renderStep0(container) {
       else if (val > 500) { val = 500; e.target.value = val; showValidationToast(["Markup cannot exceed 500%."]); }
       state.markup[key] = val;
       SmartDefaults.markManual('markup'); // User manually adjusted markups
+      if (typeof SmartPlansFinancials !== 'undefined') SmartPlansFinancials.clearLock(state);
     });
   });
 }
@@ -5837,6 +5843,8 @@ function build3DEngineCard(st) {
   try {
     result = FormulaEngine3D.computeBid(st, bom);
     st._engine3DResult = result;
+    // v5.128.12: 3D Engine re-ran → clear lock so exports pick up the new SELL
+    if (typeof SmartPlansFinancials !== 'undefined') SmartPlansFinancials.clearLock(st);
   } catch (err) {
     console.warn('[3D Engine Card] Error:', err.message);
     return '';

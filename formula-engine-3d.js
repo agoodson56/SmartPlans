@@ -891,14 +891,17 @@ const FormulaEngine3D = {
                         const scaleFactor = calibratedTarget / formulaTotal;
 
                         // ─── CALIBRATION SAFETY BOUNDS ───
-                        // If the scale factor is outside [0.85, 1.20], the most likely
-                        // explanation is a miscounted camera pool (benchmark ≠ scope) or a
-                        // corrupt formula total — NOT that the formula is 30% wrong.
-                        // Calibrating anyway would either undercut the bid (SELL drops below
-                        // COS, negative margin) or double the bid (instantly uncompetitive).
-                        // Safer to skip and let the estimator eyeball the console warning.
-                        const MIN_SCALE = 0.85;
-                        const MAX_SCALE = 1.20;
+                        // Widened 2026-04-23 after Amtrak Martinez bid: formula total was
+                        // $4.5M, winning bid $1.97M (scale factor 0.43). The old [0.85, 1.20]
+                        // bounds rejected the correction and shipped the bloated number.
+                        // The transit multipliers in this formula engine can overshoot 2×+,
+                        // so the benchmark is often our most reliable ground-truth signal.
+                        // New bounds [0.40, 1.50] let the calibrator fix big overshoots but
+                        // still reject obviously-corrupt factors (e.g. 0.1× or 3×) that
+                        // likely indicate a miscounted camera pool or bad benchmark match.
+                        // COS scales proportionally at line 917, so margin stays consistent.
+                        const MIN_SCALE = 0.40;
+                        const MAX_SCALE = 1.50;
                         if (scaleFactor < MIN_SCALE || scaleFactor > MAX_SCALE) {
                             console.error(`[3D Engine v2] ⛔ CALIBRATION REJECTED — scale factor ${scaleFactor.toFixed(3)} outside safe bounds [${MIN_SCALE}, ${MAX_SCALE}]`);
                             console.error(`[3D Engine v2]   Likely cause: camera count mismatch or bad benchmark. Keeping formula total $${formulaTotal.toLocaleString()}.`);

@@ -57,6 +57,13 @@ const ProposalGenerator = {
       .replace(/\b(base\s*cost|raw\s*cost|cost\s*before|markup\s*%?|burden|margin|profit\s*%|overhead\s*%|internal)\b[^\n]*\n/gi, '')
       .replace(/\|\s*(?:Base\s*Cost|Markup|Burden|Margin|Profit)\s*\|/gi, '| — |');
 
+    // v5.128.12: Inject the EXACT BOM quantities as an authoritative fact list.
+    // The raw AI analysis text often contains earlier/rougher quantity claims
+    // (e.g. "10,000 ft Cat 6A") while the final BOM has post-processing numbers
+    // (e.g. "11,470 ft" after cable injection with TIA-568 295ft limit).
+    // Without this, the narrative and the BOM disagree — customer catches it.
+    const bomQuantityFacts = this._buildBOMQuantityFacts(state);
+
     progressCallback(5, 'Crafting executive proposal with AI…');
 
     const prompt = `You are the Senior Proposal Manager at ${co.name}, a premier low-voltage technology integrator with 20+ years of excellence. You are writing a WINNING proposal that will be submitted to a real client. This must be the most professional, compelling, and detailed proposal the client has ever received.
@@ -75,6 +82,11 @@ TOTAL BID PRICE: ${grandTotalDisplay || 'See financial summary'}
 The following contains device counts, cable quantities, and scope details from our AI analysis. Use these quantities in the proposal — do NOT invent different numbers:
 
 ${analysisSummary}
+
+═══ AUTHORITATIVE BOM QUANTITIES — USE THESE EXACT NUMBERS ═══
+The line items below are the FINAL, post-processed quantities that appear on the Bill of Materials delivered with this proposal. The narrative MUST match these numbers verbatim. If the analysis text above contains a different quantity for the same item (e.g. "10,000 ft" when the BOM says "11,470 ft"), use the BOM number — not the analysis number. The customer will cross-reference. Any mismatch invalidates the proposal.
+
+${bomQuantityFacts}
 
 ═══ ABSOLUTE PRICING RULES — VIOLATION = REJECTED PROPOSAL ═══
 This proposal goes directly to a CLIENT. Internal pricing is CONFIDENTIAL and must NEVER appear:
@@ -1130,6 +1142,42 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
   </tr>
 </table>
 `;
+  },
+
+  // v5.128.12: Build a plain-text fact list of every line item quantity in the
+  // final BOM, grouped by category. Injected into the proposal AI prompt so
+  // the narrative uses post-processed BOM numbers instead of the pre-processed
+  // rougher numbers in the raw analysis text.
+  _buildBOMQuantityFacts(state) {
+    try {
+      if (typeof SmartPlansExport === 'undefined') return '(BOM data unavailable.)';
+      const analysis = state.aiAnalysis || '';
+      let bom = SmartPlansExport._extractBOMFromAnalysis(analysis);
+      if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') bom = SmartPlansExport._applyUserBOMEdits(bom, state);
+      if (bom && typeof SmartPlansExport._applyTransitAdjustments === 'function') SmartPlansExport._applyTransitAdjustments(bom, state);
+      if (bom && typeof SmartPlansExport._filterBOMByDisciplines === 'function') bom = SmartPlansExport._filterBOMByDisciplines(bom, state.disciplines);
+      if (!bom?.categories?.length) return '(No BOM categories available.)';
+
+      const lines = [];
+      for (const cat of bom.categories) {
+        if (!cat?.items?.length) continue;
+        lines.push(`### ${cat.name}`);
+        for (const item of cat.items) {
+          const qty = (typeof item.qty === 'number') ? item.qty.toLocaleString() : (item.qty || '?');
+          const unit = item.unit || 'ea';
+          const mfg = item.mfg ? `${item.mfg} ` : '';
+          const pn = item.partNumber ? ` (${item.partNumber})` : '';
+          lines.push(`- ${qty} ${unit} — ${mfg}${item.item || item.name || 'Unnamed'}${pn}`);
+        }
+        lines.push('');
+      }
+      // Safety cap — very long BOMs get truncated to keep the prompt bounded
+      const out = lines.join('\n');
+      return out.length > 8000 ? out.substring(0, 8000) + '\n… (truncated)' : out;
+    } catch (e) {
+      console.warn('[ProposalGen] _buildBOMQuantityFacts failed:', e);
+      return '(BOM fact extraction failed — fall back to analysis data.)';
+    }
   },
 
   // Pre-compute and cache the BOM grand total so ALL consumers use the SAME number.

@@ -565,6 +565,24 @@ const SmartPlansExport = {
 
     // ─── Get fully loaded bid total ──
     _getFullyLoadedTotal(state, bom) {
+        // v5.128.12: Single source of truth for the bid total.
+        // First successful computation locks onto state._lockedBidTotal so that
+        // every subsequent export path (BOM xlsx, proposal .doc, master report,
+        // JSON export, UI card) returns the SAME number.
+        //
+        // Before this lock, the proposal and BOM were both calling this function
+        // with slightly different `bom` arguments (filtered vs. re-extracted) and
+        // different state snapshots. That produced $4,500,792 on the proposal and
+        // $4,160,850 on the BOM for the same bid — a $340K gap caused purely by
+        // call-site race, not by any actual disagreement about the price.
+        //
+        // The lock is cleared by _clearBidTotalLock() whenever pricing inputs
+        // change (markup edits, BOM edits, 3D engine re-run, discipline toggle).
+        if (state?._lockedBidTotal && state._lockedBidTotal > 1000) {
+            console.log(`[Export] 🔒 Using locked bid total: $${state._lockedBidTotal.toLocaleString()} (source: ${state._lockedBidTotalSource || 'unknown'})`);
+            return state._lockedBidTotal;
+        }
+
         // DEBUG: Log what brain results we have
         console.log(`[Export] brainResults available: ${!!state.brainResults}`);
         if (state.brainResults) {
@@ -596,9 +614,12 @@ const SmartPlansExport = {
                     state._engine3DResult = result3D;
                     // Transit projects: use FormulaEngine3D as the bid price — it's calibrated to real wins
                     if (state.isTransitRailroad) {
-                        console.log(`[Export] 🚂 3D Formula Engine (TRANSIT PRIMARY): $${this._round(result3D.grandTotalSELL).toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED to Amtrak actuals]' : ''}`);
-                        console.log(`[Export] ✅ Grand total from 3D Formula Engine (transit): $${this._round(result3D.grandTotalSELL).toLocaleString()}`);
-                        return this._round(result3D.grandTotalSELL);
+                        const transitTotal = this._round(result3D.grandTotalSELL);
+                        console.log(`[Export] 🚂 3D Formula Engine (TRANSIT PRIMARY): $${transitTotal.toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED to Amtrak actuals]' : ''}`);
+                        console.log(`[Export] ✅ Grand total from 3D Formula Engine (transit): $${transitTotal.toLocaleString()}`);
+                        state._lockedBidTotal = transitTotal;
+                        state._lockedBidTotalSource = result3D._calibrated ? 'FormulaEngine3D (transit, calibrated)' : 'FormulaEngine3D (transit)';
+                        return transitTotal;
                     }
                     console.log(`[Export] 📊 3D Formula Engine (REFERENCE ONLY): $${this._round(result3D.grandTotalSELL).toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED]' : ''}`);
                 }
@@ -626,8 +647,11 @@ const SmartPlansExport = {
                     const delta = result.grandTotalWithStrategy - baseBreakdown.grandTotal;
                     console.log(`[Export] 📊 Base computation reference: $${baseBreakdown.grandTotal.toLocaleString()} (strategy delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()})`);
                 }
-                console.log(`[Export] ✅ Grand total from Bid Strategy (user-applied): $${result.grandTotalWithStrategy.toLocaleString()}`);
-                return this._round(result.grandTotalWithStrategy);
+                const strategyTotal = this._round(result.grandTotalWithStrategy);
+                console.log(`[Export] ✅ Grand total from Bid Strategy (user-applied): $${strategyTotal.toLocaleString()}`);
+                state._lockedBidTotal = strategyTotal;
+                state._lockedBidTotalSource = 'bid-strategy';
+                return strategyTotal;
             }
         }
 
@@ -645,6 +669,8 @@ const SmartPlansExport = {
                     console.log(`[Export] 📊 Financial Engine AI reference: $${aiTotal.toLocaleString()} (delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()}, ${deltaPct}%) — using deterministic computation`);
                 }
                 console.log(`[Export] ✅ Grand total from deterministic BOM computation: $${breakdown.grandTotal.toLocaleString()}`);
+                state._lockedBidTotal = breakdown.grandTotal;
+                state._lockedBidTotalSource = 'deterministic BOM breakdown';
                 return breakdown.grandTotal;
             }
         }
@@ -1596,6 +1622,14 @@ const SmartPlansExport = {
 
         let result = { categories: filteredCategories, grandTotal: this._round(grandTotal) };
 
+        // v5.128.12: cross-category dedup pass. AI brains emit the same physical
+        // item under multiple categories — e.g. Video Surveillance Server shows
+        // up once in "MDF — IT Room 107" ($16,250) and once in "CCTV Materials"
+        // ($16,250) on the Amtrak Martinez bid. Same noun, same unit cost, same
+        // qty → double-billed $16,250. Removes the duplicate in the generic
+        // rack-room category and keeps the one in the discipline-specific one.
+        result = this._deduplicateCrossCategoryItems(result);
+
         // Inject travel & incidentals from Stage 7 (if available)
         if (typeof injectTravelIntoBOM === 'function') {
             result = injectTravelIntoBOM(result);
@@ -1607,6 +1641,86 @@ const SmartPlansExport = {
         }
 
         return result;
+    },
+
+    // ─── Cross-category line-item dedup ─────────────────────────────
+    // Matches duplicates on (normalized core noun, unit cost, qty). When found
+    // between a generic rack-room category (MDF / IT Room / Telecom Room / Main
+    // Distribution) and a discipline-specific category (CCTV, Access Control,
+    // Audio Visual, etc.), removes the copy in the rack-room category because
+    // the discipline-specific one carries the real part number and MFG.
+    _deduplicateCrossCategoryItems(bom) {
+        if (!bom?.categories?.length) return bom;
+
+        const RACK_ROOM_PATTERN = /\b(mdf|idf|it\s*room|telecom\s*room|main\s*distribution|server\s*room|equipment\s*room)\b/i;
+        const STOPWORDS = new Set(['the','a','an','and','or','for','to','of','in','on','with','rack','mount','rackmount','rack-mount','port','ru','1ru','2ru','4ru','42u','44u','48u','inch','foot','ft','kvm','pdu','ups']);
+        const normalize = (s) => (s || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 2 && !STOPWORDS.has(w))
+            .sort()
+            .join(' ');
+        const coreNoun = (s) => {
+            // Extract a distinctive token — prefer the longest non-stopword
+            const words = (s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w));
+            return words.sort((a, b) => b.length - a.length)[0] || '';
+        };
+
+        // Build an index of every item, bucketed by (coreNoun, unitCost, qty)
+        const index = new Map();
+        for (let ci = 0; ci < bom.categories.length; ci++) {
+            const cat = bom.categories[ci];
+            if (!cat?.items?.length) continue;
+            const isRackRoom = RACK_ROOM_PATTERN.test(cat.name || '');
+            for (let ii = 0; ii < cat.items.length; ii++) {
+                const item = cat.items[ii];
+                const noun = coreNoun(item.item || item.name || '');
+                if (!noun) continue;
+                const key = `${noun}|${item.unitCost || 0}|${item.qty || 0}`;
+                if (!index.has(key)) index.set(key, []);
+                index.get(key).push({ ci, ii, cat, item, isRackRoom, normDesc: normalize(item.item || item.name || '') });
+            }
+        }
+
+        const removalsByCategory = new Map(); // ci -> Set of ii to remove
+        let removedCount = 0;
+        let removedValue = 0;
+        for (const [, matches] of index) {
+            if (matches.length < 2) continue;
+            // Require at least one rack-room copy AND at least one discipline-specific copy
+            const rackRoomCopies = matches.filter(m => m.isRackRoom);
+            const specificCopies = matches.filter(m => !m.isRackRoom);
+            if (rackRoomCopies.length === 0 || specificCopies.length === 0) continue;
+            // Require normalized descriptions to actually overlap (avoid false positives
+            // on generic nouns). At least one word in common after normalization.
+            const descOverlap = (a, b) => {
+                const wa = new Set(a.split(' ').filter(Boolean));
+                for (const w of b.split(' ')) if (wa.has(w)) return true;
+                return false;
+            };
+            const canonical = specificCopies[0];
+            for (const dup of rackRoomCopies) {
+                if (!descOverlap(dup.normDesc, canonical.normDesc)) continue;
+                if (!removalsByCategory.has(dup.ci)) removalsByCategory.set(dup.ci, new Set());
+                removalsByCategory.get(dup.ci).add(dup.ii);
+                removedCount++;
+                removedValue += (dup.item.extCost || (dup.item.qty * dup.item.unitCost) || 0);
+                console.log(`[SmartPlans Export] Dedup: removed "${dup.item.item}" ($${dup.item.unitCost}) from "${dup.cat.name}" (duplicate of "${canonical.item.item}" in "${canonical.cat.name}")`);
+            }
+        }
+
+        if (removedCount === 0) return bom;
+
+        // Apply removals + recompute subtotals + grand total
+        for (const [ci, indices] of removalsByCategory) {
+            const cat = bom.categories[ci];
+            cat.items = cat.items.filter((_, ii) => !indices.has(ii));
+            cat.subtotal = this._round(cat.items.reduce((s, it) => s + (it.extCost || 0), 0));
+        }
+        bom.grandTotal = this._round(bom.categories.reduce((s, c) => s + (c.subtotal || 0), 0));
+        console.log(`[SmartPlans Export] Dedup: removed ${removedCount} duplicate line item(s), $${this._round(removedValue).toLocaleString()} value`);
+        return bom;
     },
 
     // ─── Extract AI's actual grand total from analysis text ─────
@@ -1857,46 +1971,81 @@ const SmartPlansExport = {
             const breakdown = this._computeFullBreakdown(state, bom);
             const matMarkupPct = state.markup?.material ?? 50;
             const labMarkupPct = state.markup?.labor ?? 50;
+            const eqMarkupPct = state.markup?.equipment ?? 15;
+            const subMarkupPct = state.markup?.subcontractor ?? 15;
+            const matRaw = breakdown.materials;
+            const eqRaw = breakdown.equipment;
+            const subRaw = breakdown.subs;
             const matMarkupAmt = this._round(breakdown.matSell - breakdown.materials);
+            const eqMarkupAmt = this._round(breakdown.eqSell - breakdown.equipment);
+            const subMarkupAmt = this._round(breakdown.subSell - breakdown.subs);
             const laborBaseAmt = breakdown.laborBase;
             const labMarkupAmt = this._round(breakdown.labSell - breakdown.laborBase);
             const burdenAmt = breakdown.burden;
             const bondsAmt = breakdown.bonds;
             const contingencyAmt = breakdown.contingency;
             const travelAmt = breakdown.travel;
-            const eqMarkupAmt = this._round(breakdown.eqSell - breakdown.equipment);
-            const subMarkupAmt = this._round(breakdown.subSell - breakdown.subs);
-            // G&A = bonds + contingency + burden (everything that isn't material/labor markup)
-            const gaOverheadAmt = this._round(burdenAmt + bondsAmt + contingencyAmt);
+            // v5.128.12: Split the old "G&A Overhead, Bonds & Contingency" lump into
+            // separate lines and show every cost component (material, equipment, subs,
+            // labor, burden, bonds, contingency, travel). Previously the Pricing Summary
+            // showed an $X total where the displayed lines summed to <$X — e.g. Amtrak
+            // Martinez 2026-04-23 showed lines summing to $1.38M under a "BID PRICE" of
+            // $4.16M, with $2.78M invisible. When the 3D Engine calibration moves the
+            // bid total away from the cost buildup, an explicit "Market Calibration"
+            // reconciliation line is emitted so the summary always sums to the total.
             if (bidTotal > runningTotal) {
                 bomData.push(["", "", "", "PRICING SUMMARY", "", "", "", ""]);
-                const rawCostRow = bomData.length;
-                bomData.push(["", "", "", `  Material/Equipment (raw cost)`, "", "", "", runningTotal]);
-                // Reference the material subtotal cell — formula chains from BOM line items
-                formulaCells.push({ row: rawCostRow, col: 7, formula: `H${matSubtotalRow + 1}`, cached: runningTotal });
-                const matMarkupRow = bomData.length;
-                bomData.push(["", "", "", `  Material Markup (${matMarkupPct}%)`, "", "", "", matMarkupAmt]);
-                // Formula: Material Markup = Material Raw Cost × markup%
-                formulaCells.push({ row: matMarkupRow, col: 7, formula: `H${rawCostRow + 1}*${matMarkupPct/100}`, cached: matMarkupAmt });
-                const laborRow = bomData.length;
-                bomData.push(["", "", "", `  Labor (base cost)`, "", "", "", laborBaseAmt]);
-                const labMarkupRow = bomData.length;
-                bomData.push(["", "", "", `  Labor Markup (${labMarkupPct}%)`, "", "", "", labMarkupAmt]);
-                // Formula: Labor Markup = Labor Base × markup%
-                formulaCells.push({ row: labMarkupRow, col: 7, formula: `H${laborRow + 1}*${labMarkupPct/100}`, cached: labMarkupAmt });
-                if (travelAmt > 0) {
-                    bomData.push(["", "", "", `  Travel & Per Diem`, "", "", "", travelAmt]);
+                const componentRows = [];
+                const pushRow = (label, amt, formulaFn) => {
+                    if (amt === 0 && !formulaFn) return null;
+                    const r = bomData.length;
+                    bomData.push(["", "", "", label, "", "", "", amt]);
+                    if (formulaFn) formulaCells.push({ row: r, col: 7, formula: formulaFn(r), cached: amt });
+                    componentRows.push(r);
+                    return r;
+                };
+
+                // Chain material raw cost to the BOM subtotal so it stays live.
+                const matRawRow = pushRow(`  Material (raw cost)`, matRaw, () => `H${matSubtotalRow + 1}-${eqRaw}-${subRaw}`);
+                pushRow(`  Material Markup (${matMarkupPct}%)`, matMarkupAmt, (r) => `H${matRawRow + 1}*${matMarkupPct/100}`);
+                if (eqRaw > 0) {
+                    const eqRawRow = pushRow(`  Equipment (raw cost)`, eqRaw);
+                    pushRow(`  Equipment Markup (${eqMarkupPct}%)`, eqMarkupAmt, (r) => `H${eqRawRow + 1}*${eqMarkupPct/100}`);
                 }
-                const gaRow = bomData.length;
-                bomData.push(["", "", "", `  G&A Overhead, Bonds & Contingency`, "", "", "", gaOverheadAmt]);
+                if (subRaw > 0) {
+                    const subRawRow = pushRow(`  Subcontractors (raw cost)`, subRaw);
+                    pushRow(`  Subcontractor Markup (${subMarkupPct}%)`, subMarkupAmt, (r) => `H${subRawRow + 1}*${subMarkupPct/100}`);
+                }
+                const laborRow = pushRow(`  Labor (base cost)`, laborBaseAmt);
+                pushRow(`  Labor Markup (${labMarkupPct}%)`, labMarkupAmt, (r) => `H${laborRow + 1}*${labMarkupPct/100}`);
+                if (burdenAmt > 0) pushRow(`  Labor Burden (payroll tax, insurance)`, burdenAmt);
+                if (bondsAmt > 0) pushRow(`  Bonds`, bondsAmt);
+                if (contingencyAmt > 0) pushRow(`  Contingency`, contingencyAmt);
+                if (travelAmt > 0) pushRow(`  Travel & Per Diem`, travelAmt);
+
+                // Sum the component lines — this is what the displayed buildup produces.
+                const componentSum = this._round(
+                    matRaw + matMarkupAmt + eqRaw + eqMarkupAmt + subRaw + subMarkupAmt +
+                    laborBaseAmt + labMarkupAmt + burdenAmt + bondsAmt + contingencyAmt + travelAmt
+                );
+
+                // If the 3D Engine's calibrated total differs from the cost buildup,
+                // show the reconciliation so the summary always sums to the Grand Total.
+                const calibrationDelta = this._round(bidTotal - componentSum);
+                if (Math.abs(calibrationDelta) >= 1) {
+                    const label = calibrationDelta > 0
+                        ? `  Market Calibration & Margin Adjustment`
+                        : `  Market Calibration Reduction`;
+                    pushRow(label, calibrationDelta);
+                }
+
                 bomData.push([]);
                 const grandTotalRow = bomData.length;
                 bomData.push(["", "", "", "BID PRICE (GRAND TOTAL)", "", "", "", bidTotal]);
-                // Formula: Grand Total = sum of all pricing summary lines (material raw + markup + labor + markup + G&A)
-                formulaCells.push({ row: grandTotalRow, col: 7, formula: `H${rawCostRow+1}+H${matMarkupRow+1}+H${laborRow+1}+H${labMarkupRow+1}+H${gaRow+1}`, cached: bidTotal });
+                const sumRefs = componentRows.map(r => `H${r + 1}`).join('+');
+                formulaCells.push({ row: grandTotalRow, col: 7, formula: sumRefs, cached: bidTotal });
             } else {
                 bomData.push(["", "", "", "GRAND TOTAL", "", "", "", runningTotal]);
-                // Reference the material subtotal
                 formulaCells.push({ row: bomData.length - 1, col: 7, formula: `H${matSubtotalRow + 1}`, cached: runningTotal });
             }
             bomData.push([]);
@@ -3675,6 +3824,18 @@ if (typeof window !== "undefined") {
 // etc.) in the UI — no more three-paths-three-answers problem.
 // ═══════════════════════════════════════════════════════════════
 const SmartPlansFinancials = {
+    /**
+     * Clear the bid-total lock so the next grandTotal() call recomputes.
+     * Call this whenever pricing inputs change (markup, disciplines, BOM edits,
+     * 3D engine rerun, bid strategy toggle). Without this, changes wouldn't
+     * flow through to exports — the first computed value would be frozen.
+     */
+    clearLock(state) {
+        if (!state) return;
+        state._lockedBidTotal = null;
+        state._lockedBidTotalSource = null;
+    },
+
     /**
      * Compute the authoritative grand total for a bid.
      * @param {object} state - application state
