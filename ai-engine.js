@@ -3926,7 +3926,13 @@ const SmartBrains = {
     SPECIAL_CONDITIONS: ['equipment_rentals', 'subcontractors', 'permits', 'true_change_orders', 'transit_railroad_checklist', 'prevailing_wage_detected', 'prevailing_wage_type'],
     SHADOW_SCANNER: ['totals'],
     DISCIPLINE_DEEP_DIVE: ['discipline_counts'],
-    QUADRANT_SCANNER: ['quadrants', 'totals'],
+    // v5.128.13: was ['quadrants', 'totals'] but the prompt asks the AI for
+    // 'grid_counts' (9-zone TL/TC/TR/ML/MC/MR/BL/BC/BR grid). The validator
+    // was never updated to match when the prompt switched from 4-quadrant
+    // to 9-zone grid. Every bid failed all 3 validation retries on this brain
+    // (3 wasted API calls per bid) and the brain's output was dropped. Now
+    // matches the actual prompt contract.
+    QUADRANT_SCANNER: ['grid_counts', 'totals'],
     CONSENSUS_ARBITRATOR: ['consensus_counts', 'disputes', 'confidence'],
     TARGETED_RESCANNER: ['resolved_items', 'final_counts'],
     MATERIAL_PRICER: ['categories', 'grand_total'],
@@ -9569,11 +9575,20 @@ ${rfp.mwbe_requirements?.goal_pct > 0 ? `⚠️ ${rfp.mwbe_requirements.type} go
 
   // Brains that benefit from per-page scanning (counting-focused brains)
   PER_PAGE_BRAINS: new Set(['SYMBOL_SCANNER', 'SHADOW_SCANNER', 'ZOOM_SCANNER', 'SCOPE_EXCLUSION_SCANNER']),
-  // Scans per page is now DYNAMIC based on page count:
+  // Scans per page is now DYNAMIC based on page count AND brain type:
   // >50 pages → 1 scan (speed priority — avoids API overload on large sets)
   // 26-50 pages → 2 scans (balanced accuracy)
   // ≤25 pages → 4 scans (maximum accuracy on small sets)
-  _getScansPerPage(pageCount) {
+  //
+  // v5.128.13: SCOPE_EXCLUSION_SCANNER always uses 1 pass regardless of page count.
+  // It's a "find any OFCI/OFOI/NIC/By Others note" detector, not a counter. On
+  // the Amtrak Martinez bid, ~70% of the 46 pages returned empty exclusions on
+  // pass 1; pass 2 re-scanned those same pages and returned empty again, burning
+  // ~4 minutes and ~46 extra API calls for zero added information. Multi-pass
+  // merging with "higher count" strategy is meaningless for exclusions — you
+  // can't have more-than-zero of "nothing to exclude."
+  _getScansPerPage(pageCount, brainKey) {
+    if (brainKey === 'SCOPE_EXCLUSION_SCANNER') return 1;
     if (pageCount > 50) return 1;
     if (pageCount > 25) return 2;
     return 4;
@@ -9637,7 +9652,7 @@ ${rfp.mwbe_requirements?.goal_pct > 0 ? `⚠️ ${rfp.mwbe_requirements.type} go
         return this._runSingleBrain(key, context, encodedFiles, baseProgress, endProgress, totalBrains, results, incrementCompleted, progressCallback);
       }
 
-      const scansPerPage = this._getScansPerPage(deduped.length);
+      const scansPerPage = this._getScansPerPage(deduped.length, key);
       const totalScans = deduped.length * scansPerPage;
       console.log(`[Brain:${brain.name}] ═══ Per-page scanning: ${deduped.length} unique pages × ${scansPerPage} scans = ${totalScans} total scans (${pageChunks.length} chunks, ${pageChunks.length - deduped.length} duplicates removed) ═══`);
       this._brainStatus[key].status = 'running';
@@ -11587,12 +11602,30 @@ ${legendContext}
       console.log(`[SmartBrains] ❓ ${clarificationQuestions.length} clarification question(s) collected (no callback — auto-proceeding with best guesses)`);
     }
 
-    // ═══ WAVE 1.5: Second Read — Independent Verification (5 parallel brains, Pro model) ═══
-    progressCallback(35, '👁️ Wave 1.5: Second Read — 5 independent verifiers…', this._brainStatus);
-    const wave15Keys = ['SHADOW_SCANNER', 'DISCIPLINE_DEEP_DIVE', 'QUADRANT_SCANNER', 'ZOOM_SCANNER', 'PER_FLOOR_ANALYZER'];
+    // ═══ WAVE 1.5: Second Read — Independent Verification ═══
+    // v5.128.13: Confidence-gated. The 3 redundant "recount" brains
+    // (SHADOW_SCANNER, QUADRANT_SCANNER, ZOOM_SCANNER) only run when Symbol
+    // Scanner's counts are shaky. When deterministic pdf.js extraction
+    // already covers the major devices and Symbol Scanner passed validation
+    // on first try, running 3 more AI recounts is ~5-8 minutes of paranoia.
+    //
+    // Always-run brains (unique analysis, not redundant counts):
+    //   - DISCIPLINE_DEEP_DIVE (discipline-specific scope & details)
+    //   - PER_FLOOR_ANALYZER   (per-floor breakdown for multi-story bids)
+    const det = context._deterministicCounts?.perDevice || null;
+    const symOverrides = wave1Results?.SYMBOL_SCANNER?._deterministicOverrides || [];
+    const detCoverageHigh = det && Object.keys(det).length >= 3 && symOverrides.length === 0;
+    const skipRecounts = detCoverageHigh;
+    const wave15Keys = skipRecounts
+        ? ['DISCIPLINE_DEEP_DIVE', 'PER_FLOOR_ANALYZER']
+        : ['SHADOW_SCANNER', 'DISCIPLINE_DEEP_DIVE', 'QUADRANT_SCANNER', 'ZOOM_SCANNER', 'PER_FLOOR_ANALYZER'];
+    if (skipRecounts) {
+        console.log(`[SmartBrains] ⏭️  Wave 1.5: Skipping SHADOW/QUADRANT/ZOOM — deterministic pdf.js counts cover ${Object.keys(det).length} device type(s) and Symbol Scanner matched on all of them (no recount needed)`);
+    }
+    progressCallback(35, `👁️ Wave 1.5: Second Read — ${wave15Keys.length} verifier(s)…`, this._brainStatus);
     const wave15Results = await this._runWave(1.5, wave15Keys, filteredEncodedFiles, state, context, progressCallback);
     context.wave1_5 = wave15Results;
-    console.log('[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (5 brains) ═══');
+    console.log(`[SmartBrains] ═══ Wave 1.5 Complete — Second Read done (${wave15Keys.length} brain${wave15Keys.length === 1 ? '' : 's'}) ═══`);
 
     // ═══ WAVE 10 C3 (v5.128.7) — CASCADE DETERMINISTIC OVERRIDES TO WAVE 1.5 SCANNERS ═══
     // Wave 4 already overrode SYMBOL_SCANNER.totals, but CONSENSUS_ARBITRATOR

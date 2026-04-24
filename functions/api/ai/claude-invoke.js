@@ -80,7 +80,15 @@ export async function onRequestPost(context) {
                 headers: {
                     'Content-Type': 'application/json',
                     'x-api-key': apiKey,
-                    'anthropic-version': '2024-06-15',
+                    // v5.128.13: was '2024-06-15' which is NOT a valid Anthropic API
+                    // version (verified against docs.anthropic.com/en/api/versioning
+                    // on 2026-04-23 — only 2023-06-01 and 2023-01-01 are valid).
+                    // The bogus version string caused Claude to 400 on the FIRST
+                    // brain of every bid, which auto-blacklisted Claude for the
+                    // whole session and killed the cross-check layer. Every bid
+                    // since this was deployed has been running Gemini-only despite
+                    // paying for dual-model consensus.
+                    'anthropic-version': '2023-06-01',
                     'anthropic-beta': 'pdfs-2024-09-25',
                 },
                 body: JSON.stringify(anthropicBody),
