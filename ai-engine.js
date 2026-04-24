@@ -12983,8 +12983,13 @@ ${legendContext}
     }
 
     // Build verification appendix from Cross Validator + Devil's Advocate + Consensus
-    const validator = wave3Results.CROSS_VALIDATOR;
-    const devil = wave3Results.DEVILS_ADVOCATE;
+    // v5.128.18: read from context — wave3Results is only in scope when Wave 3 ran.
+    // When bidBudgetSoftSkipMinutes fires, Wave 3 is skipped and the local var never
+    // existed, so referencing it here threw "wave3Results is not defined" and killed
+    // EVERY over-budget bid at the final report stage (Martinez 2026-04-24 was lost
+    // this way — full pipeline succeeded, then crashed on this line).
+    const validator = context.wave3?.CROSS_VALIDATOR;
+    const devil = context.wave3?.DEVILS_ADVOCATE;
     const consensus = wave175Results.CONSENSUS_ARBITRATOR;
     let validationAppendix = '';
 
@@ -13029,7 +13034,9 @@ ${legendContext}
     }
 
     // Reverse verification summary
-    const reverseV = wave275Results?.REVERSE_VERIFIER;
+    // v5.128.18: context.wave2_75 is set in both branches of the soft-skip check,
+    // wave275Results only exists when the wave ran.
+    const reverseV = context.wave2_75?.REVERSE_VERIFIER;
     if (reverseV && !reverseV._failed) {
       validationAppendix += `\n\n## 🔄 REVERSE VERIFICATION\n`;
       validationAppendix += `**Verification Score**: ${reverseV.verification_score || 'N/A'}%\n`;
@@ -13276,8 +13283,8 @@ ${legendContext}
         wave0: wave0Results, wave0_3: context.wave0_3 || null, wave0_35: context.wave0_35 || null, wave0_75: context.wave0_75 || null,
         wave1: wave1Results, wave1_5: wave15Results,
         wave1_75: wave175Results, wave2: wave2Results, wave2_25: wave225Results,
-        wave2_5_fin: wave25FinResults, wave2_75: wave275Results,
-        wave3: wave3Results, wave3_25: context.wave3_25 || null, wave3_5: context.wave3_5, wave3_75: context.wave3_75,
+        wave2_5_fin: wave25FinResults, wave2_75: context.wave2_75,
+        wave3: context.wave3, wave3_25: context.wave3_25 || null, wave3_5: context.wave3_5, wave3_75: context.wave3_75,
         wave3_85_corrected: context.wave3_85?.ESTIMATE_CORRECTOR || null,
         wave4_1: proposalNarrative,
       },
