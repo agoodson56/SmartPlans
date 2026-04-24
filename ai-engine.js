@@ -365,6 +365,13 @@ const SmartBrains = {
     claudeCriticalBrains: [                    // brains that run on both providers and cross-check
       'LEGEND_DECODER', 'MATERIAL_PRICER', 'CONSENSUS_ARBITRATOR', 'DEVILS_ADVOCATE',
     ],
+    // v5.128.14 (Stage 1): Claude 4.7 as PRIMARY counting engine on per-page
+    // brains. User policy: accuracy over cost, Claude 4.7 is the designated
+    // counting/measuring model. Each listed brain runs Claude on inline base64
+    // JPEGs (preserved during upload) with Gemini as graceful fallback if
+    // Claude fails. Currently limited to per-page counting brains — single-brain
+    // path still defaults to Gemini primary with Claude cross-check.
+    claudePrimaryPerPageBrains: ['SYMBOL_SCANNER', 'SHADOW_SCANNER', 'ZOOM_SCANNER'],
     // ── Model version pinning ──
     // Surface the exact model strings so a silent bump upstream is
     // visible in logs + tests. A mismatch between these and actual
@@ -921,6 +928,22 @@ const SmartBrains = {
                       _sheetId: chunk._sheetId,
                     };
 
+                    // v5.128.14: Always encode base64 alongside File API upload.
+                    // Claude cannot read Gemini File API URIs — for dual-provider
+                    // cross-check we need the raw image bytes available inline.
+                    // This adds ~30-60ms per page but enables Claude to see the
+                    // same visual content Gemini sees. Memory cost for 46 pages
+                    // averaging 1.5MB base64 each is ~70MB, well within browser
+                    // heap limits.
+                    let chunkB64 = null;
+                    try {
+                      const enc = await this._fileToBase64(chunk);
+                      chunkB64 = enc.base64;
+                      chunkData._claudeBase64 = chunkB64;
+                    } catch (encErr) {
+                      console.warn(`[SmartBrains] Chunk ${chunkIdx} base64 encoding failed (Claude will skip this page):`, encErr.message);
+                    }
+
                     try {
                       const uploadResult = await this._uploadToFileAPI(chunk, chunkMime, chunkName, pinnedUploadKey);
                       if (uploadResult && uploadResult.fileUri) {
@@ -937,14 +960,12 @@ const SmartBrains = {
                         }
                         console.log(`[SmartBrains] ✓ Uploaded chunk ${chunkIdx}/${chunks.length}: ${chunkName} → ${cleanUri}`);
                       } else {
-                        // Fallback: send chunk as inline base64
-                        const chunkB64 = await this._fileToBase64(chunk);
-                        chunkData.base64 = chunkB64.base64;
+                        // Fallback: send chunk as inline base64 for Gemini too
+                        chunkData.base64 = chunkB64;
                         console.warn(`[SmartBrains] Chunk ${chunkIdx} upload failed, using inline`);
                       }
                     } catch (chunkErr) {
-                      const chunkB64 = await this._fileToBase64(chunk);
-                      chunkData.base64 = chunkB64.base64;
+                      chunkData.base64 = chunkB64;
                       console.warn(`[SmartBrains] Chunk ${chunkIdx} upload error, using inline:`, chunkErr.message);
                     }
                     encoded[category].push(chunkData);
@@ -9771,25 +9792,63 @@ ${legendContext}
 
           const batchPromises = batch.map(async (file) => {
             try {
+              // v5.128.14: Claude-primary counting. For counting brains in
+              // config.claudePrimaryPerPageBrains, Claude 4.7 does the actual
+              // page scan using inline base64 (the user's policy decision —
+              // accuracy over cost, Claude is their designated counting engine).
+              // Gemini is the fallback only if Claude fails or base64 missing.
+              // Reason: Gemini File API URIs are opaque to Claude. Per-page
+              // JPEGs are now encoded to base64 during upload (see _claudeBase64
+              // on chunkData) so Claude can visually inspect each page.
+              const claudePrimaryList = this.config.claudePrimaryPerPageBrains || [];
+              const claudePrimaryWanted = claudePrimaryList.includes(key) && !!file._claudeBase64;
+
               // Build file parts for just this one page + reference page (T-0.0)
-              const fileParts = [
+              const geminiFileParts = [
                 { text: `\n--- PAGE: ${file.name} (Pass ${pass + 1}) ---` },
                 { fileData: { mimeType: file.mimeType, fileUri: file.fileUri } },
-                ...referencePageParts, // T-0.0 general notes page (if found) — enables cross-referencing
+                ...referencePageParts, // T-0.0 general notes page — enables cross-referencing
                 ...contextTextParts,
               ];
-
-              // Preserve key pinning for File API access
-              if (file._usedKeyName) {
-                fileParts[1]._usedKeyName = file._usedKeyName;
-              }
+              if (file._usedKeyName) geminiFileParts[1]._usedKeyName = file._usedKeyName;
 
               const pagePrompt = passPrefix + basePrompt;
-              const rawResult = await this._invokeBrain(key, brain, pagePrompt, fileParts, useJsonMode);
-              const parsed = this._parseJSON(rawResult);
+              let parsed = null;
+              let usedProvider = 'gemini';
+
+              if (claudePrimaryWanted) {
+                // Build inline-base64 fileParts for Claude (fileData refs aren't
+                // resolvable by Anthropic — only inlineData reaches the vision model)
+                const claudeFileParts = [
+                  { text: `\n--- PAGE: ${file.name} (Pass ${pass + 1}) ---` },
+                  { inlineData: { mimeType: file.mimeType || 'image/jpeg', data: file._claudeBase64 } },
+                  // Drop reference page parts that are fileData refs — Claude can't see them
+                  ...referencePageParts.filter(p => !p.fileData),
+                  ...contextTextParts,
+                ];
+                try {
+                  const claudeRaw = await this._invokeBrain(key, brain, pagePrompt, claudeFileParts, useJsonMode, { providerOverride: 'anthropic' });
+                  const claudeParsed = this._parseJSON(claudeRaw);
+                  if (claudeParsed && !claudeParsed._parseFailed) {
+                    parsed = claudeParsed;
+                    usedProvider = 'claude';
+                  } else {
+                    console.warn(`[Brain:${brain.name}] Page ${file.name} pass ${pass + 1}: Claude returned unparseable JSON — falling back to Gemini`);
+                  }
+                } catch (claudeErr) {
+                  console.warn(`[Brain:${brain.name}] Page ${file.name} pass ${pass + 1}: Claude call failed (${claudeErr?.message || claudeErr}) — falling back to Gemini`);
+                }
+              }
+
+              // Fallback / non-Claude-primary path: Gemini with File API URI
+              if (!parsed) {
+                const rawResult = await this._invokeBrain(key, brain, pagePrompt, geminiFileParts, useJsonMode);
+                parsed = this._parseJSON(rawResult);
+              }
 
               if (parsed && !parsed._parseFailed) {
-                return { page: file.name, pass: pass + 1, success: true, data: parsed };
+                parsed._provider = usedProvider;
+                return { page: file.name, pass: pass + 1, success: true, data: parsed, provider: usedProvider };
               } else {
                 console.warn(`[Brain:${brain.name}] Page ${file.name} pass ${pass + 1}: JSON parse failed`);
                 return { page: file.name, pass: pass + 1, success: false, data: null };
