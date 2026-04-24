@@ -362,6 +362,14 @@ const SmartBrains = {
     enableClaudeFallback: true,                // use Claude when Pro model-health gate trips
     enableClaudeCrossCheck: true,              // dual-provider on critical brains
     claudeModel: 'claude-opus-4-7',            // explicit model — pinned
+    // v5.128.16 Stage 3: 30-minute hard budget. When bid time exceeds
+    // bidBudgetSoftSkipMinutes, non-essential verifier waves (2.75 Reverse
+    // Verifier, 3 Adversarial Audit, 3.5 Deep Accuracy, 3.75 Final
+    // Reconciliation, 3.85 Estimate Corrector) skip themselves so the bid
+    // finishes with a usable total. Essential pricing/counting waves always
+    // run (0 Legend, 1 Symbol Scanner, 2 Material Pricer, 2.25 Labor,
+    // 2.5 Financial Engine, 4 Report Writer).
+    bidBudgetSoftSkipMinutes: 25,
     claudeCriticalBrains: [                    // brains that run on both providers and cross-check
       'LEGEND_DECODER', 'MATERIAL_PRICER', 'CONSENSUS_ARBITRATOR', 'DEVILS_ADVOCATE',
     ],
@@ -10255,7 +10263,30 @@ ${legendContext}
   // MAIN ENTRY POINT — Full Multi-Brain Analysis
   // ═══════════════════════════════════════════════════════════
 
+  // v5.128.16 Stage 3: 30-minute hard budget.
+  // Returns true if elapsed time from bid start has exceeded the soft-skip
+  // threshold (default 25 min). At that point non-essential verifier waves
+  // skip themselves so the bid finishes with a usable total instead of
+  // hanging past 30 minutes. Essential pricing/counting waves always run.
+  _isOverSoftBudget(state) {
+    const start = state?._bidBudgetStartTime;
+    if (!start) return false;
+    const softMin = this.config.bidBudgetSoftSkipMinutes || 25;
+    const elapsedMin = (Date.now() - start) / 60000;
+    return elapsedMin >= softMin;
+  },
+
+  _budgetElapsedMin(state) {
+    const start = state?._bidBudgetStartTime;
+    if (!start) return 0;
+    return Math.round(((Date.now() - start) / 60000) * 10) / 10;
+  },
+
   async runFullAnalysis(state, progressCallback) {
+    // v5.128.16: Start the bid budget clock. Used by _isOverSoftBudget to
+    // skip non-essential verifier waves when we're approaching 30 minutes.
+    state._bidBudgetStartTime = Date.now();
+    delete state._bidBudgetExhausted; // clear any prior run's flag
     console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
     // v5.128.10: Keys are stored server-side as Cloudflare secrets (GEMINI_KEY_0…17)
     // and selected per-request by the proxy. Log the proxy-managed slot count
@@ -12738,17 +12769,27 @@ ${legendContext}
     context.wave2_5_fin = wave25FinResults;
     console.log('[SmartBrains] ═══ Wave 2.5 Complete — Financials computed ═══');
 
-    // ═══ WAVE 2.75: Reverse Verification (1 brain, Pro model) ═══
-    progressCallback(72, '🔄 Wave 2.75: Reverse-verifying BOQ against plans…', this._brainStatus);
-    const wave275Results = await this._runWave(2.75, ['REVERSE_VERIFIER'], filteredEncodedFiles, state, context, progressCallback);
-    context.wave2_75 = wave275Results;
-    console.log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
+    // ═══ WAVE 2.75: Reverse Verification (1 brain, Pro model) — NON-ESSENTIAL ═══
+    if (this._isOverSoftBudget(state)) {
+      console.warn(`[SmartBrains] ⏱️ BUDGET (${this._budgetElapsedMin(state)} min elapsed ≥ ${this.config.bidBudgetSoftSkipMinutes} min soft-skip): skipping Wave 2.75 Reverse Verifier`);
+      context.wave2_75 = { _skippedForBudget: true };
+    } else {
+      progressCallback(72, '🔄 Wave 2.75: Reverse-verifying BOQ against plans…', this._brainStatus);
+      const wave275Results = await this._runWave(2.75, ['REVERSE_VERIFIER'], filteredEncodedFiles, state, context, progressCallback);
+      context.wave2_75 = wave275Results;
+      console.log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
+    }
 
-    // ═══ WAVE 3: Adversarial Audit (2 parallel brains, Pro model) ═══
-    progressCallback(78, '😈 Wave 3: Adversarial Audit — cross-validator + devil\'s advocate…', this._brainStatus);
-    const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], filteredEncodedFiles, state, context, progressCallback);
-    context.wave3 = wave3Results;
-    console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
+    // ═══ WAVE 3: Adversarial Audit (2 parallel brains, Pro model) — NON-ESSENTIAL ═══
+    if (this._isOverSoftBudget(state)) {
+      console.warn(`[SmartBrains] ⏱️ BUDGET (${this._budgetElapsedMin(state)} min elapsed): skipping Wave 3 Adversarial Audit`);
+      context.wave3 = { _skippedForBudget: true };
+    } else {
+      progressCallback(78, '😈 Wave 3: Adversarial Audit — cross-validator + devil\'s advocate…', this._brainStatus);
+      const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], filteredEncodedFiles, state, context, progressCallback);
+      context.wave3 = wave3Results;
+      console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
+    }
 
     // ═══ WAVE 3.25: Spec Compliance Checker (reads specs + BOM, finds gaps) — NON-FATAL ═══
     if ((encodedFiles.specs || []).length > 0) {
@@ -12778,8 +12819,11 @@ ${legendContext}
       }
     }
 
-    // ═══ WAVE 3.5: Deep Accuracy Pass (3 parallel brains, Pro) ═══
-    try {
+    // ═══ WAVE 3.5: Deep Accuracy Pass (3 parallel brains, Pro) — NON-ESSENTIAL ═══
+    if (this._isOverSoftBudget(state)) {
+      console.warn(`[SmartBrains] ⏱️ BUDGET (${this._budgetElapsedMin(state)} min elapsed): skipping Wave 3.5 Deep Accuracy`);
+      context.wave3_5 = { _skippedForBudget: true };
+    } else try {
       progressCallback(82, '🔎 Wave 3.5: Deep Accuracy — Detail Verifier + Cross-Sheet + Overlap Detector…', this._brainStatus);
       const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER', 'OVERLAP_DETECTOR'];
       const wave35Results = await this._runWave(3.5, wave35Keys, filteredEncodedFiles, state, context, progressCallback);
@@ -12790,8 +12834,11 @@ ${legendContext}
       context.wave3_5 = {};
     }
 
-    // ═══ WAVE 3.75: 6th Read — Final Reconciliation (1 brain, Pro deep reasoning) ═══
-    try {
+    // ═══ WAVE 3.75: 6th Read — Final Reconciliation — NON-ESSENTIAL ═══
+    if (this._isOverSoftBudget(state)) {
+      console.warn(`[SmartBrains] ⏱️ BUDGET (${this._budgetElapsedMin(state)} min elapsed): skipping Wave 3.75 Final Reconciliation`);
+      context.wave3_75 = { _skippedForBudget: true };
+    } else try {
       progressCallback(86, '🏁 Wave 3.75: 6th Read — Final Reconciliation sweep…', this._brainStatus);
       const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], filteredEncodedFiles, state, context, progressCallback);
       context.wave3_75 = wave375Results;
@@ -12802,6 +12849,8 @@ ${legendContext}
     }
 
     // ═══ WAVE 3.85: Estimate Correction (1 brain, Pro — corrects pricer using verification findings) ═══
+    // NOT skipped for budget — this applies corrections discovered by prior
+    // verifier waves. If the verifiers were skipped, this is a cheap no-op.
     try {
       progressCallback(88, '🔧 Wave 3.85: Estimate Corrector — applying verification fixes…', this._brainStatus);
       const wave385Results = await this._runWave(3.85, ['ESTIMATE_CORRECTOR'], filteredEncodedFiles, state, context, progressCallback);
