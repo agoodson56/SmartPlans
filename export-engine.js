@@ -563,6 +563,61 @@ const SmartPlansExport = {
         };
     },
 
+    // v5.128.15 Stage 2: Hard guards on the bid total.
+    // Runs the proposed total against a deterministic cost buildup and clamps
+    // if it's absurdly off. Applied to any grand total before it's locked and
+    // shipped to the BOM / proposal / UI.
+    //
+    //   costBuildup = _computeFullBreakdown(state, bom).grandTotal
+    //                 (fully loaded: materials + markup + labor + markup
+    //                  + burden + bonds + contingency + travel)
+    //   floor       = costBuildup × 1.08   (minimum 8% margin)
+    //   ceiling     = costBuildup × 2.0    (maximum ~50% margin)
+    //
+    // Records state._bidTotalGuardClamp = { raw, clamped, bound, costBuildup }
+    // when a clamp fires so the UI can show a warning banner.
+    //
+    // Motivation: Amtrak Martinez shipped $4,500,792 when the winning bid was
+    // $1,866,000 — 2.4× over. The 3D Formula Engine's transit multipliers
+    // compounded a plausible cost into an absurd number. Calibration usually
+    // catches this but relies on benchmark data being present and correct.
+    // This guard is the last line of defense regardless of formula bugs.
+    _applyBidTotalGuards(proposedTotal, state, bom, sourceLabel) {
+        if (!bom?.categories?.length || !proposedTotal || proposedTotal <= 1000) return proposedTotal;
+        let costBuildup;
+        try {
+            const breakdown = this._computeFullBreakdown(state, bom);
+            costBuildup = breakdown?.grandTotal;
+        } catch (e) {
+            console.warn(`[Guards] Cost buildup computation failed — skipping guards:`, e?.message || e);
+            return proposedTotal;
+        }
+        if (!costBuildup || costBuildup <= 1000) return proposedTotal;
+
+        const floor = this._round(costBuildup * 1.08);
+        const ceiling = this._round(costBuildup * 2.0);
+
+        if (proposedTotal < floor) {
+            state._bidTotalGuardClamp = {
+                raw: proposedTotal, clamped: floor, bound: 'floor',
+                costBuildup, source: sourceLabel,
+                reason: `Bid total $${proposedTotal.toLocaleString()} was below the 8% margin floor ($${floor.toLocaleString()}) over deterministic cost buildup ($${costBuildup.toLocaleString()}). Clamped up to protect margin.`,
+            };
+            return floor;
+        }
+        if (proposedTotal > ceiling) {
+            state._bidTotalGuardClamp = {
+                raw: proposedTotal, clamped: ceiling, bound: 'ceiling',
+                costBuildup, source: sourceLabel,
+                reason: `Bid total $${proposedTotal.toLocaleString()} exceeded 2× the deterministic cost buildup ($${costBuildup.toLocaleString()}, ceiling $${ceiling.toLocaleString()}). Clamped down to protect against formula-engine overshoot.`,
+            };
+            return ceiling;
+        }
+        // In-range: clear any prior clamp
+        delete state._bidTotalGuardClamp;
+        return proposedTotal;
+    },
+
     // ─── Get fully loaded bid total ──
     _getFullyLoadedTotal(state, bom) {
         // v5.128.12: Single source of truth for the bid total.
@@ -614,8 +669,23 @@ const SmartPlansExport = {
                     state._engine3DResult = result3D;
                     // Transit projects: use FormulaEngine3D as the bid price — it's calibrated to real wins
                     if (state.isTransitRailroad) {
-                        const transitTotal = this._round(result3D.grandTotalSELL);
-                        console.log(`[Export] 🚂 3D Formula Engine (TRANSIT PRIMARY): $${transitTotal.toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED to Amtrak actuals]' : ''}`);
+                        const rawTransit = this._round(result3D.grandTotalSELL);
+                        // v5.128.15 Stage 2: Hard cost-floor and ceiling guards.
+                        // The 3D Formula Engine's transit multipliers can push per-camera
+                        // sell to $28K+ which compounds into 2-3× overshoots on station
+                        // bids (Amtrak Martinez: formula=$4.5M vs winning=$1.87M). The
+                        // calibration layer in formula-engine-3d.js handles most of this,
+                        // but if its benchmark data is missing or wrong, the bid can still
+                        // ship absurdly. These guards are the belt-and-suspenders:
+                        //   floor  = deterministic cost buildup × 1.08  (min 8% margin)
+                        //   ceiling = deterministic cost buildup × 2.0  (max ~50% margin)
+                        // If the formula's number falls outside, clamp to the nearest
+                        // bound and record the clamp on state so the UI can flag it.
+                        const transitTotal = this._applyBidTotalGuards(rawTransit, state, bom, 'FormulaEngine3D (transit)');
+                        console.log(`[Export] 🚂 3D Formula Engine (TRANSIT PRIMARY): $${rawTransit.toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED to Amtrak actuals]' : ''}`);
+                        if (transitTotal !== rawTransit) {
+                            console.warn(`[Export] ⚠️ Bid total GUARD-CLAMPED from $${rawTransit.toLocaleString()} to $${transitTotal.toLocaleString()} — formula output outside [cost×1.08, cost×2.0] range`);
+                        }
                         console.log(`[Export] ✅ Grand total from 3D Formula Engine (transit): $${transitTotal.toLocaleString()}`);
                         state._lockedBidTotal = transitTotal;
                         state._lockedBidTotalSource = result3D._calibrated ? 'FormulaEngine3D (transit, calibrated)' : 'FormulaEngine3D (transit)';
@@ -647,7 +717,13 @@ const SmartPlansExport = {
                     const delta = result.grandTotalWithStrategy - baseBreakdown.grandTotal;
                     console.log(`[Export] 📊 Base computation reference: $${baseBreakdown.grandTotal.toLocaleString()} (strategy delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()})`);
                 }
-                const strategyTotal = this._round(result.grandTotalWithStrategy);
+                const rawStrategyTotal = this._round(result.grandTotalWithStrategy);
+                // v5.128.15 Stage 2: guard user-applied strategies too. User
+                // might have accidentally applied 200% markup or similar.
+                const strategyTotal = this._applyBidTotalGuards(rawStrategyTotal, state, bom, 'Bid Strategy (user-applied)');
+                if (strategyTotal !== rawStrategyTotal) {
+                    console.warn(`[Export] ⚠️ Bid Strategy total GUARD-CLAMPED from $${rawStrategyTotal.toLocaleString()} to $${strategyTotal.toLocaleString()}`);
+                }
                 console.log(`[Export] ✅ Grand total from Bid Strategy (user-applied): $${strategyTotal.toLocaleString()}`);
                 state._lockedBidTotal = strategyTotal;
                 state._lockedBidTotalSource = 'bid-strategy';
