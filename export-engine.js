@@ -614,7 +614,22 @@ const SmartPlansExport = {
     _finalBidSanityCheck(proposedTotal, state, bom) {
         if (!bom?.categories?.length || !proposedTotal) return { proposedTotal, violations: [] };
 
-        // Count devices: anything priced per-each that looks like a security device
+        // v5.128.20 (post-wave-13): the original $6K/device transit ceiling was a round-
+        // number guess that had no grounding in the benchmark data. The real Amtrak
+        // benchmarks are PER-CAMERA ($28,495/cam BAFO), not per-device. For a CCTV-
+        // dominated transit job, cameras carry 90%+ of cost while cheap door/network
+        // hardware (readers, switches, contacts) dilutes the per-device average down
+        // to ~$10K — which trips $6K/device on every legitimate transit bid.
+        //
+        // New behavior: count cameras AND devices separately. For transit, the
+        // primary check is per-camera vs the benchmark. Per-device is kept as a
+        // softer secondary check at a more realistic threshold.
+
+        const camRe = /camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i;
+        const camExclude = /mount|bracket|license|sd\s*card|cable|adapter|housing|power\s*supply|surge|software|warranty|accessor/i;
+        const deviceRe = /camera|reader|switch|nvr|server|sensor|panel|controller|strike|maglock|rex|monitor|station|phone/i;
+
+        let cameraCount = 0;
         let deviceCount = 0;
         for (const cat of (bom.categories || [])) {
             for (const it of (cat.items || [])) {
@@ -623,42 +638,71 @@ const SmartPlansExport = {
                 const qty = Number(it.qty || 0);
                 if (qty <= 0) continue;
                 if (unit !== 'ea' && unit !== 'each') continue;
-                if (/camera|reader|switch|nvr|server|sensor|panel|controller|strike|maglock|rex|monitor|station|phone/i.test(name)) {
-                    deviceCount += qty;
-                }
+                if (camRe.test(name) && !camExclude.test(name)) cameraCount += qty;
+                if (deviceRe.test(name)) deviceCount += qty;
             }
         }
-        if (deviceCount < 5) return { proposedTotal, violations: [] };
 
-        const perDevice = proposedTotal / deviceCount;
         const violations = [];
 
-        // Check A: hard per-device ceiling
-        const HARD_CEILING = state.isTransitRailroad ? 6000 : 4500;
-        if (perDevice > HARD_CEILING) {
-            violations.push({
-                type: 'absoluteCeiling',
-                severity: 'critical',
-                msg: `$${Math.round(perDevice).toLocaleString()}/device exceeds hard ceiling $${HARD_CEILING.toLocaleString()}/device for ${state.isTransitRailroad ? 'transit' : 'non-transit'} project.`,
-            });
-        }
-
-        // Check B: benchmark per-device comparison (transit only — uses Amtrak benchmarks)
-        if (state.isTransitRailroad && typeof PRICING_DB !== 'undefined' && PRICING_DB.amtrakBenchmarks?.actualBids) {
-            const bids = PRICING_DB.amtrakBenchmarks.actualBids;
-            const bafoBids = Object.values(bids).filter(b => b.type === 'bafo');
-            if (bafoBids.length > 0) {
-                const avgPerCam = bafoBids.reduce((s, b) => s + (b.total / b.cameras), 0) / bafoBids.length;
-                const ratio = perDevice / avgPerCam;
-                if (ratio > 1.30) {
+        // ─── Transit-CCTV path: per-CAMERA ceiling vs Amtrak benchmark ───
+        if (state.isTransitRailroad && cameraCount >= 5 && typeof PRICING_DB !== 'undefined' && PRICING_DB.amtrakBenchmarks?.actualBids) {
+            const perCam = proposedTotal / cameraCount;
+            const bids = Object.values(PRICING_DB.amtrakBenchmarks.actualBids).filter(b => b.cameras > 0 && b.total > 0);
+            if (bids.length > 0) {
+                const perCamBenchmarks = bids.map(b => b.total / b.cameras);
+                const maxBenchmark = Math.max(...perCamBenchmarks);   // worst legit Amtrak per-cam (~$29,497)
+                const avgBenchmark = perCamBenchmarks.reduce((a, b) => a + b, 0) / perCamBenchmarks.length;
+                // Critical if >150% of the worst legit Amtrak benchmark
+                const PER_CAM_CRITICAL = maxBenchmark * 1.50;
+                // Warning if >130% of the average Amtrak benchmark
+                const PER_CAM_WARNING = avgBenchmark * 1.30;
+                if (perCam > PER_CAM_CRITICAL) {
                     violations.push({
-                        type: 'benchmarkOver130',
+                        type: 'perCameraCriticalCeiling',
                         severity: 'critical',
-                        msg: `$${Math.round(perDevice).toLocaleString()}/device is ${Math.round((ratio - 1) * 100)}% above Amtrak BAFO benchmark ($${Math.round(avgPerCam).toLocaleString()}/device).`,
+                        msg: `$${Math.round(perCam).toLocaleString()}/camera exceeds 150% of worst Amtrak benchmark ($${Math.round(PER_CAM_CRITICAL).toLocaleString()}/cam, max benchmark $${Math.round(maxBenchmark).toLocaleString()}/cam).`,
+                    });
+                } else if (perCam > PER_CAM_WARNING) {
+                    violations.push({
+                        type: 'perCameraWarning',
+                        severity: 'warning',
+                        msg: `$${Math.round(perCam).toLocaleString()}/camera is ${Math.round(((perCam / avgBenchmark) - 1) * 100)}% above the average Amtrak benchmark ($${Math.round(avgBenchmark).toLocaleString()}/cam).`,
                     });
                 }
             }
         }
+
+        // ─── Non-transit path: per-device ceiling (unchanged behavior) ───
+        if (!state.isTransitRailroad && deviceCount >= 5) {
+            const perDevice = proposedTotal / deviceCount;
+            const HARD_CEILING = 4500;
+            if (perDevice > HARD_CEILING) {
+                violations.push({
+                    type: 'absoluteCeiling',
+                    severity: 'critical',
+                    msg: `$${Math.round(perDevice).toLocaleString()}/device exceeds hard ceiling $${HARD_CEILING.toLocaleString()}/device for non-transit project.`,
+                });
+            }
+        }
+
+        // ─── Soft secondary: per-device sanity for transit (no longer fires on every CCTV-heavy bid) ───
+        if (state.isTransitRailroad && deviceCount >= 5) {
+            const perDevice = proposedTotal / deviceCount;
+            // Raised from $6K to $15K — cameras carry the cost, mixed-discipline transit
+            // jobs settle at $8-$12K/device, $15K+ is genuinely worth flagging
+            const SOFT_CEILING = 15000;
+            if (perDevice > SOFT_CEILING) {
+                violations.push({
+                    type: 'perDeviceSoftCeiling',
+                    severity: 'warning',
+                    msg: `$${Math.round(perDevice).toLocaleString()}/device exceeds soft per-device ceiling ($${SOFT_CEILING.toLocaleString()}/dev) for transit. Often legitimate when cameras dominate, but worth a sanity check.`,
+                });
+            }
+        }
+
+        // Dummy var so the legacy `perDevice` variable name still resolves for the warning state shape below
+        const perDevice = deviceCount > 0 ? proposedTotal / deviceCount : 0;
 
         if (violations.length > 0) {
             state._sanityWarning = {
@@ -1755,7 +1799,14 @@ const SmartPlansExport = {
 
     // Patterns for categories that are ALWAYS included regardless of discipline selection
     // (infrastructure, equipment, general conditions, subcontractors, etc.)
-    _ALWAYS_INCLUDE_PATTERN: /equipment|subcontract|special\s*condition|general\s*condition|network\s*room|telecom\s*closet|mdf|idf|mpoe|tunnel|mobiliz|bond|insurance|permit|overhead|profit|contingency|travel|per\s*diem|lift|rental|tool|safety|incidental|opening|door\s*hardware|electrified|gate\s*operator/i,
+    // v5.128.20 (post-wave-13): removed `opening|door\s*hardware|electrified|gate\s*operator`.
+    // Those tokens describe Access Control sub-scopes — they should be filtered by the
+    // discipline filter when AC is out of scope. Keeping them in the always-include
+    // pattern caused AC hardware to leak into the BOM even after Wave 1's auto-removal,
+    // so the user saw $K of reader/strike/REX line items in a bid where AC was supposed
+    // to be wire-and-terminate-only. The discipline-category map (line 1786) already
+    // routes these tokens to "Access Control" — let it own them exclusively.
+    _ALWAYS_INCLUDE_PATTERN: /equipment|subcontract|special\s*condition|general\s*condition|network\s*room|telecom\s*closet|mdf|idf|mpoe|tunnel|mobiliz|bond|insurance|permit|overhead|profit|contingency|travel|per\s*diem|lift|rental|tool|safety|incidental/i,
 
     // ─── Filter BOM categories by selected disciplines ───────────
     // Removes categories for disciplines the user did NOT select.

@@ -974,6 +974,42 @@ const SmartBrains = {
                   // DON'T include the full PDF as inline — it's too large (57MB = 77MB base64)
                   // The chunks cover all pages. Skip adding the parent fileData entry.
                   console.log(`[SmartBrains] ✓ All ${chunks.length} chunks uploaded. Skipping full-file inline (${fileSizeMB} MB too large).`);
+
+                  // v5.128.20 (post-wave-13): extract text-layer for chunked plans BEFORE
+                  // continuing — pre-fix this `continue` skipped the per-page text extraction
+                  // at line 1035, leaving state._ocrPageTexts EMPTY for any plan PDF >20MB.
+                  // Downstream consequences: text-layer device counting disabled, by-others
+                  // detection disabled, getTextLayerDeviceCounts() returns null, MATERIAL_PRICER
+                  // hallucinates jacks (e.g., 4948 outlets in the Amtrak Martinez bid), and
+                  // the "patch panel floor" band-aid silently substitutes a guess.
+                  if (category === 'plans' && typeof pdfjsLib !== 'undefined') {
+                    try {
+                      progressCallback(null, `Extracting page text from chunked PDF: ${entry.name}…`, null);
+                      const scaleData = await this._extractScaleFromPDF(entry.rawFile);
+                      if (scaleData?._pageTexts && Object.keys(scaleData._pageTexts).length > 0) {
+                        try {
+                          if (!state._ocrPageTexts) state._ocrPageTexts = {};
+                          Object.assign(state._ocrPageTexts, scaleData._pageTexts);
+                          console.log(`[SmartBrains] (chunked-path) Stored ${Object.keys(scaleData._pageTexts).length} page texts from ${entry.name} for text-layer device counting (total: ${Object.keys(state._ocrPageTexts).length} pages)`);
+                        } catch (storeErr) {
+                          console.error('[SmartBrains] (chunked-path) FAILED to store page texts — state may not be accessible:', storeErr.message);
+                          if (!this._fallbackPageTexts) this._fallbackPageTexts = {};
+                          Object.assign(this._fallbackPageTexts, scaleData._pageTexts);
+                        }
+                      } else {
+                        console.warn(`[SmartBrains] (chunked-path) ⚠️ No page texts extracted from ${entry.name} — text-layer device counting disabled for this file`);
+                      }
+                      // Stash scale data on the first chunk so downstream code that walks
+                      // encoded[category] can find it the same way as for non-chunked uploads.
+                      if (scaleData?.pagesWithScale > 0 && encoded[category].length >= chunks.length) {
+                        const firstChunk = encoded[category][encoded[category].length - chunks.length];
+                        if (firstChunk) firstChunk._ocrScaleData = scaleData;
+                      }
+                    } catch (textLayerErr) {
+                      console.warn(`[SmartBrains] (chunked-path) text-layer extraction failed for ${entry.name}:`, textLayerErr.message);
+                    }
+                  }
+
                   continue; // Skip the normal upload path — chunks are sufficient
                 } catch (splitErr) {
                   console.warn(`[SmartBrains] PDF splitting failed for ${entry.name}, using single upload:`, splitErr.message);
@@ -3663,7 +3699,13 @@ const SmartBrains = {
       try {
         // FIX: Keep fileData refs — brains analyzing images NEED them. Only strip if no upload key.
         const fbParts = [{ text: promptText }, ...cleanFileParts];
-        const fbGenConfig = { temperature: 0.1, maxOutputTokens: 16384 };
+        // v5.128.20 (post-wave-13): match fallback maxOutputTokens to the primary call.
+        // Pre-fix: hardcoded 16384 was 75% smaller than primary's brainDef.maxTokens (often 65536),
+        // so brains like PER_FLOOR_ANALYZER and DISCIPLINE_DEEP_DIVE truncated mid-JSON when
+        // they fell back to flash, then failed schema validation as the parser auto-closed
+        // the truncated braces and lost top-level keys. Use the brain's own configured limit.
+        const fbMaxTokens = (brainDef && brainDef.maxTokens) || 16384;
+        const fbGenConfig = { temperature: 0.1, maxOutputTokens: fbMaxTokens };
         if (brainDef.jsonMode || useJsonMode) fbGenConfig.responseMimeType = 'application/json';
         const fbBody = { contents: [{ parts: fbParts }], generationConfig: fbGenConfig, _model: fbModel, _brainSlot: Math.floor(brainDef.id) % 18 };
         if (uploadKeyName) fbBody._uploadKeyName = uploadKeyName;
@@ -9603,11 +9645,19 @@ ${rfp.mwbe_requirements?.goal_pct > 0 ? `⚠️ ${rfp.mwbe_requirements.type} go
           progressCallback(baseProgress, `🔄 ${brain.name} retry ${retryNum}/${MAX_VALIDATION_RETRIES}…`, this._brainStatus);
 
           try {
-            // Escalating retry strategy: retry 1 uses enhanced prompt, retry 2 bumps temperature
+            // v5.128.20 (post-wave-13): validator-aware retry prefix.
+            // Wave-13 left this generic — "STRICTLY follow the JSON schema" never told
+            // the AI WHICH fields were missing. With temperature 0.05 (essentially
+            // deterministic), retries produced the same wrong field names (e.g. CODE_COMPLIANCE
+            // emitting `code_issues`/`findings` instead of required `issues`/`summary`).
+            // Now we name the missing fields AND the full required-keys list — the AI gets
+            // exactly the disambiguation it needs and recovers on retry 1 in most cases.
+            const requiredKeys = (this._SCHEMAS && this._SCHEMAS[key]) || [];
+            const missingKeys = (validation.reason || '').replace(/^Missing required fields:\s*/i, '');
             const retryPrefix = retryNum === 1
-              ? 'IMPORTANT: Your previous response was incomplete or had issues. STRICTLY follow the JSON schema. Include ALL required fields. Be thorough.\n\n'
-              : 'CRITICAL RETRY: Your previous TWO responses failed validation. You MUST return ONLY valid JSON matching this exact schema. No markdown, no explanations, no extra text. Just the JSON object.\n\n';
-            
+              ? `IMPORTANT: Your previous JSON response was missing these required top-level keys: ${missingKeys}. The response MUST be a JSON object whose top-level keys include EXACTLY these names: ${requiredKeys.join(', ')}. Use those exact field-name spellings (not synonyms). STRICTLY follow the JSON schema. Be thorough.\n\n`
+              : `CRITICAL RETRY: Your previous TWO responses failed validation. Required top-level JSON keys: ${requiredKeys.join(', ')}. Return ONLY valid JSON whose TOP-LEVEL keys are EXACTLY those names. No markdown, no explanations, no extra text. Just the JSON object.\n\n`;
+
             rawResult = await this._invokeBrain(key, brain, retryPrefix + prompt, fileParts, useJsonMode);
             if (useJsonMode) {
               const retryParsed = this._parseJSON(rawResult);
@@ -10227,7 +10277,11 @@ ${legendContext}
       const zoomFindings = [];
 
       for (const r of physicalResults) {
+        // v5.128.20 (post-wave-13): ZOOM_SCANNER prompt emits `grid_counts` but the
+        // aggregator was only reading `quadrant_counts` (silent data loss — same drift
+        // wave-13 fixed for QUADRANT_SCANNER but missed for ZOOM_SCANNER). Read both.
         if (r.data.quadrant_counts) quadrantCounts.push(...r.data.quadrant_counts);
+        if (r.data.grid_counts) quadrantCounts.push(...r.data.grid_counts);
         if (r.data.zoom_findings) zoomFindings.push(...r.data.zoom_findings);
         if (r.data.grand_totals) {
           for (const [k, v] of Object.entries(r.data.grand_totals)) {
@@ -10557,7 +10611,13 @@ ${legendContext}
             fileUris,
             model: `models/${this.config.proModel || this.config.model || 'gemini-2.5-pro'}`,
             systemInstruction: 'You are an expert low-voltage ELV construction estimator analyzing construction drawings and specifications. Extract precise device counts, material quantities, and cost data.',
-            ttl: '3600s',
+            // v5.128.20 (post-wave-13): bumped from 3600s (1h) to 21600s (6h).
+            // Real bids on 90+ page plan sets routinely run 60-90 min (Symbol Scanner
+            // alone is 184 calls × ~10-30s = 30-90 min on Pro). 1h TTL was expiring
+            // mid-Wave-1.75, forcing 30+ remaining brains to fall back from
+            // gemini-3.1-pro-preview to gemini-2.5-flash, which then failed JSON
+            // schema validation and silently degraded bid quality.
+            ttl: '21600s',
             _uploadKeyName: uploadKeyName,
           }),
         });
@@ -12035,18 +12095,52 @@ ${legendContext}
       'Audio Visual':         /speaker|display|projector|amplifier|microphone|av\s*|audio/,
       'Intrusion Detection':  /motion\s*detect|glass\s*break|intrusion|keypad|siren/,
     };
+    // v5.128.20 (post-wave-13): two bug-fixes here.
+    //
+    // Bug A — auto-re-add was ignoring auto-removals. Wave 1's Scope Delineation
+    //   Scanner stamps state._autoRemovedDisciplines = [{discipline, phrase, reason}]
+    //   when a discipline is flagged design-build/by-others. The auto-add loop below
+    //   only checked "is the discipline currently absent?" — so anything Wave 1 just
+    //   removed became immediately eligible for re-adding (the regex always matches
+    //   because the device evidence comes FROM the same drawings Wave 1 read).
+    //   Result on Amtrak Martinez: AC removed in Wave 1, re-added in Wave 1.75, and
+    //   the user saw two opposite decisions in one run.
+    //
+    // Bug B — context.disciplines / state.disciplines desync. Wave 1's removal
+    //   updated BOTH context.disciplines AND state.disciplines. The re-add only
+    //   touched state.disciplines, leaving every Wave 2+ prompt that reads
+    //   context.disciplines (46 sites) to think AC was out — but the BOM filter
+    //   (which reads state.disciplines) thought AC was in. Sync both here.
+    const removedSet = new Set(
+      (state._autoRemovedDisciplines || []).map(r => r && r.discipline).filter(Boolean)
+    );
     let disciplinesAdded = [];
+    let disciplinesSkippedDueToRemoval = [];
     for (const [disc, regex] of Object.entries(DISCIPLINE_DETECTORS)) {
+      if (removedSet.has(disc)) {
+        if (regex.test(allEvidence)) disciplinesSkippedDueToRemoval.push(disc);
+        continue;
+      }
       if (!state.disciplines.includes(disc) && regex.test(allEvidence)) {
-        state.disciplines.push(disc);
+        // Reassign rather than push so the DisciplinesGuard setter logs the change
+        state.disciplines = [...state.disciplines, disc];
         disciplinesAdded.push(disc);
       }
     }
     if (disciplinesAdded.length > 0) {
-      // Track which disciplines were auto-added so UI can distinguish user-selected vs auto-detected
+      // Mirror to context.disciplines so Wave 2+ prompts see the same scope as the BOM filter
+      if (context && Array.isArray(context.disciplines)) {
+        context.disciplines = [...state.disciplines];
+      }
       state._autoDetectedDisciplines = disciplinesAdded;
       console.log(`[SmartBrains] ⚡ Auto-added missing disciplines from document evidence: ${disciplinesAdded.join(', ')}`);
       progressCallback(55, `⚡ Auto-detected disciplines: ${disciplinesAdded.join(', ')}`, this._brainStatus);
+    }
+    if (disciplinesSkippedDueToRemoval.length > 0) {
+      const reasons = (state._autoRemovedDisciplines || [])
+        .filter(r => disciplinesSkippedDueToRemoval.includes(r.discipline))
+        .map(r => `${r.discipline} ("${(r.phrase || '').substring(0, 80)}")`);
+      console.warn(`[SmartBrains] ⚡ Skipped auto-add of ${disciplinesSkippedDueToRemoval.length} discipline(s) — explicitly auto-removed by Wave 1 Scope Delineation Scanner: ${reasons.join('; ')}`);
     }
 
     // ═══ PRE-WAVE 2: Load Rate Library + Distributor Cache + Cost Benchmarks + Bid Corrections ═══

@@ -76,7 +76,7 @@ export async function onRequestPost(context) {
     const cacheRequest = {
       model: cacheModel.startsWith('models/') ? cacheModel : `models/${cacheModel}`,
       contents: [{ role: 'user', parts }],
-      ttl: ttl || '3600s', // 1 hour default
+      ttl: ttl || '21600s', // 6 hour default — bids on 90+ page sets commonly run 60-90 min
     };
 
     if (systemInstruction) {

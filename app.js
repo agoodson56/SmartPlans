@@ -9003,6 +9003,67 @@ function renderStep7(container) {
     `;
   }
 
+  // v5.128.20 (post-wave-13): wave-13 safety layer banner.
+  // Wave-13 set state._sanityWarning, state._pathDivergenceWarning, and
+  // state._bidTotalGuardClamp from export-engine.js but NOTHING in app.js read them
+  // (zero references) — so every transit bid had wave-13's three safety mechanisms
+  // firing in the console while the UI showed a clean number. Surface them here.
+  let safetyBanner = '';
+  {
+    const sw = state._sanityWarning;
+    const pdw = state._pathDivergenceWarning;
+    const guard = state._bidTotalGuardClamp;
+    const items = [];
+    if (sw && Array.isArray(sw.violations) && sw.violations.length > 0) {
+      const critical = sw.violations.filter(v => v.severity === 'critical');
+      const warnings = sw.violations.filter(v => v.severity !== 'critical');
+      for (const v of critical) {
+        items.push({ icon: '⛔', color: '#ef4444', label: 'Sanity check (CRITICAL)', detail: v.msg || v.message || JSON.stringify(v) });
+      }
+      for (const v of warnings) {
+        items.push({ icon: '⚠️', color: '#f59e0b', label: `Sanity check (${v.severity || 'warning'})`, detail: v.msg || v.message || JSON.stringify(v) });
+      }
+    }
+    if (pdw && typeof pdw.deltaPct === 'number') {
+      const absPct = Math.abs(pdw.deltaPct);
+      items.push({
+        icon: '🔀',
+        color: '#f59e0b',
+        label: `Cost-buildup divergence (${absPct.toFixed(1)}%)`,
+        detail: `3D Engine ($${(pdw.engine3DTotal || 0).toLocaleString()}) and deterministic breakdown ($${(pdw.computedTotal || 0).toLocaleString()}) disagree on the same BOM. One of them has a markup-stacking bug.`,
+      });
+    }
+    if (guard && guard.clamped) {
+      items.push({
+        icon: '🛑',
+        color: '#f59e0b',
+        label: `Bid-total guard ${guard.bound === 'ceiling' ? 'CLAMPED DOWN' : 'CLAMPED UP'}`,
+        detail: guard.reason || `Computed total $${(guard.raw || 0).toLocaleString()} was clamped to $${(guard.clamped || 0).toLocaleString()}.`,
+      });
+    }
+    if (items.length > 0) {
+      const itemsHtml = items.map(it => `
+        <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
+          <span style="font-size:18px;line-height:1.2;">${it.icon}</span>
+          <div style="flex:1;">
+            <div style="font-weight:600;font-size:13px;color:${it.color};">${esc(it.label)}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:2px;line-height:1.5;">${esc(it.detail)}</div>
+          </div>
+        </div>`).join('');
+      safetyBanner = `
+        <div class="info-card info-card--amber" style="margin-bottom:16px;border-left:4px solid #f59e0b;">
+          <div class="info-card-title">🛡️ Bid Safety Checks — ${items.length} Issue${items.length > 1 ? 's' : ''} Need Review</div>
+          <div class="info-card-body" style="padding:6px 0;">
+            ${itemsHtml}
+          </div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:10px;line-height:1.5;">
+            These warnings come from the wave-13 safety layer (final sanity check, divergence detector, bid-total guard).
+            The bid is shipping at the displayed total — review each issue and override if appropriate before sending.
+          </div>
+        </div>`;
+    }
+  }
+
   // Build sheet filter summary banner
   let sheetFilterBanner = '';
   if (state._sheetFilterStats && state._sheetFilterStats.skippedPages > 0) {
@@ -9542,6 +9603,7 @@ function renderStep7(container) {
       </div>
     </div>
 
+    ${safetyBanner}
     ${failedBrainsBanner}
     ${sheetFilterBanner}
     <!-- Wave 8 (v5.128.5): Drift alert + accuracy dashboard.

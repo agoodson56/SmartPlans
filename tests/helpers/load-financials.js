@@ -28,21 +28,35 @@ export function loadFinancialsStack() {
     const pdbFn = new Function('console', pdbCode + '\nreturn PRICING_DB;');
     const PRICING_DB = pdbFn(quietConsole);
 
-    // 2) Load export-engine (defines SmartPlansExport + SmartPlansFinancials)
-    const getRFIsForDisciplines = () => [];
-    const exportCode = readFileSync(join(__dirname, '../../export-engine.js'), 'utf-8');
-    const exportFn = new Function(
-        'PRICING_DB',
-        'getRFIsForDisciplines',
-        'console',
-        exportCode + '\nreturn { SmartPlansExport, SmartPlansFinancials };'
-    );
-    const { SmartPlansExport, SmartPlansFinancials } = exportFn(PRICING_DB, getRFIsForDisciplines, quietConsole);
-
-    // 3) Load formula-engine-3d (transit calibration — depends on PRICING_DB)
+    // 2) Load formula-engine-3d FIRST (transit calibration — depends only on PRICING_DB)
+    //    Order matters: export-engine references `typeof FormulaEngine3D !== 'undefined'`
+    //    in _getFullyLoadedTotal:783 — without FormulaEngine3D in its scope the harness
+    //    silently bypasses the entire transit primary path and ships the deterministic
+    //    number, masking real production behavior. Wave-13 was developed against this
+    //    broken harness — fixing it is prerequisite to validating any other fix.
     const feCode = readFileSync(join(__dirname, '../../formula-engine-3d.js'), 'utf-8');
     const feFn = new Function('PRICING_DB', 'console', feCode + '\nreturn FormulaEngine3D;');
     const FormulaEngine3D = feFn(PRICING_DB, quietConsole);
+
+    // 3) Load export-engine WITH FormulaEngine3D injected so the transit branch is reachable
+    const getRFIsForDisciplines = () => [];
+    const computeTravelIncidentals = () => ({ grandTotal: 0 });
+    const exportCode = readFileSync(join(__dirname, '../../export-engine.js'), 'utf-8');
+    const exportFn = new Function(
+        'PRICING_DB',
+        'FormulaEngine3D',
+        'getRFIsForDisciplines',
+        'computeTravelIncidentals',
+        'console',
+        exportCode + '\nreturn { SmartPlansExport, SmartPlansFinancials };'
+    );
+    const { SmartPlansExport, SmartPlansFinancials } = exportFn(
+        PRICING_DB,
+        FormulaEngine3D,
+        getRFIsForDisciplines,
+        computeTravelIncidentals,
+        quietConsole
+    );
 
     return { SmartPlansExport, SmartPlansFinancials, FormulaEngine3D, PRICING_DB, warnings, errors };
 }
