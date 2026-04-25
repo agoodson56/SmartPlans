@@ -480,7 +480,9 @@ const FormulaEngine3D = {
                 }
 
                 // ALWAYS calculate labor hours — OFCI items need installation labor
-                const hours = this._estimateItemHours(itemName, qty);
+                // Wave 12 fix: pass unit so the estimator can distinguish per-ft cable
+                // qtys from per-drop counts (was over-counting cable labor 100×).
+                const hours = this._estimateItemHours(itemName, qty, item.unit || '');
                 systems[sysType].fieldHours += hours;
                 totalLaborHours += hours;
 
@@ -955,42 +957,89 @@ const FormulaEngine3D = {
     },
 
     // ─── Estimate labor hours for a BOM line item ───────────────
-    _estimateItemHours(itemName, qty) {
+    // Wave 12 fix (2026-04-25): added `unit` param so cable items priced per-foot
+    // are correctly distinguished from per-drop counts. Production rates
+    // (pr.pull_*, pr.terminate_*, pr.test_*) are MINUTES PER DROP, not per foot —
+    // multiplying total cable footage by per-drop minutes was producing ~100×
+    // phantom field hours (Martinez run pre-fix: 31,377 hrs / 68 cameras = 461
+    // hrs/camera; post-fix should be ~1,000-1,500 hrs total).
+    _estimateItemHours(itemName, qty, unit) {
         if (qty <= 0) return 0;
         const name = (itemName || '').toLowerCase();
+        const u = (unit || '').toLowerCase();
         const pr = this.productionRates;
+
+        // Detect whether qty represents feet of cable vs a count of drops/items.
+        // Three signals (any one is sufficient):
+        //   1. Explicit unit string says ft / lf / linear / foot / per ft
+        //   2. Item name has "per ft" or "1000ft box"
+        //   3. Heuristic: a cable line item with qty >= 500 is footage
+        //      (no project has 500+ drops fed by a single cable type)
+        const CABLE_RX = /cable|cat\s*[56]|cat6a|fiber|coax|rg.?6|18\s*\/\s*2|22\s*\/\s*[46]|fplr|composite|25.?pair|multi.?pair|strand|backbone|cmr|cmp/i;
+        const NOT_FOOTAGE_RX = /jack|panel|patch.?cord|patch.?cable|faceplate|connector|housing|tray|reel|box|cassette|pigtail/i;
+        const isCableLineItem = CABLE_RX.test(name) && !NOT_FOOTAGE_RX.test(name);
+        const isFt = /\bft\b|per\s*ft|\blf\b|linear|foot/.test(u)
+                  || /\bper\s*ft\b|\b\d+\s*ft\s*box\b/i.test(name)
+                  || (qty >= 500 && isCableLineItem);
+
+        // Typical run lengths used to convert footage → drops.
+        // Telecom drops: 156 ft (Martinez average from session-2026-04-10).
+        // Backbone runs: 250 ft (closet-to-closet typical).
+        const AVG_DROP_FT = 156;
+        const AVG_BACKBONE_FT = 250;
+
+        // Helper: cable labor that handles per-ft and per-drop qtys identically
+        // through a single math model. When `isFt`, pulling time scales linearly
+        // with footage (per-drop rate amortized over avg run length); termination
+        // and test scale with the implied drop count.
+        const _cableHrs = (pullPerDrop, termPerDrop, testPerDrop, runFt) => {
+            const r = runFt || AVG_DROP_FT;
+            if (isFt) {
+                const drops = Math.max(1, Math.round(qty / r));
+                const pullMin = qty * (pullPerDrop / r);
+                const termTestMin = drops * (termPerDrop * 2 + testPerDrop);
+                return this._round((pullMin + termTestMin) / 60);
+            }
+            return this._round(qty * (pullPerDrop + termPerDrop * 2 + testPerDrop) / 60);
+        };
 
         // ── Cable runs — pull + terminate + test ──
         if (/cat\s*6a|cat6a/i.test(name) && !/jack|panel|patch|cord|faceplate/i.test(name)) {
-            return this._round(qty * (pr.pull_cat6a + pr.terminate_cat6a * 2 + pr.test_cat6a) / 60);
+            return _cableHrs(pr.pull_cat6a, pr.terminate_cat6a, pr.test_cat6a);
         }
         if (/cat\s*[56]|network.*cable|data.*cable|cmr|cmp/i.test(name) && !/jack|panel|patch|cord|faceplate/i.test(name)) {
-            return this._round(qty * (pr.pull_cat6_cmr + pr.terminate_cat6 * 2 + pr.test_cat6) / 60);
+            return _cableHrs(pr.pull_cat6_cmr, pr.terminate_cat6, pr.test_cat6);
         }
         if (/fiber|os2|sm.*cable|strand/i.test(name) && !/panel|tray|housing|cassette|patch/i.test(name)) {
-            return this._round(qty * (pr.pull_fiber_sm + pr.terminate_fiber_sm * 2 + pr.test_fiber_sm) / 60);
+            return _cableHrs(pr.pull_fiber_sm, pr.terminate_fiber_sm, pr.test_fiber_sm);
         }
         if (/rg.?6|coax/i.test(name)) {
-            return this._round(qty * (pr.pull_rg6_rooms + pr.terminate_rg6 * 2 + pr.test_rg6) / 60);
+            return _cableHrs(pr.pull_rg6_rooms, pr.terminate_rg6, pr.test_rg6);
         }
         // Fire alarm cable (18/2 FPLR shielded) — similar pull time to cat6
         if (/18.?\/?.?2|fplr|fire.*cable|alarm.*cable/i.test(name) && !/device|detector|strobe|panel/i.test(name)) {
-            return this._round(qty * (pr.pull_cat6_cmr + 4 + 3) / 60); // pull + terminate + test
+            return _cableHrs(pr.pull_cat6_cmr, 4, 3);
         }
         // Access control composite cable (22/6 + 18/4)
         if (/22.?\/?.?[46]|composite.*cable|access.*cable/i.test(name) && !/reader|rex|contact/i.test(name)) {
-            return this._round(qty * (pr.pull_cat6_cmr + 6 + 3) / 60);
+            return _cableHrs(pr.pull_cat6_cmr, 6, 3);
         }
         // Speaker/paging wire (18/2 plenum)
         if (/speaker.*cable|paging.*cable|18.?\/?.?2.*plenum/i.test(name) && !/speaker(?!.*cable)/i.test(name)) {
-            return this._round(qty * (pr.pull_cat6_rooms + 4 + 3) / 60);
+            return _cableHrs(pr.pull_cat6_rooms, 4, 3);
         }
-        // 25-pair copper backbone
+        // 25-pair copper backbone (longer typical run length)
         if (/25.?pair|multi.?pair/i.test(name)) {
-            return this._round(qty * (pr.pull_25pair + pr.terminate_25pair * 2) / 60);
+            return _cableHrs(pr.pull_25pair, pr.terminate_25pair, 0, AVG_BACKBONE_FT);
         }
-        // 24-strand fiber backbone
+        // 24-strand fiber backbone — terminate is 24 strands × per-strand rate (no ×2 doubling)
         if (/24.?strand|48.?strand|fiber.*backbone/i.test(name)) {
+            if (isFt) {
+                const drops = Math.max(1, Math.round(qty / AVG_BACKBONE_FT));
+                const pullMin = qty * (pr.pull_24strand / AVG_BACKBONE_FT);
+                const termMin = drops * (pr.terminate_fiber_sm * 24);
+                return this._round((pullMin + termMin) / 60);
+            }
             return this._round(qty * (pr.pull_24strand + pr.terminate_fiber_sm * 24) / 60);
         }
 
