@@ -101,6 +101,23 @@ export async function onRequestPost(context) {
             }
         });
 
+        // ─── Hard upstream timeout (Wave 12 fix) ──────────────────
+        // Before this, a hung Gemini upstream connection had no kill switch:
+        // the client's per-brain timeout (5min Pro / 2.5min Flash) only timed
+        // the SSE stream from the proxy's perspective, while the proxy itself
+        // would keep waiting on Gemini indefinitely. Some bids ran 60+ minutes
+        // because Symbol Scanner pages stalled mid-stream.
+        //
+        // Cap upstream fetch + stream-read at 5 minutes for Pro models (which
+        // take longest) and 3 minutes otherwise. AbortController triggers a
+        // _proxyError SSE event the client retries on, same as a 5xx.
+        const isProModel = /pro|3\.\d/.test(model);
+        const UPSTREAM_TIMEOUT_MS = isProModel ? 300000 : 180000;
+        const upstreamCtrl = new AbortController();
+        const upstreamTimer = setTimeout(() => {
+            upstreamCtrl.abort(new Error(`upstream-timeout-${UPSTREAM_TIMEOUT_MS}ms`));
+        }, UPSTREAM_TIMEOUT_MS);
+
         const pipeTask = (async () => {
             const writer = writable.getWriter();
 
@@ -115,6 +132,7 @@ export async function onRequestPost(context) {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
                     body: JSON.stringify(body),
+                    signal: upstreamCtrl.signal,
                 });
                 clearInterval(keepAlive);
 
@@ -148,18 +166,35 @@ export async function onRequestPost(context) {
                 // ── Success: pipe Gemini's SSE stream through to client ──
                 const reader = geminiResponse.body.getReader();
                 while (true) {
+                    if (upstreamCtrl.signal.aborted) {
+                        try { reader.cancel(); } catch {}
+                        throw new Error(`upstream-stream-timeout-${UPSTREAM_TIMEOUT_MS}ms`);
+                    }
                     const { done, value } = await reader.read();
                     if (done) break;
                     await writer.write(value);
                 }
+                clearTimeout(upstreamTimer);
                 await writer.close();
 
             } catch (err) {
                 clearInterval(keepAlive);
-                console.error(`[Proxy] Pipe error: ${err.message}`);
+                clearTimeout(upstreamTimer);
+                const isTimeout = err?.name === 'AbortError' || /upstream-(stream-)?timeout/.test(err?.message || '');
+                if (isTimeout) {
+                    console.warn(`[Proxy] Upstream timeout (${UPSTREAM_TIMEOUT_MS}ms) on model ${model} — sending SSE error so client retries`);
+                } else {
+                    console.error(`[Proxy] Pipe error: ${err.message}`);
+                }
                 try {
                     await writer.write(encoder.encode(
-                        `data: ${JSON.stringify({_proxyError: true, status: 500, message: 'AI service temporarily unavailable'})}\n\n`
+                        `data: ${JSON.stringify({
+                            _proxyError: true,
+                            status: isTimeout ? 504 : 500,
+                            message: isTimeout ? 'Upstream timeout — please retry' : 'AI service temporarily unavailable',
+                            _timeout: !!isTimeout,
+                            _timeoutMs: isTimeout ? UPSTREAM_TIMEOUT_MS : undefined,
+                        })}\n\n`
                     ));
                 } catch {}
                 try { await writer.close(); } catch {}
