@@ -491,14 +491,23 @@ const SmartPlansExport = {
         const contingencyPct = (cfg.contingency !== undefined && cfg.contingency !== '' ? Number(cfg.contingency) : 10) / 100;
 
         // ── Labor: use REAL data from Labor Calculator brain when available ──
+        // Cluster-1C fix (2026-04-25): track whether laborBase already includes
+        // burden (LABOR_CALCULATOR's `total_base_cost` is the loaded rate ×
+        // hours = WITH burden, before markup). Pre-fix we always added a
+        // separate `burden = laborBase × burdenRate` line that double-counted
+        // ~30-35%. Now: if labor came from LABOR_CALCULATOR, burden is already
+        // baked in — skip the second application. If from BOM directly (which
+        // typically holds raw rate × hours), apply burden.
         const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
         let laborBase;
+        let laborBaseAlreadyBurdened = false;
         if (laborCalc?.total_base_cost > 0) {
             laborBase = this._round(laborCalc.total_base_cost);
-            console.log(`[Export] Labor from LABOR_CALCULATOR: $${laborBase.toLocaleString()} (${laborCalc.total_hours || 0} hrs)`);
+            laborBaseAlreadyBurdened = true;
+            console.log(`[Export] Labor from LABOR_CALCULATOR: $${laborBase.toLocaleString()} (${laborCalc.total_hours || 0} hrs) — burden already included`);
         } else if (bomLabor > 0) {
             laborBase = this._round(bomLabor);
-            console.log(`[Export] Labor from BOM categories: $${laborBase.toLocaleString()}`);
+            console.log(`[Export] Labor from BOM categories: $${laborBase.toLocaleString()} (raw — burden will be applied)`);
         } else {
             laborBase = this._round(materials * 0.50);
             console.warn(`[Export] No labor data available — estimating as 50% of materials: $${laborBase.toLocaleString()}`);
@@ -508,7 +517,8 @@ const SmartPlansExport = {
         const labSell = this._round(laborBase * (1 + labPct));
         const eqSell = this._round(equipment * (1 + eqPct));
         const subSell = this._round(subs * (1 + subPct));
-        const burden = includeBurden ? this._round(laborBase * burdenRate) : 0;
+        // Cluster-1C: skip burden if laborBase already includes it
+        const burden = (includeBurden && !laborBaseAlreadyBurdened) ? this._round(laborBase * burdenRate) : 0;
         // Use travel from BOM if it was already injected; otherwise compute from Stage 6.
         // This prevents double-counting when injectTravelIntoBOM adds travel as a BOM category.
         let travel = 0;
@@ -540,14 +550,29 @@ const SmartPlansExport = {
         const subtotal = preContingencyBase; // kept for output-contract compatibility
         const grandTotal = this._round(preContingencyBase + contingency + travel);
 
-        // ── 3D Engine Reference Comparison (logging only, no scaling) ──
-        // FormulaEngine3D double-marks AI BOM prices. Log the delta for diagnostics
-        // but do NOT scale the breakdown — the Financial Engine / BOM computation is correct.
+        // ── 3D Engine Reference Comparison + Cluster-7A Divergence Guard ──
+        // Pre-fix the two cost-buildup paths (FormulaEngine3D vs _computeFullBreakdown)
+        // could produce totals that differ by 50%+ on the same inputs because of
+        // markup-stacking bugs. Cluster 1 fixes should keep them within ~15% of
+        // each other on healthy inputs. If they're still diverging by >25%, log a
+        // LOUD warning and stamp state._pathDivergenceWarning so the UI can display
+        // a banner. Don't auto-pick a winner — surface the disagreement.
         const engine3DTotal = state._engine3DResult?.grandTotalSELL;
-        if (engine3DTotal && engine3DTotal > 1000) {
+        if (engine3DTotal && engine3DTotal > 1000 && grandTotal > 1000) {
             const delta = engine3DTotal - grandTotal;
             const deltaPct = grandTotal > 0 ? ((delta / grandTotal) * 100).toFixed(1) : 'N/A';
+            const absPct = Math.abs(parseFloat(deltaPct));
             console.log(`[Export] 📊 3D Engine comparison: $${engine3DTotal.toLocaleString()} vs computed $${grandTotal.toLocaleString()} (delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()}, ${deltaPct}%)`);
+            if (absPct > 25) {
+                console.warn(`[Export] ⚠️ COST-BUILDUP DIVERGENCE: 3D Engine and deterministic breakdown disagree by ${deltaPct}% on the same BOM. One of them has a markup-stacking bug. Investigate before shipping.`);
+                state._pathDivergenceWarning = {
+                    engine3DTotal, computedTotal: grandTotal, deltaPct: parseFloat(deltaPct),
+                    msg: `Two cost-buildup paths disagree by ${deltaPct}% — review _computeFullBreakdown vs FormulaEngine3D`,
+                    ts: new Date().toISOString(),
+                };
+            } else {
+                delete state._pathDivergenceWarning;
+            }
         }
 
         // AUDIT FIX #6: G&A/Overhead is embedded in markup percentages (material markup, labor markup)
@@ -582,20 +607,110 @@ const SmartPlansExport = {
     // compounded a plausible cost into an absurd number. Calibration usually
     // catches this but relies on benchmark data being present and correct.
     // This guard is the last line of defense regardless of formula bugs.
+    // Cluster-3A fix (2026-04-25): final per-device sanity layer.
+    // Catches bids that pass _applyBidTotalGuards but are still wildly
+    // over benchmark on a per-device basis. Sets state._sanityWarning
+    // for UI display; does NOT auto-clamp (user must approve override).
+    _finalBidSanityCheck(proposedTotal, state, bom) {
+        if (!bom?.categories?.length || !proposedTotal) return { proposedTotal, violations: [] };
+
+        // Count devices: anything priced per-each that looks like a security device
+        let deviceCount = 0;
+        for (const cat of (bom.categories || [])) {
+            for (const it of (cat.items || [])) {
+                const name = String(it.item || it.name || it.description || '').toLowerCase();
+                const unit = String(it.unit || '').toLowerCase();
+                const qty = Number(it.qty || 0);
+                if (qty <= 0) continue;
+                if (unit !== 'ea' && unit !== 'each') continue;
+                if (/camera|reader|switch|nvr|server|sensor|panel|controller|strike|maglock|rex|monitor|station|phone/i.test(name)) {
+                    deviceCount += qty;
+                }
+            }
+        }
+        if (deviceCount < 5) return { proposedTotal, violations: [] };
+
+        const perDevice = proposedTotal / deviceCount;
+        const violations = [];
+
+        // Check A: hard per-device ceiling
+        const HARD_CEILING = state.isTransitRailroad ? 6000 : 4500;
+        if (perDevice > HARD_CEILING) {
+            violations.push({
+                type: 'absoluteCeiling',
+                severity: 'critical',
+                msg: `$${Math.round(perDevice).toLocaleString()}/device exceeds hard ceiling $${HARD_CEILING.toLocaleString()}/device for ${state.isTransitRailroad ? 'transit' : 'non-transit'} project.`,
+            });
+        }
+
+        // Check B: benchmark per-device comparison (transit only — uses Amtrak benchmarks)
+        if (state.isTransitRailroad && typeof PRICING_DB !== 'undefined' && PRICING_DB.amtrakBenchmarks?.actualBids) {
+            const bids = PRICING_DB.amtrakBenchmarks.actualBids;
+            const bafoBids = Object.values(bids).filter(b => b.type === 'bafo');
+            if (bafoBids.length > 0) {
+                const avgPerCam = bafoBids.reduce((s, b) => s + (b.total / b.cameras), 0) / bafoBids.length;
+                const ratio = perDevice / avgPerCam;
+                if (ratio > 1.30) {
+                    violations.push({
+                        type: 'benchmarkOver130',
+                        severity: 'critical',
+                        msg: `$${Math.round(perDevice).toLocaleString()}/device is ${Math.round((ratio - 1) * 100)}% above Amtrak BAFO benchmark ($${Math.round(avgPerCam).toLocaleString()}/device).`,
+                    });
+                }
+            }
+        }
+
+        if (violations.length > 0) {
+            state._sanityWarning = {
+                proposedTotal, deviceCount, perDevice: Math.round(perDevice),
+                violations,
+                ts: new Date().toISOString(),
+            };
+            console.error(`[Sanity] ⛔ FINAL BID SANITY CHECK FAILED:`);
+            for (const v of violations) console.error(`[Sanity]   ${v.severity.toUpperCase()}: ${v.msg}`);
+            console.error(`[Sanity]   Bid will ship at $${proposedTotal.toLocaleString()} but UI must show warning + require user approval.`);
+        } else {
+            // Clear any prior warning
+            delete state._sanityWarning;
+        }
+        return { proposedTotal, violations };
+    },
+
     _applyBidTotalGuards(proposedTotal, state, bom, sourceLabel) {
         if (!bom?.categories?.length || !proposedTotal || proposedTotal <= 1000) return proposedTotal;
-        let costBuildup;
+        // Cluster-3B fix (2026-04-25): denominator is now RAW direct cost
+        // (materials + labor + equipment + subs, NO markup), not the already-
+        // marked-up grandTotal. Pre-fix: ceiling = grandTotal × 2.0 = sell × 2
+        // ≈ raw × 4, which approved any plausible bid up to 4× direct cost.
+        // That ceiling permitted exactly the $3.14M Martinez overshoot.
+        // Now: floor = direct × 1.30 (min 30% margin), ceiling = direct ×
+        // 2.80 (max ~64% margin). Industry healthy band on transit PW work
+        // is 1.6× to 2.4×; we widen modestly to avoid false positives but
+        // tight enough to catch bugs that 4×-pad the bid.
+        let directCost = 0;
+        let oldCostBuildup = 0;
         try {
             const breakdown = this._computeFullBreakdown(state, bom);
-            costBuildup = breakdown?.grandTotal;
+            const m = Number(breakdown?.materials || 0);
+            const e = Number(breakdown?.equipment || 0);
+            const s = Number(breakdown?.subs || 0);
+            const l = Number(breakdown?.laborBase || 0);
+            directCost = m + e + s + l;
+            oldCostBuildup = Number(breakdown?.grandTotal || 0);
         } catch (e) {
             console.warn(`[Guards] Cost buildup computation failed — skipping guards:`, e?.message || e);
             return proposedTotal;
         }
-        if (!costBuildup || costBuildup <= 1000) return proposedTotal;
+        if (!directCost || directCost <= 1000) {
+            // Fallback to old denominator if direct-cost extraction failed
+            if (!oldCostBuildup || oldCostBuildup <= 1000) return proposedTotal;
+            directCost = oldCostBuildup * 0.55;  // approximate raw cost as 55% of fully-loaded total
+        }
 
-        const floor = this._round(costBuildup * 1.08);
-        const ceiling = this._round(costBuildup * 2.0);
+        const floor = this._round(directCost * 1.30);
+        const ceiling = this._round(directCost * 2.80);
+        // Keep `costBuildup` in scope for the existing log lines below
+        const costBuildup = directCost;
 
         if (proposedTotal < floor) {
             state._bidTotalGuardClamp = {
@@ -611,10 +726,13 @@ const SmartPlansExport = {
                 costBuildup, source: sourceLabel,
                 reason: `Bid total $${proposedTotal.toLocaleString()} exceeded 2× the deterministic cost buildup ($${costBuildup.toLocaleString()}, ceiling $${ceiling.toLocaleString()}). Clamped down to protect against formula-engine overshoot.`,
             };
+            this._finalBidSanityCheck(ceiling, state, bom);
             return ceiling;
         }
         // In-range: clear any prior clamp
         delete state._bidTotalGuardClamp;
+        // Cluster-3A: per-device sanity check on the in-range bid too.
+        this._finalBidSanityCheck(proposedTotal, state, bom);
         return proposedTotal;
     },
 

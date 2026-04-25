@@ -223,9 +223,15 @@ const FormulaEngine3D = {
         nema4x_enclosure_each:      850,     // $850/ea — NEMA 4X outdoor enclosure
         seismic_bracing_per_rack:   1150,    // $1,150/ea — rack seismic kit installed
         emergency_phone_station:    18500,   // $18,500/ea — blue light tower, installed
-        tamper_proof_hardware_pct:  0.03,    // 3% adder on material for security fasteners
-        rigid_conduit_premium_pct:  0.15,    // 15% premium — transit mandates rigid over EMT
-        uv_cable_premium_pct:       0.08,    // 8% premium for UV-rated outdoor cable
+        // Cluster-1H fix (2026-04-25): rigid_conduit and uv_cable adders zeroed
+        // out — they double-count the BOM, which already prices hardened
+        // materials (PVC-coated RMC, plenum/UV cable) at their actual unit
+        // cost. Tamper-proof hardware reduced to 1% to cover only the
+        // security-fastener delta (T15 Torx pin-in-head etc.) not already
+        // captured in line-item pricing.
+        tamper_proof_hardware_pct:  0.01,    // 1% adder for security fasteners (was 3%)
+        rigid_conduit_premium_pct:  0.00,    // 0% — BOM already prices PVC-coated RMC
+        uv_cable_premium_pct:       0.00,    // 0% — BOM already prices plenum/UV cable
     },
 
     // ─── Overhead Percentages (verified from Emeryville/Martinez/CHP) ──
@@ -266,11 +272,18 @@ const FormulaEngine3D = {
         test_rg6:            3,
         test_fiber_sm:       12,
 
-        // Camera installation
-        install_camera_indoor:   480,   // 8 hrs
-        install_camera_outdoor:  480,   // 8 hrs
-        install_camera_pole:     1680,  // 28 hrs
-        install_camera_complex:  960,   // 16 hrs
+        // Camera installation — Cluster-1K fix (2026-04-25):
+        // Reduced from 8/8/28/16 hrs to NECA/BICSI 2026 norms.
+        // Indoor dome ceiling-mount: 2.5-4 hrs (mount, terminate, focus, test).
+        // Outdoor bullet wall-mount: 4 hrs (add weatherproofing, test).
+        // Pole-mount: 16-24 hrs (lift, ground, surge, terminate, test).
+        // Complex (PTZ, multi-sensor, 360): 6-10 hrs (more programming + setup).
+        // Pre-fix: 500 cameras × 8 hrs = 4,000 hrs at $145 PW sell = $580K.
+        // Post-fix: 500 cameras × 3.5 hrs avg = 1,750 hrs = $254K.
+        install_camera_indoor:   180,   // 3 hrs (was 480 / 8 hrs)
+        install_camera_outdoor:  240,   // 4 hrs (was 480 / 8 hrs)
+        install_camera_pole:     1200,  // 20 hrs (was 1680 / 28 hrs)
+        install_camera_complex:  480,   // 8 hrs (was 960 / 16 hrs)
 
         // Infrastructure
         install_ceiling_wire:    4,
@@ -516,10 +529,15 @@ const FormulaEngine3D = {
             const matSELL = this._round(matCOS * (1 + markup));
 
             // Material support & shipping (overhead on materials)
+            // Cluster-1J fix (2026-04-25): support and shipping are absorbed
+            // overhead, NOT margin opportunities. Pre-fix: marked these COS
+            // values up by the same 42-51% material markup as actual goods,
+            // which means the company was making profit on its own internal
+            // cost-allocation. Now: pass through at cost (sell == cost).
             const matSupportCOS = this._round(matCOS * this.overhead.materialSupport);
             const shippingCOS = this._round(matCOS * this.overhead.shipping);
-            const matSupportSELL = this._round(matSupportCOS * (1 + markup));
-            const shippingSELL = this._round(shippingCOS * (1 + markup));
+            const matSupportSELL = matSupportCOS;
+            const shippingSELL = shippingCOS;
 
             // Tax on material COST only — tax is a pass-through, not marked up
             // AUDIT FIX C2: Was taxing the SELL (marked-up) price, overcharging $30-50K on $2M bids
@@ -660,11 +678,22 @@ const FormulaEngine3D = {
             const avgHourlyRate = isPW ? 145 : 80;
             const safetyBriefingCost = this._round(safetyBriefingHrs * avgHourlyRate);
 
-            // 7. Restricted work window premium (night/weekend differential — 15% labor adder)
-            const workWindowPremium = this._round(totalLaborHours * avgHourlyRate * 0.15);
+            // 7. Restricted work window premium — Cluster-1I fix (2026-04-25):
+            // zeroed out. Was 15% × labor hours × full PW SELL rate ($145), which
+            // double-counts the 8% NPT (non-productive time) overhead already
+            // applied at line 535-536, and triple-counts standby (item 8). NPT
+            // covers idle time including restricted windows. If a project has
+            // exceptional night/weekend differentials, those should be modeled
+            // in the labor rate table (laborRates.pw_*), not stacked here.
+            const workWindowPremium = 0;
 
-            // 8. Standby / escort wait time (10% of field labor)
-            const standbyCost = this._round(totalLaborHours * 0.10 * avgHourlyRate);
+            // 8. Standby / escort wait time — Cluster-1I fix (2026-04-25):
+            // zeroed out. NPT 8% (line 235) already captures escort wait and
+            // idle time. Pre-fix we charged 10% × labor × full SELL rate on
+            // top of NPT 8% × full SELL rate, on top of the work-window 15%,
+            // for an effective 33% labor adder. NECA standard for transit
+            // restricted-access work is ~10-15% total, all-in.
+            const standbyCost = 0;
 
             // 9. Material premiums (tamper-proof hardware, rigid conduit, UV cable)
             const matPrem = this.transitMaterialPremiums || {};
@@ -884,7 +913,16 @@ const FormulaEngine3D = {
                 // enforces that invariant.
                 result._calibrated = false;
                 result._calibrationRejected = false;
-                if (subPctOfTotal <= 0.40 && targetTotal > 0 && formulaTotal > 0) {
+                // Cluster-2 fix (2026-04-25): Removed the `subPctOfTotal <= 0.40` skip gate.
+                // The benchmark (e.g., martinez_bafo) was ITSELF a fully-loaded transit job
+                // with subs included, so calibrating against it is correct regardless of sub
+                // mix. The old gate disabled the only ground-truth check at exactly the moment
+                // infrastructure-heavy transit bids needed it most. Replaced with a
+                // camera-count-ratio sanity gate that rejects benchmarks that don't match the
+                // current project's scale (>2.5× or <0.4×).
+                const camRatio = benchmark.cameras > 0 ? (cameraCount / benchmark.cameras) : 0;
+                const benchmarkScaleOK = camRatio >= 0.4 && camRatio <= 2.5;
+                if (targetTotal > 0 && formulaTotal > 0 && benchmarkScaleOK) {
                     const deviation = formulaTotal / targetTotal;
                     if (deviation > 1.06 || deviation < 0.94) {
                         const direction = deviation > 1 ? 'OVER' : 'UNDER';
@@ -893,25 +931,31 @@ const FormulaEngine3D = {
                         const scaleFactor = calibratedTarget / formulaTotal;
 
                         // ─── CALIBRATION SAFETY BOUNDS ───
-                        // Widened 2026-04-23 after Amtrak Martinez bid: formula total was
-                        // $4.5M, winning bid $1.97M (scale factor 0.43). The old [0.85, 1.20]
-                        // bounds rejected the correction and shipped the bloated number.
-                        // The transit multipliers in this formula engine can overshoot 2×+,
-                        // so the benchmark is often our most reliable ground-truth signal.
-                        // New bounds [0.40, 1.50] let the calibrator fix big overshoots but
-                        // still reject obviously-corrupt factors (e.g. 0.1× or 3×) that
-                        // likely indicate a miscounted camera pool or bad benchmark match.
-                        // COS scales proportionally at line 917, so margin stays consistent.
+                        // Bounds [0.40, 1.50] gate scale factors that would indicate
+                        // miscounted cameras or wrong benchmark.  Cluster-2B fix
+                        // (2026-04-25): when out-of-bounds, fall back to
+                        // per-camera-sell × camera-count rather than shipping the
+                        // bloated formula. Pre-fix, rejection just kept the broken
+                        // number — Martinez shipped at $4.5M with calibration "rejected".
                         const MIN_SCALE = 0.40;
                         const MAX_SCALE = 1.50;
                         if (scaleFactor < MIN_SCALE || scaleFactor > MAX_SCALE) {
-                            console.error(`[3D Engine v2] ⛔ CALIBRATION REJECTED — scale factor ${scaleFactor.toFixed(3)} outside safe bounds [${MIN_SCALE}, ${MAX_SCALE}]`);
-                            console.error(`[3D Engine v2]   Likely cause: camera count mismatch or bad benchmark. Keeping formula total $${formulaTotal.toLocaleString()}.`);
-                            result._calibrated = false;
-                            result._calibrationRejected = true;
-                            result._calibrationRejectionReason = `scale factor ${scaleFactor.toFixed(3)} outside [${MIN_SCALE}, ${MAX_SCALE}]`;
-                            result._calibrationAttemptedTarget = calibratedTarget;
+                            // Fall back: per-camera benchmark × this project's camera count
+                            const fallbackTotal = this._round(perCameraSell * cameraCount);
+                            console.warn(`[3D Engine v2] ⛔ Scale factor ${scaleFactor.toFixed(3)} outside [${MIN_SCALE}, ${MAX_SCALE}]`);
+                            console.warn(`[3D Engine v2]   Falling back to per-camera benchmark: $${Math.round(perCameraSell).toLocaleString()}/cam × ${cameraCount} cams = $${fallbackTotal.toLocaleString()}`);
+
+                            const origMarginPct = result.grandTotalSELL > 0 ? (result.grossMargin / result.grandTotalSELL) : 0.25;
+                            result.grandTotalSELL = fallbackTotal;
+                            result.grandTotalCOS = this._round(fallbackTotal * (1 - origMarginPct));
+                            result.grossMargin = this._round(result.grandTotalSELL - result.grandTotalCOS);
+                            result.grossMarginPct = result.grandTotalSELL > 0 ? this._round((result.grossMargin / result.grandTotalSELL) * 100) : 0;
+                            result._calibrated = true;
+                            result._calibrationFallback = true;
+                            result._calibrationTarget = fallbackTotal;
                             result._calibrationBenchmark = benchmark.key;
+                            result._calibrationScaleFactor = scaleFactor;
+                            result._calibrationOriginalFormula = formulaTotal;
                         } else {
                             console.warn(`[3D Engine v2] ⚠️ CALIBRATING ${direction}: formula ${Math.round(Math.abs(deviation - 1) * 100)}% ${direction.toLowerCase()}`);
                             console.warn(`[3D Engine v2]   Scaling from $${formulaTotal.toLocaleString()} → $${calibratedTarget.toLocaleString()} (factor: ${scaleFactor.toFixed(3)})`);
@@ -927,8 +971,6 @@ const FormulaEngine3D = {
                             result._calibrationBenchmark = benchmark.key;
                             result._calibrationScaleFactor = scaleFactor;
                             // Wave 10 M3: margin reconstruction invariant check.
-                            // grandTotalSELL - grandTotalCOS should equal grossMargin.
-                            // If rounding drifted by more than $100 on a rescale, log it.
                             const reconstruction = result.grandTotalSELL - result.grandTotalCOS;
                             const drift = Math.abs(reconstruction - result.grossMargin);
                             if (drift > 100) {
@@ -938,8 +980,9 @@ const FormulaEngine3D = {
                     } else {
                         console.log(`[3D Engine v2]   ✅ Within ±6% of benchmark — no calibration needed`);
                     }
-                } else {
-                    console.log(`[3D Engine v2]   ⚠️ Subs ${(subPctOfTotal * 100).toFixed(0)}% > 40% — SKIPPING calibration (infrastructure-heavy)`);
+                } else if (!benchmarkScaleOK && cameraCount > 0 && benchmark.cameras > 0) {
+                    console.warn(`[3D Engine v2]   ⚠️ Camera count ${cameraCount} too far from benchmark ${benchmark.cameras} (ratio ${camRatio.toFixed(2)}) — skipping calibration`);
+                    result._calibrationSkippedReason = `camera-count-ratio ${camRatio.toFixed(2)} outside [0.4, 2.5]`;
                 }
                 } // close cameras > 0 guard
             }
