@@ -12872,6 +12872,36 @@ async function runGeminiAnalysis(updateProgress) {
             return `<span title="AI's confidence in its best guess. Below 75% = stop-and-ask." style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.08);color:${color};font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.3px;">⚖️ ${pct}% conf</span>`;
         };
 
+        // v5.128.19: Render the page thumbnail with a marker pin at (x_pct, y_pct)
+        // so the estimator sees the symbol in context instead of having to open
+        // the original PDF. Thumbnails are stored in SmartBrains._pageThumbnails
+        // (populated during PDF chunking). Falls back gracefully if missing.
+        const _formatThumbnail = (q) => {
+            try {
+                const thumbs = (typeof SmartBrains !== 'undefined' && SmartBrains._pageThumbnails) || {};
+                if (!thumbs || Object.keys(thumbs).length === 0) return '';
+                const sheetKey = q.firstSeenSheet ? String(q.firstSeenSheet).toUpperCase().replace(/[\s.-]/g, '') : '';
+                const dataUrl = thumbs[sheetKey] || null;
+                if (!dataUrl) return '';
+                const xPct = Number.isFinite(Number(q.firstSeenXPct)) ? Number(q.firstSeenXPct) : null;
+                const yPct = Number.isFinite(Number(q.firstSeenYPct)) ? Number(q.firstSeenYPct) : null;
+                const marker = (xPct !== null && yPct !== null)
+                    ? `<div style="position:absolute;top:${yPct}%;left:${xPct}%;transform:translate(-50%,-50%);width:32px;height:32px;border:3px solid #ef4444;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,0.9),0 0 18px rgba(239,68,68,0.85);background:rgba(239,68,68,0.18);pointer-events:none;animation:clarifyPulse 1.6s ease-in-out infinite;"></div>`
+                    : '';
+                return `
+                  <div style="padding:12px 18px 0 18px;background:#0f172a;">
+                    <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">📍 Sheet preview${xPct !== null ? ' — symbol marked' : ''}</div>
+                    <div style="position:relative;display:inline-block;max-width:100%;border:1px solid #334155;border-radius:6px;overflow:hidden;background:#fff;">
+                      <img src="${dataUrl}" alt="Sheet ${esc(q.firstSeenSheet || '')} preview" style="display:block;max-width:100%;max-height:380px;width:auto;height:auto;" />
+                      ${marker}
+                    </div>
+                    <style>@keyframes clarifyPulse{0%,100%{transform:translate(-50%,-50%) scale(1);opacity:1}50%{transform:translate(-50%,-50%) scale(1.18);opacity:0.75}}</style>
+                  </div>`;
+            } catch (e) {
+                return '';
+            }
+        };
+
         const modalHtml = `
           <div id="clarification-modal" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;padding:20px;">
             <div style="background:#0f172a;border:2px solid #EBB328;border-radius:14px;max-width:760px;width:100%;max-height:86vh;overflow-y:auto;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
@@ -12896,6 +12926,8 @@ async function runGeminiAnalysis(updateProgress) {
                         Also appears on: ${q.allSheets.filter(s => s !== q.firstSeenSheet).map(s => `<span style="display:inline-block;padding:2px 7px;margin:0 4px 0 0;background:rgba(255,255,255,0.12);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#ffffff;">${esc(s)}</span>`).join('')}
                       </div>` : ''}
                   </div>
+
+                  ${_formatThumbnail(q)}
 
                   <!-- Question body -->
                   <div style="padding:16px 18px;">

@@ -362,14 +362,7 @@ const SmartBrains = {
     enableClaudeFallback: true,                // use Claude when Pro model-health gate trips
     enableClaudeCrossCheck: true,              // dual-provider on critical brains
     claudeModel: 'claude-opus-4-5',            // v5.128.17: downgraded from 4-7 — public API rejected 'claude-opus-4-7' with HTTP 400 (model not available on api.anthropic.com). 4-5 is the current public Opus.
-    // v5.128.16 Stage 3: 30-minute hard budget. When bid time exceeds
-    // bidBudgetSoftSkipMinutes, non-essential verifier waves (2.75 Reverse
-    // Verifier, 3 Adversarial Audit, 3.5 Deep Accuracy, 3.75 Final
-    // Reconciliation, 3.85 Estimate Corrector) skip themselves so the bid
-    // finishes with a usable total. Essential pricing/counting waves always
-    // run (0 Legend, 1 Symbol Scanner, 2 Material Pricer, 2.25 Labor,
-    // 2.5 Financial Engine, 4 Report Writer).
-    bidBudgetSoftSkipMinutes: 25,
+    // v5.128.19: bidBudgetSoftSkipMinutes config removed — all waves always run.
     claudeCriticalBrains: [                    // brains that run on both providers and cross-check
       'LEGEND_DECODER', 'MATERIAL_PRICER', 'CONSENSUS_ARBITRATOR', 'DEVILS_ADVOCATE',
     ],
@@ -2906,6 +2899,24 @@ const SmartBrains = {
         await page.render({ canvasContext: ctx, viewport }).promise;
 
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.90));
+
+        // v5.128.19: Generate a small thumbnail (data URL) for the clarification
+        // modal. Captured BEFORE canvas destruction. ~400px wide JPEG @ 70% quality
+        // is ~30-50KB per page; for a 46-page set that's ~2MB total in memory.
+        let thumbDataUrl = null;
+        try {
+          const THUMB_WIDTH = 400;
+          const scale = THUMB_WIDTH / canvas.width;
+          const thumbCanvas = document.createElement('canvas');
+          thumbCanvas.width = THUMB_WIDTH;
+          thumbCanvas.height = Math.max(1, Math.round(canvas.height * scale));
+          const tctx = thumbCanvas.getContext('2d');
+          tctx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+          thumbDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.7);
+          thumbCanvas.width = 0;
+          thumbCanvas.height = 0;
+        } catch (thumbErr) { /* non-fatal — clarification modal falls back to text-only */ }
+
         canvas.width = 0;
         canvas.height = 0;
 
@@ -2919,6 +2930,17 @@ const SmartBrains = {
           chunkFile._sheetId = sheetId;
           chunks.push(chunkFile);
           includedPages++;
+
+          // Store thumbnail keyed by both sheet ID and page number for modal lookup
+          if (thumbDataUrl) {
+            if (!this._pageThumbnails) this._pageThumbnails = {};
+            if (sheetId) {
+              const normId = String(sheetId).toUpperCase().replace(/[\s.-]/g, '');
+              this._pageThumbnails[normId] = thumbDataUrl;
+            }
+            this._pageThumbnails[`page_${p}`] = thumbDataUrl;
+          }
+
           console.log(`[SmartBrains] ✓ Page ${p}/${totalPages} (${sheetId || 'no ID'}) → ${Math.round(blob.size / 1024)} KB JPEG`);
         }
       } catch (e) {
@@ -10267,29 +10289,13 @@ ${legendContext}
   // ═══════════════════════════════════════════════════════════
 
   // v5.128.16 Stage 3: 30-minute hard budget.
-  // Returns true if elapsed time from bid start has exceeded the soft-skip
-  // threshold (default 25 min). At that point non-essential verifier waves
-  // skip themselves so the bid finishes with a usable total instead of
-  // hanging past 30 minutes. Essential pricing/counting waves always run.
-  _isOverSoftBudget(state) {
-    const start = state?._bidBudgetStartTime;
-    if (!start) return false;
-    const softMin = this.config.bidBudgetSoftSkipMinutes || 25;
-    const elapsedMin = (Date.now() - start) / 60000;
-    return elapsedMin >= softMin;
-  },
-
-  _budgetElapsedMin(state) {
-    const start = state?._bidBudgetStartTime;
-    if (!start) return 0;
-    return Math.round(((Date.now() - start) / 60000) * 10) / 10;
-  },
-
   async runFullAnalysis(state, progressCallback) {
-    // v5.128.16: Start the bid budget clock. Used by _isOverSoftBudget to
-    // skip non-essential verifier waves when we're approaching 30 minutes.
-    state._bidBudgetStartTime = Date.now();
-    delete state._bidBudgetExhausted; // clear any prior run's flag
+    // v5.128.19: Removed soft-skip budget gate. Wall-clock skipping never
+    // saved meaningful time (Symbol Scanner is the long pole at ~60 min,
+    // unskippable) and just gutted the verifier layer that catches
+    // overcounts and inflated unit costs. All waves now always run.
+    // Clear page thumbnails from any prior run before chunking refills them.
+    this._pageThumbnails = {};
     console.log(`[SmartBrains] ═══ Starting Triple-Read Consensus Engine v${this.VERSION} ═══`);
     // v5.128.10: Keys are stored server-side as Cloudflare secrets (GEMINI_KEY_0…17)
     // and selected per-request by the proxy. Log the proxy-managed slot count
@@ -11665,6 +11671,44 @@ ${legendContext}
       console.warn('[SmartBrains] Clarification question collection failed (non-fatal):', e.message);
     }
 
+    // v5.128.19: Filter clarification questions to only reference REAL sheet IDs.
+    // The AI sometimes hallucinates sheets that don't exist (e.g. asking the user
+    // to look at "T 1.01" on an Amtrak project that has no T-prefix sheets).
+    // Asking the estimator to verify a symbol on a phantom sheet is unanswerable.
+    // Strategy: if firstSeenSheet is invalid, try to fall back to a valid entry
+    // in allSheets. If the question has NO valid sheet refs at all, drop it.
+    const validSheetIds = new Set();
+    for (const f of (encodedFiles.plans || [])) {
+      if (f._sheetId) validSheetIds.add(String(f._sheetId).toUpperCase().replace(/[\s.-]/g, ''));
+    }
+    const _normSheet = (s) => s ? String(s).toUpperCase().replace(/[\s.-]/g, '') : '';
+    const _isValidSheet = (s) => s && validSheetIds.has(_normSheet(s));
+    const beforeFilter = clarificationQuestions.length;
+    const filteredQuestions = [];
+    for (const q of clarificationQuestions) {
+      // Questions without sheet refs (count conflicts, spec conflicts, addenda) pass through
+      if (!q.firstSeenSheet && (!Array.isArray(q.allSheets) || q.allSheets.length === 0)) {
+        filteredQuestions.push(q);
+        continue;
+      }
+      const validAllSheets = (Array.isArray(q.allSheets) ? q.allSheets : []).filter(_isValidSheet);
+      const firstValid = _isValidSheet(q.firstSeenSheet) ? q.firstSeenSheet : (validAllSheets[0] || null);
+      if (!firstValid) {
+        // Phantom-sheet question — drop it. Logging the dropped reference helps
+        // diagnose hallucination patterns over time.
+        if (validSheetIds.size > 0) {
+          console.warn(`[SmartBrains] 🚫 Dropping clarification ${q.id || '?'} — references phantom sheet(s): firstSeen=${q.firstSeenSheet || '∅'}, all=${(q.allSheets || []).join(',') || '∅'}`);
+        }
+        continue;
+      }
+      filteredQuestions.push({ ...q, firstSeenSheet: firstValid, allSheets: validAllSheets });
+    }
+    if (filteredQuestions.length < beforeFilter) {
+      console.log(`[SmartBrains] 🛡️  Clarification filter: ${beforeFilter} → ${filteredQuestions.length} (dropped ${beforeFilter - filteredQuestions.length} phantom-sheet question(s))`);
+    }
+    clarificationQuestions.length = 0;
+    clarificationQuestions.push(...filteredQuestions);
+
     // Store clarification questions for the UI to display
     context._clarificationQuestions = clarificationQuestions;
     state._clarificationQuestions = clarificationQuestions;
@@ -12772,27 +12816,20 @@ ${legendContext}
     context.wave2_5_fin = wave25FinResults;
     console.log('[SmartBrains] ═══ Wave 2.5 Complete — Financials computed ═══');
 
-    // ═══ WAVE 2.75: Reverse Verification (1 brain, Pro model) — NON-ESSENTIAL ═══
-    if (this._isOverSoftBudget(state)) {
-      console.warn(`[SmartBrains] ⏱️ BUDGET (${this._budgetElapsedMin(state)} min elapsed ≥ ${this.config.bidBudgetSoftSkipMinutes} min soft-skip): skipping Wave 2.75 Reverse Verifier`);
-      context.wave2_75 = { _skippedForBudget: true };
-    } else {
-      progressCallback(72, '🔄 Wave 2.75: Reverse-verifying BOQ against plans…', this._brainStatus);
-      const wave275Results = await this._runWave(2.75, ['REVERSE_VERIFIER'], filteredEncodedFiles, state, context, progressCallback);
-      context.wave2_75 = wave275Results;
-      console.log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
-    }
+    // ═══ WAVE 2.75: Reverse Verification (1 brain, Pro model) ═══
+    // v5.128.19: removed soft-skip budget — clock-based skipping never saved
+    // meaningful time (Symbol Scanner is the long pole) and just gutted the
+    // verifier layer that catches overcounts and inflated unit costs.
+    progressCallback(72, '🔄 Wave 2.75: Reverse-verifying BOQ against plans…', this._brainStatus);
+    const wave275Results = await this._runWave(2.75, ['REVERSE_VERIFIER'], filteredEncodedFiles, state, context, progressCallback);
+    context.wave2_75 = wave275Results;
+    console.log('[SmartBrains] ═══ Wave 2.75 Complete ═══');
 
-    // ═══ WAVE 3: Adversarial Audit (2 parallel brains, Pro model) — NON-ESSENTIAL ═══
-    if (this._isOverSoftBudget(state)) {
-      console.warn(`[SmartBrains] ⏱️ BUDGET (${this._budgetElapsedMin(state)} min elapsed): skipping Wave 3 Adversarial Audit`);
-      context.wave3 = { _skippedForBudget: true };
-    } else {
-      progressCallback(78, '😈 Wave 3: Adversarial Audit — cross-validator + devil\'s advocate…', this._brainStatus);
-      const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], filteredEncodedFiles, state, context, progressCallback);
-      context.wave3 = wave3Results;
-      console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
-    }
+    // ═══ WAVE 3: Adversarial Audit (2 parallel brains, Pro model) ═══
+    progressCallback(78, '😈 Wave 3: Adversarial Audit — cross-validator + devil\'s advocate…', this._brainStatus);
+    const wave3Results = await this._runWave(3, ['CROSS_VALIDATOR', 'DEVILS_ADVOCATE'], filteredEncodedFiles, state, context, progressCallback);
+    context.wave3 = wave3Results;
+    console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
 
     // ═══ WAVE 3.25: Spec Compliance Checker (reads specs + BOM, finds gaps) — NON-FATAL ═══
     if ((encodedFiles.specs || []).length > 0) {
@@ -12822,11 +12859,8 @@ ${legendContext}
       }
     }
 
-    // ═══ WAVE 3.5: Deep Accuracy Pass (3 parallel brains, Pro) — NON-ESSENTIAL ═══
-    if (this._isOverSoftBudget(state)) {
-      console.warn(`[SmartBrains] ⏱️ BUDGET (${this._budgetElapsedMin(state)} min elapsed): skipping Wave 3.5 Deep Accuracy`);
-      context.wave3_5 = { _skippedForBudget: true };
-    } else try {
+    // ═══ WAVE 3.5: Deep Accuracy Pass (3 parallel brains, Pro) ═══
+    try {
       progressCallback(82, '🔎 Wave 3.5: Deep Accuracy — Detail Verifier + Cross-Sheet + Overlap Detector…', this._brainStatus);
       const wave35Keys = ['DETAIL_VERIFIER', 'CROSS_SHEET_ANALYZER', 'OVERLAP_DETECTOR'];
       const wave35Results = await this._runWave(3.5, wave35Keys, filteredEncodedFiles, state, context, progressCallback);
@@ -12837,11 +12871,8 @@ ${legendContext}
       context.wave3_5 = {};
     }
 
-    // ═══ WAVE 3.75: 6th Read — Final Reconciliation — NON-ESSENTIAL ═══
-    if (this._isOverSoftBudget(state)) {
-      console.warn(`[SmartBrains] ⏱️ BUDGET (${this._budgetElapsedMin(state)} min elapsed): skipping Wave 3.75 Final Reconciliation`);
-      context.wave3_75 = { _skippedForBudget: true };
-    } else try {
+    // ═══ WAVE 3.75: 6th Read — Final Reconciliation ═══
+    try {
       progressCallback(86, '🏁 Wave 3.75: 6th Read — Final Reconciliation sweep…', this._brainStatus);
       const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], filteredEncodedFiles, state, context, progressCallback);
       context.wave3_75 = wave375Results;
