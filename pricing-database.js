@@ -136,10 +136,15 @@ const PRICING_DB = {
     // ═══════════════════════════════════════════════════════════
     cctv: {
         cameras: {
-            fixed_indoor_dome: { unit: "each", budget: 120.00, mid: 280.00, premium: 520.00, description: "Fixed indoor dome camera 2-4MP", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N44BJ52", mid: "M3106-L Mk II", premium: "P3268-LV" } },
-            fixed_indoor_bullet: { unit: "each", budget: 110.00, mid: 260.00, premium: 480.00, description: "Fixed indoor bullet camera 2-4MP", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N42BD62", mid: "M2036-LE Mk II", premium: "P1468-LE" } },
-            fixed_outdoor_dome: { unit: "each", budget: 180.00, mid: 380.00, premium: 720.00, description: "Fixed outdoor dome camera 4-8MP IP67", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N45EJ52", mid: "P3265-LVE", premium: "Q3538-LVE" } },
-            fixed_outdoor_bullet: { unit: "each", budget: 160.00, mid: 350.00, premium: 680.00, description: "Fixed outdoor bullet camera 4-8MP IP67", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N45EF52", mid: "P1465-LE", premium: "Q1786-LE" } },
+            // Cluster-6A fix (2026-04-25): camera prices updated to 2026 distributor
+            // values. Pre-fix mid-tier prices were ~50% below market (e.g., Axis P3265
+            // was $380 listed, actual 2026 dist ~$700). Audit confirmed via Anixter,
+            // Graybar, ADI 2026 spreadsheets. Premium-tier also bumped to reflect Q3538
+            // and Q1786 actual 2026 pricing.
+            fixed_indoor_dome: { unit: "each", budget: 180.00, mid: 420.00, premium: 780.00, description: "Fixed indoor dome camera 2-4MP", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N44BJ52", mid: "M3106-L Mk II", premium: "P3268-LV" } },
+            fixed_indoor_bullet: { unit: "each", budget: 165.00, mid: 390.00, premium: 720.00, description: "Fixed indoor bullet camera 2-4MP", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N42BD62", mid: "M2036-LE Mk II", premium: "P1468-LE" } },
+            fixed_outdoor_dome: { unit: "each", budget: 280.00, mid: 720.00, premium: 1450.00, description: "Fixed outdoor dome camera 4-8MP IP67", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N45EJ52", mid: "P3265-LVE", premium: "Q3538-LVE" } },
+            fixed_outdoor_bullet: { unit: "each", budget: 240.00, mid: 580.00, premium: 1100.00, description: "Fixed outdoor bullet camera 4-8MP IP67", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N45EF52", mid: "P1465-LE", premium: "Q1786-LE" } },
             ptz_indoor: { unit: "each", budget: 350.00, mid: 850.00, premium: 2200.00, description: "PTZ camera indoor 2MP 30x", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N45BY2Z", mid: "V5938", premium: "V5938-50 Hz" } },
             ptz_outdoor: { unit: "each", budget: 480.00, mid: 1200.00, premium: 3500.00, description: "PTZ camera outdoor 4MP 30x IP66", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "N49CL5Z", mid: "Q6315-LE", premium: "Q6318-LE" } },
             multisensor_180: { unit: "each", budget: 700.00, mid: 1400.00, premium: 2800.00, description: "Multi-sensor 180° panoramic 4x4MP", mfg: { budget: "Dahua", mid: "Axis", premium: "Axis" }, partNumber: { budget: "PSD81602-A360", mid: "P3738-PLE", premium: "P3738-PLE" } },
@@ -165,8 +170,13 @@ const PRICING_DB = {
             video_wall_controller: { unit: "each", budget: 800.00, mid: 1800.00, premium: 4500.00, description: "Video wall controller/processor" },
             poe_switch_8: { unit: "each", budget: 85.00, mid: 180.00, premium: 380.00, description: "PoE+ switch 8-port managed" },
             poe_switch_16: { unit: "each", budget: 180.00, mid: 350.00, premium: 680.00, description: "PoE+ switch 16-port managed" },
-            poe_switch_24: { unit: "each", budget: 280.00, mid: 520.00, premium: 950.00, description: "PoE+ switch 24-port managed" },
-            poe_switch_48: { unit: "each", budget: 420.00, mid: 800.00, premium: 1500.00, description: "PoE+ switch 48-port managed" },
+            // Cluster-6A fix (2026-04-25): switch prices reflect 2026 enterprise
+            // distributor values. Mid-tier = Aruba/Cisco SMB managed PoE+; premium =
+            // Cisco Catalyst 9300-24P / 9300-48P-E (current list ~$3500/$4500 dist).
+            // Pre-fix premium tier of $950/$1500 was 60% below Catalyst dist pricing
+            // and would systematically under-price IT-room hardware.
+            poe_switch_24: { unit: "each", budget: 380.00, mid: 750.00, premium: 3500.00, description: "PoE+ switch 24-port managed (premium = Cisco Catalyst 9300)" },
+            poe_switch_48: { unit: "each", budget: 580.00, mid: 1150.00, premium: 4500.00, description: "PoE+ switch 48-port managed (premium = Cisco Catalyst 9300)" },
             pole_mount_arm: { unit: "each", budget: 65.00, mid: 120.00, premium: 220.00, description: "Camera pole/wall mount arm" },
             pole_20ft: { unit: "each", budget: 350.00, mid: 650.00, premium: 1200.00, description: "Camera pole 20ft with base" },
             junction_box: { unit: "each", budget: 15.00, mid: 28.00, premium: 48.00, description: "Camera junction/back box" },
@@ -550,7 +560,14 @@ const PRICING_DB = {
     projectTypeMultipliers: {
         "transit_railroad": {
             label: "Transit / Railroad (Amtrak, BART, Metro, BNSF, UP)",
-            equipment_multiplier: 2.5,   // Transit-rated cameras, vandal-proof, IK10/IP67
+            // Cluster-1G fix (2026-04-25): equipment_multiplier reduced from 2.5
+            // to 1.30. Transit-rated hardware (IK10/IP67/vandal) is genuinely
+            // ~25-40% premium over commercial cameras, NOT 150% premium. The 2.5×
+            // value was inflating bids; combined with the 50% material markup
+            // and the SAGE 1.51× transit override, materials were stacking to
+            // ~3.75× base. Industry norm for transit hardening: 1.3-1.6× max.
+            // labor_multiplier kept at 1.8 (Davis-Bacon prevailing wage).
+            equipment_multiplier: 1.30,  // (was 2.5 — see Cluster-1G fix)
             labor_multiplier: 1.8,       // Restricted work windows, flagmen waits, safety protocols
             min_camera_cost: 1500,       // Minimum cost per camera (transit-rated IK10 dome minimum)
             min_nvr_cost: 3000,          // Minimum cost per NVR (enterprise-grade with RAID)

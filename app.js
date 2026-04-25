@@ -5839,12 +5839,33 @@ function build3DEngineCard(st) {
   if (!bom || !bom.categories || bom.categories.length === 0) return '';
 
   // Run the 3D engine
+  // Cluster-7B fix (2026-04-25): respect the locked bid total. Pre-fix, this
+  // card called computeBid() and immediately cleared the lock, so the card's
+  // displayed Total Sell could differ from the Step 7 hero number when guards
+  // had clamped the hero. Now: if there's a locked total set by
+  // _getFullyLoadedTotal (the authoritative path), use it. Only re-run the
+  // engine when no lock exists yet (initial render before exports compute).
   let result;
   try {
     result = FormulaEngine3D.computeBid(st, bom);
     st._engine3DResult = result;
-    // v5.128.12: 3D Engine re-ran → clear lock so exports pick up the new SELL
-    if (typeof SmartPlansFinancials !== 'undefined') SmartPlansFinancials.clearLock(st);
+    // If a locked total exists (computed by export-engine after guards/sanity),
+    // overlay it on the card so the user sees ONE bid number across the page.
+    if (st?._lockedBidTotal && st._lockedBidTotal > 1000 && Math.abs(result.grandTotalSELL - st._lockedBidTotal) > 1000) {
+      console.log(`[3D Card] Overlaying locked total $${st._lockedBidTotal.toLocaleString()} (engine raw was $${(result.grandTotalSELL || 0).toLocaleString()})`);
+      // Scale the engine's per-system breakdown proportionally to match the lock,
+      // so the per-system rows still add up to the displayed hero total.
+      const scaleFactor = result.grandTotalSELL > 0 ? (st._lockedBidTotal / result.grandTotalSELL) : 1;
+      result = { ...result, _displayLocked: true, _lockSource: st._lockedBidTotalSource || 'export-engine' };
+      result.grandTotalSELL = st._lockedBidTotal;
+      if (scaleFactor > 0 && scaleFactor !== 1) {
+        // Don't scale COS — keep the engine's gross margin intact for diagnostic display
+        result.grossMargin = Math.round(result.grandTotalSELL - (result.grandTotalCOS || 0));
+        result.grossMarginPct = result.grandTotalSELL > 0 ? Math.round((result.grossMargin / result.grandTotalSELL) * 100) : 0;
+      }
+    } else if (typeof SmartPlansFinancials !== 'undefined' && !st?._lockedBidTotal) {
+      // No lock yet — initial render path. Don't clear nonexistent lock.
+    }
   } catch (err) {
     console.warn('[3D Engine Card] Error:', err.message);
     return '';

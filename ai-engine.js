@@ -3258,9 +3258,17 @@ const SmartBrains = {
       const activeParts = cleanFileParts;
       const hasFileData = activeParts.some(p => p.fileData);
       const parts = [{ text: promptText }, ...activeParts];
-      // Zero temperature for critical counting brains — same input MUST produce same output every run
+      // Cluster-5A fix (2026-04-25): money brains MUST be temp 0.0 so the
+      // same input produces the same output every run. Pre-fix, MATERIAL_PRICER
+      // / LABOR_CALCULATOR / FINANCIAL_ENGINE / ESTIMATE_CORRECTOR all ran at
+      // 0.05, which produced $720K-$3.14M variance for the same plans on
+      // back-to-back runs. Counting brains were already at 0.0.
+      const MONEY_BRAINS = new Set([
+        'MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE',
+        'ESTIMATE_CORRECTOR', 'CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR',
+      ]);
       const genConfig = {
-        temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.0 : 0.05,
+        temperature: MONEY_BRAINS.has(brainKey) ? 0.0 : 0.05,
         maxOutputTokens: brainDef.maxTokens,
       };
       if (useJsonMode) {
@@ -3629,6 +3637,20 @@ const SmartBrains = {
     }
 
     // ── Model Fallback: If primary model failed, try alternative models ──
+    // Cluster-5B fix (2026-04-25): money brains MUST use one model only.
+    // Falling back from Pro → Flash → 2.0 changes the BOM/pricing entirely
+    // (different counts, different prices) and was a primary cause of the
+    // $720K-$3.14M variance for the same plans on different runs. For money
+    // brains, fail loud and abort the bid rather than silently degrading
+    // to a model that produces a different answer.
+    const _MONEY_BRAINS_NO_FALLBACK = new Set([
+      'MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE',
+      'ESTIMATE_CORRECTOR', 'CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR',
+    ]);
+    if (_MONEY_BRAINS_NO_FALLBACK.has(brainKey)) {
+      console.error(`[Brain:${brainDef.name}] Money brain — fallback ladder DISABLED. Aborting rather than producing a different answer with a different model.`);
+      throw new Error(`Money brain ${brainKey} failed on primary model ${modelName} — fallback disabled to preserve bid determinism. Re-run after fixing the underlying error.`);
+    }
     // When File API refs are present, prefer models that support fileData
     const fallbackModels = hasUploadedFiles
       ? ['gemini-2.5-flash', 'gemini-2.0-flash']  // Skip 2.5-pro (400s with File API)
@@ -3715,8 +3737,13 @@ const SmartBrains = {
       console.warn(`[Brain:${brainDef.name}] All fallbacks failed — last attempt with ${this.config.model}`);
       try {
         const fbParts = [{ text: promptText }, ...cleanFileParts];
+        // Cluster-5A: same money-brain temp gate on the legacy fallback path
+        const fbMoneyBrains = new Set([
+          'MATERIAL_PRICER', 'LABOR_CALCULATOR', 'FINANCIAL_ENGINE',
+          'ESTIMATE_CORRECTOR', 'CROSS_VALIDATOR', 'CONSENSUS_ARBITRATOR',
+        ]);
         const fbGenConfig = {
-          temperature: brainKey === 'CROSS_VALIDATOR' || brainKey === 'CONSENSUS_ARBITRATOR' ? 0.0 : 0.05,
+          temperature: fbMoneyBrains.has(brainKey) ? 0.0 : 0.05,
           maxOutputTokens: brainDef.maxTokens,
         };
         if (useJsonMode) {
@@ -5683,8 +5710,8 @@ CRITICAL RULES:
 3. If NO schedule exists, use consensus counts: if consensus says 24 cameras, price EXACTLY 24 cameras
 4. For Access Control (Div 28 + Div 08 Openings): include controllers, card readers, door contacts, REX devices, electric strikes/maglocks, power transfer hinges, delayed egress devices, auto-operators, door position switches, gate operators, barrier arms, vehicle detection loops, cabling, and power supplies — the DOOR COUNT must match the schedule or consensus exactly
 5. For each camera or access point, include mounting hardware, cable, connectors, and associated head-end equipment (NVR, switches, license)
-6. Use the EXACT prices from the pricing database. Apply the ${regionMult}× regional multiplier to all unit costs
-7. Calculate: Qty × Unit Cost × ${regionMult} = Extended Cost (VERIFY YOUR MATH on every single row)
+6. Use the EXACT prices from the pricing database. The unit costs shown ABOVE in PRICING DATA already include the ${regionMult}× regional multiplier — DO NOT apply it again.
+7. Calculate: Qty × Unit Cost = Extended Cost (the unit cost is already region-adjusted; multiplying by ${regionMult} again would double-count region pricing). VERIFY YOUR MATH on every single row.
 8. Include ALL MDF/IDF equipment: racks, patch panels, UPS, grounding busbars (TMGB/TGB), cable management
 9. Include backbone/riser cables from CABLE QUANTITIES section — do NOT omit fiber or copper backbone
 10. Cable quantities: Use the CABLE_PATHWAY brain's calculated per-zone averages. If unavailable, use 200ft average for commercial buildings over 20,000 SF, 225ft for VA/government clinics, 150ft ONLY for small offices under 10,000 SF. NEVER use a flat 150ft for large buildings — it will underbid cable by 30-50%
@@ -5981,7 +6008,7 @@ When plans show underground conduit runs, outdoor cable pathways, or exterior ro
   • ADA truncated dome mat: $475/each
 - Estimate linear footage from site plans (measure cable routes between buildings, to poles, etc.)
 - Include conduit material in the subcontractor line item cost
-- These are COST prices — the engine applies 20% markup automatically
+- Cluster-1F fix (2026-04-25): Place ALL civil/trenching items in a category named EXACTLY "Subcontractor — Civil / Trenching" (with the em-dash). The engine relies on this exact category name to apply the 15-20% subcontractor markup instead of the 50% material markup. The prices listed above ($8/LF saw cut, $18/LF trench, $24/LF boring, etc.) are subcontractor cost prices. DO NOT inflate them yourself — the engine applies subcontractor markup automatically. If you place these in any other category name, they'll get marked up at 50% (material rate), overcharging the bid by $30K-$80K.
 
 ═══ MANDATORY SELF-CHECK (do this before returning) ═══
 Before responding, verify:
@@ -6192,7 +6219,7 @@ Return ONLY valid JSON:
   "spare_parts_total": 0,
   "consumables_total": 0,
   "markup_pct": ${context.markup?.material || 50},
-  "total_with_markup": 156250.00
+  "total_with_markup": ${Math.round(125000 * (1 + (context.markup?.material || 50) / 100))}
 }`;
       },
 
@@ -6219,18 +6246,19 @@ Agency / Owner: ${pwAgency || 'unknown (federal or state public project)'}
 Wage Determination: ${pwDetermination || 'must be obtained from solicitation documents'}
 REQUIRED LABOR RATE MULTIPLIER: ${pwMultiplier}x the open-shop base rate shown above.
 
-HOW TO APPLY:
+HOW TO APPLY (Cluster-1B fix 2026-04-25 — NO double-counting fringes):
 1. Take every base rate listed in LABOR RATES above
-2. Multiply by ${pwMultiplier} to get the prevailing-wage base rate
-3. THEN apply burden and markup as normal
-4. DO NOT SKIP THIS STEP. A missed Davis-Bacon detection costs $60,000-$100,000 on a typical clinic-sized project.
+2. Multiply by ${pwMultiplier} to get the prevailing-wage TOTAL package rate (already includes fringes)
+3. ⚠️  DO NOT also apply burden on top — Davis-Bacon and state PW rates ALREADY include health/welfare/pension/vacation/training fringes. The standard 35% burden is for open-shop labor only. Adding burden to PW is a 35% overcharge.
+4. Apply the labor markup (50%) ONCE on the prevailing-wage total package rate.
+5. DO NOT SKIP STEP 1. A missed Davis-Bacon detection costs $60,000-$100,000 on a typical clinic-sized project.
 
-EXAMPLE:
-- Base rate shown: $85/hr
-- Prevailing wage rate: $85 × ${pwMultiplier} = $${(85 * pwMultiplier).toFixed(2)}/hr
-- Loaded (with burden × ${burdenMult.toFixed(2)}): $${(85 * pwMultiplier * burdenMult).toFixed(2)}/hr
+EXAMPLE (Davis-Bacon, NO burden):
+- Base rate shown: $85/hr (open-shop)
+- Prevailing wage TOTAL (incl. fringes): $85 × ${pwMultiplier} = $${(85 * pwMultiplier).toFixed(2)}/hr ← USE THIS as loaded rate
+- Sell rate (after 50% markup): $${(85 * pwMultiplier * 1.50).toFixed(2)}/hr
 
-REPORT THIS in your output: add a top-level field "prevailing_wage_applied": true and "prevailing_wage_multiplier": ${pwMultiplier} so downstream brains can verify.
+REPORT THIS in your output: add a top-level field "prevailing_wage_applied": true and "prevailing_wage_multiplier": ${pwMultiplier} so downstream brains can verify. Also set "burden_applied_to_pw": false to confirm you did NOT double-count fringes.
 ` : '';
 
         // Wave 11 C7 (v5.128.8): Labor-hour feedback block is DORMANT until
@@ -6342,7 +6370,7 @@ SHIFT DIFFERENTIALS (apply if work shift is not Standard):
 - Weekend shift: add 25% to base labor rates
 - Overtime (>8 hrs/day or >40 hrs/wk): 1.5× rate
 - Double-time (holidays, 7th day): 2.0× rate
-- Railroad/transit restricted windows: add 20-30% for productivity loss
+- (Transit productivity loss is handled in rule 9 below — DO NOT apply it here AND in rule 9.)
 
 ═══ HEALTHCARE / VA PROJECT LABOR ADDITIONS ═══
 ${context.projectType?.toLowerCase().includes('healthcare') || context.projectType?.toLowerCase().includes('medical') || context.projectType?.toLowerCase().includes('clinic') || context.projectType?.toLowerCase().includes('hospital') || context.projectName?.toLowerCase().includes('va ') || context.projectName?.toLowerCase().includes('clinic') || context.projectName?.toLowerCase().includes('hospital') || context.projectName?.toLowerCase().includes('medical') ? `
@@ -6370,7 +6398,7 @@ CRITICAL RULES:
    - The selected discipline list for THIS bid is: ${JSON.stringify(context.disciplines || [])}
 7. You MUST include conduit installation labor if Special Conditions or Cable Pathway shows conduit runs
 8. Apply shift differential if work shift is not Standard
-9. If project is transit/railroad, apply 20-30% productivity loss factor for restricted work windows
+9. Cluster-1B fix (2026-04-25): If project is transit/railroad, apply ONE productivity-loss factor of 15% to field labor hours (was 20-30%, was applied twice — once here and once in shift differentials). This 15% covers: restricted work windows, escort delays, RWIC briefings. Do NOT also apply standby/work-window adders downstream — they're already included in this 15%.
 10. You MUST include all NON-INSTALLATION phases below — these are real labor costs
 
 Calculate labor by PROJECT PHASE:
@@ -6483,25 +6511,27 @@ CRITICAL RULES:
 3. SOV must include columns: Material, Labor, Equipment, Subcontractor, Total — all values must be SELL PRICES (with markup applied)
 4. SOV line items must mathematically balance: Material + Labor + Equipment + Subcontractor = Total
 5. All SOV line items must sum to the grand total
-6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + G&A + profit + warranty + contingency
+6. The project_summary grand_total must include ALL cost components: materials + labor + equipment + subcontractors + travel + transit + insurance + warranty + contingency
 7. SUBCONTRACTOR costs MUST include ALL items from Special Conditions: civil work (trenching, boring, patching), traffic control (flaggers, cones, arrow boards), core drilling, firestopping, electrical, and any other contracted work
 8. EQUIPMENT costs MUST include ALL rental items from Special Conditions: lifts, backhoes, trenchers, saws, etc.
 9. Include a separate SOV line item for "Mobilization/Setup & Demobilization/Teardown"
 10. Include a separate SOV line item for "Civil Work & Site Restoration" if underground/exterior work exists
-11. G&A OVERHEAD is MANDATORY: Apply 15% to (materials + labor + equipment + subcontractors) subtotal. This covers company overhead (office, trucks, insurance, admin staff). This is separate from markup.
-12. PROFIT MARGIN is MANDATORY: Apply 10% to the subtotal after G&A. This is the company's profit. Without this, you are bidding at cost.
+11. ⚠️ DO NOT ADD G&A OVERHEAD: Material Pricer's 50% markup and Labor Calculator's 50% markup ALREADY include company overhead (office, trucks, insurance, admin). Adding a separate 15% G&A line would double-count overhead. Set ga_overhead_pct = 0 and ga_overhead = 0.
+12. ⚠️ DO NOT ADD PROFIT MARGIN: The 50% markup on materials and labor IS the company's gross profit. Adding a separate 10% profit on top would double-count earnings. Set profit_pct = 0 and profit = 0.
 13. WARRANTY RESERVE: Add 1.5% of total project cost for warranty callback labor during the 1-year warranty period.
 
-═══ COST BUILD-UP ORDER (follow this EXACTLY) ═══
-1. Direct Costs: total_materials + total_labor + total_equipment + total_subcontractors
+═══ COST BUILD-UP ORDER (follow this EXACTLY — Cluster-1A fix 2026-04-25) ═══
+The 50% markup on materials and 50% markup on labor ALREADY include company
+overhead (G&A) and profit. Pre-fix this prompt instructed adding G&A 15% and
+profit 10% on top of marked-up totals — a 26.5% double-count. Now: sum the
+already-marked-up direct costs, add only travel/transit/insurance/warranty/contingency.
+1. Direct Costs (already at SELL): total_materials + total_labor + total_equipment + total_subcontractors
 2. Add: total_travel + total_transit_costs + total_insurance
-3. = PROJECT DIRECT COST SUBTOTAL
-4. Add: G&A Overhead (15% of direct costs) → this covers company operating expenses
-5. = TOTAL COST WITH OVERHEAD
-6. Add: Profit (10% of cost with overhead) → this is the company's earnings
-7. Add: Warranty Reserve (1.5% of total)
-8. Add: Contingency (10% of total) → for unknowns and scope changes
-9. = GRAND TOTAL (this is the BID PRICE)
+3. = PROJECT SUBTOTAL
+4. Add: Warranty Reserve (1.5% of subtotal)
+5. Add: Contingency (10% of subtotal+warranty) → for unknowns and scope changes
+6. = GRAND TOTAL (this is the BID PRICE)
+DO NOT add G&A. DO NOT add profit. They are already in the 50% markup.
 
 GENERATE:
 1. Schedule of Values (SOV) in AIA G703 format with Material + Labor + Equipment + Subcontractor columns
@@ -6569,10 +6599,10 @@ Return ONLY valid JSON:
     "total_transit_costs": 0,
     "total_insurance": 0,
     "direct_cost_subtotal": 0,
-    "ga_overhead_pct": 15,
+    "ga_overhead_pct": 0,
     "ga_overhead": 0,
     "cost_with_overhead": 0,
-    "profit_pct": 10,
+    "profit_pct": 0,
     "profit": 0,
     "warranty_reserve_pct": 1.5,
     "warranty_reserve": 0,
@@ -10082,6 +10112,44 @@ ${legendContext}
     return merged;
   },
 
+  // ─── Cluster-4C fix (2026-04-25): Page-type classifier ───
+  // Distinguishes physical-count pages (floor plans) from reference pages
+  // (risers, schedules, details, elevations). Only floor plans should
+  // contribute to cross-page device totals. Risers/schedules SHOW the
+  // same devices that the floor plans physically count.
+  _classifyPageType(pageKey, sheetData) {
+    const key = String(pageKey || '').toUpperCase();
+    const title = String(sheetData?.title || sheetData?.sheet_title || '').toUpperCase();
+    const combined = `${key} ${title}`;
+
+    // Strong reference signals (these pages re-show devices, never count new ones)
+    if (/RISER|SCHEDULE|DETAIL|ELEVATION|SYMBOL\s*LEGEND|TYPICAL|ABBREVIATION|ONE.LINE|SINGLE.LINE/.test(combined)) {
+      return 'reference';
+    }
+    // Cover, title, spec sheets — skip entirely
+    if (/COVER|TITLE\s*SHEET|GENERAL\s*NOTES|INDEX|^G\d/.test(combined)) {
+      return 'cover';
+    }
+    // Camera coverage / heatmap pages duplicate floor-plan counts
+    if (/COVERAGE|HEAT.?MAP|SIGHT.?LINE/.test(combined)) {
+      return 'reference';
+    }
+    // Floor plan signals
+    if (/FLOOR\s*PLAN|SYSTEMS\s*PLAN|DEMO\s*PLAN|SECURITY\s*PLAN|CCTV\s*PLAN|CAMERA\s*LAYOUT/.test(combined)) {
+      return 'floor_plan';
+    }
+    // Sheet-ID heuristic: x100-x399 = plans, x400+ = refs (lossy but useful default)
+    const idMatch = key.match(/[A-Z]+(\d{3,4})/);
+    if (idMatch) {
+      const num = parseInt(idMatch[1], 10);
+      const last3 = num % 1000;
+      if (last3 >= 100 && last3 < 400) return 'floor_plan';
+      if (last3 >= 400 && last3 < 700) return 'reference';  // 4xx-6xx commonly riser/coverage/details
+    }
+    // Default unknown — treat as floor_plan to avoid undercounting
+    return 'unknown';
+  },
+
   // Aggregate per-page results into a single brain-level output
   _aggregatePerPageResults(brainKey, pageResults) {
     const successResults = pageResults.filter(r => r.success && r.data);
@@ -10091,14 +10159,36 @@ ${legendContext}
       _pagesSucceeded: successResults.length,
     };
 
+    // Cluster-4C: classify each page so we only sum totals from physical-count
+    // pages. Reference pages (risers, schedules) are kept for diagnostics.
+    const classifiedResults = successResults.map(r => {
+      const sheetData = (r.data?.sheets && r.data.sheets[0]) || r.data || {};
+      const pageType = this._classifyPageType(r.page, sheetData);
+      return { ...r, _pageType: pageType };
+    });
+    const physicalResults = classifiedResults.filter(r => r._pageType === 'floor_plan' || r._pageType === 'unknown');
+    const referenceResults = classifiedResults.filter(r => r._pageType === 'reference');
+    const _pageTypeStats = {
+      floor_plan: classifiedResults.filter(r => r._pageType === 'floor_plan').length,
+      reference: referenceResults.length,
+      cover: classifiedResults.filter(r => r._pageType === 'cover').length,
+      unknown: classifiedResults.filter(r => r._pageType === 'unknown').length,
+    };
+    if (referenceResults.length > 0) {
+      console.log(`[BomDedup] ${brainKey}: classified ${_pageTypeStats.floor_plan} plan + ${_pageTypeStats.reference} reference + ${_pageTypeStats.unknown} unknown pages — only counting physical pages toward totals`);
+    }
+
     if (brainKey === 'SYMBOL_SCANNER') {
       const sheets = [];
       const totals = {};
+      const referenceTotals = {};  // Cluster-4A: track reference-only totals separately
       const deviceInventory = [];
       const unidentified = [];
       const discoveredLegends = []; // Legends found embedded in plan pages during scanning
 
-      for (const r of successResults) {
+      // Cluster-4A fix (2026-04-25): only sum totals from physical (floor_plan/unknown) pages.
+      // Pre-fix, totals from risers and schedules were summed on top, double-counting devices.
+      for (const r of physicalResults) {
         if (r.data.sheets) sheets.push(...r.data.sheets);
         if (r.data.device_inventory) deviceInventory.push(...r.data.device_inventory);
         if (r.data.unidentified_symbols) unidentified.push(...r.data.unidentified_symbols);
@@ -10107,9 +10197,17 @@ ${legendContext}
             totals[k] = (totals[k] || 0) + (typeof v === 'number' ? v : 0);
           }
         }
-        // Capture any legends discovered on individual pages during scanning
         if (r.data.page_legend && Array.isArray(r.data.page_legend) && r.data.page_legend.length > 0) {
           discoveredLegends.push({ page: r.page, symbols: r.data.page_legend });
+        }
+      }
+      // Reference pages: capture their counts for diagnostics (compare to physical)
+      for (const r of referenceResults) {
+        if (r.data.sheets) sheets.push(...r.data.sheets);
+        if (r.data.totals) {
+          for (const [k, v] of Object.entries(r.data.totals)) {
+            referenceTotals[k] = Math.max(referenceTotals[k] || 0, typeof v === 'number' ? v : 0);
+          }
         }
       }
 
@@ -10117,9 +10215,10 @@ ${legendContext}
         console.log(`[SmartBrains] 🗺️ Per-page scanning discovered embedded legends on ${discoveredLegends.length} page(s)`);
       }
 
-      return { ...meta, sheets, totals, device_inventory: deviceInventory, unidentified_symbols: unidentified,
+      return { ...meta, sheets, totals, _referenceTotals: referenceTotals, _pageTypeStats,
+        device_inventory: deviceInventory, unidentified_symbols: unidentified,
         _discovered_legends: discoveredLegends.length > 0 ? discoveredLegends : undefined,
-        notes: `Per-page scan: ${successResults.length}/${pageResults.length} pages analyzed individually` };
+        notes: `Per-page scan: ${successResults.length}/${pageResults.length} pages analyzed; ${physicalResults.length} counted physically, ${referenceResults.length} reference-only` };
     }
 
     if (brainKey === 'ZOOM_SCANNER') {
@@ -10127,7 +10226,7 @@ ${legendContext}
       const grandTotals = {};
       const zoomFindings = [];
 
-      for (const r of successResults) {
+      for (const r of physicalResults) {
         if (r.data.quadrant_counts) quadrantCounts.push(...r.data.quadrant_counts);
         if (r.data.zoom_findings) zoomFindings.push(...r.data.zoom_findings);
         if (r.data.grand_totals) {
@@ -10138,7 +10237,8 @@ ${legendContext}
       }
 
       return { ...meta, quadrant_counts: quadrantCounts, grand_totals: grandTotals, zoom_findings: zoomFindings,
-        methodology: 'per-page 4-quadrant zoom scan' };
+        _pageTypeStats,
+        methodology: 'per-page 4-quadrant zoom scan (reference pages excluded from totals)' };
     }
 
     if (brainKey === 'SCOPE_EXCLUSION_SCANNER') {
@@ -10172,7 +10272,8 @@ ${legendContext}
       const allRooms = [];
       const totals = {};
 
-      for (const r of successResults) {
+      // Cluster-4A: only sum totals from physical (floor_plan/unknown) pages
+      for (const r of physicalResults) {
         if (r.data.rooms) allRooms.push(...r.data.rooms);
         if (r.data.room_counts) allRooms.push(...r.data.room_counts);
         if (r.data.totals) {
@@ -10182,7 +10283,7 @@ ${legendContext}
         }
       }
 
-      return { ...meta, rooms: allRooms, totals, methodology: 'per-page room-by-room shadow scan' };
+      return { ...meta, rooms: allRooms, totals, _pageTypeStats, methodology: 'per-page room-by-room shadow scan (reference pages excluded)' };
     }
 
     // Generic fallback: merge arrays, sum numbers
@@ -12903,24 +13004,28 @@ ${legendContext}
         }
 
         // ─── v5.125.1 PHASE 0.6: Estimate Corrector Sanity Guard ───
-        // The Estimate Corrector AI can produce wildly wrong corrected_grand_total
-        // values (e.g., $42k on a $425k clinic — 1/10th of the actual bid). Those
-        // numbers then leak into the Master Report PDF as "Corrected Total" and
-        // confuse/mislead clients. Reject any correction that drifts more than
-        // 40% from the original — deterministic safety net.
+        // Cluster-3C fix (2026-04-25): Pre-fix this guard was wrong-signed —
+        // it rejected ANY drift >40%, including legitimate downward
+        // corrections (when the original was bloated). On the Martinez bid
+        // where the original Material Pricer total was $3.14M and the
+        // corrector proposed $1.95M (-38%), the original code would have
+        // rejected the correction (drift was actually 38% so just inside,
+        // but a 50%+ correction would have been blocked).  Now: only reject
+        // UPWARD drift over 40%. Downward corrections are ALWAYS welcome —
+        // they cannot make the bid worse than its already-bloated original.
         const origTotal = parseFloat(corrector.original_grand_total) || 0;
         const corrTotal = parseFloat(corrector.corrected_grand_total) || 0;
         // v5.126.3 P3: Lowered the gate from $1000 to $100 so small service-call
-        // bids also get the drift check. The only reason to skip is if origTotal
-        // is missing or nonsensical (zero/negative).
+        // bids also get the drift check.
         if (origTotal > 100 && corrTotal > 0) {
-          const driftPct = Math.abs(corrTotal - origTotal) / origTotal;
+          const driftPct = (corrTotal - origTotal) / origTotal;  // signed: + means correction went up
+          // Reject only UPWARD drift > 40% (corrector inflating an already-finished number).
+          // Downward corrections of any magnitude are accepted — they catch over-bid bugs.
           if (driftPct > 0.40) {
-            console.warn(`[SmartBrains] ⛔ ESTIMATE CORRECTOR SANITY GUARD: corrected_grand_total $${corrTotal.toLocaleString()} drifts ${(driftPct * 100).toFixed(1)}% from original $${origTotal.toLocaleString()} — REJECTING correction`);
-            console.warn(`[SmartBrains]    The AI brain produced an implausible "correction". Falling back to original Material Pricer output.`);
+            console.warn(`[SmartBrains] ⛔ ESTIMATE CORRECTOR SANITY GUARD: corrected_grand_total $${corrTotal.toLocaleString()} drifts +${(driftPct * 100).toFixed(1)}% UP from original $${origTotal.toLocaleString()} — REJECTING upward correction`);
+            console.warn(`[SmartBrains]    Corrections that INFLATE the bid by >40% are blocked (likely AI hallucinating extras). Downward corrections are accepted at any magnitude.`);
             corrector._sanityRejected = true;
-            corrector._sanityRejectedReason = `Corrected grand total ($${corrTotal.toLocaleString()}) drifts ${(driftPct * 100).toFixed(1)}% from original ($${origTotal.toLocaleString()}). Limit is 40%.`;
-            // Blank out the corrected totals so downstream report writers fall back
+            corrector._sanityRejectedReason = `Upward correction +${(driftPct * 100).toFixed(1)}% blocked (limit +40%). Downward corrections accepted unconditionally.`;
             corrector.corrected_grand_total = origTotal;
             corrector.total_adjustment = 0;
             corrector.corrected_categories = null;

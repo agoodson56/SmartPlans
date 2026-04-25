@@ -93,6 +93,13 @@ export async function onRequestGet({ request, env }) {
         const conditions = [];
         const bindings = [];
 
+        // Cluster-6B fix (2026-04-25): filter expired quotes. Pre-fix, a 6-month-
+        // old Graybar quote at $800 would still beat a current $1100 list,
+        // even though that vendor wouldn't honor that price today. Now: skip
+        // any quote whose expires_at has passed. NULL expires_at = treat as
+        // permanent (legitimate steady-state pricing).
+        conditions.push(`(expires_at IS NULL OR expires_at > datetime('now'))`);
+
         if (distributor) {
             conditions.push(`distributor = ?`);
             bindings.push(distributor);
