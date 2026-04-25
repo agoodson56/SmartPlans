@@ -38,64 +38,66 @@ export async function onRequestGet(context) {
         let resetHint = null;
 
         // FIX #16: Test ALL keys instead of every-other — prevents false healthy status
+        // Wave 12 fix: probe all keys in PARALLEL via Promise.allSettled.
+        // Sequential probing took 18-36s of wall-clock at the start of every
+        // bid (one health check) — parallel probing collapses to ~2s.
         const testSlots = Array.from({ length: keyNames.length }, (_, i) => i);
-        const results = [];
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:countTokens`;
+        const PROBE_TIMEOUT_MS = 8000;
 
-        for (const slot of testSlots) {
+        const probeOne = async (slot) => {
             const key = env[keyNames[slot]];
-            if (!key) continue;
-            configuredKeys++;
-
+            if (!key) return { slot, missing: true };
+            // Per-probe timeout so a hung key doesn't drag down the whole batch
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => { try { ctrl.abort(); } catch {} }, PROBE_TIMEOUT_MS);
             try {
-                // Minimal API call — count tokens on trivial input (near-zero cost)
-                // FIX #9: Use header-based auth instead of URL parameter
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:countTokens`;
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: 'test' }] }],
-                    }),
+                    body: JSON.stringify({ contents: [{ parts: [{ text: 'test' }] }] }),
+                    signal: ctrl.signal,
                 });
-
+                clearTimeout(timer);
                 if (response.ok) {
-                    availableKeys++;
-                    results.push({ slot, status: 'ok' });
+                    return { slot, status: 'ok' };
                 } else if (response.status === 429) {
-                    rateLimitedKeys++;
-                    // Try to extract retry-after or quota reset info
                     const retryAfter = response.headers.get('Retry-After');
                     const body = await response.json().catch(() => ({}));
                     const errorMsg = body?.error?.message || '';
-
-                    // Parse reset time hints from error message
-                    if (retryAfter) {
-                        resetHint = parseInt(retryAfter);
-                    } else if (errorMsg.includes('minute')) {
-                        resetHint = resetHint || 60;
-                    }
-
-                    results.push({
-                        slot,
-                        status: 'rate_limited',
-                        message: errorMsg.substring(0, 200),
-                        retryAfter: retryAfter || null,
-                    });
+                    return { slot, status: 'rate_limited', message: errorMsg.substring(0, 200), retryAfter: retryAfter || null };
                 } else if (response.status === 403) {
-                    rateLimitedKeys++;
                     const body = await response.json().catch(() => ({}));
-                    results.push({
-                        slot,
-                        status: 'quota_exceeded',
-                        message: (body?.error?.message || '').substring(0, 200),
-                    });
+                    return { slot, status: 'quota_exceeded', message: (body?.error?.message || '').substring(0, 200) };
                 } else {
-                    errorKeys++;
-                    results.push({ slot, status: 'error', code: response.status });
+                    return { slot, status: 'error', code: response.status };
                 }
             } catch (err) {
+                clearTimeout(timer);
+                return { slot, status: 'error', message: err?.message || String(err), aborted: err?.name === 'AbortError' };
+            }
+        };
+
+        const settled = await Promise.allSettled(testSlots.map(probeOne));
+        const results = [];
+        for (const s of settled) {
+            const r = s.status === 'fulfilled' ? s.value : { slot: -1, status: 'error', message: 'probe-rejected' };
+            if (r.missing) continue;
+            configuredKeys++;
+            if (r.status === 'ok') {
+                availableKeys++;
+                results.push({ slot: r.slot, status: 'ok' });
+            } else if (r.status === 'rate_limited') {
+                rateLimitedKeys++;
+                if (r.retryAfter) resetHint = parseInt(r.retryAfter);
+                else if ((r.message || '').includes('minute')) resetHint = resetHint || 60;
+                results.push({ slot: r.slot, status: 'rate_limited', message: r.message, retryAfter: r.retryAfter });
+            } else if (r.status === 'quota_exceeded') {
+                rateLimitedKeys++;
+                results.push({ slot: r.slot, status: 'quota_exceeded', message: r.message });
+            } else {
                 errorKeys++;
-                results.push({ slot, status: 'error', message: err.message });
+                results.push({ slot: r.slot, status: 'error', code: r.code, message: r.message });
             }
         }
 
