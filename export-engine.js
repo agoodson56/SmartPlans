@@ -4224,6 +4224,14 @@ Return ONLY the JSON array. No other text.`;
 
     _download(content, filename, mimeType) {
         const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType || "application/octet-stream" });
+        // v5.129.6 — ZIP EVERYTHING capture mode. When this._capturedFiles is
+        // an array, every export pushes its blob+filename here instead of
+        // triggering a separate browser download. zipEverything() then
+        // bundles them into one .zip and ships that single file.
+        if (Array.isArray(this._capturedFiles)) {
+            this._capturedFiles.push({ filename, blob });
+            return;
+        }
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -4232,6 +4240,168 @@ Return ONLY the JSON array. No other text.`;
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // ZIP EVERYTHING (v5.129.6) — bundle every printable artifact
+    // into a single archive named after the bid
+    // ═══════════════════════════════════════════════════════════
+    // Captures: JSON, Excel, Markdown, BOM xlsx, Master Report HTML,
+    // Full Proposal HTML+Word, Executive Proposal HTML+Word, BOM PDF
+    // HTML, plus a README.txt that explains what each file is.
+    //
+    // Files only appear in the zip when they exist — Master Report
+    // requires a successful generateMasterReport() run first; Full
+    // Proposal requires a successful renderAndDownload() run; etc.
+    // The zip is a SNAPSHOT of whatever is cached at click time,
+    // matching the user's mental model of "everything I've already
+    // generated, in one bundle."
+    async zipEverything(state) {
+        if (typeof JSZip === 'undefined') {
+            const msg = 'ZIP library not loaded. Reload the page and try again.';
+            console.error('[ZipEverything]', msg);
+            if (typeof spToast === 'function') spToast(msg, 'error');
+            return;
+        }
+        if (!state) {
+            if (typeof spToast === 'function') spToast('No project state available', 'error');
+            return;
+        }
+
+        const safeName = this._safeName(state) || 'SmartPlans_Bid';
+        const zipName = `${safeName}.zip`;
+        const startedAt = new Date();
+
+        // Reset capture buffer and turn on capture mode
+        this._capturedFiles = [];
+
+        const errors = [];
+        const _safeRun = (label, fn) => {
+            try { fn(); }
+            catch (e) {
+                console.error(`[ZipEverything] ${label} failed:`, e);
+                errors.push(`${label}: ${e.message || e}`);
+            }
+        };
+
+        // ── 1. Run every standard export through capture mode ──
+        _safeRun('JSON',     () => this.exportJSON(state));
+        _safeRun('Excel',    () => this.exportExcel(state));
+        _safeRun('Markdown', () => this.exportMarkdown(state));
+        _safeRun('BOM',      () => this.exportBOM(state));
+
+        // ── 2. Pull cached HTMLs from generators ──
+        // Master Report — generateMasterReport() in app.js caches the HTML
+        // on window._lastMasterReportHTML so this captures it without
+        // re-rendering. If the user hasn't generated one yet, the file
+        // is omitted (with a note in the README).
+        const lastMaster = (typeof window !== 'undefined') ? window._lastMasterReportHTML : null;
+        if (lastMaster && typeof lastMaster === 'string' && lastMaster.length > 200) {
+            this._capturedFiles.push({
+                filename: `${safeName}_MasterReport.html`,
+                blob: new Blob([lastMaster], { type: 'text/html;charset=utf-8' }),
+            });
+        }
+
+        // Full Proposal (Word + HTML)
+        const PG = (typeof ProposalGenerator !== 'undefined') ? ProposalGenerator : null;
+        if (PG && PG._lastFullProposalHTML) {
+            const html = PG._lastFullProposalHTML;
+            this._capturedFiles.push({
+                filename: `${safeName}_FullProposal.html`,
+                blob: new Blob([html], { type: 'text/html;charset=utf-8' }),
+            });
+            this._capturedFiles.push({
+                filename: `${safeName}_FullProposal.doc`,
+                blob: new Blob(['﻿' + html], { type: 'application/msword' }),
+            });
+        }
+
+        // Executive Proposal (Word + HTML)
+        if (PG && PG._lastExecProposalHTML) {
+            const html = PG._lastExecProposalHTML;
+            this._capturedFiles.push({
+                filename: `${safeName}_ExecutiveProposal.html`,
+                blob: new Blob([html], { type: 'text/html;charset=utf-8' }),
+            });
+            this._capturedFiles.push({
+                filename: `${safeName}_ExecutiveProposal.doc`,
+                blob: new Blob(['﻿' + html], { type: 'application/msword' }),
+            });
+        }
+
+        // BOM PDF HTML — cached on window._lastBOMPdfHTML by the PDF button
+        const lastBomPdf = (typeof window !== 'undefined') ? window._lastBOMPdfHTML : null;
+        if (lastBomPdf && typeof lastBomPdf === 'string' && lastBomPdf.length > 200) {
+            this._capturedFiles.push({
+                filename: `${safeName}_BOM_Print.html`,
+                blob: new Blob([lastBomPdf], { type: 'text/html;charset=utf-8' }),
+            });
+        }
+
+        // ── 3. Generate the README ──
+        const captured = this._capturedFiles.slice();
+        const lines = [
+            `SmartPlans Bid Package — ${state.projectName || 'Project'}`,
+            `Generated: ${startedAt.toLocaleString()}`,
+            `Bid Total: ${state._lockedBidTotal ? '$' + Number(state._lockedBidTotal).toLocaleString() : 'see exports'}`,
+            ``,
+            `Files in this archive (${captured.length}):`,
+            ...captured.map(f => `  - ${f.filename}`),
+            ``,
+            `What each one is:`,
+            `  *.json   Structured bid data — import into project-management app`,
+            `  *.xlsx   Excel workbook — multi-sheet (BOM, summary, financials)`,
+            `  *.md     Markdown proposal report — human-readable text`,
+            `  *.doc    Microsoft Word proposal — open in Word, edit, print`,
+            `  *.html   Self-contained HTML — open in browser, then print to PDF`,
+            ``,
+            `To get a PDF: open any *.html in your browser, press Ctrl+P (or`,
+            `Cmd+P), and choose "Save as PDF" as the destination printer.`,
+            ``,
+            `Missing files? Some artifacts are only included if they were`,
+            `generated during this session:`,
+            `  - Master Report → click "Generate Master Report" first`,
+            `  - Full Proposal → click "Generate Full Proposal" first`,
+            `  - Executive Proposal → click "Generate Executive Proposal" first`,
+            `  - BOM Print HTML → click the BOM "PDF" button first`,
+            ``,
+        ];
+        if (errors.length > 0) {
+            lines.push(`Issues encountered during bundling:`);
+            for (const e of errors) lines.push(`  - ${e}`);
+            lines.push('');
+        }
+        this._capturedFiles.push({
+            filename: 'README.txt',
+            blob: new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' }),
+        });
+
+        // ── 4. Build the ZIP ──
+        let zipBlob;
+        try {
+            const zip = new JSZip();
+            for (const f of this._capturedFiles) {
+                zip.file(f.filename, f.blob);
+            }
+            zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        } catch (zipErr) {
+            console.error('[ZipEverything] JSZip generateAsync failed:', zipErr);
+            this._capturedFiles = null;
+            if (typeof spToast === 'function') spToast(`ZIP build failed: ${zipErr.message || zipErr}`, 'error');
+            return;
+        }
+
+        // ── 5. Disable capture mode BEFORE the final download ──
+        this._capturedFiles = null;
+        this._download(zipBlob, zipName, 'application/zip');
+
+        const fileCount = captured.length;
+        const sizeKB = Math.round(zipBlob.size / 1024);
+        console.log(`[ZipEverything] Bundled ${fileCount} files (${sizeKB} KB) → ${zipName}`);
+        if (typeof spToast === 'function') {
+            spToast(`📦 Bundled ${fileCount} files → ${zipName} (${sizeKB} KB)`);
+        }
     },
 
     // ─── Apply Bid Strategy — per-category markups & contingency ───

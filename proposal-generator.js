@@ -42,7 +42,8 @@ const ProposalGenerator = {
     const disciplines = (state.disciplines || []).map(d => _san(d, 100)).join(', ') || 'Low Voltage Systems';
     const today = new Date();
     const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    const validUntil = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
+    // v5.129.8 — 45-day validity period to match Proposal Validity; Right to Withdraw clause
+    const validUntil = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)
       .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
     // CRITICAL: Pre-compute BOM grand total BEFORE anything else.
@@ -148,10 +149,10 @@ Provide a realistic phased schedule with estimated durations:
 - Phase 5: Training, documentation, closeout (Week 13-14)
 Adjust the timeline based on project complexity from the analysis data.
 
-## 6. Investment Summary
-**SKIP THIS SECTION ENTIRELY. Do NOT write any financial tables, cost summaries, pricing breakdowns, sell prices, material costs, labor costs, subtotals, or grand totals. Do NOT create any investment summary table. Write ONLY this exact sentence:** "Please refer to the Investment Summary on the following page."
+## 6. Total Project Investment
+**SKIP THIS SECTION ENTIRELY. Do NOT write any financial tables, cost summaries, pricing breakdowns, sell prices, material costs, labor costs, subtotals, line items, contingency lines, category totals, or any per-system pricing. Do NOT create any investment summary table. Write ONLY this exact sentence:** "Please refer to the Total Project Investment on the following page."
 
-The financial table will be inserted separately with verified numbers. You must NOT attempt to create any pricing content whatsoever.
+The Total Project Investment box (a single grand-total figure — no breakdown) will be inserted separately on the next page. The proposal exposes ONE dollar amount only. You must NOT attempt to create any pricing content whatsoever.
 
 ## 7. Terms & Conditions
 Write comprehensive professional terms:
@@ -164,6 +165,8 @@ Write comprehensive professional terms:
 - Assumptions: ${(() => { const assm = (state.exclusions || []).filter(e => e.type === 'assumption'); return assm.length > 0 ? assm.map(e => e.text).join('; ') : 'Normal working hours, adequate site access, power available at equipment locations'; })()}
 - Prevailing wage: If applicable, all labor rates comply with DIR determinations
 - Force majeure: Neither party liable for delays beyond reasonable control
+
+DO NOT write a "Proposal Validity" or "Right to Withdraw" or "AI-Assisted Proposal" paragraph here. Those are rendered downstream by the system as a separate dedicated legal section before the signature block — duplicating them in this section would create conflicting language. Skip the validity period entirely; the system inserts it.
 
 ## 8. Why Choose 3D Technology Services, Inc.
 Write a compelling closing (3-4 paragraphs) covering:
@@ -327,11 +330,18 @@ OUTPUT FORMAT: Use markdown headers (## for main sections, ### for subsections).
     const preparedFor = state.preparedFor || projName;
     const today = new Date();
     const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    const validUntil = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
+    // v5.129.8 — 45-day validity to match Proposal Validity; Right to Withdraw clause
+    const validUntil = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)
       .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const refNum = `3DTSI-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 9000 + 1000)}`;
     const year = today.getFullYear();
-    const bodyHtml = this._sanitizeHtml(this._markdownToHtml(proposalText));
+    // v5.129.7 — pre-scrub the AI markdown so even if the model ignores
+    // the "do not write Investment Summary" instructions, the section
+    // never reaches the rendered proposal. The full Total Project
+    // Investment box (single grand total only) is drawn separately by
+    // the proposal HTML at the end.
+    const scrubbedMd = this._stripPricingSections(proposalText);
+    const bodyHtml = this._sanitizeHtml(this._markdownToHtml(scrubbedMd));
 
     // Build the DETERMINISTIC financial table from BOM data (code, not AI)
     const financialTableHtml = this._buildFinancialTableHtml(state);
@@ -604,7 +614,7 @@ TABLE OF CONTENTS
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">03</span> <span style="font-size:11pt;color:#222;">Detailed Scope of Work</span></td></tr>
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">04</span> <span style="font-size:11pt;color:#222;">Technical Approach &amp; Methodology</span></td></tr>
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">05</span> <span style="font-size:11pt;color:#222;">Project Timeline &amp; Milestones</span></td></tr>
-  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">06</span> <span style="font-size:11pt;color:#222;">Investment Summary</span></td></tr>
+  <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">06</span> <span style="font-size:11pt;color:#222;">Total Project Investment</span></td></tr>
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">07</span> <span style="font-size:11pt;color:#222;">Terms &amp; Conditions</span></td></tr>
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">08</span> <span style="font-size:11pt;color:#222;">Why Choose 3D Technology Services, Inc.</span></td></tr>
   <tr><td style="padding:10pt 0;border-bottom:1pt solid ${b.border};"><span style="font-size:13pt;font-weight:bold;color:${b.teal};display:inline-block;width:36pt;">09</span> <span style="font-size:11pt;color:#222;">Acceptance &amp; Authorization</span></td></tr>
@@ -652,7 +662,6 @@ TOTAL INVESTMENT — Hardcoded from analysis (guaranteed to appear)
 </table>
 
 <p style="font-size:9pt;color:${b.gray};margin-top:8pt;text-align:center;">
-  This pricing is valid for thirty (30) calendar days from ${dateStr}.<br>
   All prices subject to material availability at time of contract execution.
 </p>
 
@@ -666,15 +675,20 @@ ${this._confBar(true)}
 
 <!--
 ═══════════════════════════════════════════════════════════
+PROPOSAL VALIDITY; RIGHT TO WITHDRAW (v5.129.8 — required legal section)
+═══════════════════════════════════════════════════════════
+-->
+${this._validityClauseHtml()}
+
+<!--
+═══════════════════════════════════════════════════════════
 ACCEPTANCE & SIGNATURE BLOCK
 ═══════════════════════════════════════════════════════════
 -->
 
 <h2>Acceptance &amp; Authorization</h2>
 
-<p>By executing this document below, the authorized representative of the Client hereby accepts this proposal in its entirety, including all terms, conditions, scope of work, and investment summary as described herein. This agreement constitutes a binding contract between ${co.name} and the Client upon signature by both parties.</p>
-
-<p>This proposal and the pricing contained within are valid for <b>thirty (30) calendar days</b> from the date of issuance (${dateStr}). After this period, ${co.name} reserves the right to re-quote based on current material pricing and labor availability.</p>
+<p>By executing this document below, the authorized representative of the Client acknowledges receipt of this proposal subject to the terms set forth above, including the Proposal Validity; Right to Withdraw clause. No binding contract shall arise unless and until a definitive written agreement is executed by duly authorized representatives of both ${co.name} and the Client.</p>
 
 <br>
 
@@ -777,6 +791,80 @@ ${this._confBar()}
         throw new Error('Could not download proposal. Try a different browser or reduce document size.');
       }
     }
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PROPOSAL VALIDITY CLAUSE (v5.129.8)
+  // Required legal disclosure rendered in BOTH the Full and Executive
+  // proposals, immediately before the acceptance/signature block. Sets
+  // 45-day validity, AI-assisted disclosure, right to withdraw,
+  // not-a-binding-offer, and California governing law.
+  // ═══════════════════════════════════════════════════════════════
+  _validityClauseHtml() {
+    const b = this.BRAND;
+    return `
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:18pt;margin-bottom:6pt;">
+  <tr>
+    <td bgcolor="${b.navy}" style="border-bottom:3pt solid ${b.gold};padding:8pt 14pt;">
+      <span style="font-size:11pt;color:${b.gold};text-transform:uppercase;letter-spacing:2pt;font-weight:bold;font-family:Calibri,Arial,sans-serif;">Proposal Validity; Right to Withdraw <span style="font-size:9pt;color:rgba(255,255,255,0.85);text-transform:none;letter-spacing:0;font-weight:normal;">(AI-Assisted Proposal)</span></span>
+    </td>
+  </tr>
+</table>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:18pt;">
+  <tr>
+    <td style="border:1pt solid ${b.border};padding:14pt 16pt;background:#FAFAFA;">
+      <p style="font-size:9.5pt;color:#222;line-height:1.55;margin:0 0 8pt 0;text-align:justify;font-family:Calibri,Arial,sans-serif;">
+        This proposal is provided by 3D Technology Services, Inc. (&ldquo;3D&rdquo;) for evaluation purposes only and shall remain valid for a period of forty-five (45) calendar days from the date of issuance, unless earlier withdrawn as provided herein. This proposal has been prepared, in whole or in part, using automated and artificial intelligence&ndash;assisted processes and is subject to internal review and verification.
+      </p>
+      <p style="font-size:9.5pt;color:#222;line-height:1.55;margin:0 0 8pt 0;text-align:justify;font-family:Calibri,Arial,sans-serif;">
+        3D reserves the right, in its sole discretion, to withdraw, modify, or cancel this proposal, in whole or in part, at any time prior to the execution of a definitive written agreement by both parties, including, without limitation, in the event of any errors, omissions, inaccuracies, or inconsistencies identified in the proposal.
+      </p>
+      <p style="font-size:9.5pt;color:#222;line-height:1.55;margin:0 0 8pt 0;text-align:justify;font-family:Calibri,Arial,sans-serif;">
+        This proposal does not constitute a binding agreement or offer capable of acceptance. No contract, obligation, or liability shall arise unless and until a written agreement is executed by duly authorized representatives of both parties.
+      </p>
+      <p style="font-size:9.5pt;color:#222;line-height:1.55;margin:0;text-align:justify;font-family:Calibri,Arial,sans-serif;">
+        This provision shall be governed by and construed in accordance with the laws of the State of California.
+      </p>
+    </td>
+  </tr>
+</table>
+`;
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRICING-SECTION SCRUBBER (v5.129.7)
+  // Belt-and-suspenders defense: even with explicit prompt instructions
+  // not to write an "Investment Summary" or pricing breakdown, the
+  // model occasionally ignores them. Strip any heading that looks like
+  // pricing-section content from the markdown BEFORE it renders, so a
+  // misbehaving model can't leak per-category prices to the client.
+  //
+  // Removes a heading line + everything following until the next H2/H3
+  // heading or end of document, when the heading text matches:
+  //   "Investment Summary", "Pricing Summary", "Cost Breakdown",
+  //   "Cost Summary", "Financial Summary", "Pricing Strategy",
+  //   "Pricing Strategy Summary", "Pricing Breakdown",
+  //   "Investment Breakdown".
+  // The Total Project Investment box (single grand total only) is
+  // rendered separately by the proposal HTML — preserving the user's
+  // rule that the proposal exposes ONE dollar amount only.
+  // ═══════════════════════════════════════════════════════════════
+  _stripPricingSections(md) {
+    if (!md || typeof md !== 'string') return md || '';
+    const headingRe = /^\s*#{1,4}\s*(?:\d+\.\s*)?(?:investment\s+(?:summary|breakdown)|pricing\s+(?:summary|strategy(?:\s+summary)?|breakdown)|cost\s+(?:breakdown|summary)|financial\s+(?:summary|breakdown))\s*:?\s*$/im;
+    let stripped = md;
+    let safety = 0;
+    while (safety++ < 6) {
+      const m = stripped.match(headingRe);
+      if (!m) break;
+      const start = m.index;
+      // Find the next H2/H3 heading after this section
+      const tail = stripped.slice(start + m[0].length);
+      const nextHead = tail.search(/^\s*#{1,3}\s+\S/m);
+      const cutTo = nextHead >= 0 ? start + m[0].length + nextHead : stripped.length;
+      stripped = stripped.slice(0, start) + stripped.slice(cutTo);
+    }
+    return stripped;
   },
 
   _markdownToHtml(md) {
@@ -1004,61 +1092,14 @@ ${this._confBar()}
     state._bomGrandTotal = bd.grandTotal;
     state._bomBreakdown = bd;
 
-    // Build line items for the table
-    const lineItems = [
-      { label: 'Materials', investment: bd.matSell },
-      { label: 'Labor', investment: bd.labSell },
-      { label: 'Equipment', investment: bd.eqSell },
-      { label: 'Subcontractors', investment: bd.subSell },
-    ].filter(g => g.investment > 0);
-    if (bd.burden > 0) lineItems.push({ label: 'Burden/Overhead', investment: bd.burden });
-    if (bd.travel > 0) lineItems.push({ label: 'Travel/Incidentals', investment: bd.travel });
-
-    const subtotal = bd.subtotal;
-    const contingency = bd.contingency;
-    const grandTotal = bd.grandTotal;
-
-    // Build Word-compatible HTML table with Category + Investment only (no base cost or markup exposed to client)
-    let rows = '';
-    lineItems.forEach(g => {
-      rows += `<tr>
-        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${g.label}</font></td>
-        <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(g.investment)}</font></td>
-      </tr>`;
-    });
-
-    return `
-<!-- Confidential bar with page break -->
-${this._confBar(true)}
-
-<table width="100%" cellpadding="8" cellspacing="0" border="0" style="margin-bottom:8pt;">
-  <tr>
-    <td bgcolor="${b.navy}" style="border-bottom:3pt solid ${b.gold};">
-      <span style="font-size:14pt;color:${b.gold};text-transform:uppercase;letter-spacing:3pt;font-weight:bold;font-family:Calibri,Arial,sans-serif;">Investment Summary</span>
-    </td>
-  </tr>
-</table>
-
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20pt;">
-  <tr>
-    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};width:50%;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Category</b></font></td>
-    <td bgcolor="${b.navy}" style="padding:8pt 14pt;color:#FFFFFF;font-size:9pt;text-transform:uppercase;font-weight:bold;letter-spacing:1pt;border:1pt solid ${b.navy};text-align:right;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>Investment</b></font></td>
-  </tr>
-  ${rows}
-  <tr>
-    <td bgcolor="#3B97A1" style="padding:10pt 14pt;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #2B828B;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>SUBTOTAL</b></font></td>
-    <td bgcolor="#3B97A1" style="padding:10pt 14pt;text-align:right;font-size:11pt;font-weight:bold;color:#FFFFFF;border:1pt solid #2B828B;font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(subtotal)}</b></font></td>
-  </tr>
-  <tr>
-    <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">Contingency ${Math.round((bd.contingencyPct || 0.10) * 100)}%</font></td>
-    <td style="padding:10pt 14pt;border-bottom:1pt solid #E2E8F0;text-align:right;font-size:11pt;color:#222;font-family:Calibri,Arial,sans-serif;"><font color="#222">${fmt(contingency)}</font></td>
-  </tr>
-  <tr>
-    <td bgcolor="${b.navy}" style="padding:12pt 14pt;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>GRAND TOTAL</b></font></td>
-    <td bgcolor="${b.navy}" style="padding:12pt 14pt;text-align:right;font-size:13pt;font-weight:bold;color:#FFFFFF;border:2pt solid ${b.gold};font-family:Calibri,Arial,sans-serif;"><font color="#FFFFFF"><b>${fmt(grandTotal)}</b></font></td>
-  </tr>
-</table>
-`;
+    // v5.129.7 — proposals show ONLY the final grand total. No category
+    // line items, no subtotal, no contingency line, no markup exposure,
+    // no per-system breakdown. The downstream "Total Project Investment"
+    // box (built directly into the proposal HTML at line ~640 for the
+    // full proposal and line ~1614 for the executive) reads from the
+    // cached state._bomGrandTotal we just set, so returning '' here
+    // suppresses the breakdown without breaking the total display.
+    return '';
    } catch (finErr) {
     console.error('[ProposalGen] _buildFinancialTableHtml error:', finErr);
     // Return a graceful fallback instead of crashing the entire proposal
@@ -1071,9 +1112,17 @@ ${this._confBar(true)}
   },
 
   // ═══════════════════════════════════════════════════════════════
-  // PRICING STRATEGY SUMMARY — Shows confidence breakdown without revealing markup %
+  // PRICING STRATEGY SUMMARY — DISABLED in v5.129.7
+  // The previous version exposed per-confidence-level subtotals
+  // ("$ for high confidence categories", etc.) which gives clients
+  // a window into our markup chain. The proposal must show ONE
+  // dollar amount only — the final Total Project Investment.
   // ═══════════════════════════════════════════════════════════════
   _buildPricingStrategySummaryHtml(state) {
+    return '';
+    /* eslint-disable no-unreachable */
+    // Legacy code retained below in case we ever want to surface
+    // contingency methodology to the estimator (NOT to the client).
     if (!state.bidStrategy || !state.bidStrategy.applied) return '';
 
     const b = this.BRAND;
@@ -1321,7 +1370,10 @@ This estimate incorporates a risk-adjusted pricing strategy. Categories have bee
       const disciplines = (state.disciplines || []).join(', ') || 'Low Voltage Systems';
       const today = new Date();
       const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      const validUntil = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
+      // v5.129.8 — validity period bumped 30 → 45 days to match the
+      // Proposal Validity; Right to Withdraw clause rendered before the
+      // signature block on Page 3.
+      const validUntil = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)
         .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
       const refNum = `3DTSI-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Math.floor(Math.random() * 9000 + 1000)}`;
       const year = today.getFullYear();
@@ -1349,15 +1401,16 @@ TOTAL BID PRICE: ${grandTotalStr}
 ${analysisSummary}
 
 ═══ CRITICAL RULES ═══
-- The ONLY dollar amount you may show is the TOTAL BID PRICE: ${grandTotalStr}
+- The ONLY dollar amount that may appear ANYWHERE in your output is the TOTAL BID PRICE: ${grandTotalStr}
 - NEVER show internal costs, raw costs, base costs, markups, margins, burden, overhead, profit percentages, or any cost breakdown
 - NEVER show per-item prices, category subtotals, material costs, or labor costs
-- The Investment Summary table must show descriptions and the total — NOT individual line item prices
+- Do NOT write an "Investment Summary" or pricing-breakdown section — the Total Project Investment is rendered separately on Page 3 by the system, with the single grand-total figure only
+- Do NOT write a "Proposal Validity", "Right to Withdraw", or "AI-Assisted Proposal" paragraph — those are rendered downstream as a separate dedicated legal section before the signature block. Do NOT mention validity periods, days, withdrawal rights, or governing law.
 - If you mention any dollar amount other than ${grandTotalStr}, the proposal is REJECTED
 - Be concise but compelling. Every word must earn its place.
 - Use specific quantities and data from the analysis — do NOT make up numbers.
 
-Write EXACTLY this structure in markdown:
+Write EXACTLY this structure in markdown (NO Investment Summary section — it is rendered downstream):
 
 ## Executive Summary
 Write 2-3 powerful paragraphs. Open with a compelling hook about the project. State the total scope concisely. Close with the total investment of ${grandTotalStr} and why ${co.name} is the best choice. Reference BICSI RCDD, NICET, and 20+ years.
@@ -1365,13 +1418,10 @@ Write 2-3 powerful paragraphs. Open with a compelling hook about the project. St
 ## Scope of Work
 A concise bullet list of what's included, organized ONLY by the selected disciplines: ${disciplines}. Do NOT include any disciplines that are not listed. Use real quantities from the analysis data. Keep to 10-15 key items max. Do NOT include prices on any line item.
 
-## Investment Summary
-State the TOTAL PROJECT INVESTMENT as ${grandTotalStr}. You may list the major systems included (cameras, cabling, access control, etc.) but do NOT show individual prices for any line item. Only the grand total.
-
 ## Key Differentiators
 3-4 bullet points on why ${co.name} is the best choice. Keep each to 1-2 sentences max.
 
-IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The ONLY dollar figure in the entire document is ${grandTotalStr}.`;
+IMPORTANT: Keep the ENTIRE response under 700 words. Quality over quantity. The ONLY dollar figure in the entire document is ${grandTotalStr}, and it appears in the Executive Summary closing line — the full Total Project Investment box on Page 3 is rendered by the system separately.`;
 
       const requestBody = {
         contents: [{ parts: [{ text: prompt }] }],
@@ -1441,7 +1491,11 @@ IMPORTANT: Keep the ENTIRE response under 800 words. Quality over quantity. The 
 
       progressCallback(60, 'Building executive Word document…');
 
-      const bodyHtml = this._sanitizeHtml(this._markdownToHtml(aiText));
+      // v5.129.7 — strip any Investment Summary / pricing-table content the
+      // AI may have written despite the prompt instructions. The Total
+      // Project Investment box on Page 3 is the only place pricing appears.
+      const scrubbedAi = this._stripPricingSections(aiText);
+      const bodyHtml = this._sanitizeHtml(this._markdownToHtml(scrubbedAi));
 
       // ─── Build the 3-page Word document ───
       let wordHtml = `<!DOCTYPE html>
@@ -1566,9 +1620,9 @@ PAGE 1 — STUNNING COVER PAGE
   </tr>
 </table>
 
-<!-- Valid until -->
+<!-- Valid until — see Proposal Validity; Right to Withdraw clause on Page 3 for full terms -->
 <p style="font-size:8pt;color:${b.gray};text-align:center;margin-top:10pt;">
-  This proposal is valid for thirty (30) calendar days from ${dateStr} &middot; Valid until ${validUntil}
+  This proposal is valid for forty-five (45) calendar days from ${dateStr} &middot; Valid until ${validUntil}
 </p>
 
 <!-- Confidential bar before page break -->
@@ -1622,10 +1676,16 @@ PAGE 3 — TOTAL INVESTMENT & SIGNATURE
   </tr>
 </table>
 
-<p style="font-size:9pt;color:${b.gray};text-align:center;margin-bottom:20pt;">
-  Pricing valid for thirty (30) calendar days from ${dateStr}.<br>
+<p style="font-size:9pt;color:${b.gray};text-align:center;margin-bottom:14pt;">
   All prices subject to material availability at time of contract execution.
 </p>
+
+<!--
+═══════════════════════════════════════════════════════════
+PROPOSAL VALIDITY; RIGHT TO WITHDRAW (v5.129.8 — required legal section)
+═══════════════════════════════════════════════════════════
+-->
+${this._validityClauseHtml()}
 
 <!-- Acceptance Section -->
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8pt;">
@@ -1633,7 +1693,7 @@ PAGE 3 — TOTAL INVESTMENT & SIGNATURE
 </table>
 <h2 style="border-bottom:none;margin-top:12pt;">Acceptance &amp; Authorization</h2>
 
-<p style="font-size:10pt;">By executing this document, the authorized representative accepts this proposal in its entirety. This constitutes a binding contract upon signature by both parties.</p>
+<p style="font-size:10pt;">By executing this document, the authorized representative acknowledges receipt of this proposal subject to the Proposal Validity; Right to Withdraw clause set forth above. No binding contract shall arise unless and until a definitive written agreement is executed by duly authorized representatives of both parties.</p>
 
 <br>
 

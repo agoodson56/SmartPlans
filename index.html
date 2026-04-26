@@ -138,7 +138,7 @@
             initialScope: { tags: { app: 'smartplans' } },
           });
           console.log('[SmartPlans] Sentry error tracking initialized');
-          console.log('[SmartPlans] Build: v5.129.5 — 2026-04-26');
+          console.log('[SmartPlans] Build: v5.129.8 — 2026-04-26');
         }
       } catch (e) {
         console.warn('[SmartPlans] Sentry init failed (non-fatal):', e.message);
@@ -204,6 +204,8 @@
         })();
     </script>
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js" crossorigin="anonymous"></script>
+    <!-- JSZip 3.10.1: bundles ZIP EVERYTHING button outputs into one archive -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js" crossorigin="anonymous" integrity="sha384-ieG+IKD0d/ZPXyCBTMVAbqsQdns8QGJR/e26WMw7M4fkaI/rHcS/YIoi+ah9WGge"></script>
     <script src="pricing-database.js"></script>
     <script src="company-profile.js"></script>
