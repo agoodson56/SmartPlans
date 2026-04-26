@@ -1541,16 +1541,15 @@ const SmartBrains = {
             console.log(`[OCR Scale] Page ${p}: Sheet size detected as ${pageResult._sheetName} (${pageResult.sheetWidthIn}"×${pageResult.sheetHeightIn}")`);
           }
 
-          // Try to extract sheet ID
+          // Try to extract sheet ID — v5.129.10: route through
+          // _extractSheetIdFromText so digit→letter glue (e.g., "1ESD300")
+          // gets normalized before regex matching.
           for (const text of candidateTexts) {
-            for (const pat of sheetIdPatterns) {
-              const match = text.match(pat);
-              if (match) {
-                pageResult.sheetId = match[1];
-                break;
-              }
+            const found = this._extractSheetIdFromText(text);
+            if (found) {
+              pageResult.sheetId = found;
+              break;
             }
-            if (pageResult.sheetId) break;
           }
           if (!pageResult.sheetId) pageResult.sheetId = `page_${p}`;
 
@@ -2168,13 +2167,21 @@ const SmartBrains = {
   // Returns the first convincing match or null.
   _extractSheetIdFromText(text) {
     if (typeof text !== 'string' || text.length === 0) return null;
+    // v5.129.10: Normalize digit→uppercase-letter boundaries before matching.
+    // Many title blocks pack the detail number directly into the sheet ID
+    // text (e.g., "PLAN1ESD300", "NO SCALE1ES555", "1ES560"). With both
+    // characters being word-chars, the leading \b in our patterns finds no
+    // word boundary and silently fails. Inserting a space before the letter
+    // run forces a boundary so the regex sees "1 ESD300" → matches "ESD300".
+    // Also normalizes letter→letter glue like "FOR ES400" surviving fine.
+    const normalized = text.replace(/(\d)([A-Z])/g, '$1 $2');
     const patterns = [
       /\b([A-Z]{1,4}[-.]?\d{1,3}[.\-]\d{1,3}[a-zA-Z]?)\b/,  // T-101, FA-2.01
-      /\b([A-Z]{1,4}[-.]?\d{3,4}[a-zA-Z]?)\b/,               // T101, FA201
+      /\b([A-Z]{1,4}[-.]?\d{3,4}[a-zA-Z]?)\b/,               // T101, FA201, ES400, ESD300
       /\b([A-Z]{1,4}[-.]?\d{1,2})\b/,                         // T-1, FA-2
     ];
     for (const pat of patterns) {
-      const m = text.match(pat);
+      const m = normalized.match(pat);
       if (m) return m[1];
     }
     return null;
@@ -2859,17 +2866,18 @@ const SmartBrains = {
           const rightItems = textItems.filter(t => t.x > pageW * 0.75);
           const rightText = rightItems.map(t => t.str).join(' ');
 
-          // Search title block first (most reliable), then bottom, then full page
+          // Search title block first (most reliable), then bottom, then full page.
+          // v5.129.10: route through _extractSheetIdFromText so digit→letter
+          // normalization (e.g., "PLAN1ESD300" → "PLAN 1 ESD300") happens
+          // consistently. Inline regex above is kept for potential future use
+          // but is no longer the matcher.
           const searchTexts = [titleBlockText, bottomText, rightText, pageText];
           for (const text of searchTexts) {
-            for (const pat of sheetIdPatterns) {
-              const match = text.match(pat);
-              if (match) {
-                sheetId = match[1].toUpperCase();
-                break;
-              }
+            const found = this._extractSheetIdFromText(text);
+            if (found) {
+              sheetId = found.toUpperCase();
+              break;
             }
-            if (sheetId) break;
           }
         } catch (textErr) {
           // Text extraction failed — include page by default
