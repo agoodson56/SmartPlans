@@ -10280,10 +10280,14 @@ ${legendContext}
         // v5.128.20 (post-wave-13): ZOOM_SCANNER prompt emits `grid_counts` but the
         // aggregator was only reading `quadrant_counts` (silent data loss — same drift
         // wave-13 fixed for QUADRANT_SCANNER but missed for ZOOM_SCANNER). Read both.
-        if (r.data.quadrant_counts) quadrantCounts.push(...r.data.quadrant_counts);
-        if (r.data.grid_counts) quadrantCounts.push(...r.data.grid_counts);
-        if (r.data.zoom_findings) zoomFindings.push(...r.data.zoom_findings);
-        if (r.data.grand_totals) {
+        // v5.129.1 fix (2026-04-25): use Array.isArray() instead of truthy check —
+        // when the AI returns these fields as objects (not arrays), `[...obj]` throws
+        // "Spread syntax requires ...iterable[Symbol.iterator] to be a function" and
+        // the entire per-page aggregator dies, dropping the whole brain's results.
+        if (Array.isArray(r.data.quadrant_counts)) quadrantCounts.push(...r.data.quadrant_counts);
+        if (Array.isArray(r.data.grid_counts)) quadrantCounts.push(...r.data.grid_counts);
+        if (Array.isArray(r.data.zoom_findings)) zoomFindings.push(...r.data.zoom_findings);
+        if (r.data.grand_totals && typeof r.data.grand_totals === 'object') {
           for (const [k, v] of Object.entries(r.data.grand_totals)) {
             grandTotals[k] = (grandTotals[k] || 0) + (typeof v === 'number' ? v : 0);
           }
@@ -13100,23 +13104,41 @@ ${legendContext}
         // ─── v5.125.1 PHASE 0.6: Estimate Corrector Sanity Guard ───
         // Cluster-3C fix (2026-04-25): Pre-fix this guard was wrong-signed —
         // it rejected ANY drift >40%, including legitimate downward
-        // corrections (when the original was bloated). On the Martinez bid
-        // where the original Material Pricer total was $3.14M and the
-        // corrector proposed $1.95M (-38%), the original code would have
-        // rejected the correction (drift was actually 38% so just inside,
-        // but a 50%+ correction would have been blocked).  Now: only reject
-        // UPWARD drift over 40%. Downward corrections are ALWAYS welcome —
-        // they cannot make the bid worse than its already-bloated original.
-        const origTotal = parseFloat(corrector.original_grand_total) || 0;
+        // corrections (when the original was bloated). Now: only reject
+        // UPWARD drift over 40%. Downward corrections are ALWAYS welcome.
+        //
+        // v5.129.1 fix (2026-04-25): The corrector LLM's self-reported
+        // `original_grand_total` is unreliable — on the Martinez bid it
+        // returned $26K (some sub-category sum) when the actual pre-correction
+        // bid was $1.25M, causing a $25K legitimate correction to look like
+        // +99% drift and get rejected. Use the REAL Financial Engine /
+        // Material Pricer grand_total as the baseline, falling back to the
+        // corrector's self-reported value only if neither is available.
+        const finEngineTotal = parseFloat(
+          context.wave2_5_fin?.FINANCIAL_ENGINE?.project_summary?.grand_total
+        ) || 0;
+        const materialPricerTotal = parseFloat(
+          context.wave2?.MATERIAL_PRICER?.total_with_markup
+            ?? context.wave2?.MATERIAL_PRICER?.grand_total
+        ) || 0;
+        const llmReportedOrig = parseFloat(corrector.original_grand_total) || 0;
         const corrTotal = parseFloat(corrector.corrected_grand_total) || 0;
+        // Pick the most authoritative baseline available
+        const origTotal = finEngineTotal || materialPricerTotal || llmReportedOrig;
+        const baselineSource = finEngineTotal ? 'Financial Engine'
+          : materialPricerTotal ? 'Material Pricer'
+          : 'corrector self-report';
+        // The drift we care about is "how much did the corrector change the bid",
+        // measured as total_adjustment relative to the real baseline.
+        const reportedAdjustment = parseFloat(corrector.total_adjustment) || (corrTotal - llmReportedOrig);
         // v5.126.3 P3: Lowered the gate from $1000 to $100 so small service-call
         // bids also get the drift check.
-        if (origTotal > 100 && corrTotal > 0) {
-          const driftPct = (corrTotal - origTotal) / origTotal;  // signed: + means correction went up
+        if (origTotal > 100) {
+          const driftPct = reportedAdjustment / origTotal;  // signed: + means correction went up
           // Reject only UPWARD drift > 40% (corrector inflating an already-finished number).
           // Downward corrections of any magnitude are accepted — they catch over-bid bugs.
           if (driftPct > 0.40) {
-            console.warn(`[SmartBrains] ⛔ ESTIMATE CORRECTOR SANITY GUARD: corrected_grand_total $${corrTotal.toLocaleString()} drifts +${(driftPct * 100).toFixed(1)}% UP from original $${origTotal.toLocaleString()} — REJECTING upward correction`);
+            console.warn(`[SmartBrains] ⛔ ESTIMATE CORRECTOR SANITY GUARD: total_adjustment +$${reportedAdjustment.toLocaleString()} is +${(driftPct * 100).toFixed(1)}% of pre-correction bid $${origTotal.toLocaleString()} (${baselineSource}) — REJECTING upward correction`);
             console.warn(`[SmartBrains]    Corrections that INFLATE the bid by >40% are blocked (likely AI hallucinating extras). Downward corrections are accepted at any magnitude.`);
             corrector._sanityRejected = true;
             corrector._sanityRejectedReason = `Upward correction +${(driftPct * 100).toFixed(1)}% blocked (limit +40%). Downward corrections accepted unconditionally.`;
