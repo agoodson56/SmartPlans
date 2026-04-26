@@ -807,6 +807,16 @@ const FormulaEngine3D = {
         const grandMargin = this._round(grandSELL - grandCOS);
         const grandMarginPct = grandSELL > 0 ? this._round((grandMargin / grandSELL) * 100) : 0;
 
+        // v5.129.4: Capture the RAW cost-buildup output BEFORE calibration/clamping
+        // mutates grandTotalSELL. Downstream divergence checks (export-engine.js
+        // _computeFullBreakdown line ~730) need this so they compare deterministic
+        // against the actual cost-buildup math, not the post-calibration anchored
+        // value. Pre-fix: divergence warning fired falsely on every calibrated
+        // transit bid because clamp ceiling = det × 1.30 is exactly at the
+        // 15% divergence threshold edge.
+        const formulaTotalRaw = this._round(grandSELL);
+        const formulaCOSRaw = this._round(grandCOS);
+
         const result = {
             _engine: "FormulaEngine3D v2.0",
             _isPW: isPW,
@@ -831,6 +841,13 @@ const FormulaEngine3D = {
             // scoping makes reuse unlikely but this is defense in depth.
             _calibrated: false,
             _calibrationRejected: false,
+            // v5.129.4: raw pre-calibration cost-buildup output, preserved across
+            // any later mutation of grandTotalSELL. The divergence check in
+            // export-engine.js compares THIS value (not grandTotalSELL) against
+            // the deterministic _computeFullBreakdown total, so calibrated/clamped
+            // transit bids no longer fire false-positive markup-stacking warnings.
+            _formulaTotalRaw: formulaTotalRaw,
+            _formulaCOSRaw: formulaCOSRaw,
         };
 
         // ── Transit Benchmark Calibration ──

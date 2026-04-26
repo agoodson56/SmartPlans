@@ -721,27 +721,47 @@ const SmartPlansExport = {
         const grandTotal = this._round(preContingencyBase + contingency + travel);
 
         // ── 3D Engine Reference Comparison + Cluster-7A Divergence Guard ──
-        // Pre-fix the two cost-buildup paths (FormulaEngine3D vs _computeFullBreakdown)
-        // could produce totals that differ by 50%+ on the same inputs because of
-        // markup-stacking bugs. Cluster 1 fixes should keep them within ~15% of
-        // each other on healthy inputs. If they're still diverging by >25%, log a
-        // LOUD warning and stamp state._pathDivergenceWarning so the UI can display
-        // a banner. Don't auto-pick a winner — surface the disagreement.
-        const engine3DTotal = state._engine3DResult?.grandTotalSELL;
-        if (engine3DTotal && engine3DTotal > 1000 && grandTotal > 1000) {
-            const delta = engine3DTotal - grandTotal;
+        // The divergence check is meant to catch markup-stacking bugs in either
+        // cost-buildup path. To do that, it MUST compare the raw cost-buildup
+        // outputs of the two paths — not the post-hoc adjusted (calibrated or
+        // clamped) value, which intentionally diverges from deterministic on
+        // transit bids anchored to won-bid benchmarks.
+        //
+        // v5.129.4 fix: prefer state._engine3DResult._formulaTotalRaw when present.
+        // That field captures the raw 3D engine output BEFORE the transit
+        // calibration block (formula-engine-3d.js line ~836) and BEFORE the
+        // det × 1.30 ref clamp (export-engine.js line ~1037). Pre-fix the
+        // divergence warning compared `grandTotalSELL` (which is mutated by
+        // calibration AND clamping) against deterministic, producing a
+        // guaranteed false positive on every calibrated transit bid because the
+        // ref-clamp ceiling is exactly det × 1.30 (= +30% by construction)
+        // and the divergence threshold is 15%.
+        const engine3DResult = state._engine3DResult;
+        const engine3DRaw = engine3DResult?._formulaTotalRaw ?? engine3DResult?.grandTotalSELL;
+        const engine3DFinal = engine3DResult?.grandTotalSELL;
+        if (engine3DRaw && engine3DRaw > 1000 && grandTotal > 1000) {
+            const delta = engine3DRaw - grandTotal;
             const deltaPct = grandTotal > 0 ? ((delta / grandTotal) * 100).toFixed(1) : 'N/A';
             const absPct = Math.abs(parseFloat(deltaPct));
-            console.log(`[Export] 📊 3D Engine comparison: $${engine3DTotal.toLocaleString()} vs computed $${grandTotal.toLocaleString()} (delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()}, ${deltaPct}%)`);
+            const isCalibrated = engine3DResult?._calibrated === true;
+            const isClamped = engine3DResult?._refClamped === true;
+            const adjLabel = isCalibrated || isClamped
+                ? ` (3D final after ${[isCalibrated && 'calibration', isClamped && 'clamp'].filter(Boolean).join('+')}: $${engine3DFinal?.toLocaleString()})`
+                : '';
+            console.log(`[Export] 📊 3D Engine comparison (RAW): $${engine3DRaw.toLocaleString()} vs computed $${grandTotal.toLocaleString()} (delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()}, ${deltaPct}%)${adjLabel}`);
             // Wave-15: tightened threshold 25% → 15%. With Cluster-7A's transit
             // adders in the deterministic path, the two formulas should agree
             // within ~10% on healthy inputs. >15% indicates a real divergence
             // worth investigating, not normal formula drift.
             if (absPct > 15) {
-                console.warn(`[Export] ⚠️ COST-BUILDUP DIVERGENCE: 3D Engine and deterministic breakdown disagree by ${deltaPct}% on the same BOM. One of them has a markup-stacking bug. Investigate before shipping.`);
+                console.warn(`[Export] ⚠️ COST-BUILDUP DIVERGENCE: 3D Engine RAW and deterministic breakdown disagree by ${deltaPct}% on the same BOM. One of them has a markup-stacking bug. Investigate before shipping.`);
                 state._pathDivergenceWarning = {
-                    engine3DTotal, computedTotal: grandTotal, deltaPct: parseFloat(deltaPct),
-                    msg: `Two cost-buildup paths disagree by ${deltaPct}% — review _computeFullBreakdown vs FormulaEngine3D`,
+                    engine3DTotal: engine3DRaw,
+                    engine3DFinal,
+                    computedTotal: grandTotal,
+                    deltaPct: parseFloat(deltaPct),
+                    rawComparison: true,
+                    msg: `Two cost-buildup paths disagree by ${deltaPct}% (raw 3D vs deterministic) — review _computeFullBreakdown vs FormulaEngine3D`,
                     ts: new Date().toISOString(),
                 };
             } else {

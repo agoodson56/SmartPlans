@@ -7426,6 +7426,130 @@ function injectCalculatedCableQuantities(bom) {
     console.log(`[CableInjection] Cable tray is BY OTHERS — will remove from BOM, not update`);
   }
 
+  // ── CABLES IN CONDUIT DETECTION (v5.129.4 — user request) ──
+  // J-hooks support cables in OPEN PATHWAY (above ceiling, plenum runs).
+  // When cables are home-run inside conduit (EMT, RMC, IMC, PVC), the conduit
+  // IS the support — j-hooks are not used and pricing them double-charges
+  // the customer. Detect this from three signals:
+  //   1. Substantial conduit footage in BOM relative to cable footage
+  //   2. Explicit "all cables in conduit" / "home run in conduit" / "no
+  //      exposed cable" / "no cable tray" / "rough-in conduit only" language
+  //      in Annotation Reader, Spec Cross-Reference, or Keynote Extractor
+  //   3. Project type / discipline conventions (transit-station scope is
+  //      typically conduit-only; nurse-call/security typically open-pathway)
+  //
+  // When detected, the j-hook injection block below will skip qty correction
+  // and zero out any AI-generated j-hooks.
+  let cablesInConduit = false;
+  let conduitDetectionReason = '';
+
+  // Signal 1: BOM conduit ratio
+  // Sum conduit linear footage from BOM, compare to cable footage. If conduit
+  // covers >=70% of cable runs, treat as "predominantly conduit". This handles
+  // mixed scopes (e.g., 60 ft of conduit transition + 1000 ft of open cable
+  // → still need j-hooks).
+  let conduitFt = 0;
+  let cableFt = 0;
+  for (const cat of (bom.categories || [])) {
+    for (const item of (cat.items || [])) {
+      const desc = (item.item || item.name || '').toLowerCase();
+      const unit = (item.unit || '').toLowerCase();
+      const qty = Number(item.qty) || 0;
+      if (qty <= 0) continue;
+      if (!/^(ft|lf|linear\s*f\w*|feet|foot)$/.test(unit)) continue;
+      if (/conduit|emt|rmc|imc|pvc.*sch|sch.*40|sch.*80|raceway|innerduct|maxcell/i.test(desc) && !/cable|wire|jacket|fiber|cat\s*\d/i.test(desc)) {
+        conduitFt += qty;
+      } else if (/cat\s*\d|cat6|cat5|fiber|coax|rg6|composite|jacket|cable/i.test(desc)) {
+        cableFt += qty;
+      }
+    }
+  }
+  if (conduitFt > 0 && cableFt > 0) {
+    const conduitRatio = conduitFt / cableFt;
+    if (conduitRatio >= 0.70) {
+      cablesInConduit = true;
+      conduitDetectionReason = `BOM conduit (${Math.round(conduitFt).toLocaleString()} ft) ≥70% of cable footage (${Math.round(cableFt).toLocaleString()} ft) — ratio ${conduitRatio.toFixed(2)}`;
+    }
+  }
+
+  // Signal 2: explicit text-based indicators
+  if (!cablesInConduit) {
+    const phraseRegexes = [
+      // "All low voltage cables/cabling shall be installed in conduit" — also matches
+      // "horizontal cabling shall be installed in conduit"
+      /all\s+(low[\s-]*voltage|elv|tele(com|data)|cat(?:egory)?\s*[56]|data|comm|signal|horizontal|backbone|riser)?\s*(cables?|cabling)\s+(shall|must|to)\s*be\s+(installed\s+)?in\s+conduit/i,
+      /(home[\s-]*run|run)\s+in\s+conduit/i,
+      /(cables?|cabling)\s+in\s+conduit\s*(only|throughout)?/i,
+      /no\s+(exposed\s+cable|j[\s-]*hook|cable\s+tray)/i,
+      /conduit\s+(only|installation|throughout)/i,
+      /rough[\s-]*in\s+(conduit|raceway)\s+only/i,
+      /j[\s-]*hooks?\s+not\s+(allowed|permitted|required)/i,
+    ];
+    const _checkText = (txt) => {
+      if (!txt || typeof txt !== 'string') return false;
+      return phraseRegexes.some(re => re.test(txt));
+    };
+    // Scan keynotes
+    const keynotes = state.brainResults?.wave1?.KEYNOTE_EXTRACTOR?.keynotes
+      || state.brainResults?.wave1?.KEYNOTE_EXTRACTOR?.scope_gotchas
+      || [];
+    if (Array.isArray(keynotes)) {
+      for (const k of keynotes) {
+        const txt = `${k.text || ''} ${k.note || ''} ${k.description || ''} ${k.scope_impact || ''}`;
+        if (_checkText(txt)) {
+          cablesInConduit = true;
+          conduitDetectionReason = `Keynote indicator: "${(k.text || k.note || '').substring(0, 80)}"`;
+          break;
+        }
+      }
+    }
+    // Scan annotations
+    if (!cablesInConduit) {
+      const annotations = state.brainResults?.wave1?.ANNOTATION_READER?.annotations || [];
+      if (Array.isArray(annotations)) {
+        for (const a of annotations) {
+          const txt = `${a.text || ''} ${a.note || ''} ${a.description || ''}`;
+          if (_checkText(txt)) {
+            cablesInConduit = true;
+            conduitDetectionReason = `Annotation indicator: "${(a.text || a.note || '').substring(0, 80)}"`;
+            break;
+          }
+        }
+      }
+    }
+    // Scan spec cross-reference
+    if (!cablesInConduit) {
+      const specRefs = state.brainResults?.wave1?.SPEC_CROSS_REF?.spec_vs_drawing
+        || state.brainResults?.wave1?.SPEC_CROSS_REF?.discrepancies
+        || [];
+      if (Array.isArray(specRefs)) {
+        for (const r of specRefs) {
+          const txt = `${r.spec_text || ''} ${r.requirement || ''} ${r.description || ''}`;
+          if (_checkText(txt)) {
+            cablesInConduit = true;
+            conduitDetectionReason = `Spec cross-reference: "${(r.spec_text || r.requirement || '').substring(0, 80)}"`;
+            break;
+          }
+        }
+      }
+    }
+    // Scan user-entered exclusions/clarifications text
+    if (!cablesInConduit && Array.isArray(state.exclusions)) {
+      for (const ex of state.exclusions) {
+        const txt = `${ex.text || ''} ${ex.note || ''}`;
+        if (_checkText(txt)) {
+          cablesInConduit = true;
+          conduitDetectionReason = `User exclusion: "${(ex.text || '').substring(0, 80)}"`;
+          break;
+        }
+      }
+    }
+  }
+
+  if (cablesInConduit) {
+    console.log(`[CableInjection] 🚫 J-HOOKS NOT NEEDED — cables home-run in conduit. ${conduitDetectionReason}`);
+  }
+
   // ── CROSS-CATEGORY DEDUP: Remove MDF/IDF items that appear in Structured Cabling ──
   // The MDF/IDF brain and Material Pricer both generate racks, panels, cable managers.
   // Collect MDF/IDF item part numbers AND descriptions, then remove matches from Structured Cabling.
@@ -7731,7 +7855,26 @@ function injectCalculatedCableQuantities(bom) {
 
       // ── J-hook quantity: 1 hook every 4.5 ft of pathway, shared by ~5 cables per bundle ──
       // CRITICAL FIX: Was missing /5 bundle divider → 5× overcounted (7,811 instead of ~1,562)
-      if (hasCalcData) {
+      // v5.129.4 (user request): if cables are home-run in conduit, j-hooks aren't
+      // installed at all — the conduit IS the support. Skip injection entirely
+      // and zero any AI-generated j-hooks already in this category. The
+      // detection block earlier sets `cablesInConduit` from BOM conduit ratio,
+      // keynote/spec/annotation phrases, or user exclusions.
+      if (cablesInConduit) {
+        // Zero any existing j-hook items in this category — they shouldn't be
+        // billed when the conduit handles support.
+        let zeroedHere = 0;
+        for (let i = 0; i < updatedItems.length; i++) {
+          const it = updatedItems[i];
+          if (/j[\s-]*hook/i.test(it.name || it.item || '') && (it.qty || 0) > 0) {
+            updatedItems[i] = { ...it, qty: 0, extCost: 0, _calculatedRun: true, _conduitNoJhook: true };
+            zeroedHere++;
+          }
+        }
+        if (zeroedHere > 0) {
+          console.log(`[CableInjection] 🚫 Zeroed ${zeroedHere} j-hook item(s) in "${cat.name}" — cables in conduit, no j-hooks needed`);
+        }
+      } else if (hasCalcData) {
         const grandTotalCableFt = Object.values(calcByType)
           .filter(c => !c.mode?.includes('backbone'))
           .reduce((s, c) => s + (c.totalFt || 0), 0);
@@ -8395,43 +8538,99 @@ function injectCalculatedCableQuantities(bom) {
     }
   }
 
+  // ── GLOBAL J-HOOK ZEROING when cables are in conduit (v5.129.4 user request) ──
+  // The per-category injection block above zeroes j-hooks within the categories
+  // it visits, but Material Pricer can put j-hook line items in non-cabling
+  // categories (e.g., "Pathway Accessories", "Hardware") that the injection
+  // loop doesn't touch. Sweep ALL categories here to enforce the rule.
+  if (typeof cablesInConduit !== 'undefined' && cablesInConduit) {
+    let totalZeroed = 0;
+    for (const cat of updatedCategories) {
+      let dirty = false;
+      for (let i = 0; i < (cat.items || []).length; i++) {
+        const it = cat.items[i];
+        if (/j[\s-]*hook/i.test(it.name || it.item || '') && (it.qty || 0) > 0) {
+          cat.items[i] = { ...it, qty: 0, extCost: 0, _conduitNoJhook: true };
+          totalZeroed++;
+          dirty = true;
+        }
+      }
+      if (dirty) {
+        cat.subtotal = Math.round(
+          (cat.items || []).reduce((s, it) => s + (it.extCost || 0), 0) * 100
+        ) / 100;
+      }
+    }
+    if (totalZeroed > 0) {
+      console.log(`[CableInjection] 🚫 Global sweep: zeroed ${totalZeroed} j-hook line item(s) across all categories — cables home-run in conduit`);
+    }
+  }
+
   // ── CROSS-CATEGORY DEDUP: Remove J-hooks/basket tray that Estimate Corrector added in other categories ──
   // FIX v5.111.6: The Estimate Corrector adds J-hooks in "General Requirements" even though
   // the injection code already calculated them in Structured Cabling. Remove duplicates.
+  //
+  // v5.129.4 fix (Sacramento bid): The previous implementation used `findIndex`,
+  // which returns only the FIRST match per category. When the AI generates two
+  // j-hook line items in the SAME category — e.g. "1-5/16\" J-Hooks" qty=400
+  // (from Material Pricer) plus "J-Hook (2\" or 4\")" qty=3593 (from cable
+  // injection above) — the dedup saw only one and missed the duplicate. The
+  // 100×-the-median anomaly in Sacramento's bid traced back to this.
+  //
+  // New behavior: collect ALL matching items (not just the first), then within
+  // any category that has 2+ matches, keep only the largest-qty entry and zero
+  // the rest. Across categories, keep the primary-infrastructure category and
+  // zero the rest. The injected calculated quantity wins in all cases because
+  // it's deterministic, not AI-guessed.
   const _crossCatDedupTypes = [
     { regex: /j[\s-]*hook/i, label: 'J-Hook' },
     { regex: /basket\s*tray/i, label: 'Basket Tray' },
     { regex: /emt\s*conduit|1"?\s*emt|4"?\s*emt/i, label: 'EMT Conduit' },
   ];
   for (const dedupType of _crossCatDedupTypes) {
-    // Find all categories that have this item type
-    const catsWithItem = [];
+    // Find ALL matching items across ALL categories (not just first per cat)
+    const allMatches = [];
     for (let ci = 0; ci < updatedCategories.length; ci++) {
       const cat = updatedCategories[ci];
-      const matchIdx = (cat.items || []).findIndex(item =>
-        dedupType.regex.test(item.item || item.name || '') && (item.qty || 0) > 0
-      );
-      if (matchIdx >= 0) {
-        catsWithItem.push({ catIdx: ci, itemIdx: matchIdx, catName: cat.name || '' });
+      const items = cat.items || [];
+      for (let ii = 0; ii < items.length; ii++) {
+        const item = items[ii];
+        if (dedupType.regex.test(item.item || item.name || '') && (item.qty || 0) > 0) {
+          allMatches.push({ catIdx: ci, itemIdx: ii, catName: cat.name || '', item });
+        }
       }
     }
-    // If item exists in 2+ categories, keep only the one in primary infrastructure, zero others
-    if (catsWithItem.length > 1) {
-      const primaryIdx = catsWithItem.findIndex(c =>
-        /(structured\s*cabling|mdf|idf|telecomm)/i.test(c.catName)
-      );
-      const keepIdx = primaryIdx >= 0 ? primaryIdx : 0;
-      for (let i = 0; i < catsWithItem.length; i++) {
-        if (i === keepIdx) continue;
-        const { catIdx, itemIdx, catName } = catsWithItem[i];
-        const item = updatedCategories[catIdx].items[itemIdx];
-        console.log(`[CrossCatDedup] Removing duplicate ${dedupType.label} from "${catName}": ${item.qty} ${item.unit} ($${item.extCost}) — already in primary cabling category`);
-        updatedCategories[catIdx].items[itemIdx] = { ...item, qty: 0, extCost: 0, _crossCatDeduped: true };
-        // Recalculate subtotal
-        updatedCategories[catIdx].subtotal = Math.round(
-          updatedCategories[catIdx].items.reduce((s, it) => s + (it.extCost || 0), 0) * 100
-        ) / 100;
-      }
+    if (allMatches.length <= 1) continue;
+
+    // Pick winner: prefer the calculated/injected entry in a primary infrastructure category.
+    // Tier 1: _calculatedRun || _jhookCorrected (deterministic) AND in primary cat
+    // Tier 2: any entry in primary cat
+    // Tier 3: largest-qty entry overall (last resort)
+    const isPrimary = (catName) => /(structured\s*cabling|mdf|idf|telecomm)/i.test(catName);
+    const winners = allMatches.filter(m => (m.item._calculatedRun || m.item._jhookCorrected) && isPrimary(m.catName));
+    let winner = winners[0];
+    if (!winner) winner = allMatches.find(m => isPrimary(m.catName));
+    if (!winner) winner = allMatches.slice().sort((a, b) => (b.item.qty || 0) - (a.item.qty || 0))[0];
+
+    // Zero out every match that isn't the winner — even if it's in the same category
+    const dirtyCats = new Set();
+    let zeroed = 0;
+    for (const m of allMatches) {
+      if (m === winner) continue;
+      const item = updatedCategories[m.catIdx].items[m.itemIdx];
+      console.log(`[CrossCatDedup] Removing duplicate ${dedupType.label} from "${m.catName}": ${item.qty} ${item.unit || ''} ($${item.extCost || 0}) "${item.item || item.name}" — winner is "${winner.item.item || winner.item.name}" (${winner.item.qty} ${winner.item.unit || ''}) in "${winner.catName}"`);
+      updatedCategories[m.catIdx].items[m.itemIdx] = { ...item, qty: 0, extCost: 0, _crossCatDeduped: true };
+      dirtyCats.add(m.catIdx);
+      zeroed++;
+    }
+    // Recalculate subtotals for any category that lost items
+    for (const ci of dirtyCats) {
+      updatedCategories[ci].subtotal = Math.round(
+        updatedCategories[ci].items.reduce((s, it) => s + (it.extCost || 0), 0) * 100
+      ) / 100;
+    }
+    if (zeroed > 0) {
+      console.log(`[CrossCatDedup] ${dedupType.label}: zeroed ${zeroed} duplicate(s), kept "${winner.item.item || winner.item.name}" in "${winner.catName}"`);
     }
   }
 

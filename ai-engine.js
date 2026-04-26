@@ -3310,10 +3310,41 @@ const SmartBrains = {
       if (useJsonMode) {
         genConfig.responseMimeType = 'application/json';
       }
-      // NOTE: thinkingConfig disabled — causes Cloudflare 524 timeouts (>100s)
-      // Gemini 3.1 Pro produces excellent results without thinking mode
-      // thinkingConfig is also MUTUALLY EXCLUSIVE with JSON mode (responseMimeType)
-      // gemini-2.5-pro has MANDATORY thinking — cannot use JSON mode with it
+      // v5.129.4: thinkingConfig RE-ENABLED with a hard budget cap to prevent
+      // the empty-response failures observed in Sacramento (6 brains: Sheet
+      // Inventory Guard, MDF/IDF Analyzer, Cable & Pathway, Special Conditions,
+      // Door Schedule Parser, Discipline Deep-Dive).
+      //
+      // Root cause: Gemini 3.1 Pro is a thinking model. Without an explicit
+      // thinkingBudget, it has no cap on internal reasoning tokens. On complex
+      // prompts (the 6 brains above all have multi-thousand-character prompts
+      // requesting structured JSON), thinking can exhaust the entire
+      // maxOutputTokens budget before emitting a single text part — the
+      // streaming response then completes with finishReason=MAX_TOKENS and
+      // zero candidates content, producing the "0 chars text, 0 chars thought"
+      // observed in the field.
+      //
+      // The original comment "thinkingConfig disabled — causes Cloudflare 524"
+      // was correct for the OLD direct-fetch proxy. The current zero-timeout
+      // proxy (functions/api/ai/invoke.js line 91+) returns SSE immediately
+      // and pipes Gemini in the background, so long-running thinking no longer
+      // trips Cloudflare's 100s edge timeout.
+      //
+      // Budget rule of thumb: cap thinking at 50% of maxOutputTokens. Gemini's
+      // own guidance is "leave at least as many tokens for output as for
+      // thinking." 16K-token brains get an 8K think cap; 64K-token brains get
+      // 32K. Money brains run at temp 0.0 and don't need long deliberation —
+      // 25% is plenty.
+      // Skip on JSON mode + non-pro models: only Pro models benefit from
+      // thinking, and JSON mode is mutually exclusive with thinking on
+      // gemini-2.5-pro (but works fine on gemini-3.1-pro-preview).
+      if (brainDef.useProModel) {
+        const isMoneyBrain = MONEY_BRAINS.has(brainKey);
+        const thinkPct = isMoneyBrain ? 0.25 : 0.50;
+        genConfig.thinkingConfig = {
+          thinkingBudget: Math.round(brainDef.maxTokens * thinkPct),
+        };
+      }
 
       // FIX #13: Use Math.floor for brain IDs (some are floats like 0.5, 1.75)
       // FIX #5: Skip exhausted key slots that returned 429
@@ -3461,6 +3492,14 @@ const SmartBrains = {
         const contentType = response.headers.get('content-type') || '';
         let text = '';
         let thoughtText = ''; // Track thinking-only responses from Gemini 3.1 Pro
+        // v5.129.4: capture finishReason and blockReason so the empty-response
+        // path can explain WHY there's no output (MAX_TOKENS, SAFETY, RECITATION,
+        // OTHER). Pre-fix we only saw "Empty response — text: 0 chars, thought:
+        // 0 chars" with no signal whether thinking exhausted the token budget,
+        // safety filters tripped, or the proxy dropped the stream.
+        let finishReason = '';
+        let blockReason = '';
+        let safetyRatings = null;
 
         if (contentType.includes('text/event-stream')) {
           // Streaming response — read SSE chunks
@@ -3567,6 +3606,18 @@ const SmartBrains = {
                       text += p.text;
                     }
                   }
+                  // v5.129.4: capture finishReason / blockReason so the empty-
+                  // response path can diagnose root cause (MAX_TOKENS exhausted
+                  // by thinking, SAFETY filter triggered, etc.) rather than
+                  // failing with an opaque "Empty response from AI".
+                  const cand0 = chunk?.candidates?.[0];
+                  if (cand0?.finishReason) {
+                    finishReason = cand0.finishReason;
+                    if (cand0.safetyRatings) safetyRatings = cand0.safetyRatings;
+                  }
+                  if (chunk?.promptFeedback?.blockReason) {
+                    blockReason = chunk.promptFeedback.blockReason;
+                  }
                 } catch (e) {
                   // If it's a cache expiration, rethrow immediately
                   if (e._cacheExpired) throw e;
@@ -3591,6 +3642,15 @@ const SmartBrains = {
                     if (p.text && p.thought) { thoughtText += p.text; }
                     else if (p.text) { text += p.text; }
                   }
+                  // v5.129.4: capture diagnostic reasons from final chunk too
+                  const cand0 = chunk?.candidates?.[0];
+                  if (cand0?.finishReason) {
+                    finishReason = cand0.finishReason;
+                    if (cand0.safetyRatings) safetyRatings = cand0.safetyRatings;
+                  }
+                  if (chunk?.promptFeedback?.blockReason) {
+                    blockReason = chunk.promptFeedback.blockReason;
+                  }
                 } catch (e) { console.warn('[SSE] Skipped malformed final chunk:', e.message); }
               }
             }
@@ -3603,6 +3663,15 @@ const SmartBrains = {
           if (!text) {
             thoughtText = allParts.filter(p => p.text && p.thought).map(p => p.text).join('\n') || '';
           }
+          // v5.129.4: also capture diagnostic reasons from non-streaming response
+          const cand0 = data?.candidates?.[0];
+          if (cand0?.finishReason) {
+            finishReason = cand0.finishReason;
+            if (cand0.safetyRatings) safetyRatings = cand0.safetyRatings;
+          }
+          if (data?.promptFeedback?.blockReason) {
+            blockReason = data.promptFeedback.blockReason;
+          }
         }
 
         // If regular text is empty but we got thinking content, use that
@@ -3612,8 +3681,37 @@ const SmartBrains = {
         }
 
         if (!text || text.length < 20) {
-          console.warn(`[Brain:${brainDef.name}] Empty response — text: ${text.length} chars, thought: ${thoughtText.length} chars, attempt ${attempt + 1}`);
-          throw new Error('Empty response from AI');
+          // v5.129.4: surface finishReason / blockReason so the operator can
+          // tell WHY the response was empty. The 6 brains that failed in the
+          // Sacramento run (Sheet Inventory Guard, MDF/IDF Analyzer, Cable &
+          // Pathway, Special Conditions, Door Schedule Parser, Discipline
+          // Deep-Dive) all hit this path with no diagnostic, masking what was
+          // almost certainly Gemini 3.1 Pro thinking-budget exhaustion.
+          const reasonBits = [];
+          if (finishReason) reasonBits.push(`finishReason=${finishReason}`);
+          if (blockReason) reasonBits.push(`blockReason=${blockReason}`);
+          if (safetyRatings && safetyRatings.length) {
+            const blocked = safetyRatings.filter(r => r.blocked || /HIGH|MEDIUM/i.test(r.probability || ''));
+            if (blocked.length) reasonBits.push(`safety=[${blocked.map(r => `${r.category}:${r.probability}`).join(',')}]`);
+          }
+          const reasonStr = reasonBits.length ? ` (${reasonBits.join(', ')})` : '';
+          console.warn(`[Brain:${brainDef.name}] Empty response — text: ${text.length} chars, thought: ${thoughtText.length} chars${reasonStr}, attempt ${attempt + 1}`);
+          // v5.129.4: when finishReason=MAX_TOKENS with no output, retrying the
+          // same prompt produces the same exhaustion. Throw a fatal-ish error
+          // tagged so the retry loop can short-circuit to the model fallback
+          // ladder (which uses non-thinking models like 2.5-flash that don't
+          // burn budget on internal reasoning).
+          if (finishReason === 'MAX_TOKENS' && thoughtText.length === 0 && text.length === 0) {
+            const e = new Error(`Empty response — model exhausted maxOutputTokens during thinking before emitting any content (finishReason=MAX_TOKENS). Try increasing maxTokens or set thinkingBudget in genConfig.`);
+            e._tokenExhausted = true;
+            throw e;
+          }
+          if (finishReason === 'SAFETY' || blockReason === 'SAFETY') {
+            const e = new Error(`Empty response — content blocked by safety filter (finishReason=${finishReason}, blockReason=${blockReason || 'none'})`);
+            e._safetyBlocked = true;
+            throw e;
+          }
+          throw new Error(`Empty response from AI${reasonStr}`);
         }
 
         // FIX #19: Reset circuit breaker on success
@@ -3723,6 +3821,7 @@ const SmartBrains = {
             throw new Error(`Fallback HTTP ${fbResp.status}: ${fbResp.statusText}`);
         }
         let fbText = '', fbThought = '';
+        let fbFinishReason = '', fbBlockReason = '';
         const fbReader = fbResp.body.getReader();
         const fbDec = new TextDecoder();
         let fbBuf = '';
@@ -3749,6 +3848,10 @@ const SmartBrains = {
                 if (p.text && p.thought) fbThought += p.text;
                 else if (p.text) fbText += p.text;
               }
+              // v5.129.4: capture diagnostics on fallback path too
+              const cand0 = ch?.candidates?.[0];
+              if (cand0?.finishReason) fbFinishReason = cand0.finishReason;
+              if (ch?.promptFeedback?.blockReason) fbBlockReason = ch.promptFeedback.blockReason;
             } catch (e) { console.warn('[Brain] parse skip:', e.message); }
           }
         }
@@ -3760,14 +3863,27 @@ const SmartBrains = {
               if (p.text && p.thought) fbThought += p.text;
               else if (p.text) fbText += p.text;
             }
+            const cand0 = ch?.candidates?.[0];
+            if (cand0?.finishReason) fbFinishReason = cand0.finishReason;
+            if (ch?.promptFeedback?.blockReason) fbBlockReason = ch.promptFeedback.blockReason;
           } catch (e) { console.warn('[SSE] Skipped malformed final chunk:', e.message); }
+        }
+        // v5.129.4: if fallback got thought-only response, surface it before
+        // declaring the brain dead. Mirrors the primary-path behavior.
+        if ((!fbText || fbText.length < 20) && fbThought.length >= 20) {
+          console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} thought-only (${fbThought.length} chars) — using thinking content`);
+          fbText = fbThought;
         }
         if (fbText && fbText.length >= 20) {
           console.log(`[Brain:${brainDef.name}] ✓ Fallback ${fbModel} succeeded (${fbText.length} chars)`);
           this._circuitBreaker.recordSuccess();
           return fbText;
         }
-        console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty`);
+        const fbReasonBits = [];
+        if (fbFinishReason) fbReasonBits.push(`finishReason=${fbFinishReason}`);
+        if (fbBlockReason) fbReasonBits.push(`blockReason=${fbBlockReason}`);
+        const fbReasonStr = fbReasonBits.length ? ` (${fbReasonBits.join(', ')})` : '';
+        console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} returned empty${fbReasonStr}`);
       } catch (fbErr) {
         console.warn(`[Brain:${brainDef.name}] Fallback ${fbModel} failed: ${fbErr.message}`);
       }
@@ -5781,7 +5897,18 @@ CRITICAL RULES:
 These formulas correct the #1 source of BOM errors: inflated infrastructure quantities.
 
 J-HOOKS / CABLE SUPPORTS:
-- Formula: Total cable route feet ÷ 5ft spacing = J-hook count
+- 🚫 CONDUIT RULE — IF cables are home-run inside conduit (EMT, RMC, IMC, PVC, raceway),
+  J-HOOKS ARE NOT INSTALLED AT ALL. The conduit IS the support. Pricing j-hooks on top of
+  conduit double-charges the customer. CHECK SPEC SECTIONS, KEYNOTES, AND DRAWING NOTES
+  for any of these phrases — when present, set J-hook qty to 0:
+    • "all cables shall be installed in conduit"
+    • "home-run in conduit" / "home run in conduit"
+    • "conduit installation" / "conduit only" / "conduit throughout"
+    • "no exposed cable" / "no cable tray" / "no j-hooks"
+    • "rough-in conduit only"
+  When the BOM contains substantial conduit footage relative to cable footage (≥70% ratio),
+  treat the install as conduit-based and set J-hook qty=0.
+- Formula (open-pathway only): Total cable route feet ÷ 5ft spacing = J-hook count
 - For a typical clinic/office: (total data drops × avg run length) ÷ 5, then ÷ 3 (shared pathway factor — multiple cables share the same J-hook route)
 - EXAMPLE: 469 drops × 200ft avg ÷ 5ft spacing ÷ 3 sharing = ~6,250 J-hooks on route, but ACTUAL hooks needed = ~1,000-1,500 because most cable routes overlap and share hooks
 - MAXIMUM: 2× the number of cable drops for ANY project. If you have 469 drops, cap J-hooks at 938
@@ -12139,6 +12266,31 @@ ${legendContext}
       state._autoDetectedDisciplines = disciplinesAdded;
       console.log(`[SmartBrains] ⚡ Auto-added missing disciplines from document evidence: ${disciplinesAdded.join(', ')}`);
       progressCallback(55, `⚡ Auto-detected disciplines: ${disciplinesAdded.join(', ')}`, this._brainStatus);
+
+      // v5.129.4: Refresh _disciplineCoverageGaps to include any auto-added
+      // disciplines that have zero device counts. Without this, the
+      // Material Pricer prompt's zero-gap rules don't fire for the new
+      // disciplines, the AI silently drops them, and the post-pricer
+      // validator just logs the drop without compensating. Sacramento ran
+      // into this with Audio Visual: it was auto-added based on document
+      // evidence but had no symbol counts → Material Pricer dropped it →
+      // bid was missing AV scope.
+      const existingGaps = Array.isArray(context._disciplineCoverageGaps) ? context._disciplineCoverageGaps : [];
+      const detail = context._disciplineCoverageDetail || {};
+      const addedZero = [];
+      for (const disc of disciplinesAdded) {
+        const detailEntry = detail[disc];
+        const hasCounts = detailEntry && (detailEntry.count || 0) > 0;
+        if (!hasCounts && !existingGaps.includes(disc)) {
+          addedZero.push(disc);
+        }
+      }
+      if (addedZero.length > 0) {
+        const merged = [...new Set([...existingGaps, ...addedZero])];
+        context._disciplineCoverageGaps = merged;
+        state._disciplineCoverageGaps = merged;
+        console.warn(`[SmartBrains] ⚠️ Auto-added discipline(s) with ZERO device counts → tagging for Material Pricer zero-gap warning: ${addedZero.join(', ')}`);
+      }
     }
     if (disciplinesSkippedDueToRemoval.length > 0) {
       const reasons = (state._autoRemovedDisciplines || [])
