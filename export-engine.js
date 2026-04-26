@@ -154,6 +154,23 @@ const SmartPlansExport = {
             });
         }
 
+        // 7. Commercial benchmark sanity check (v5.129.5)
+        // FormulaEngine3D stamps result._commercialBenchmarkWarning when a non-
+        // transit bid is >2.5× or <0.4× the median of comparable real bids
+        // from PRICING_DB.commercialBenchmarks.actualBids. Surface it as a
+        // 'warn' (not 'block') because commercial scope varies enough that a
+        // 3× outlier might be a legitimate large project rather than a bug.
+        const commWarn = state._engine3DResult?._commercialBenchmarkWarning;
+        if (commWarn && Number.isFinite(commWarn.ratio)) {
+            const direction = commWarn.ratio > 1 ? 'high' : 'low';
+            warnings.push({
+                severity: 'warn',
+                code: 'commercial_benchmark_outlier',
+                message: `Bid total is ${commWarn.ratio.toFixed(2)}× the median of ${commWarn.sampleSize} comparable ${commWarn.ptSlug || 'commercial'} ${commWarn.wageSlug} bids (median $${commWarn.median.toLocaleString()}, range $${commWarn.lo.toLocaleString()}–$${commWarn.hi.toLocaleString()}) — verify scope before shipping`,
+                details: commWarn,
+            });
+        }
+
         return warnings;
     },
 

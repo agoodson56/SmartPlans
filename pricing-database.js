@@ -870,6 +870,64 @@ const PRICING_DB = {
     },
 
     // ═══════════════════════════════════════════════════════════
+    // COMMERCIAL / GOVERNMENT BENCHMARKS — Actual Bids (v5.129.5)
+    // Non-transit anchors for sanity-checking the deterministic path.
+    // Sourced from 15 sample bids across 3 wage classes (NPW commercial,
+    // PW Sacramento/Dublin, federal Davis-Bacon). Used by FormulaEngine3D
+    // commercial calibration to flag bids that are >2× or <0.5× the
+    // closest matching benchmark — same gate as transit calibration but
+    // tuned wider to account for scope variability.
+    //
+    // Bucket lookup hints (project_type + wage_class):
+    //   tribal_office + npw       → auburn_indians, indians_bid_v1
+    //   industrial + npw          → ethos_energy_fence, superior_equipment
+    //   office + npw              → poa_sac_office
+    //   court + pw_sacramento     → sac_juvenile_court
+    //   telecenter + pw_sacramento → sam_brennan_telecenter
+    //   office + pw_sacramento    → capitol_mall_500_v1, capitol_mall_500_v2
+    //   law_enforcement + pw      → sheriffs_760, chp_dublin, chp_north_sac
+    //   state_office + pw_sacramento → s_street_1515
+    //   healthcare_va + davis_bacon → va_spinal_cord
+    // ═══════════════════════════════════════════════════════════
+    commercialBenchmarks: {
+        actualBids: {
+            // NPW Commercial (42% material markup, NPW labor sell rates)
+            auburn_indians_est:     { total: 141129, year: 2025, wage: "npw", project_type: "tribal_office", scope: "multi_phase",     type: "estimate" },
+            indians_bid_v1:         { total: 11508,  year: 2025, wage: "npw", project_type: "tribal_office", scope: "telecom_only",    type: "bid_v1"   },
+            ethos_energy_fence:     { total: 290883, year: 2025, wage: "npw", project_type: "industrial",    scope: "fence_detection", type: "estimate" },
+            poa_sac_office:         { total: 17669,  year: 2025, wage: "npw", project_type: "office",        scope: "small",           type: "estimate" },
+            superior_equipment:     { total: 22798,  year: 2025, wage: "npw", project_type: "industrial",    scope: "small",           type: "estimate" },
+            // PW Sacramento + Dublin (51.5% material markup, PW labor sell rates)
+            sac_juvenile_court:     { total: 41975,  year: 2024, wage: "pw_sacramento", project_type: "court",           scope: "telecom_only",  type: "bid_v2"   },
+            sam_brennan_telecenter: { total: 835224, year: 2025, wage: "pw_sacramento", project_type: "telecenter",      scope: "multi_system",  type: "bid"      },
+            capitol_mall_500_v1:    { total: 35059,  year: 2026, wage: "pw_sacramento", project_type: "office",          scope: "data_cabling",  type: "bid_v1"   },
+            capitol_mall_500_v2:    { total: 39054,  year: 2026, wage: "pw_sacramento", project_type: "office",          scope: "data_cabling",  type: "bid_v2"   },
+            sheriffs_760:           { total: 25085,  year: 2025, wage: "pw_sacramento", project_type: "law_enforcement", scope: "small",         type: "estimate" },
+            sheriffs_760_hdmi:      { total: 817,    year: 2025, wage: "pw_sacramento", project_type: "law_enforcement", scope: "addon",         type: "estimate" },
+            s_street_1515:          { total: 433439, year: 2025, wage: "pw_sacramento", project_type: "state_office",    scope: "telecom",       type: "bid_v1"   },
+            chp_dublin:             { total: 48397,  year: 2025, wage: "pw_dublin",     project_type: "law_enforcement", scope: "cctv_telecom",  type: "estimate" },
+            chp_north_sac:          { total: 36863,  year: 2025, wage: "pw_sacramento", project_type: "law_enforcement", scope: "small",         type: "estimate" },
+            // Federal Davis-Bacon (highest labor rates, 51.5% material markup)
+            va_spinal_cord:         { total: 483758, year: 2022, wage: "davis_bacon",   project_type: "healthcare_va",   scope: "multi_system",  type: "estimate" },
+        },
+        // Per-unit averages — coarse estimates derived from the bids above.
+        // Use these for sanity-check when an exact project_type/wage match
+        // is not available. Don't auto-anchor against these — they're far
+        // less reliable than the transit per-camera benchmark because
+        // commercial scope varies wildly.
+        perUnitAverages: {
+            // Sam Brennan ($835K) was a multi-system PW bid with telecom + CCTV + AC
+            // 500 Capitol Mall ($35K, $39K) was data-cabling-only PW
+            telecom_only_per_drop_pw_sacramento: 130,    // typical for data-cabling-only PW
+            multi_system_per_drop_pw_sacramento: 766,    // sam brennan / 1091 drops
+            cctv_per_camera_pw:                  3500,   // commercial PW with full install
+            cctv_per_camera_npw:                 2300,   // existing unit benchmark
+            card_access_per_door_pw:             5500,
+            small_scope_minimum_pw:              25000,  // 760 Sheriffs / chp_north_sac average
+        },
+    },
+
+    // ═══════════════════════════════════════════════════════════
     // AMTRAK BENCHMARK DATA — Actual Winning Bids
     // Used by FormulaEngine3D transit calibration to anchor bids
     // to real per-camera sell prices from winning proposals.

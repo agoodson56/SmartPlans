@@ -1012,6 +1012,72 @@ const FormulaEngine3D = {
             }
         }
 
+        // ─── COMMERCIAL SANITY CHECK (v5.129.5) ──────────────────
+        // For non-transit projects, compare the bid total against the closest
+        // commercialBenchmarks entry by (project_type, wage_class). This is
+        // a SOFT check — it logs a warning when the bid is >2× or <0.5× the
+        // benchmark, but does NOT auto-calibrate. Commercial scope varies
+        // too much (data-cabling-only vs. multi-system) to safely auto-anchor
+        // the way transit does. The warning gives the estimator a sniff test.
+        if (!isTransit && typeof PRICING_DB !== 'undefined' && PRICING_DB.commercialBenchmarks?.actualBids) {
+            try {
+                const projectType = (state.projectType || state.projectSubtype || '').toString().toLowerCase().replace(/[\s-]+/g, '_');
+                // Map state.projectType to commercialBenchmarks project_type slugs
+                const ptSlug = (() => {
+                    if (/court|judicial|justice/.test(projectType)) return 'court';
+                    if (/sheriff|chp|police|law\s*enforce|enforcement/.test(projectType)) return 'law_enforcement';
+                    if (/healthcare|hospital|clinic|va\b|veteran|medical/.test(projectType)) return 'healthcare_va';
+                    if (/state\s*office|capitol|government\s*office/.test(projectType)) return 'state_office';
+                    if (/telecenter|call\s*center|telecom\s*center/.test(projectType)) return 'telecenter';
+                    if (/tribal|indian|casino|gaming/.test(projectType)) return 'tribal_office';
+                    if (/industrial|warehouse|manufacturing|fence/.test(projectType)) return 'industrial';
+                    if (/office|commercial/.test(projectType)) return 'office';
+                    return null;
+                })();
+                // Wage class slug
+                const wageStr = (state.prevailingWage || '').toString().toLowerCase();
+                const wageSlug = (() => {
+                    if (wageStr === 'davis-bacon' || wageStr === 'davis_bacon' || /federal/i.test(wageStr)) return 'davis_bacon';
+                    if (isPW && /dublin/i.test(state.projectCounty || state.projectState || '')) return 'pw_dublin';
+                    if (isPW) return 'pw_sacramento';
+                    return 'npw';
+                })();
+
+                const bids = Object.values(PRICING_DB.commercialBenchmarks.actualBids);
+                let matches = bids.filter(b => b.project_type === ptSlug && b.wage === wageSlug);
+                if (matches.length === 0) {
+                    // Loosen: same wage class, any project type
+                    matches = bids.filter(b => b.wage === wageSlug);
+                }
+                if (matches.length > 0) {
+                    const totals = matches.map(b => b.total).sort((a, b) => a - b);
+                    const median = totals[Math.floor(totals.length / 2)];
+                    const lo = totals[0];
+                    const hi = totals[totals.length - 1];
+                    const ratio = result.grandTotalSELL / median;
+                    console.log(`[3D Engine v2] 📊 Commercial benchmark check (${ptSlug || 'any'} + ${wageSlug}, n=${matches.length}):`);
+                    console.log(`[3D Engine v2]   Range: $${lo.toLocaleString()} – $${hi.toLocaleString()} (median $${median.toLocaleString()})`);
+                    console.log(`[3D Engine v2]   Bid: $${result.grandTotalSELL.toLocaleString()} (${ratio.toFixed(2)}× median)`);
+                    if (ratio > 2.5 || ratio < 0.4) {
+                        const direction = ratio > 1 ? 'HIGH' : 'LOW';
+                        console.warn(`[3D Engine v2] ⚠️ Commercial sanity check ${direction}: bid is ${ratio.toFixed(2)}× the median of ${matches.length} comparable bids — verify scope/quantities before submitting`);
+                        result._commercialBenchmarkWarning = {
+                            ratio,
+                            median,
+                            lo,
+                            hi,
+                            sampleSize: matches.length,
+                            ptSlug,
+                            wageSlug,
+                        };
+                    }
+                }
+            } catch (sErr) {
+                // Soft-fail — sanity check should never break the bid
+                console.warn(`[3D Engine v2] Commercial benchmark check errored non-fatally: ${sErr.message}`);
+            }
+        }
+
         console.log(`[3D Engine v2] ═══ BID COMPLETE ═══`);
         console.log(`[3D Engine v2]   Systems: ${result.systemCount} | PW: ${isPW} | Transit: ${isTransit}`);
         console.log(`[3D Engine v2]   Material Cost: $${result.totalMaterialCost.toLocaleString()}`);
