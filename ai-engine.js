@@ -908,13 +908,19 @@ const SmartBrains = {
                   const chunks = await this._splitPDFIntoChunks(entry.rawFile, PAGES_PER_CHUNK, state.disciplines);
                   console.log(`[SmartBrains] Split ${entry.name} into ${chunks.length} chunks`);
 
-                  let chunkIdx = 0;
-                  for (const chunk of chunks) {
-                    chunkIdx++;
+                  // v5.129.9: First chunk uploads sequentially to establish
+                  // pinnedUploadKey (Gemini File API URIs are owned by the
+                  // uploading key — all chunks of one PDF must share that key
+                  // so brain calls can read them). Remaining chunks upload in
+                  // parallel batches of UPLOAD_BATCH=4. For a 50-page PDF
+                  // (10 chunks of 5 pages), this turns 10 sequential ~3-5s
+                  // uploads into 1 sequential + 3 parallel batches ≈ ~4 wall
+                  // units. Order is preserved by pushing in the original chunk
+                  // sequence after each batch completes.
+                  const processChunk = async (chunk, chunkIdx) => {
                     // Chunk filename now includes sheet ID (e.g., "page5_T-101.jpg") set by _splitPDFIntoChunks
                     const chunkName = `${entry.name.replace('.pdf', '')}_${chunk.name}`;
                     const chunkMime = chunk.type || 'image/jpeg';
-                    progressCallback(pct, `Uploading page ${chunkIdx}/${chunks.length}: ${chunk._sheetId || chunk.name}…`, null);
 
                     const chunkData = {
                       name: chunkName,
@@ -932,10 +938,6 @@ const SmartBrains = {
                     // v5.128.14: Always encode base64 alongside File API upload.
                     // Claude cannot read Gemini File API URIs — for dual-provider
                     // cross-check we need the raw image bytes available inline.
-                    // This adds ~30-60ms per page but enables Claude to see the
-                    // same visual content Gemini sees. Memory cost for 46 pages
-                    // averaging 1.5MB base64 each is ~70MB, well within browser
-                    // heap limits.
                     let chunkB64 = null;
                     try {
                       const enc = await this._fileToBase64(chunk);
@@ -969,7 +971,26 @@ const SmartBrains = {
                       chunkData.base64 = chunkB64;
                       console.warn(`[SmartBrains] Chunk ${chunkIdx} upload error, using inline:`, chunkErr.message);
                     }
-                    encoded[category].push(chunkData);
+
+                    return chunkData;
+                  };
+
+                  const UPLOAD_BATCH = 4;
+                  if (chunks.length > 0) {
+                    progressCallback(pct, `Uploading page 1/${chunks.length}: ${chunks[0]._sheetId || chunks[0].name}… (pinning key)`, null);
+                    const firstResult = await processChunk(chunks[0], 1);
+                    encoded[category].push(firstResult);
+                  }
+                  for (let bi = 1; bi < chunks.length; bi += UPLOAD_BATCH) {
+                    const batchSlice = chunks.slice(bi, bi + UPLOAD_BATCH);
+                    const startIdx = bi + 1;
+                    const endIdx = Math.min(bi + UPLOAD_BATCH, chunks.length);
+                    progressCallback(pct, `Uploading pages ${startIdx}-${endIdx}/${chunks.length} (parallel batch)…`, null);
+                    const batchPromises = batchSlice.map((chunk, idx) => processChunk(chunk, bi + idx + 1));
+                    const batchResults = await Promise.all(batchPromises);
+                    for (const result of batchResults) {
+                      encoded[category].push(result);
+                    }
                   }
                   // DON'T include the full PDF as inline — it's too large (57MB = 77MB base64)
                   // The chunks cover all pages. Skip adding the parent fileData entry.
@@ -10018,8 +10039,11 @@ ${legendContext}
       ];
 
       // Process pages in batches with concurrency limiting
-      const CONCURRENCY = 5;
-      const PAGE_DELAY_MS = 800; // Delay between batches to respect rate limits
+      // v5.129.9: bumped 5→7 / 800→500ms for ~30-40% per-page brain speedup.
+      // Circuit breaker (line 3292) absorbs the rare 429 if we go too wide;
+      // money brains are unaffected (none of them are per-page).
+      const CONCURRENCY = 7;
+      const PAGE_DELAY_MS = 500; // Delay between batches to respect rate limits
       const pageResults = [];
       let scansCompleted = 0;
 
@@ -10510,10 +10534,13 @@ ${legendContext}
     }
 
     // ── Batched execution to avoid API rate limiting ──
-    // Waves with 4+ brains: run in batches of 2 with stagger delay
-    // Waves with 1-3 brains: run all in parallel (no rate limit risk)
-    const BATCH_SIZE = 2;
-    const STAGGER_DELAY_MS = 2000; // 2 seconds between batches
+    // Waves with 5+ brains: run in batches of 4 with stagger delay
+    // Waves with 1-4 brains: run all in parallel (no rate limit risk — 18 keys available)
+    // v5.129.9: bumped batch 2→4, stagger 2000→1000ms. With 18 proxy-managed
+    // keys spreading load, 4 concurrent brains/batch is well under the per-key
+    // rate ceiling. Halved stagger because 2s was over-cautious.
+    const BATCH_SIZE = 4;
+    const STAGGER_DELAY_MS = 1000; // 1 second between batches
 
     // Helper: route brain to per-page or standard execution
     const runBrain = async (key) => {
@@ -10536,7 +10563,9 @@ ${legendContext}
     }
 
     // Then run standard brains in parallel batches
-    if (standardKeys.length <= 3) {
+    // v5.129.9: threshold raised 3→4 to match BATCH_SIZE=4 — waves with ≤4
+    // standard brains all run in a single parallel batch with no stagger.
+    if (standardKeys.length <= BATCH_SIZE) {
       const promises = standardKeys.map(async (key) => await runBrain(key));
       await Promise.allSettled(promises);
     } else {
