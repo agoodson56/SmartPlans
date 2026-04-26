@@ -931,3 +931,102 @@ const PRICING_DB = {
 if (typeof window !== "undefined") {
     window.PRICING_DB = PRICING_DB;
 }
+
+// ═══════════════════════════════════════════════════════════
+// BID HISTORY — User-recorded won/lost bid outcomes for calibration
+// (v5.129.3 — 2026-04-25)
+// ═══════════════════════════════════════════════════════════
+// Persisted to localStorage so calibration improves as the user records
+// real bid outcomes. Merged with PRICING_DB.amtrakBenchmarks by
+// FormulaEngine3D so calibration anchors grow over time.
+//
+// Built-in benchmarks (PRICING_DB.amtrakBenchmarks.actualBids) WIN on
+// key conflict — users can't override the curated benchmarks with bad data.
+// 'lost' bids are excluded (they'd pull calibration low).
+//
+// USAGE (from browser console after a bid result is known):
+//   BID_HISTORY.record('project_name', {
+//     cameras: 100,
+//     total: 1750000,           // award price (sell, not cost)
+//     year: 2026,
+//     type: 'bafo' | 'original' | 'revision' | 'value_engineering',
+//     status: 'won' | 'lost' | 'pending',
+//     projectType: 'transit' | 'office' | 'mixed_use' | etc.,
+//     notes: 'optional context'
+//   });
+//
+//   BID_HISTORY.getAll();    // see what's recorded
+//   BID_HISTORY.remove(key); // delete a bad entry
+//
+const BID_HISTORY = {
+    LS_KEY: 'smartplans_bid_history_v1',
+
+    getAll() {
+        try {
+            const raw = (typeof localStorage !== 'undefined') ? localStorage.getItem(this.LS_KEY) : null;
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            console.warn('[BID_HISTORY] getAll failed:', e.message);
+            return {};
+        }
+    },
+
+    record(key, data) {
+        if (!key || typeof key !== 'string' || !data || typeof data !== 'object') {
+            console.warn('[BID_HISTORY] record requires key (string) and data (object)');
+            return false;
+        }
+        if (!Number.isFinite(data.cameras) || !Number.isFinite(data.total)) {
+            console.warn('[BID_HISTORY] data.cameras and data.total must be finite numbers');
+            return false;
+        }
+        try {
+            const all = this.getAll();
+            all[key] = { ...data, recordedAt: new Date().toISOString() };
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(this.LS_KEY, JSON.stringify(all));
+            }
+            console.log(`[BID_HISTORY] Recorded "${key}": ${data.cameras} cams, $${data.total.toLocaleString()} (${data.status || 'unknown'})`);
+            return true;
+        } catch (e) {
+            console.warn('[BID_HISTORY] record failed:', e.message);
+            return false;
+        }
+    },
+
+    remove(key) {
+        try {
+            const all = this.getAll();
+            if (!(key in all)) return false;
+            delete all[key];
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(this.LS_KEY, JSON.stringify(all));
+            }
+            console.log(`[BID_HISTORY] Removed "${key}"`);
+            return true;
+        } catch (e) {
+            console.warn('[BID_HISTORY] remove failed:', e.message);
+            return false;
+        }
+    },
+};
+
+// Merged benchmark accessor for FormulaEngine3D and other calibration consumers.
+// Returns shape: { [key]: { cameras, total, year, type, ... } }
+function getBidBenchmarks() {
+    const builtin = (typeof PRICING_DB !== 'undefined' && PRICING_DB.amtrakBenchmarks?.actualBids) || {};
+    const userRecorded = BID_HISTORY.getAll();
+    const merged = {};
+    // User-recorded first; filter out 'lost' bids (they'd pull calibration low)
+    for (const [k, v] of Object.entries(userRecorded)) {
+        if (v?.status !== 'lost') merged[k] = v;
+    }
+    // Built-in wins on conflict
+    Object.assign(merged, builtin);
+    return merged;
+}
+
+if (typeof window !== "undefined") {
+    window.BID_HISTORY = BID_HISTORY;
+    window.getBidBenchmarks = getBidBenchmarks;
+}

@@ -38,6 +38,129 @@ const SmartPlansExport = {
         }
     },
 
+    // ─── Fail-Closed Gate (v5.129.3 — 2026-04-25) ──────────────
+    // Collect all blocking warnings the analysis pipeline produced, in one
+    // structured place. Returns array of:
+    //   { severity: 'block'|'warn', code, message, details, dollarsAtRisk? }
+    //
+    // The system already DETECTS these issues (cost-buildup divergence, anomaly
+    // detector, missing sheets, coverage gaps). What it didn't do was ENFORCE
+    // them — warnings logged to console while exports proceeded. This collector
+    // surfaces them on the export object so the UI can hard-block 'block'
+    // severity and require explicit acknowledgment.
+    //
+    // Validated against Sacramento bid (won at $1,734K): the cost-buildup
+    // divergence (-24.6%) was logging "investigate before shipping" while the
+    // export shipped anyway. With this gate, that bid would have halted at
+    // export until reviewed.
+    _collectBlockingWarnings(state, bom) {
+        const warnings = [];
+        if (!state) return warnings;
+
+        // 1. Cost-buildup divergence (3D engine vs deterministic disagree)
+        // 'block' at >15% (post-v5.129.2 should rarely fire because calibrated
+        // 3D is now bid-of-record on transit). 'warn' at 5-15%.
+        const div = state._pathDivergenceWarning;
+        if (div && Number.isFinite(div.deltaPct)) {
+            const absPct = Math.abs(div.deltaPct);
+            if (absPct > 5) {
+                warnings.push({
+                    severity: absPct > 15 ? 'block' : 'warn',
+                    code: 'cost_buildup_divergence',
+                    message: `Two cost-buildup paths disagree by ${div.deltaPct.toFixed(1)}% — review _computeFullBreakdown vs FormulaEngine3D before shipping`,
+                    details: { computedTotal: div.computedTotal, engine3DTotal: div.engine3DTotal, deltaPct: div.deltaPct },
+                    dollarsAtRisk: Math.abs((div.engine3DTotal || 0) - (div.computedTotal || 0)),
+                });
+            }
+        }
+
+        // 2. Per-discipline coverage gaps — selected discipline has no device counts
+        const coverageGaps = state._perDisciplineCoverageGaps || [];
+        if (Array.isArray(coverageGaps) && coverageGaps.length > 0) {
+            warnings.push({
+                severity: 'block',
+                code: 'discipline_coverage_gap',
+                message: `${coverageGaps.length} selected discipline(s) have no device counts: ${coverageGaps.map(g => g.discipline || g).join(', ')}`,
+                details: coverageGaps,
+            });
+        }
+
+        // 3. Quantity anomalies — Material Pricer flagged outliers
+        const anomalies = state._quantityAnomalies || [];
+        const blockingAnomalies = (Array.isArray(anomalies) ? anomalies : []).filter(a => a.severity === 'warning');
+        if (blockingAnomalies.length > 0) {
+            warnings.push({
+                severity: 'warn',
+                code: 'quantity_anomalies',
+                message: `${blockingAnomalies.length} quantity anomaly/anomalies detected — verify pricing/quantities before shipping`,
+                details: blockingAnomalies.slice(0, 10),
+            });
+        }
+
+        // 4. Sheet inventory missing sheets — kept as 'warn' (false-positive prone)
+        const sig = state.brainResults?.wave0_5?.SHEET_INVENTORY_GUARD;
+        if (sig && Array.isArray(sig.missing_sheets) && sig.missing_sheets.length > 0) {
+            warnings.push({
+                severity: 'warn',
+                code: 'missing_sheets',
+                message: `Sheet Inventory Guard flagged ${sig.missing_sheets.length} sheet(s) as missing — verify they're not actually in the set (this guard has known false-positive issues)`,
+                details: sig.missing_sheets.slice(0, 10),
+            });
+        }
+
+        // 5. Cost per SF outside benchmark range
+        const grandTotal = Number(state._lockedBidTotal || 0);
+        const profile = state._buildingProfile || {};
+        const sf = Number(profile.total_sf || profile.totalSF || 0);
+        if (grandTotal > 1000 && sf >= 100) {
+            const costPerSF = grandTotal / sf;
+            const projectType = String(profile.building_type || 'mixed_use').toLowerCase().replace(/[\s-]/g, '_');
+            const ranges = {
+                mixed_use:    { min: 5,  max: 35 },
+                office:       { min: 4,  max: 25 },
+                healthcare:   { min: 12, max: 60 },
+                education:    { min: 5,  max: 30 },
+                retail:       { min: 3,  max: 20 },
+                warehouse:    { min: 2,  max: 12 },
+                transit:      { min: 15, max: 80 },
+                data_center:  { min: 20, max: 120 },
+            };
+            const range = ranges[projectType] || ranges.mixed_use;
+            if (costPerSF < range.min || costPerSF > range.max) {
+                warnings.push({
+                    severity: 'warn',
+                    code: 'cost_per_sf_outlier',
+                    message: `Cost per SF $${costPerSF.toFixed(2)} outside ${range.min}-${range.max} range for ${projectType}`,
+                    details: { costPerSF: this._round(costPerSF), projectType, range, grandTotal, sf },
+                });
+            }
+        }
+
+        // 6. Brain failures requiring review
+        const failed = [];
+        for (const wave of Object.values(state.brainResults || {})) {
+            if (typeof wave === 'object' && wave) {
+                for (const [bk, result] of Object.entries(wave)) {
+                    if (result?._failed === true) failed.push(bk);
+                }
+            }
+        }
+        if (failed.length > 0) {
+            warnings.push({
+                severity: 'warn',
+                code: 'brain_failures',
+                message: `${failed.length} brain(s) failed and were skipped: ${failed.join(', ')}`,
+                details: failed,
+            });
+        }
+
+        return warnings;
+    },
+
+    _hasBlockingWarnings(state, bom) {
+        return this._collectBlockingWarnings(state, bom).some(w => w.severity === 'block');
+    },
+
     // ─── Build structured data package ─────────────────────────
     buildExportPackage(state) {
         const now = new Date();
@@ -63,6 +186,12 @@ const SmartPlansExport = {
 
         // Filter BOM to only include categories for selected disciplines
         const filteredBom = this._filterBOMByDisciplines(bom, state.disciplines);
+
+        // v5.129.3: Pre-compute grandTotal so state._lockedBidTotal is set BEFORE
+        // _collectBlockingWarnings runs (the cost-per-SF check reads it).
+        // Without this, _blockingWarnings evaluates before financials in object-
+        // literal source order and sees a stale/missing total.
+        const grandTotalForGate = this._getFullyLoadedTotal(state, filteredBom);
 
         return {
             _meta: {
@@ -145,8 +274,28 @@ const SmartPlansExport = {
             //   grandTotal   = fully loaded bid price from Financial Engine
             //                  (includes markups, G&A, profit, contingency)
             //                  Falls back to markup calculation if Financial Engine unavailable.
+            // v5.129.3: fail-closed warnings collected after grand total is locked.
+            // UI consumers should refuse to send the bid if any warning has severity='block'.
+            // Stamped on _meta so downstream tools (proposal generator, BOM exporter)
+            // can also see them without needing to re-run the collector.
+            _blockingWarnings: (() => {
+                // grandTotal computation above will set state._lockedBidTotal via
+                // _getFullyLoadedTotal. Run the collector AFTER that so cost-per-SF
+                // and divergence checks see the locked total.
+                const ws = this._collectBlockingWarnings(state, filteredBom);
+                if (ws.length > 0) {
+                    const blockCount = ws.filter(w => w.severity === 'block').length;
+                    const warnCount = ws.filter(w => w.severity === 'warn').length;
+                    console.log(`[Export] 🛡️ Fail-closed gate: ${blockCount} blocking + ${warnCount} warning issue(s) collected`);
+                    for (const w of ws) {
+                        console.log(`[Export]   ${w.severity === 'block' ? '🛑' : '⚠️ '} [${w.code}] ${w.message}`);
+                    }
+                }
+                return ws;
+            })(),
+
             financials: {
-                grandTotal: this._getFullyLoadedTotal(state, filteredBom),
+                grandTotal: grandTotalForGate,
                 bomRawTotal: filteredBom.grandTotal,
                 ...(bomWarning ? { _warning: bomWarning } : {}),
                 markup: { ...state.markup },

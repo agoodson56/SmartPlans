@@ -838,8 +838,15 @@ const FormulaEngine3D = {
         // The AI Material Pricer often prices cameras at near-sell levels, then
         // FormulaEngine3D adds markup on top — producing bids 50-100% too high.
         // Calibration scales the total to match real benchmark data.
-        if (isTransit && typeof PRICING_DB !== 'undefined' && PRICING_DB.amtrakBenchmarks?.actualBids) {
-            const bids = PRICING_DB.amtrakBenchmarks.actualBids;
+        // v5.129.3: prefer merged benchmarks (built-in + user-recorded BID_HISTORY)
+        // when available so calibration grows with real outcomes the user records.
+        // Falls back to PRICING_DB.amtrakBenchmarks for environments without BID_HISTORY.
+        const _getBids = (typeof globalThis !== 'undefined' && typeof globalThis.getBidBenchmarks === 'function')
+            ? globalThis.getBidBenchmarks
+            : (typeof window !== 'undefined' && typeof window.getBidBenchmarks === 'function' ? window.getBidBenchmarks : null);
+        const _bidsSource = _getBids ? _getBids() : (typeof PRICING_DB !== 'undefined' ? PRICING_DB.amtrakBenchmarks?.actualBids : null);
+        if (isTransit && _bidsSource && Object.keys(_bidsSource).length > 0) {
+            const bids = _bidsSource;
             const consensus = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts;
             const finalRecon = state.brainResults?.wave3_75?.FINAL_RECONCILIATION?.final_counts;
 
