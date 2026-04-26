@@ -896,8 +896,12 @@ const SmartPlansExport = {
                     state._engine3DResult = result3D;
 
                     if (state.isTransitRailroad) {
-                        console.log(`[Export] 🚂 3D Formula Engine (TRANSIT REFERENCE): $${this._round(result3D.grandTotalSELL).toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED to Amtrak actuals]' : ''}${result3D._refClamped ? ' [CLAMPED to det×1.30]' : ''}`);
-                        console.log(`[Export]   Deterministic _computeFullBreakdown is the bid-of-record for ALL paths (transit + non-transit).`);
+                        console.log(`[Export] 🚂 3D Formula Engine (TRANSIT): $${this._round(result3D.grandTotalSELL).toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED to Amtrak actuals]' : ''}${result3D._refClamped ? ' [CLAMPED to det×1.30]' : ''}`);
+                        if (result3D._calibrated) {
+                            console.log(`[Export]   Calibrated 3D Engine is the bid-of-record (anchored to ${result3D._calibrationBenchmark || 'won-bid benchmark'}). Deterministic is fallback.`);
+                        } else {
+                            console.log(`[Export]   3D Engine NOT calibrated (no benchmark match). Deterministic _computeFullBreakdown is the bid-of-record.`);
+                        }
                     } else {
                         console.log(`[Export] 📊 3D Formula Engine (REFERENCE ONLY): $${this._round(result3D.grandTotalSELL).toLocaleString()} (GM: ${result3D.grossMarginPct}%)${result3D._calibrated ? ' [CALIBRATED]' : ''}${result3D._refClamped ? ' [CLAMPED to det×1.30]' : ''}`);
                     }
@@ -940,7 +944,59 @@ const SmartPlansExport = {
             }
         }
 
-        // Priority 2 (PRIMARY): Deterministic BOM computation with user-configured markups
+        // ── Priority 1.5: Calibrated 3D Engine (transit projects with benchmark anchor) ──
+        // v5.129.2 fix (2026-04-25): use the calibrated 3D engine as the bid-of-record
+        // for transit projects when calibration succeeded against a real won-bid benchmark.
+        //
+        // EMPIRICAL VALIDATION — Amtrak Sacramento (won at $1,734,000, sacramento_rev2):
+        //   - Calibrated 3D Engine:       $1,751,091  (+1.0% vs award) ✅
+        //   - Deterministic computation:  $2,321,809  (+33.9% vs award) ❌ would have lost the
+        //                                                                  bid by ~$590K
+        //
+        // The previous architecture (Wave-15 Cluster-7A) made deterministic the bid-of-record
+        // because pre-calibration 3D was unreliable. With sacramento_rev2 + martinez_bafo +
+        // 5 other benchmarks now seeded in pricing-database.js AND the engine's existing
+        // calibration sanity gates (camera-ratio [0.4, 2.5], scale-factor [0.40, 1.50]),
+        // calibrated 3D is anchored to empirical reality. Deterministic is a synthetic
+        // markup chain that drifts.
+        //
+        // Falls through to Priority 2 (deterministic) if 3D is not calibrated — preserves
+        // existing behavior for non-transit and pre-benchmark scenarios.
+        if (state.isTransitRailroad &&
+            state._engine3DResult?._calibrated === true &&
+            state._engine3DResult.grandTotalSELL > 1000) {
+            const calibrated = this._round(state._engine3DResult.grandTotalSELL);
+            const benchmarkKey = state._engine3DResult._calibrationBenchmark || 'unknown';
+            console.log(`[Export] 🚂 ✅ Using calibrated 3D Engine as bid-of-record: $${calibrated.toLocaleString()} (anchored to ${benchmarkKey})`);
+
+            // Diagnostic: log deterministic for reference, but don't use it.
+            // Travel is added on top of the calibrated total because the calibration
+            // benchmarks are project-cost only — travel is a pass-through.
+            if (bom?.categories?.length > 0) {
+                try {
+                    const det = this._computeFullBreakdown(state, bom);
+                    if (det?.grandTotal > 1000) {
+                        const delta = det.grandTotal - calibrated;
+                        const deltaPct = ((delta / calibrated) * 100).toFixed(1);
+                        console.log(`[Export]   Deterministic reference: $${det.grandTotal.toLocaleString()} (${delta > 0 ? '+' : ''}${deltaPct}% vs calibrated). Calibrated wins — anchored to actual won-bid data.`);
+                    }
+                } catch (e) { /* swallow — diagnostic only */ }
+            }
+
+            // Add travel on top (pass-through; benchmarks don't include project travel).
+            const finalTotal = stage6Travel > 0 ? this._round(calibrated + stage6Travel) : calibrated;
+            if (stage6Travel > 0) {
+                console.log(`[Export]   + Stage 6 Travel: $${stage6Travel.toLocaleString()} → final $${finalTotal.toLocaleString()}`);
+            }
+
+            state._lockedBidTotal = finalTotal;
+            state._lockedBidTotalSource = `calibrated 3D engine (${benchmarkKey})`;
+            return finalTotal;
+        }
+
+        // Priority 2 (FALLBACK): Deterministic BOM computation with user-configured markups
+        // Used for non-transit projects, or transit projects where 3D engine calibration
+        // was rejected (camera count out of benchmark range, scale factor out of bounds).
         // This matches proposal-generator.js _extractGrandTotal exactly.
         if (bom?.categories?.length > 0) {
             const breakdown = this._computeFullBreakdown(state, bom);
