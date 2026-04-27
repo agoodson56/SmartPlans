@@ -422,6 +422,32 @@ const ScaleCalibration = {
       s.pixelsPerFoot = s.doorScale.pixelsPerFt;
       s.confidence = this._computeConfidence(s);
     }
+
+    // M5 fix (audit 2026-04-27): flag sheets where confidence is below 0.60.
+    // Wrong scale doubles all cable footage downstream — silently shipping a
+    // 50% over- or under-pulled bid. Set _lowConfidenceWarn so the consumer
+    // (export gate / UI) can surface a "verify scale" prompt to the estimator
+    // before the bid is submitted.
+    s._lowConfidenceWarn = (s.activeSource && s.activeSource !== 'manual' && (s.confidence || 0) < 0.60);
+  },
+
+  // M5: enumerate sheets where the resolved scale carries low confidence.
+  // Returns [{ sheetId, confidence, source }] for any sheet that's relying
+  // on a scale source under 60% confidence (and not a manual override).
+  getLowConfidenceSheets() {
+    const out = [];
+    for (const sid of Object.keys(this._sheets || {})) {
+      const s = this._sheets[sid];
+      if (s && s._lowConfidenceWarn) {
+        out.push({
+          sheetId: sid,
+          confidence: s.confidence || 0,
+          source: s.activeSource || 'unknown',
+          ftPerInch: (s.activeSource === 'ocr' ? s.ocrScale?.ftPerInch : s.aiScale?.ftPerInch) || null,
+        });
+      }
+    }
+    return out;
   },
 
   _computeConfidence(s) {

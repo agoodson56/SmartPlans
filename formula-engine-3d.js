@@ -867,9 +867,17 @@ const FormulaEngine3D = {
             const consensus = state.brainResults?.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts;
             const finalRecon = state.brainResults?.wave3_75?.FINAL_RECONCILIATION?.final_counts;
 
-            // Count cameras from consensus/recon — OR from BOM if brain results unavailable
-            const camRegex = /camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i;
-            const camExclude = /mount|bracket|license|sd\s*card|cable|adapter|housing|power|surge|software|warranty|accessori/i;
+            // Count cameras from consensus/recon — OR from BOM if brain results unavailable.
+            // M3+L3 fix (audit 2026-04-27): unified regex with export-engine.js _finalBidSanityCheck
+            // so the calibration camera count and the post-bid sanity check count agree.
+            // Pre-fix: tiny pattern diffs (power vs power\s*supply; accessori vs accessor)
+            // produced a 1-2 camera mismatch that occasionally pushed calibration outside the
+            // [0.4, 2.5] camera-ratio gate, skipping calibration on legitimate transit bids.
+            // Also removed `lpr` from the camera regex (L3): license plate readers are a
+            // separate cost class (~$8-15K/unit) that shouldn't be averaged into the per-camera
+            // benchmark (~$15-30K/cam) without a dedicated benchmark table.
+            const camRegex = /camera|dome|bullet|ptz|fisheye|panoram|turret/i;
+            const camExclude = /mount|bracket|license|sd\s*card|cable|adapter|housing|power\s*supply|surge|software|warranty|accessor/i;
             let cameraCount = 0;
             const countSource = finalRecon || consensus;
             if (countSource) {

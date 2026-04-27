@@ -220,6 +220,22 @@ const CableAnalyzer = {
         v.totalCost = Math.round(v.totalFtWithWaste * v.costPerFt * 100) / 100;
         v.notes = (v.notes ? v.notes + ' | ' : '') + `⚠️ TIA VIOLATION: Original ${v._originalRunFt}ft exceeded ${cfg.tiaMaxFt}ft limit — capped. Consider adding closer IDF.`;
       }
+      // M7 fix (audit 2026-04-27): expose violations on the schedule output so the
+      // export gate / UI can warn the estimator. Pre-fix, the bid silently shipped
+      // with capped 295ft runs while the actual install required >295ft (under-pulled
+      // cable, undersized conduit). Now visible as a fail-gate warning so the
+      // estimator can either accept the risk, add an IDF, or trigger an RFI.
+      this._lastTiaViolations = tiaViolations.map(v => ({
+        idf: v.idfAssigned,
+        zone: v.zoneId,
+        cableType: v.cableType,
+        originalRunFt: v._originalRunFt,
+        cappedAt: cfg.tiaMaxFt,
+        qty: v.qty,
+        deltaFt: (v._originalRunFt || 0) - cfg.tiaMaxFt,
+      }));
+    } else {
+      this._lastTiaViolations = [];
     }
 
     // Calculate all totals and stats AFTER TIA capping so numbers are consistent

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'smartplans-v5.131.0';
+const CACHE_NAME = 'smartplans-v5.132.0';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -21,17 +21,35 @@ const APP_SHELL = [
     '/smartplans-logo.png',
 ];
 
-// Install — cache app shell, then take over
+// Install — cache app shell, then take over.
+// H1 fix (audit 2026-04-27): cache.addAll() is atomic per spec. If any single URL
+// 404s (file renamed, not yet propagated, or removed from APP_SHELL list out of sync
+// with the deployed bundle), the entire install rejects. The new SW never activates,
+// users stay on the old cached version forever. Replace with Promise.allSettled over
+// individual fetch+put so a single missing file doesn't block the deploy. Failures
+// are logged so we still notice them.
 self.addEventListener('install', (event) => {
     event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(APP_SHELL))
-            .then(() => {
-                // Only skip waiting AFTER cache is successfully populated
-                // Calling skipWaiting() before addAll() resolves can cause reload loops
-                // if addAll() fails (e.g., a file 404s)
-                return self.skipWaiting();
-            })
+        caches.open(CACHE_NAME).then(async (cache) => {
+            const results = await Promise.allSettled(APP_SHELL.map(async (url) => {
+                const res = await fetch(url, { cache: 'reload' });
+                if (!res || !res.ok) throw new Error(`${url} -> ${res ? res.status : 'no response'}`);
+                await cache.put(url, res);
+                return url;
+            }));
+            const failed = results
+                .map((r, i) => r.status === 'rejected' ? { url: APP_SHELL[i], reason: r.reason && r.reason.message } : null)
+                .filter(Boolean);
+            if (failed.length > 0) {
+                console.warn(`[SW] ${failed.length}/${APP_SHELL.length} app-shell entries failed to cache during install:`, failed);
+            } else {
+                console.log(`[SW] App shell cached (${APP_SHELL.length} entries) → ${CACHE_NAME}`);
+            }
+            // skipWaiting AFTER cache attempt finishes — even if some entries failed,
+            // the SW takes over (network-first fetch handler will recover those URLs
+            // on next request). Pre-fix: a single 404 stranded the entire SW update.
+            return self.skipWaiting();
+        })
     );
 });
 

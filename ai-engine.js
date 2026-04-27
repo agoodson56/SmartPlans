@@ -4386,6 +4386,45 @@ const SmartBrains = {
       }
     }
 
+    // H8 fix (audit 2026-04-27): CONSENSUS_ARBITRATOR cross-field arithmetic check.
+    // The prompt teaches AI: data_outlet = (1D×1) + (2D×2) + (4D×4) + (6D×6).
+    // Pre-fix the validator never enforced this, so AI sometimes shipped
+    // outlet_breakdown summing to 250 with data_outlet=251 — one phantom drop
+    // worth ~$300 on the bid. Reject (and trigger retry) when the formula
+    // mismatches by more than 1 unit, since rounding shouldn't cause >1 disagreement.
+    const _checkOutletFormula = (counts) => {
+      const ob = counts && counts.outlet_breakdown;
+      if (!ob || typeof ob !== 'object') return null;
+      const expected = (Number(ob['1D']) || 0) * 1
+                     + (Number(ob['2D']) || 0) * 2
+                     + (Number(ob['4D']) || 0) * 4
+                     + (Number(ob['6D']) || 0) * 6;
+      const actual = Number(counts.data_outlet);
+      if (!Number.isFinite(actual) || expected === 0) return null;
+      if (Math.abs(actual - expected) > 1) {
+        return { expected, actual, diff: actual - expected };
+      }
+      return null;
+    };
+    if (brainKey === 'CONSENSUS_ARBITRATOR' && parsed.consensus_counts) {
+      const m = _checkOutletFormula(parsed.consensus_counts);
+      if (m) {
+        return {
+          valid: false,
+          reason: `CONSENSUS_ARBITRATOR: data_outlet (${m.actual}) does not match outlet_breakdown sum (${m.expected}) — diff ${m.diff}. Formula: 1D×1 + 2D×2 + 4D×4 + 6D×6.`,
+        };
+      }
+    }
+    if (brainKey === 'FINAL_RECONCILIATION' && parsed.final_counts) {
+      const m = _checkOutletFormula(parsed.final_counts);
+      if (m) {
+        return {
+          valid: false,
+          reason: `FINAL_RECONCILIATION: data_outlet (${m.actual}) does not match outlet_breakdown sum (${m.expected}) — diff ${m.diff}. Formula: 1D×1 + 2D×2 + 4D×4 + 6D×6.`,
+        };
+      }
+    }
+
     return { valid: true };
   },
 
@@ -5694,7 +5733,48 @@ MDF/IDF ROOMS & EQUIPMENT:
 ${JSON.stringify(context.wave1?.MDF_IDF_ANALYZER || {}, null, 2).substring(0, 4000)}
 
 CABLE QUANTITIES & PATHWAYS (zone-by-zone run lengths — DO NOT use flat averages if this data exists):
-${JSON.stringify(context.wave1?.CABLE_PATHWAY || {}, null, 2).substring(0, 16000)}
+${(() => {
+  // M10 fix (audit 2026-04-27): pre-summarize CABLE_PATHWAY instead of dumping
+  // raw 16KB of zone metadata. Pre-fix, large jobs with 200+ zones filled the
+  // 16K budget with zone boundary detail and truncated the actual run-length
+  // numbers — leaving Material Pricer to hallucinate cable footage. Now we
+  // emit totals by cable type + a compact zone summary, capped at ~3KB.
+  const cp = context.wave1?.CABLE_PATHWAY || {};
+  if (!cp || (typeof cp === 'object' && Object.keys(cp).length === 0)) return '(No CABLE_PATHWAY data available — use building-size heuristic from item 10 below.)';
+  const lines = [];
+  // Totals by cable type
+  if (cp.cable_totals_by_type && typeof cp.cable_totals_by_type === 'object') {
+    lines.push('TOTALS BY CABLE TYPE:');
+    for (const [cType, total] of Object.entries(cp.cable_totals_by_type)) {
+      lines.push(`  ${cType}: ${typeof total === 'object' ? JSON.stringify(total) : total}`);
+    }
+  } else if (cp.totals) {
+    lines.push('TOTALS: ' + JSON.stringify(cp.totals).substring(0, 800));
+  }
+  // Per-zone averages (compact)
+  const zones = cp.zones || cp.cable_zones || [];
+  if (Array.isArray(zones) && zones.length > 0) {
+    lines.push(`ZONES (${zones.length} total, showing per-zone summary):`);
+    const compactZones = zones.slice(0, 50).map(z => {
+      const obj = {
+        zone: z.zone || z.id || z.name,
+        idf: z.idf || z.assigned_idf,
+        avg_run_ft: z.avg_run_ft || z.average_run_ft || z.run_ft,
+        device_count: z.device_count || z.devices || z.count,
+      };
+      return '  ' + JSON.stringify(obj);
+    });
+    lines.push(...compactZones);
+    if (zones.length > 50) lines.push(`  ... ${zones.length - 50} more zones omitted for prompt size.`);
+  }
+  // Backbone runs if present
+  if (cp.backbone_runs || cp.fiber_backbone) {
+    lines.push('BACKBONE: ' + JSON.stringify(cp.backbone_runs || cp.fiber_backbone).substring(0, 600));
+  }
+  const summary = lines.join('\n');
+  // Hard cap at 3000 chars to leave headroom for the rest of the prompt
+  return summary.length > 3000 ? summary.substring(0, 3000) + '\n  ... (truncated)' : summary;
+})()}
 
 SPATIAL LAYOUT (scale per sheet, building dimensions — use for cable run verification):
 ${JSON.stringify(context.wave0?.SPATIAL_LAYOUT || {}, null, 2).substring(0, 6000)}
@@ -7817,63 +7897,9 @@ RULES:
 - The "building_dimensions" is the OVERALL envelope (largest extents across all sheets)
 - If a zone spans multiple sheets at different scales, use the sheet where its centroid falls`,
 
-      // ── BRAIN 32: Building Profiler (Wave 0.35) ──────────────
-      BUILDING_PROFILER: () => `You are a BUILDING PROFILE INFERENCE ENGINE for construction documents. You analyze architectural plans, floor plans, and site plans to infer the building's physical characteristics BEFORE any device counting begins. Your profile becomes the GROUND TRUTH that all downstream brains validate against.
-
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
-DISCIPLINES: ${(context.disciplines || []).join(', ')}
-
-YOUR MISSION: Infer the building's physical profile from the construction drawings. This profile will be used by 30+ downstream brains to validate their counts and catch errors.
-
-WHAT TO EXTRACT:
-1. **Building Envelope**: Approximate total square footage (gross and usable), number of floors, building footprint dimensions
-2. **Room Inventory**: Count and classify every room visible on floor plans — offices, conference rooms, restrooms, lobbies, corridors, storage, mechanical, server/telecom rooms, break rooms, exam rooms, patient rooms, nurse stations, etc.
-3. **Floor-by-Floor Breakdown**: SF per floor, room count per floor, room types per floor
-4. **Building Type Indicators**: Healthcare (exam rooms, nurse stations, patient rooms), Office (cubicle farms, conference rooms), Education (classrooms, labs), Retail (sales floor, stockroom), Government/VA (security checkpoints, waiting rooms)
-5. **Door Count**: Total doors visible (critical for access control scope estimation)
-6. **Ceiling Type**: Drop ceiling, open plenum, hard lid — affects cable pathway routing
-7. **Corridor/Hallway Length**: Approximate total linear feet of corridors (affects camera counts, cable pathways)
-8. **Parking Areas**: Garage levels, surface lots, total stalls (affects CCTV scope)
-9. **Exterior Perimeter**: Approximate linear feet (affects perimeter security cameras)
-10. **Special Spaces**: Data centers, MDF/IDF rooms, security command centers, loading docks, elevators (count)
-
-MEASUREMENT RULES:
-- Use architectural scale bars, title block scales, or door widths (standard 3'-0") as reference
-- If multiple floors have identical layouts, note "typical floor" and multiply
-- Round SF to nearest 100 SF, corridor lengths to nearest 10 LF
-- If you can't determine SF precisely, provide a range (e.g., 15,000-18,000 SF)
-
-BUILDING TYPE AUTO-DETECTION:
-- If you see exam rooms, nurse stations, patient rooms → Healthcare/Medical
-- If you see classrooms, labs, gymnasium → Education/K-12 or Higher Ed
-- If you see courtrooms, holding cells, sally ports → Justice/Correctional
-- If you see retail floor, POS locations, stockroom → Retail
-- If you see open office, cubicles, executive suites → Commercial Office
-- If VA/Veterans Affairs appears in title block → Government/VA Healthcare
-
-Return ONLY valid JSON:
-{
-  "building_type": "healthcare|office|education|retail|government|industrial|mixed_use",
-  "building_subtype": "VA clinic|medical office building|hospital|elementary school|etc.",
-  "total_gross_sf": 0,
-  "total_usable_sf": 0,
-  "num_floors": 0,
-  "num_buildings": 1,
-  "floors": [
-    { "name": "1st Floor", "sf": 0, "rooms": 0, "room_types": { "office": 0, "conference": 0, "restroom": 0, "corridor": 0, "lobby": 0, "exam_room": 0, "storage": 0, "telecom": 0, "mechanical": 0, "break_room": 0, "other": 0 } }
-  ],
-  "total_rooms": 0,
-  "total_doors": 0,
-  "ceiling_type": "drop_ceiling|open_plenum|hard_lid|mixed",
-  "corridor_total_lf": 0,
-  "parking": { "type": "surface|garage|both|none", "levels": 0, "stalls": 0 },
-  "exterior_perimeter_lf": 0,
-  "elevators": 0,
-  "stairwells": 0,
-  "special_spaces": { "mdf_idf_rooms": 0, "security_rooms": 0, "loading_docks": 0, "data_centers": 0 },
-  "confidence": 85,
-  "notes": "Any important observations about the building layout"
-}`,
+      // BRAIN 32 BUILDING_PROFILER prompt — REMOVED (audit L1, 2026-04-27).
+      // Wave 0.35 invocation and manifest entry were removed earlier; this
+      // orphan prompt was dead code consuming maintenance overhead.
 
       // ── BRAIN 30: RFP Criteria Parser (Wave 0.75) ──────────────
       RFP_CRITERIA_PARSER: () => `You are an RFP/BID EVALUATION CRITERIA ANALYST. Your job is to extract the SCORING CRITERIA, EVALUATION MATRIX, and SELECTION FACTORS from project specifications, RFP documents, and invitation-to-bid documents.
@@ -9101,106 +9127,9 @@ Return ONLY valid JSON:
 }`;
       },
 
-      // ── BRAIN 33: Spec Compliance Checker (Wave 3.25) ──────────
-      SPEC_COMPLIANCE_CHECKER: () => {
-        const pricer = context.wave2?.MATERIAL_PRICER || {};
-        const bomItems = (pricer.categories || pricer.material_categories || []).flatMap(c => (c.items || []).map(i => i.item || i.device_type || i.name || ''));
-        const specCrossRef = context.wave1?.SPEC_CROSS_REF || {};
-        const buildingProfile = context.wave0_35?.BUILDING_PROFILER || {};
-        return `You are a SPECIFICATION COMPLIANCE AUDITOR. You compare every requirement in the project specifications against the Bill of Materials to find GAPS — spec requirements that have NO corresponding BOM line item.
-
-PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
-DISCIPLINES: ${(context.disciplines || []).join(', ')}
-BUILDING PROFILE: ${JSON.stringify(buildingProfile, null, 2).substring(0, 2000)}
-
-CURRENT BOM LINE ITEMS (from Material Pricer):
-${bomItems.slice(0, 200).join('\n')}
-
-SPEC CROSS-REFERENCE DATA:
-${JSON.stringify(specCrossRef, null, 2).substring(0, 3000)}
-
-YOUR MISSION: Read every specification section relevant to the selected disciplines and verify:
-1. Every MATERIAL requirement in the spec has a corresponding BOM line item
-2. Every SYSTEM requirement (e.g., "provide complete access control system") has all sub-components
-3. Every TESTING/COMMISSIONING requirement is noted (these add labor cost)
-4. Every SUBMITTAL requirement is noted (these add engineering time)
-5. Every WARRANTY requirement is noted (affects pricing)
-6. Every TRAINING requirement is noted (adds labor hours)
-
-═══ HARD "SHALL PROVIDE" ENFORCER — NEW IN v5.124.5 ═══
-Apply this rule STRICTLY: every sentence in the spec containing one of these verb phrases is a FIRM scope commitment the contractor owes. If there is NO corresponding BOM line item, it is an AUTOMATIC missing gap — severity "critical" unless clearly informational.
-
-Trigger verbs (scan for these verbatim):
-- "shall provide"
-- "shall furnish"
-- "shall furnish and install"
-- "contractor shall provide"
-- "contractor shall install"
-- "contractor shall supply"
-- "shall include"
-- "the contractor is responsible for providing"
-- "provide a complete and operational"
-- "provide, install, and test"
-
-For EACH trigger sentence you find:
-1. Quote the full sentence verbatim in "requirement" (no paraphrasing)
-2. Extract the NOUN being provided (what's the item?)
-3. Search the current BOM list for that noun
-4. If no match, flag as "missing" with severity "critical"
-5. Estimate the dollar cost of the missing item based on the spec context
-6. If match, still list it as status="met" with the matching bom_match string
-
-DO NOT skip ANY trigger sentence. If the spec has 40 "shall provide" statements and only 25 are in the BOM, I expect to see all 40 analyzed with 15 marked missing. Under-reporting gaps costs the estimator money.
-
-COMMON SPEC GAPS CONTRACTORS MISS:
-- Spec says "provide conduit" but BOM has no conduit line items
-- Spec says "firestopping at all penetrations" but no firestop material in BOM
-- Spec says "provide labeling per TIA-606-C" but no labels/engraving in BOM
-- Spec says "as-built drawings" but no engineering hours allocated
-- Spec says "provide UPS for head-end" but no UPS in BOM
-- Spec says "seismic bracing per IBC" but no bracing hardware in BOM
-- Spec says "provide spare parts (10%)" but BOM has no spares line
-- Spec says "ICRA barriers required" but no infection control materials in BOM
-- Spec says "prevailing wage applies" — verify labor rates reflect this
-
-SEVERITY LEVELS:
-- critical: Missing item worth >$5,000 or required by code
-- warning: Missing item worth $1,000-$5,000 or affects system completeness
-- info: Minor omission or documentation requirement
-
-Return ONLY valid JSON:
-{
-  "spec_requirements_checked": 0,
-  "requirements_met": 0,
-  "requirements_missing": 0,
-  "compliance_score": 0,
-  "gaps": [
-    {
-      "spec_section": "27 10 00",
-      "requirement": "Provide Category 6A cabling per TIA-568.2-D",
-      "status": "met|missing|partial",
-      "severity": "critical|warning|info",
-      "bom_match": "Cat6A Cable" ,
-      "estimated_cost_if_missing": 0,
-      "recommendation": "Add line item for..."
-    }
-  ],
-  "testing_requirements": [
-    { "spec_section": "27 10 00", "requirement": "100% channel testing with Fluke DTX", "labor_hours_estimate": 40, "in_bom": false }
-  ],
-  "submittal_requirements": [
-    { "spec_section": "01 33 00", "item": "Product data submittals", "engineering_hours": 16, "in_bom": false }
-  ],
-  "warranty_requirements": [
-    { "spec_section": "27 10 00", "duration": "25-year manufacturer system warranty", "cost_impact": "included|additional", "notes": "" }
-  ],
-  "training_requirements": [
-    { "spec_section": "01 79 00", "description": "End-user training (8 hours)", "labor_hours": 8, "in_bom": false }
-  ],
-  "confidence": 85,
-  "notes": ""
-}`;
-      },
+      // BRAIN 33 SPEC_COMPLIANCE_CHECKER prompt — REMOVED (audit L2, 2026-04-27).
+      // Wave 3.25 invocation and manifest entry were removed earlier; this
+      // orphan prompt was dead code consuming maintenance overhead.
 
       // ═══════════════════════════════════════════════════════════
       // NEW BRAINS v5.124.5 — Preflight Gates & First-Read Scanners
@@ -13028,6 +12957,12 @@ ${legendContext}
     // historical actuals rolling avg when available). Ensures labor
     // hours stay defensible + reproducible. Parallel construction to
     // Wave 4 for counts and Wave 7 for material prices.
+    //
+    // H7 fix (audit 2026-04-27): pre-fix, a try/catch swallowed reconciliation
+    // failures and let the un-validated AI hours pass through silently. AI
+    // hallucinations (e.g., 5 hrs/cam vs NECA 1.5 hrs/cam) shipped as if real.
+    // Now: a reconciliation failure surfaces as a hard warning AND sets a
+    // _wave9Failed flag the export gate can read to block or escalate.
     try {
       if (this.config.deterministicLaborHoursEnabled && typeof SmartPlansPricing !== 'undefined'
           && wave225Results?.LABOR_CALCULATOR) {
@@ -13042,9 +12977,22 @@ ${legendContext}
         } else if (laborStats.total > 0) {
           console.log(`[SmartBrains] ⏱️  Wave 9 labor reconciliation — all ${laborStats.total} device hours within ±${Math.round((this.config.laborHoursDisagreementTolerance ?? 0.25) * 100)}% of NECA/actuals ✓`);
         }
+      } else if (wave225Results?.LABOR_CALCULATOR && this.config.deterministicLaborHoursEnabled) {
+        // SmartPlansPricing missing despite reconciliation being enabled — surface loudly.
+        console.error('[SmartBrains] ⚠️ Wave 9 SKIPPED: SmartPlansPricing module unavailable. AI labor hours NOT reconciled against NECA standards. This may ship hallucinated hours.');
+        state._wave9Failed = { reason: 'SmartPlansPricing module unavailable', ts: new Date().toISOString() };
+        context._wave9Failed = state._wave9Failed;
       }
     } catch (w9LErr) {
-      console.warn('[SmartBrains] Wave 9 labor reconcile errored non-fatally:', w9LErr?.message || w9LErr);
+      // H7: don't swallow this — surface to UI and export gate so the estimator knows
+      // labor hours weren't validated. The bid still ships (compute paths still work)
+      // but with a visible warning that hours need manual review.
+      console.error('[SmartBrains] ⚠️ Wave 9 labor reconcile FAILED — AI labor hours are not validated against NECA standards. Manual review required before submitting bid.', w9LErr);
+      state._wave9Failed = {
+        reason: w9LErr?.message || String(w9LErr),
+        ts: new Date().toISOString(),
+      };
+      context._wave9Failed = state._wave9Failed;
     }
 
     // ─── v5.125.1 PHASE 0.5: Davis-Bacon Enforcement Validator ───
@@ -13135,6 +13083,18 @@ ${legendContext}
               corrected_items: corrected,
               reason: 'AI brain did not honor Davis-Bacon multiplier from prompt; applied in code.',
             };
+            // H9 fix (audit 2026-04-27): also surface at state level so Financial
+            // Engine, export, and UI can detect that labor figures were corrected
+            // post-AI. Without this state-level flag, downstream consumers reading
+            // a cached snapshot of LABOR_CALCULATOR before the fix-up could ship
+            // un-corrected (open-shop) numbers on a Davis-Bacon job.
+            state._davisBaconScaleApplied = {
+              scaleFactor,
+              originalAvgRate: avgLoadedRate,
+              correctedItems: corrected,
+              ts: new Date().toISOString(),
+            };
+            context._davisBaconScaleApplied = state._davisBaconScaleApplied;
             context._brainInsights = context._brainInsights || [];
             context._brainInsights.push({
               source: 'DAVIS_BACON_VALIDATOR',

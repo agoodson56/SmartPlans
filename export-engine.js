@@ -58,29 +58,39 @@ const SmartPlansExport = {
         if (!state) return warnings;
 
         // 1. Cost-buildup divergence (3D engine vs deterministic disagree)
-        // 'block' at >15% (post-v5.129.2 should rarely fire because calibrated
-        // 3D is now bid-of-record on transit). 'warn' at 5-15%.
+        // C7 fix (audit 2026-04-27): severity now provided by the divergence
+        // detector itself ('block' for transit >15%, 'info' for non-transit
+        // structural delta). Pre-fix, the gate hard-coded `absPct > 15` which
+        // blocked every non-transit bid (Frances was +24.7%).
         const div = state._pathDivergenceWarning;
         if (div && Number.isFinite(div.deltaPct)) {
             const absPct = Math.abs(div.deltaPct);
-            if (absPct > 5) {
+            const sev = div.severity || (absPct > 15 ? 'block' : 'warn');
+            if (sev !== 'info' || absPct > 15) {
                 warnings.push({
-                    severity: absPct > 15 ? 'block' : 'warn',
+                    severity: sev,
                     code: 'cost_buildup_divergence',
-                    message: `Two cost-buildup paths disagree by ${div.deltaPct.toFixed(1)}% — review _computeFullBreakdown vs FormulaEngine3D before shipping`,
-                    details: { computedTotal: div.computedTotal, engine3DTotal: div.engine3DTotal, deltaPct: div.deltaPct },
+                    message: `Two cost-buildup paths disagree by ${div.deltaPct.toFixed(1)}%${sev === 'info' ? ' (structural delta on non-transit — informational only)' : ' — review _computeFullBreakdown vs FormulaEngine3D before shipping'}`,
+                    details: { computedTotal: div.computedTotal, engine3DTotal: div.engine3DTotal, deltaPct: div.deltaPct, threshold: div.threshold },
                     dollarsAtRisk: Math.abs((div.engine3DTotal || 0) - (div.computedTotal || 0)),
                 });
             }
         }
 
-        // 2. Per-discipline coverage gaps — selected discipline has no device counts
-        const coverageGaps = state._perDisciplineCoverageGaps || [];
+        // 2. Per-discipline coverage gaps — selected discipline has no device counts.
+        // H6 fix (audit 2026-04-27): the gate was reading _perDisciplineCoverageGaps
+        // but ai-engine sets _disciplineCoverageGaps (without "per"). Wrong key meant
+        // the gate never fired — selected disciplines with zero counts shipped silently
+        // priced as $0 or with phantom AI allowances. Read both keys for safety; prefer
+        // the canonical _disciplineCoverageGaps.
+        const coverageGaps = (Array.isArray(state._disciplineCoverageGaps) && state._disciplineCoverageGaps.length > 0)
+            ? state._disciplineCoverageGaps
+            : (state._perDisciplineCoverageGaps || []);
         if (Array.isArray(coverageGaps) && coverageGaps.length > 0) {
             warnings.push({
                 severity: 'block',
                 code: 'discipline_coverage_gap',
-                message: `${coverageGaps.length} selected discipline(s) have no device counts: ${coverageGaps.map(g => g.discipline || g).join(', ')}`,
+                message: `${coverageGaps.length} selected discipline(s) have no device counts: ${coverageGaps.map(g => g.discipline || g).join(', ')}. Either upload the missing sheet for that discipline or deselect it before exporting — phantom $0 allowances will lose the bid post-award.`,
                 details: coverageGaps,
             });
         }
@@ -123,6 +133,63 @@ const SmartPlansExport = {
                 code: 'brain_failures',
                 message: `${failed.length} brain(s) failed and were skipped: ${failed.join(', ')}`,
                 details: failed,
+            });
+        }
+
+        // 6b. Wave 9 labor-hours reconciliation failure (H7 fix 2026-04-27).
+        // When deterministic NECA reconciliation fails, AI-produced hours ship un-validated.
+        // Surface as a warn so the estimator knows labor hours need manual review before
+        // submission. Bid total still computes, but the user MUST be notified.
+        if (state._wave9Failed) {
+            warnings.push({
+                severity: 'warn',
+                code: 'wave9_labor_reconciliation_failed',
+                message: `Wave 9 deterministic labor-hours reconciliation FAILED (${state._wave9Failed.reason}). AI-produced hours are not validated against NECA standards — manual review required before submission.`,
+                details: state._wave9Failed,
+            });
+        }
+
+        // 6c. Davis-Bacon deterministic scale-up applied (H9 fix 2026-04-27).
+        // When the AI brain returned open-shop rates on a DB-required project,
+        // the validator scaled labor by the multiplier in CODE. Surface this as
+        // a warn so the estimator knows the labor figures were code-corrected
+        // (not produced by the AI), and should verify the result on the bid.
+        if (state._davisBaconScaleApplied) {
+            warnings.push({
+                severity: 'warn',
+                code: 'davis_bacon_scale_applied',
+                message: `Davis-Bacon scale-up of ${state._davisBaconScaleApplied.scaleFactor}× was applied to labor in code because the AI brain produced open-shop rates ($${(state._davisBaconScaleApplied.originalAvgRate || 0).toFixed(2)}/hr) on a DB-required project. Verify the corrected labor totals before submission.`,
+                details: state._davisBaconScaleApplied,
+            });
+        }
+
+        // 6d. Low-confidence scale calibration (M5 fix 2026-04-27).
+        // When the resolved scale source has confidence <60% and the user did NOT
+        // supply a manual override, all downstream cable footage and pathway
+        // distances are based on a guess. Surface as a warn so the estimator
+        // can either provide a manual scale or verify against drawing measurements.
+        const lowConfSheets = state._scaleLowConfidenceSheets || [];
+        if (Array.isArray(lowConfSheets) && lowConfSheets.length > 0) {
+            warnings.push({
+                severity: 'warn',
+                code: 'scale_calibration_low_confidence',
+                message: `${lowConfSheets.length} sheet(s) have a low-confidence scale (<60%): ${lowConfSheets.map(s => `${s.sheetId} (${(s.confidence * 100).toFixed(0)}%, ${s.source})`).join(', ')}. All cable footage and pathway distances are based on this scale. Verify against drawings or supply a manual scale before submission.`,
+                details: lowConfSheets,
+            });
+        }
+
+        // 6e. TIA-568 cable runs >295ft (M7 fix 2026-04-27).
+        // Cable Analyzer caps these at 295ft and continues, but the install will
+        // require >295ft of cable (under-pulled). Surface at export time so the
+        // estimator can either accept the risk, add an IDF, or generate an RFI.
+        const tiaViolations = state._tiaViolations || [];
+        if (Array.isArray(tiaViolations) && tiaViolations.length > 0) {
+            const totalUnderpullFt = tiaViolations.reduce((s, v) => s + (Math.max(0, v.deltaFt || 0) * (v.qty || 1)), 0);
+            warnings.push({
+                severity: 'warn',
+                code: 'tia_568_violation',
+                message: `${tiaViolations.length} cable run(s) were over 295ft and capped to TIA-568 limit. Estimated underpull: ~${totalUnderpullFt} ft of additional cable required if installed as drawn. Either add a closer IDF, accept the risk, or generate an RFI before submission.`,
+                details: tiaViolations.slice(0, 10),
             });
         }
 
@@ -445,20 +512,47 @@ const SmartPlansExport = {
         const overrides = state.supplierPriceOverrides || {};
         if (Object.keys(overrides).length > 0) {
             const itemsByKey = {};
+            const itemCatNameByKey = {};
             bom.categories.forEach((cat, ci) => {
                 cat.items.forEach((item, ii) => {
-                    itemsByKey[item._origKey || (ci + '-' + ii)] = item;
+                    const k = item._origKey || (ci + '-' + ii);
+                    itemsByKey[k] = item;
+                    itemCatNameByKey[k] = cat.name || '';
                 });
             });
+            const orphanedOverrides = [];
             for (const [key, override] of Object.entries(overrides)) {
                 const item = itemsByKey[key];
                 if (!item) continue;
+                // C5 fix (audit 2026-04-27): validate that the indexed key still
+                // points at the same item the user originally edited. After re-analysis
+                // or BOM restructure, a key like "2-5" can resolve to a totally
+                // different item silently shifting a $5K override onto the wrong line.
+                // When _origCatName / _origItemName are stored (overrides created post-fix),
+                // require both to roughly match the current item before applying. Old
+                // overrides without these fields keep working (backwards compatible).
+                if (override._origItemName || override._origCatName) {
+                    const curItem = String(item.item || item.name || item.description || '').toLowerCase();
+                    const curCat = String(itemCatNameByKey[key] || '').toLowerCase();
+                    const expItem = String(override._origItemName || '').toLowerCase();
+                    const expCat = String(override._origCatName || '').toLowerCase();
+                    const itemMatch = !expItem || curItem.includes(expItem.substring(0, 12)) || expItem.includes(curItem.substring(0, 12));
+                    const catMatch = !expCat || curCat === expCat || curCat.includes(expCat.substring(0, 8)) || expCat.includes(curCat.substring(0, 8));
+                    if (!itemMatch || !catMatch) {
+                        orphanedOverrides.push({ key, expCat, expItem, curCat, curItem });
+                        continue;
+                    }
+                }
                 if (override.qty != null) item.qty = override.qty;
                 item.unitCost = override.unitCost;
                 item.extCost = this._round(item.qty * override.unitCost);
                 if (override.mfg) item.mfg = override.mfg;
                 if (override.partNumber) item.partNumber = override.partNumber;
                 if (override.isSubstitute) item._isSubstitute = true;
+            }
+            if (orphanedOverrides.length > 0) {
+                console.warn(`[Export] ⚠️ Skipped ${orphanedOverrides.length} supplier override(s) — stored item/category no longer matches the current BOM at that key. The BOM was likely restructured by re-analysis. Re-apply manually if still relevant.`);
+                if (typeof state === 'object' && state !== null) state._orphanedOverrides = orphanedOverrides;
             }
         }
 
@@ -721,19 +815,34 @@ const SmartPlansExport = {
                 ? ` (3D final after ${[isCalibrated && 'calibration', isClamped && 'clamp'].filter(Boolean).join('+')}: $${engine3DFinal?.toLocaleString()})`
                 : '';
             console.log(`[Export] 📊 3D Engine comparison (RAW): $${engine3DRaw.toLocaleString()} vs computed $${grandTotal.toLocaleString()} (delta: ${delta > 0 ? '+' : ''}$${delta.toLocaleString()}, ${deltaPct}%)${adjLabel}`);
-            // Wave-15: tightened threshold 25% → 15%. With Cluster-7A's transit
-            // adders in the deterministic path, the two formulas should agree
-            // within ~10% on healthy inputs. >15% indicates a real divergence
-            // worth investigating, not normal formula drift.
-            if (absPct > 15) {
-                console.warn(`[Export] ⚠️ COST-BUILDUP DIVERGENCE: 3D Engine RAW and deterministic breakdown disagree by ${deltaPct}% on the same BOM. One of them has a markup-stacking bug. Investigate before shipping.`);
+            // C7 fix (audit 2026-04-27): split threshold by project type.
+            //   - Transit:    15% — Cluster-7A's 18% transit adder closed the structural
+            //                 gap, so the two paths should agree within ~10%; >15%
+            //                 indicates a real markup-stacking bug worth investigating.
+            //   - Non-transit: 30% — the 3D Engine's per-system commission, warranty,
+            //                 NPT (8%), labor-misc (5%), and PM/Engineer/Warehouse/Admin
+            //                 OH labor are NOT in deterministic, which uses flat
+            //                 markup + 10% contingency. The two formulas are intentionally
+            //                 different shapes; ~25% is steady-state on healthy non-transit
+            //                 input. Pre-fix the 15% threshold cried wolf on every
+            //                 non-transit bid (Frances Apartments fired at +24.7%),
+            //                 eroding trust in the gate.
+            // Severity also softened on non-transit: WARN (informational) rather than
+            // BLOCKING because the divergence is structural-by-design, not a bug.
+            const divergenceThreshold = state.isTransitRailroad ? 15 : 30;
+            const divergenceSeverity = state.isTransitRailroad ? 'block' : 'info';
+            if (absPct > divergenceThreshold) {
+                const ctx = state.isTransitRailroad ? 'transit' : 'non-transit';
+                console.warn(`[Export] ⚠️ COST-BUILDUP DIVERGENCE (${ctx}, threshold ${divergenceThreshold}%): 3D Engine RAW and deterministic breakdown disagree by ${deltaPct}% on the same BOM. ${state.isTransitRailroad ? 'One of them has a markup-stacking bug. Investigate before shipping.' : 'Expected on non-transit (3D has per-system commission/warranty/OH that deterministic does not). Verify only if the delta is much larger than usual ~25%.'}`);
                 state._pathDivergenceWarning = {
                     engine3DTotal: engine3DRaw,
                     engine3DFinal,
                     computedTotal: grandTotal,
                     deltaPct: parseFloat(deltaPct),
+                    threshold: divergenceThreshold,
+                    severity: divergenceSeverity,
                     rawComparison: true,
-                    msg: `Two cost-buildup paths disagree by ${deltaPct}% (raw 3D vs deterministic) — review _computeFullBreakdown vs FormulaEngine3D`,
+                    msg: `Two cost-buildup paths disagree by ${deltaPct}% (raw 3D vs deterministic) — ${state.isTransitRailroad ? 'review _computeFullBreakdown vs FormulaEngine3D for markup stacking' : 'structural delta expected on non-transit; informational only'}`,
                     ts: new Date().toISOString(),
                 };
             } else {
@@ -792,7 +901,10 @@ const SmartPlansExport = {
         // primary check is per-camera vs the benchmark. Per-device is kept as a
         // softer secondary check at a more realistic threshold.
 
-        const camRe = /camera|dome|bullet|ptz|fisheye|panoram|turret|lpr/i;
+        // M3+L3 fix (audit 2026-04-27): unified with formula-engine-3d.js camRegex/camExclude.
+        // Removed `lpr` (license plate readers — separate cost class). Both files MUST
+        // keep these patterns identical or calibration and sanity check disagree on counts.
+        const camRe = /camera|dome|bullet|ptz|fisheye|panoram|turret/i;
         const camExclude = /mount|bracket|license|sd\s*card|cable|adapter|housing|power\s*supply|surge|software|warranty|accessor/i;
         const deviceRe = /camera|reader|switch|nvr|server|sensor|panel|controller|strike|maglock|rex|monitor|station|phone/i;
 
@@ -1025,7 +1137,15 @@ const SmartPlansExport = {
                     } catch (e) { /* swallow — clamp becomes no-op */ }
 
                     const raw3D = this._round(result3D.grandTotalSELL);
-                    if (detRefTotal > 1000) {
+                    // M6 fix (audit 2026-04-27): skip the deterministic × 1.30 reference
+                    // clamp when 3D was calibrated to a real won-bid benchmark. For transit,
+                    // the calibrated 3D total IS the ground-truth bid-of-record; clamping it
+                    // to a (potentially under-estimated) deterministic baseline silently
+                    // lowers a benchmark-anchored value. The clamp's purpose was to defend
+                    // against UNCALIBRATED 3D overshoots — calibration already enforces
+                    // tighter bounds via camera-ratio [0.4, 2.5] and scale-factor [0.40, 1.50] gates.
+                    const skipRefClamp = result3D._calibrated === true;
+                    if (detRefTotal > 1000 && !skipRefClamp) {
                         const refCeiling = this._round(detRefTotal * 1.30);
                         if (raw3D > refCeiling) {
                             console.warn(`[Export] 🛡️ 3D Engine reference clamped: $${raw3D.toLocaleString()} → $${refCeiling.toLocaleString()} (deterministic × 1.30 ceiling). Formula was ${(((raw3D / detRefTotal) - 1) * 100).toFixed(1)}% above deterministic.`);
@@ -1033,6 +1153,9 @@ const SmartPlansExport = {
                             result3D._refClamped = true;
                             result3D._refClampedFrom = raw3D;
                         }
+                    } else if (skipRefClamp && detRefTotal > 1000) {
+                        const overPct = (((raw3D / detRefTotal) - 1) * 100).toFixed(1);
+                        console.log(`[Export] 🚂 Calibrated 3D ($${raw3D.toLocaleString()}) is the bid-of-record — ref clamp skipped. Deterministic baseline ${overPct}% delta is informational.`);
                     }
                     state._engine3DResult = result3D;
 
@@ -4528,6 +4651,13 @@ ${innerHTML}
             rawBom = this._applyUserBOMEdits(rawBom, state);
         }
         let bom = this._filterBOMByDisciplines(rawBom, state.disciplines);
+        // M9 fix (audit 2026-04-27): re-run cross-category dedup explicitly. Pre-fix,
+        // dedup ran inside _filterBOMByDisciplines once but post-edit re-extraction
+        // could re-introduce duplicates (deleted MDF copy reappears alongside the
+        // CCTV copy after re-extract). Re-running here is idempotent and cheap.
+        if (bom && typeof this._deduplicateCrossCategoryItems === 'function') {
+            bom = this._deduplicateCrossCategoryItems(bom);
+        }
         if (!bom || !bom.categories || bom.categories.length === 0) {
             return { grandTotalWithStrategy: 0, categories: [], totalMaterial: 0, totalLabor: 0, totalMarkup: 0, totalContingency: 0 };
         }
@@ -4541,6 +4671,7 @@ ${innerHTML}
         const isTravelCat = (name) => /\btravel\b|\bper\s*diem\b|\bhotel\b|\blodging\b|\bmileage\b/i.test(name);
 
         let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
+        let totalTravelFromBOM = 0;
         const categoryBreakdown = [];
 
         for (const cat of bom.categories) {
@@ -4570,14 +4701,19 @@ ${innerHTML}
             // Defaults mirror DEFAULT_MARKUPS_SSOT in pricing-database.js.
             const eqWithMarkup = equipCost * (1 + (bs.equipmentMarkup || 15) / 100);
             const subWithMarkup = subCost * (1 + (bs.subcontractorMarkup || 15) / 100);
-            const subtotalWithMarkup = matWithMarkup + labWithMarkup + eqWithMarkup + subWithMarkup + travelCost;
+            // C2 fix (audit 2026-04-27): travel is a pass-through, EXCLUDED from
+            // contingency base. _computeFullBreakdown already does this; applyBidStrategy
+            // was including travel here which inflated contingency by 10% × travel.
+            const subtotalWithMarkup = matWithMarkup + labWithMarkup + eqWithMarkup + subWithMarkup;
             const contingencyAmt = this._round(subtotalWithMarkup * (contingencyPct / 100));
-            const finalPrice = this._round(subtotalWithMarkup + contingencyAmt);
+            // For category-level display only: include travel so the user sees it in the row total.
+            const finalPrice = this._round(subtotalWithMarkup + contingencyAmt + travelCost);
 
             totalMaterial += materialCost + equipCost + subCost;
             totalLabor += laborCost;
             totalMarkup += (matWithMarkup - materialCost) + (labWithMarkup - laborCost) + (eqWithMarkup - equipCost) + (subWithMarkup - subCost);
             totalContingency += contingencyAmt;
+            totalTravelFromBOM += travelCost;
 
             categoryBreakdown.push({
                 name: catName,
@@ -4596,24 +4732,35 @@ ${innerHTML}
         const rawBurden = Number(cfg.burdenRate) || 35;
         const burdenRate = rawBurden >= 1 ? rawBurden / 100 : rawBurden;
         const includeBurden = cfg.includeBurden !== false;
-        const burden = includeBurden ? this._round(totalLabor * burdenRate) : 0;
+        // C1 fix (audit 2026-04-27): mirror _computeFullBreakdown's laborBaseAlreadyBurdened
+        // gate. When LABOR_CALCULATOR populated labor, total_base_cost is already burdened
+        // (loaded rate × hours = with burden). Re-applying ~35% burden on top double-counts.
+        const laborCalc = state.brainResults?.wave2_25?.LABOR_CALCULATOR;
+        const laborAlreadyBurdened = laborCalc?.total_base_cost > 0;
+        const burden = (includeBurden && !laborAlreadyBurdened) ? this._round(totalLabor * burdenRate) : 0;
 
         // AUDIT FIX C8: Only add deterministic travel if BOM didn't already include travel categories
         // Check if any BOM category was flagged as travel (prevents double-counting)
-        const hasBOMTravel = categoryBreakdown.some(c => isTravelCat(c.name));
-        let travel = 0;
+        const hasBOMTravel = totalTravelFromBOM > 0;
+        let stage6Travel = 0;
         if (!hasBOMTravel && state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
-            travel = this._round(computeTravelIncidentals().grandTotal || 0);
+            stage6Travel = this._round(computeTravelIncidentals().grandTotal || 0);
         }
+        const travel = this._round(totalTravelFromBOM + stage6Travel);
 
         // Bonds based on pricing tier
         const pricingTier = state.pricingTier || cfg.tier || 'mid';
         const tierBondRates = { budget: 0.015, mid: 0.02, premium: 0.025 };
         const bondsPct = tierBondRates[pricingTier] || 0.02;
-        const preBondSubtotal = this._round(totalMaterial + totalLabor + totalMarkup + totalContingency + burden + travel);
-        const bonds = this._round(preBondSubtotal * bondsPct);
+        // C2 fix (audit 2026-04-27): bonds base excludes travel. Mirrors _computeFullBreakdown
+        // line 727-738 (HANDOFF.md "contingency × 10% (travel excluded)"). Travel is added
+        // LAST as pass-through. Pre-fix: bonds × travel pct ≈ $1K/$50K travel = systematic
+        // overcharge plus inconsistency vs deterministic path.
+        const profitSubtotal = this._round(totalMaterial + totalLabor + totalMarkup + totalContingency + burden);
+        const bonds = this._round(profitSubtotal * bondsPct);
+        const preTravelTotal = this._round(profitSubtotal + bonds);
 
-        const grandTotalWithStrategy = this._round(preBondSubtotal + bonds);
+        const grandTotalWithStrategy = this._round(preTravelTotal + travel);
 
         return {
             grandTotalWithStrategy,
@@ -4623,6 +4770,7 @@ ${innerHTML}
             totalMarkup: this._round(totalMarkup),
             totalContingency: this._round(totalContingency),
             burden, travel, bonds, bondsPct,
+            laborAlreadyBurdened,
         };
     },
 };

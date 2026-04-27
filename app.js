@@ -1868,6 +1868,37 @@ function startNewBid() {
   state.sectionCompleteness = null;
   state.brainResults = null;
 
+  // C4 fix (audit 2026-04-27): clear every analysis-derived field so stale
+  // data from bid N can't bleed into bid N+1. Pre-fix, the readiness checklist
+  // and anomaly cards rendered yesterday's findings on a fresh bid.
+  state._specCompliance = null;
+  state._confidenceScoring = null;
+  state._quantityAnomalies = null;
+  state._proposalNarrative = null;
+  state._mathAuditLog = [];
+  state._mathAuditFixes = 0;
+  state._quantitiesUnverified = false;
+  state._quantitiesUnverifiedReason = '';
+  state._disciplineCoverageGaps = [];
+  state._disciplineCoverageDetail = {};
+  state._clarificationQuestions = [];
+  state._clarificationAnswers = {};
+  state._brainInsights = [];
+  state._sessionInsights = [];
+  state._addendaDelta = null;
+  state._rfpCriteria = null;
+  state._checklistChecked = {};
+  state._sheetInventory = null;
+  state._scopeDelineations = null;
+  state._autoRemovedDisciplines = null;
+  state._pathDivergenceWarning = null;
+  state._bidTotalGuardClamp = null;
+  state._sanityWarning = null;
+  state._ocrScaleData = null;
+  state._scaleCalibration = null;
+  state._cablePathwayData = null;
+  state._priorAnswers = null;
+
   // Reset RFIs & selections
   state.selectedRFIs.clear();
   state.expandedRFI = null;
@@ -4034,10 +4065,20 @@ function getFilteredBOM(aiAnalysis, disciplines) {
   return bom;
 }
 
-// Invalidate BOM cache when user makes edits (add/delete items, override qty)
+// Invalidate BOM cache when user makes edits (add/delete items, override qty,
+// markup/discipline/strategy changes). Also clears the locked bid total so the
+// next export recomputes with fresh inputs.
+//
+// C3 fix (audit 2026-04-27): pre-fix, the bid total lock was only cleared on
+// discipline toggle (5232) and markup input change (5482). Supplier overrides,
+// BOM add/delete, bid strategy apply, and transit toggles mutated state without
+// invalidating the lock — so an edit-then-export sequence shipped the pre-edit
+// total. Centralizing here means every code path that already calls _invalidateBomCache
+// gets correct behavior automatically; new mutation sites just need this one call.
 function _invalidateBomCache() {
   _bomCache = null;
   _bomCacheKey = null;
+  if (typeof SmartPlansFinancials !== 'undefined') SmartPlansFinancials.clearLock(state);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -5392,6 +5433,7 @@ function renderStep0(container) {
           state.markup.subcontractor = 15;
         }
       }
+      _invalidateBomCache(); // C3: transit toggle changes markup path
       renderStep0(container);
       renderFooter();
     });
@@ -5413,6 +5455,7 @@ function renderStep0(container) {
         state.markup.equipment = transitConfig.markup_overrides.equipment;
         state.markup.subcontractor = transitConfig.markup_overrides.subcontractor;
       }
+      _invalidateBomCache(); // C3: auto-detected transit changes markup path
       const toggle = document.getElementById("transit-railroad-toggle");
       if (toggle) toggle.checked = true;
       console.log(`[AutoDetect] Transit/Railroad detected from project text: "${text.substring(0, 60)}..."`);
@@ -6251,6 +6294,7 @@ function bindBidStrategyEvents(container) {
   const applyBtn = document.getElementById('bs-apply-strategy');
   if (applyBtn) {
     applyBtn.addEventListener('click', () => {
+      _invalidateBomCache(); // C3: bid strategy switch changes pricing path
       const result = SmartPlansExport.applyBidStrategy(state);
       state.bidStrategy.applied = true;
       if (typeof spToast === 'function') {
@@ -6265,6 +6309,7 @@ function bindBidStrategyEvents(container) {
     resetBtn.addEventListener('click', () => {
       state.bidStrategy.categoryMarkups = {};
       state.bidStrategy.applied = false;
+      _invalidateBomCache(); // C3: reverting strategy reverts pricing path
       renderStep7(container);
     });
   }
@@ -7798,10 +7843,12 @@ function injectCalculatedCableQuantities(bom) {
     // fiber, tray, and J-hooks into CCTV, Access Control, Fire Alarm, AV, Paging, etc.
     // Now only injects into the FIRST primary cabling category, never into discipline sections.
     // ── JACK / FACEPLATE / PATCH CORD CORRECTION ──
-    // CRITICAL FIX: This MUST run for ALL primary infrastructure categories (Structured Cabling + MDF/IDF),
-    // NOT just the first one. The alreadyInjectedPathway flag was blocking this for Structured Cabling,
-    // causing jacks to stay at AI's wrong count (227) instead of text-layer truth (299/321).
-    if (isPrimaryInfraCat) {
+    // C6 fix (audit 2026-04-27): Cat 6A jacks observed double-corrected on multi-category
+    // BOMs (Frances Apartments: 500 → 39, then 384 → 39 across two separate primary infra
+    // categories). The earlier comment claimed "MUST run for ALL primary infra categories"
+    // but the corrections set qty = totalDrops, so running twice on different category items
+    // doubles the BOM-wide jack count. Use bom-level flags so each correction runs at most once.
+    if (isPrimaryInfraCat && !bom._jacksCorrected) {
       let totalDrops = pathway.consensusCableDrops || 0;
 
       // ── OUTLET BREAKDOWN OVERRIDE ──
@@ -7876,6 +7923,8 @@ function injectCalculatedCableQuantities(bom) {
         const correctPanels = Math.ceil(totalDrops / 48);
         _correctQty(/48[\s-]*port.*patch\s*panel|patch\s*panel.*48/i, correctPanels, '48-Port Patch Panel');
       }
+      // C6: lock further corrections so a second primary-infra category can't repeat them.
+      bom._jacksCorrected = true;
     }
 
     if (isPrimaryInfraCat && !alreadyInjectedPathway) {
@@ -9295,11 +9344,14 @@ function renderStep7(container) {
     }
     if (pdw && typeof pdw.deltaPct === 'number') {
       const absPct = Math.abs(pdw.deltaPct);
+      const isInfo = pdw.severity === 'info';
       items.push({
-        icon: '🔀',
-        color: '#f59e0b',
-        label: `Cost-buildup divergence (${absPct.toFixed(1)}%)`,
-        detail: `3D Engine ($${(pdw.engine3DTotal || 0).toLocaleString()}) and deterministic breakdown ($${(pdw.computedTotal || 0).toLocaleString()}) disagree on the same BOM. One of them has a markup-stacking bug.`,
+        icon: isInfo ? 'ℹ️' : '🔀',
+        color: isInfo ? '#3b82f6' : '#f59e0b',
+        label: `Cost-buildup divergence (${absPct.toFixed(1)}%)${isInfo ? ' — informational' : ''}`,
+        detail: isInfo
+          ? `3D Engine ($${(pdw.engine3DTotal || 0).toLocaleString()}) sits ${absPct.toFixed(1)}% above the deterministic breakdown ($${(pdw.computedTotal || 0).toLocaleString()}). Expected on non-transit — the 3D engine includes per-system commission, warranty, NPT, and OH labor that deterministic does not. The shipped total is the deterministic value.`
+          : `3D Engine ($${(pdw.engine3DTotal || 0).toLocaleString()}) and deterministic breakdown ($${(pdw.computedTotal || 0).toLocaleString()}) disagree on the same BOM. One of them has a markup-stacking bug.`,
       });
     }
     if (guard && guard.clamped) {
@@ -10629,8 +10681,14 @@ function renderStep7(container) {
         unitCost: unitCost,
         qty: qty,
         supplierName: 'Manual Edit',
-        appliedAt: new Date().toISOString()
+        appliedAt: new Date().toISOString(),
+        // C5 fix (audit 2026-04-27): store category + item name so apply-time
+        // validation can detect when the indexed key now points at a different
+        // item (e.g., after discipline re-filter shifted category order).
+        _origCatName: origItem ? (origItem._origCatName || origItem.category || '') : '',
+        _origItemName: origItem ? (origItem.item || origItem.name || origItem.description || '') : '',
       };
+      _invalidateBomCache();
 
       // ─── v5.127.1 Estimator Feedback Loop ───
       // Every qty or unit_cost edit is logged to /api/bid-corrections so
@@ -10650,6 +10708,7 @@ function renderStep7(container) {
     } else {
       // Reverted to original — remove override
       delete state.supplierPriceOverrides[key];
+      _invalidateBomCache();
     }
 
     // Highlight edited inputs
@@ -13623,6 +13682,14 @@ async function runGeminiAnalysis(updateProgress) {
         }
         state._scaleCalibration = ScaleCalibration.getSummary();
         console.log(`[ScaleCalibration] Ingested — ${state._scaleCalibration?.sheets?.length || 0} sheets calibrated`);
+        // M5 fix (audit 2026-04-27): expose low-confidence sheets so the export
+        // gate and UI can prompt the estimator to verify (or override manually).
+        if (typeof ScaleCalibration.getLowConfidenceSheets === 'function') {
+          state._scaleLowConfidenceSheets = ScaleCalibration.getLowConfidenceSheets();
+          if (state._scaleLowConfidenceSheets.length > 0) {
+            console.warn(`[ScaleCalibration] ⚠️ ${state._scaleLowConfidenceSheets.length} sheet(s) have low-confidence scale (<60%): ${state._scaleLowConfidenceSheets.map(s => `${s.sheetId} (${(s.confidence * 100).toFixed(0)}%, ${s.source})`).join(', ')}. Verify before submission — wrong scale doubles cable footage.`);
+          }
+        }
       }
 
       // ── Cable Analyzer: Build cable schedule if data available ──
@@ -13636,6 +13703,15 @@ async function runGeminiAnalysis(updateProgress) {
             }
             state._cableSchedule = schedule;
             console.log(`[CableAnalyzer] Schedule built: ${schedule.totals.totalDevices} devices, ${schedule.totals.totalFt.toLocaleString()} ft total cable`);
+            // M7 fix (audit 2026-04-27): expose TIA-568 violations at state level
+            // so the export gate can warn before submission. Pre-fix, runs were
+            // silently capped at 295ft and the bid shipped with under-pulled cable.
+            if (schedule.totals.tiaViolationCount > 0) {
+              state._tiaViolations = schedule.tiaViolations;
+              console.warn(`[CableAnalyzer] ⚠️ ${schedule.totals.tiaViolationCount} run(s) exceed TIA-568 295ft limit — capped in BOM but flagged. Either accept risk, add an IDF, or trigger an RFI before submission.`);
+            } else {
+              state._tiaViolations = null;
+            }
           }
         } catch (caErr) {
           console.warn('[CableAnalyzer] Schedule build failed:', caErr.message);
@@ -14676,8 +14752,13 @@ async function deleteEstimate(id, name) {
 }
 
 function closeSavedPanel() {
-  const backdrop = document.querySelector('.saved-panel-backdrop');
-  const panel = document.querySelector('.saved-panel');
+  // H4 fix (audit 2026-04-27): query by panel-specific ID first to avoid removing
+  // a sibling panel's backdrop. Pre-fix, closeSavedPanel and closeActualsPanel both
+  // queried `.saved-panel-backdrop` (shared class) — if both ever opened concurrently,
+  // closing one stripped the other's backdrop and left an orphan panel un-clickable.
+  const backdrop = document.getElementById('saved-panel-backdrop')
+    || document.querySelector('.saved-panel-backdrop:not(#actuals-panel-backdrop)');
+  const panel = document.querySelector('.saved-panel:not(#actuals-panel)');
   if (backdrop) backdrop.remove();
   if (panel) panel.remove();
 }
@@ -15003,6 +15084,7 @@ async function showSavedEstimates() {
 
   const backdrop = document.createElement('div');
   backdrop.className = 'saved-panel-backdrop';
+  backdrop.id = 'saved-panel-backdrop'; // H4: per-panel ID for safe close
   backdrop.addEventListener('click', closeSavedPanel);
   document.body.appendChild(backdrop);
 
@@ -15473,6 +15555,7 @@ async function showActualsPanel(estimateId, projectName) {
   closeSavedPanel();
   const backdrop = document.createElement('div');
   backdrop.className = 'saved-panel-backdrop';
+  backdrop.id = 'actuals-panel-backdrop'; // H4: per-panel ID for safe close
   backdrop.addEventListener('click', closeActualsPanel);
   document.body.appendChild(backdrop);
   const panel = document.createElement('div');
@@ -15659,7 +15742,9 @@ function _collectActualsItems(bom, projectName) {
 }
 
 function closeActualsPanel() {
-  var backdrop = document.querySelector('.saved-panel-backdrop');
+  // H4 fix: query by panel-specific ID so we can't remove the saved-estimates backdrop.
+  var backdrop = document.getElementById('actuals-panel-backdrop')
+    || document.querySelector('#actuals-panel + .saved-panel-backdrop, .saved-panel-backdrop');
   var panel = document.getElementById('actuals-panel');
   if (backdrop) backdrop.remove();
   if (panel) panel.remove();
@@ -19719,13 +19804,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     });
 
-    // Unsaved changes warning — prevent accidental navigation loss
+    // Unsaved changes warning — prevent accidental navigation loss.
+    // H5 fix (audit 2026-04-27): pre-fix, the guard only fired before analysis
+    // completed. Once analysisComplete = true, BOM edits + manual items + supplier
+    // overrides + exclusions could be lost on accidental tab close. Now the guard
+    // also fires when there's any unsaved post-analysis work or an in-flight save.
     window.addEventListener('beforeunload', (e) => {
-      const hasWork = state.projectName.trim() ||
-        state.planFiles.length > 0 ||
-        state.legendFiles.length > 0 ||
-        state.analyzing;
-      if (hasWork && !state.analysisComplete) {
+      const overrideCount = state.supplierPriceOverrides ? Object.keys(state.supplierPriceOverrides).length : 0;
+      const manualCount = (state.manualBomItems || []).length;
+      const deletedCount = state.deletedBomItems ? Object.keys(state.deletedBomItems).length : 0;
+      const exclusionsCount = (state.exclusions || []).length;
+      const hasPreAnalysisWork = (state.projectName && state.projectName.trim())
+        || state.planFiles.length > 0
+        || state.legendFiles.length > 0;
+      const hasPostAnalysisWork = overrideCount > 0 || manualCount > 0 || deletedCount > 0 || exclusionsCount > 0;
+      const hasInFlightWork = state.analyzing || window._savingEstimate;
+      const hasWork = hasPreAnalysisWork || hasPostAnalysisWork || hasInFlightWork;
+      // Show prompt if (a) analysis in progress, (b) save in flight, or (c) unsaved
+      // edits exist (regardless of analysisComplete). Pre-fix only checked
+      // !analysisComplete which let post-analysis edits leak away silently.
+      if (hasWork && (!state.analysisComplete || hasPostAnalysisWork || hasInFlightWork)) {
         e.preventDefault();
         e.returnValue = '';
       }

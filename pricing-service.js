@@ -166,6 +166,20 @@ const SmartPlansPricing = {
         // Priority 2: distributor quote cache
         const distHit = this._bestMatch(this._distributorCache, itemName, 0.60);
         if (distHit && Number.isFinite(Number(distHit.record.unit_cost)) && Number(distHit.record.unit_cost) > 0) {
+            // M1 fix (audit 2026-04-27): flag stale distributor quotes (>120 days old).
+            // Pre-fix, a 6-month-old quote silently outranked a fresh rate-library
+            // entry. Distributor pricing should still be authoritative when fresh,
+            // but stale quotes need to be visible to the estimator.
+            const quoteDate = distHit.record.quote_date || distHit.record.updated_at;
+            let isStale = false;
+            let ageDays = null;
+            if (quoteDate) {
+                const qd = Date.parse(quoteDate);
+                if (Number.isFinite(qd)) {
+                    ageDays = Math.floor((Date.now() - qd) / (1000 * 60 * 60 * 24));
+                    isStale = ageDays > 120;
+                }
+            }
             return {
                 unitCost: Number(distHit.record.unit_cost),
                 source: 'distributor',
@@ -173,7 +187,9 @@ const SmartPlansPricing = {
                 matched: distHit.record.item_name,
                 distributor: distHit.record.distributor,
                 partNumber: distHit.record.part_number,
-                quoteDate: distHit.record.quote_date || distHit.record.updated_at,
+                quoteDate,
+                ageDays,
+                isStale,
             };
         }
 
@@ -196,9 +212,14 @@ const SmartPlansPricing = {
             return { unitCost: staticHit.unitCost, source: 'static_db', confidence: staticHit.confidence };
         }
 
-        // Final fallback: the AI's own price (or 0 if nothing)
+        // Final fallback: the AI's own price (or 0 if nothing).
+        // M2 fix (audit 2026-04-27): AI fallback confidence dropped 0.40 → 0.15.
+        // Pre-fix, an AI-guessed price scored the same as a static-DB lookup,
+        // hiding the fact that no vendor source backed the number. Low confidence
+        // forces the consumer (Material Pricer post-processor) to flag the item
+        // for estimator review instead of letting it ship as if validated.
         if (Number.isFinite(Number(aiPrice)) && Number(aiPrice) > 0) {
-            return { unitCost: Number(aiPrice), source: 'ai_fallback', confidence: 0.40 };
+            return { unitCost: Number(aiPrice), source: 'ai_fallback', confidence: 0.15, aiOnly: true };
         }
         return { unitCost: 0, source: 'unresolved', confidence: 0 };
     },
