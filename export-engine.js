@@ -4243,19 +4243,46 @@ Return ONLY the JSON array. No other text.`;
     },
 
     // ═══════════════════════════════════════════════════════════
-    // ZIP EVERYTHING (v5.129.6) — bundle every printable artifact
-    // into a single archive named after the bid
+    // ZIP EVERYTHING (v5.129.11) — bundle every printable artifact
+    // and every analysis screen into a single archive named after
+    // the bid
     // ═══════════════════════════════════════════════════════════
-    // Captures: JSON, Excel, Markdown, BOM xlsx, Master Report HTML,
-    // Full Proposal HTML+Word, Executive Proposal HTML+Word, BOM PDF
-    // HTML, plus a README.txt that explains what each file is.
+    // Captures (21 items):
     //
-    // Files only appear in the zip when they exist — Master Report
-    // requires a successful generateMasterReport() run first; Full
-    // Proposal requires a successful renderAndDownload() run; etc.
-    // The zip is a SNAPSHOT of whatever is cached at click time,
-    // matching the user's mental model of "everything I've already
-    // generated, in one bundle."
+    //   File exports (6):
+    //     1. JSON                  — structured bid data
+    //     2. Excel                 — multi-sheet workbook
+    //     3. Markdown              — proposal report
+    //     4. BOM xlsx              — detailed bill of material
+    //     5. Master Report HTML    — comprehensive print document
+    //     6. Full Proposal         — 10+ page proposal (HTML + Word)
+    //     7. Executive Proposal    — 3-page exec summary (HTML + Word)
+    //     8. BOM Print HTML        — formatted BOM print sheet
+    //
+    //   Analysis screens (15) — DOM snapshots wrapped in styled HTML:
+    //     - AI Estimation & Analysis
+    //     - Bill of Materials (live editable table)
+    //     - Exclusions, Assumptions & Clarifications
+    //     - Estimator Review Checklist
+    //     - Project Fitness — 3D Wheelhouse
+    //     - Building Profile
+    //     - Cost-Per-SF Benchmark
+    //     - Quantity Anomaly Detector
+    //     - Spec Compliance Checker
+    //     - BOM Confidence Scoring
+    //     - Cable Pathway Analysis
+    //     - Bid Phases & Alternates
+    //     - Potential Change Orders
+    //     - Winning Proposal Narrative
+    //     - Symbol Inventory Audit
+    //
+    // For Master Report / Full Proposal / Executive Proposal / BOM
+    // Print, this function auto-triggers the corresponding generator
+    // under window._zipCaptureMode = true so the HTML is rendered
+    // without flashing print pop-ups or .doc downloads at the user.
+    // The 15 analysis screens are snapshotted live from the DOM —
+    // every collapsible card is force-expanded first so collapsed
+    // bodies are still captured.
     async zipEverything(state) {
         if (typeof JSZip === 'undefined') {
             const msg = 'ZIP library not loaded. Reload the page and try again.';
@@ -4275,9 +4302,21 @@ Return ONLY the JSON array. No other text.`;
         // Reset capture buffer and turn on capture mode
         this._capturedFiles = [];
 
+        // v5.129.11 — flag that openPrintAsPDF + ProposalGenerator check
+        // to suppress print pop-ups and .doc downloads while we render
+        // their HTML for the zip bundle
+        if (typeof window !== 'undefined') window._zipCaptureMode = true;
+
         const errors = [];
         const _safeRun = (label, fn) => {
             try { fn(); }
+            catch (e) {
+                console.error(`[ZipEverything] ${label} failed:`, e);
+                errors.push(`${label}: ${e.message || e}`);
+            }
+        };
+        const _safeAsyncRun = async (label, fn) => {
+            try { await fn(); }
             catch (e) {
                 console.error(`[ZipEverything] ${label} failed:`, e);
                 errors.push(`${label}: ${e.message || e}`);
@@ -4290,11 +4329,37 @@ Return ONLY the JSON array. No other text.`;
         _safeRun('Markdown', () => this.exportMarkdown(state));
         _safeRun('BOM',      () => this.exportBOM(state));
 
-        // ── 2. Pull cached HTMLs from generators ──
-        // Master Report — generateMasterReport() in app.js caches the HTML
-        // on window._lastMasterReportHTML so this captures it without
-        // re-rendering. If the user hasn't generated one yet, the file
-        // is omitted (with a note in the README).
+        // ── 2. Auto-trigger HTML generators (cache populated) ──
+        // Master Report
+        const _hasMaster = (typeof window !== 'undefined' && window._lastMasterReportHTML && window._lastMasterReportHTML.length > 200);
+        if (!_hasMaster && typeof window !== 'undefined' && typeof window.generateMasterReport === 'function') {
+            _safeRun('Master Report (auto-generate)', () => window.generateMasterReport());
+        }
+
+        // BOM Print HTML — click the hidden button to populate cache
+        const _hasBomPdf = (typeof window !== 'undefined' && window._lastBOMPdfHTML && window._lastBOMPdfHTML.length > 200);
+        if (!_hasBomPdf && typeof document !== 'undefined') {
+            const bomPdfBtn = document.getElementById('export-bom-pdf');
+            if (bomPdfBtn) _safeRun('BOM Print HTML (auto-generate)', () => bomPdfBtn.click());
+        }
+
+        // Full Proposal — async generator. Render under capture mode so
+        // the .doc download is suppressed; cached HTML is what we want.
+        const PG = (typeof ProposalGenerator !== 'undefined') ? ProposalGenerator : null;
+        if (PG && !PG._lastFullProposalHTML && typeof PG.renderAndDownload === 'function') {
+            await _safeAsyncRun('Full Proposal (auto-generate)', async () => {
+                await PG.renderAndDownload(state, () => {});
+            });
+        }
+
+        // Executive Proposal
+        if (PG && !PG._lastExecProposalHTML && typeof PG.renderExecutiveProposal === 'function') {
+            await _safeAsyncRun('Executive Proposal (auto-generate)', async () => {
+                await PG.renderExecutiveProposal(state, () => {});
+            });
+        }
+
+        // ── 3. Pull cached HTMLs into the zip ──
         const lastMaster = (typeof window !== 'undefined') ? window._lastMasterReportHTML : null;
         if (lastMaster && typeof lastMaster === 'string' && lastMaster.length > 200) {
             this._capturedFiles.push({
@@ -4303,8 +4368,6 @@ Return ONLY the JSON array. No other text.`;
             });
         }
 
-        // Full Proposal (Word + HTML)
-        const PG = (typeof ProposalGenerator !== 'undefined') ? ProposalGenerator : null;
         if (PG && PG._lastFullProposalHTML) {
             const html = PG._lastFullProposalHTML;
             this._capturedFiles.push({
@@ -4317,7 +4380,6 @@ Return ONLY the JSON array. No other text.`;
             });
         }
 
-        // Executive Proposal (Word + HTML)
         if (PG && PG._lastExecProposalHTML) {
             const html = PG._lastExecProposalHTML;
             this._capturedFiles.push({
@@ -4330,7 +4392,6 @@ Return ONLY the JSON array. No other text.`;
             });
         }
 
-        // BOM PDF HTML — cached on window._lastBOMPdfHTML by the PDF button
         const lastBomPdf = (typeof window !== 'undefined') ? window._lastBOMPdfHTML : null;
         if (lastBomPdf && typeof lastBomPdf === 'string' && lastBomPdf.length > 200) {
             this._capturedFiles.push({
@@ -4339,15 +4400,111 @@ Return ONLY the JSON array. No other text.`;
             });
         }
 
-        // ── 3. Generate the README ──
+        // ── 4. Snapshot the 15 analysis screens from the DOM ──
+        const screens = [
+            { id: 'ai-analysis-card',         file: '01_AI_Estimation_Analysis.html',      title: 'AI Estimation & Analysis' },
+            { id: 'bom-table-card',           file: '02_Bill_of_Materials.html',           title: 'Bill of Materials' },
+            { id: 'exclusions-card',          file: '03_Exclusions_Assumptions_Clarifications.html', title: 'Exclusions, Assumptions & Clarifications' },
+            { id: 'estimator-checklist-card', file: '04_Estimator_Review_Checklist.html',  title: 'Estimator Review Checklist' },
+            { id: 'project-fitness-card',     file: '05_Project_Fitness_3D_Wheelhouse.html', title: 'Project Fitness — 3D Wheelhouse' },
+            { id: 'building-profile-card',    file: '06_Building_Profile.html',            title: 'Building Profile' },
+            { id: 'cost-per-sf-card',         file: '07_Cost_Per_SF_Profile.html',         title: 'Cost-Per-SF Benchmark' },
+            { id: 'anomaly-card',             file: '08_Quantity_Anomaly_Detector.html',   title: 'Quantity Anomaly Detector' },
+            { id: 'spec-compliance-card',     file: '09_Spec_Compliance_Checker.html',     title: 'Spec Compliance Checker' },
+            { id: 'bom-confidence-card',      file: '10_BOM_Confidence_Score.html',        title: 'BOM Confidence Scoring' },
+            { id: 'cable-pathway-card',       file: '11_Cable_Pathway_Analysis.html',      title: 'Cable Pathway Analysis' },
+            { id: 'bid-phases-card',          file: '12_Bid_Phases_Alternates.html',       title: 'Bid Phases & Alternates' },
+            { id: 'change-orders-card',      file: '13_Potential_Change_Orders.html',     title: 'Potential Change Orders' },
+            { id: 'proposal-narrative-card',  file: '14_Winning_Proposal_Narrative.html',  title: 'Winning Proposal Narrative' },
+            { id: 'sym-inv-wrapper',          file: '15_Symbol_Inventory_Audit.html',      title: 'Symbol Inventory Audit' },
+        ];
+
+        // Force-expand every collapsible body so the captured snapshot
+        // includes content that's currently hidden behind a toggle. We
+        // restore the original display state after the snapshot so the
+        // user's UI is unchanged.
+        const collapsibleIds = [
+            'bom-table-collapsible', 'cable-pathway-collapsible', 'bid-phases-collapsible',
+            'sym-inv-collapsible', 'fitness-collapsible',
+        ];
+        const restoreList = [];
+        for (const cid of collapsibleIds) {
+            const el = (typeof document !== 'undefined') ? document.getElementById(cid) : null;
+            if (el) {
+                restoreList.push({ el, prev: el.style.display });
+                el.style.display = 'block';
+            }
+        }
+
+        const _wrapHTML = (title, projectName, innerHTML) => {
+            const safeTitle = String(title || 'Screen').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safeProj = String(projectName || 'Project').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>${safeTitle} — ${safeProj}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 28px 38px; background: #ffffff; color: #1a1a2e; font-size: 13px; line-height: 1.55; }
+  h1, h2, h3 { color: #0d9488; }
+  .sp-snapshot-header { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 3px solid #0d9488; padding-bottom: 12px; margin-bottom: 24px; }
+  .sp-snapshot-header h1 { margin: 0; font-size: 20px; }
+  .sp-snapshot-header .meta { font-size: 11px; color: #64748b; }
+  .info-card { background: #ffffff; border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; padding: 16px 20px; margin-bottom: 18px; }
+  .info-card-title { font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .info-card-body { font-size: 12.5px; color: #475569; line-height: 1.65; }
+  table { border-collapse: collapse; width: 100%; }
+  /* Hide controls that don't make sense in a static snapshot */
+  button, input[type="checkbox"]:not(:checked), input[type="text"], select, .excl-tabs, [data-action] { }
+  button { display: none !important; }
+  input, select, textarea { background: transparent !important; border: 1px solid rgba(0,0,0,0.1) !important; color: #1a1a2e !important; }
+  /* Hide lucide icons that didn't render in the snapshot */
+  i[data-lucide] { display: none; }
+  @media print { body { padding: 18px 24px; } @page { margin: 0.5in; size: letter; } }
+</style>
+</head><body>
+<div class="sp-snapshot-header">
+  <h1>${safeTitle}</h1>
+  <div class="meta">${safeProj} &middot; ${new Date().toLocaleString()}</div>
+</div>
+${innerHTML}
+<div style="margin-top:32px;text-align:center;font-size:10px;color:#94a3b8;letter-spacing:1px;">SmartPlans &middot; v5.129.11 &middot; ZIP EVERYTHING snapshot</div>
+</body></html>`;
+        };
+
+        let screenCount = 0;
+        const projectName = state.projectName || safeName;
+        for (const s of screens) {
+            try {
+                const el = (typeof document !== 'undefined') ? document.getElementById(s.id) : null;
+                if (!el) continue;
+                const html = _wrapHTML(s.title, projectName, el.outerHTML);
+                this._capturedFiles.push({
+                    filename: s.file,
+                    blob: new Blob([html], { type: 'text/html;charset=utf-8' }),
+                });
+                screenCount++;
+            } catch (e) {
+                console.error(`[ZipEverything] Snapshot ${s.id} failed:`, e);
+                errors.push(`Snapshot ${s.title}: ${e.message || e}`);
+            }
+        }
+
+        // Restore the original display state of every collapsible we touched
+        for (const r of restoreList) {
+            try { r.el.style.display = r.prev; } catch (_) {}
+        }
+
+        // ── 5. Generate the README ──
         const captured = this._capturedFiles.slice();
         const lines = [
             `SmartPlans Bid Package — ${state.projectName || 'Project'}`,
             `Generated: ${startedAt.toLocaleString()}`,
             `Bid Total: ${state._lockedBidTotal ? '$' + Number(state._lockedBidTotal).toLocaleString() : 'see exports'}`,
             ``,
-            `Files in this archive (${captured.length}):`,
+            `Files in this archive (${captured.length + 1}):`,
             ...captured.map(f => `  - ${f.filename}`),
+            `  - README.txt`,
             ``,
             `What each one is:`,
             `  *.json   Structured bid data — import into project-management app`,
@@ -4356,15 +4513,17 @@ Return ONLY the JSON array. No other text.`;
             `  *.doc    Microsoft Word proposal — open in Word, edit, print`,
             `  *.html   Self-contained HTML — open in browser, then print to PDF`,
             ``,
+            `Analysis screen snapshots (01_…html through 15_…html):`,
+            `  Each HTML file is a snapshot of one analysis card from your`,
+            `  results screen, frozen at zip time. Open in any browser, or`,
+            `  print to PDF for sharing with subs, owners, or your team.`,
+            ``,
             `To get a PDF: open any *.html in your browser, press Ctrl+P (or`,
             `Cmd+P), and choose "Save as PDF" as the destination printer.`,
             ``,
-            `Missing files? Some artifacts are only included if they were`,
-            `generated during this session:`,
-            `  - Master Report → click "Generate Master Report" first`,
-            `  - Full Proposal → click "Generate Full Proposal" first`,
-            `  - Executive Proposal → click "Generate Executive Proposal" first`,
-            `  - BOM Print HTML → click the BOM "PDF" button first`,
+            `Captured ${screenCount} of 15 analysis screens. Screens that did`,
+            `not run during this analysis (e.g., Spec Compliance with no spec`,
+            `files uploaded) are silently skipped.`,
             ``,
         ];
         if (errors.length > 0) {
@@ -4377,7 +4536,7 @@ Return ONLY the JSON array. No other text.`;
             blob: new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' }),
         });
 
-        // ── 4. Build the ZIP ──
+        // ── 6. Build the ZIP ──
         let zipBlob;
         try {
             const zip = new JSZip();
@@ -4388,15 +4547,17 @@ Return ONLY the JSON array. No other text.`;
         } catch (zipErr) {
             console.error('[ZipEverything] JSZip generateAsync failed:', zipErr);
             this._capturedFiles = null;
+            if (typeof window !== 'undefined') window._zipCaptureMode = false;
             if (typeof spToast === 'function') spToast(`ZIP build failed: ${zipErr.message || zipErr}`, 'error');
             return;
         }
 
-        // ── 5. Disable capture mode BEFORE the final download ──
+        // ── 7. Disable capture mode BEFORE the final download ──
         this._capturedFiles = null;
+        if (typeof window !== 'undefined') window._zipCaptureMode = false;
         this._download(zipBlob, zipName, 'application/zip');
 
-        const fileCount = captured.length;
+        const fileCount = captured.length + 1; // +1 for README
         const sizeKB = Math.round(zipBlob.size / 1024);
         console.log(`[ZipEverything] Bundled ${fileCount} files (${sizeKB} KB) → ${zipName}`);
         if (typeof spToast === 'function') {

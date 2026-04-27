@@ -762,6 +762,15 @@ ${this._confBar()}
     // Cache for PDF re-download without re-generating
     this._lastFullProposalHTML = wordHtml;
 
+    // v5.129.11 \u2014 ZIP EVERYTHING capture mode. Skip the .doc download here;
+    // zipEverything() pulls the cached HTML and packages it itself. Without
+    // this guard the user sees an unwanted .doc download every time they
+    // click the green ZIP button.
+    if (typeof window !== 'undefined' && window._zipCaptureMode) {
+      progressCallback(100, 'Proposal cached for ZIP bundle');
+      return;
+    }
+
     try {
       const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
       const url = URL.createObjectURL(blob);
@@ -1741,6 +1750,13 @@ ${this._confBar()}
 
       // Cache for PDF re-download without re-generating
       this._lastExecProposalHTML = wordHtml;
+
+      // v5.129.11 \u2014 ZIP EVERYTHING capture mode. Skip the .doc download
+      // here; the cached HTML is what zipEverything() packages.
+      if (typeof window !== 'undefined' && window._zipCaptureMode) {
+        progressCallback(100, 'Executive proposal cached for ZIP bundle');
+        return;
+      }
 
       // Download
       const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword' });
