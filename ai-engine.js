@@ -483,6 +483,11 @@ const SmartBrains = {
     LEGEND_DECODER: { id: 0, name: 'Legend Decoder', wave: 0, emoji: '📖', needsFiles: ['legends'], maxTokens: 65536, useProModel: true },
     PLAN_LEGEND_SCANNER: { id: 0.25, name: 'Plan Legend Scanner', wave: 0, emoji: '🗺️', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     SPATIAL_LAYOUT: { id: 0.5, name: 'Spatial Layout', wave: 0, emoji: '📐', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
+    // ── Wave 0.1: Drawing Quality & Format Intake (v5.135.0) ──
+    // Runs FIRST so a bad-quality plan set can fail-fast before we
+    // burn 30+ brain calls on a deck the AI can't read accurately.
+    // Outputs the 94% accuracy gate (PASS/FAIL) and per-page quality.
+    DRAWING_INTAKE_QC: { id: 36, name: 'Drawing Intake QC', wave: 0.1, emoji: '🧐', needsFiles: ['plans', 'legends', 'specs'], maxTokens: 32768, useProModel: true },
     // ── Wave 0.3: Preflight Gates (run BEFORE downstream brains so they can hard-stop bad inputs) ──
     PREVAILING_WAGE_DETECTOR: { id: 34, name: 'Prevailing Wage Detector', wave: 0.3, emoji: '⚖️', needsFiles: ['plans', 'specs'], maxTokens: 16384, useProModel: true },
     SHEET_INVENTORY_GUARD:    { id: 35, name: 'Sheet Inventory Guard',    wave: 0.3, emoji: '📑', needsFiles: ['plans', 'specs'], maxTokens: 16384, useProModel: true },
@@ -4266,6 +4271,8 @@ const SmartBrains = {
     // v5.124.5 new brains
     PREVAILING_WAGE_DETECTOR:  ['requires_davis_bacon', 'indicators', 'wage_determination'],
     SHEET_INVENTORY_GUARD:     ['index_sheet_list', 'uploaded_sheet_count', 'missing_sheets', 'coverage_pct'],
+    // v5.135.0 — Drawing Quality & Format Intake
+    DRAWING_INTAKE_QC: ['detected_file_type', 'overall_readiness_score', 'accuracy_gate', 'confidence_level', 'page_quality_summary'],
     SCOPE_DELINEATION_SCANNER: ['delineations', 'ofoi_items', 'nic_items', 'by_others'],
     KEYNOTE_EXTRACTOR:         ['keynotes', 'general_notes'],
     DOOR_SCHEDULE_PARSER:      ['doors', 'access_control_doors', 'hardware_summary'],
@@ -4383,6 +4390,33 @@ const SmartBrains = {
       }
       if (!Array.isArray(parsed.indicators)) {
         return { valid: false, reason: 'PREVAILING_WAGE_DETECTOR: indicators must be an array' };
+      }
+    }
+
+    // v5.135.0 — DRAWING_INTAKE_QC validator
+    if (brainKey === 'DRAWING_INTAKE_QC') {
+      const score = Number(parsed.overall_readiness_score);
+      if (!Number.isFinite(score) || score < 0 || score > 100) {
+        return { valid: false, reason: `DRAWING_INTAKE_QC: overall_readiness_score must be 0-100 (got ${parsed.overall_readiness_score})` };
+      }
+      const gate = String(parsed.accuracy_gate || '').toUpperCase();
+      if (gate !== 'PASS' && gate !== 'FAIL') {
+        return { valid: false, reason: `DRAWING_INTAKE_QC: accuracy_gate must be "PASS" or "FAIL" (got "${parsed.accuracy_gate}")` };
+      }
+      // Cross-check: gate must match the rubric. Score >= 94 -> PASS, < 70 -> FAIL.
+      // Scores 70-93 may go either way depending on the AI's judgment, but
+      // the extreme bands must be self-consistent.
+      if (score >= 94 && gate !== 'PASS') {
+        return { valid: false, reason: `DRAWING_INTAKE_QC: readiness_score=${score} should map to gate=PASS, got ${gate}` };
+      }
+      if (score < 70 && gate !== 'FAIL') {
+        return { valid: false, reason: `DRAWING_INTAKE_QC: readiness_score=${score} should map to gate=FAIL, got ${gate}` };
+      }
+      if (typeof parsed.detected_file_type !== 'string' || parsed.detected_file_type.trim().length === 0) {
+        return { valid: false, reason: 'DRAWING_INTAKE_QC: detected_file_type required' };
+      }
+      if (!parsed.page_quality_summary || typeof parsed.page_quality_summary !== 'object') {
+        return { valid: false, reason: 'DRAWING_INTAKE_QC: page_quality_summary required' };
       }
     }
 
@@ -9307,6 +9341,156 @@ Return ONLY valid JSON:
       // NEW BRAINS v5.124.5 — Preflight Gates & First-Read Scanners
       // ═══════════════════════════════════════════════════════════
 
+      // ── BRAIN 36: Drawing Intake QC (Wave 0.1) — v5.135.0 ───────
+      // Auto-detects file format and assesses page-by-page quality
+      // BEFORE any counting / measuring / BOM brain runs. Outputs the
+      // 94% accuracy gate (PASS/FAIL) so a bad-quality plan set fails
+      // fast instead of producing a confidently-wrong bid.
+      DRAWING_INTAKE_QC: () => {
+        // Surface deterministic file-format hints (extensions + page-count
+        // signals) so the brain combines metadata with visual quality.
+        const fileMeta = (() => {
+          const detect = (list) => {
+            const out = [];
+            for (const f of (list || [])) {
+              const name = String(f && (f.name || f.fileName || f) || '').toLowerCase();
+              if (!name) continue;
+              const ext = (name.match(/\.([a-z0-9]+)(?:$|\?)/) || [, ''])[1];
+              const isVectorPdf = ext === 'pdf'; // Decided at AI level via visual cues
+              const isCad = ['dwg', 'dxf'].includes(ext);
+              const isBim = ['ifc', 'rvt', 'rfa', 'rte'].includes(ext);
+              const isImg = ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'bmp'].includes(ext);
+              out.push({ name, ext, isPdf: ext === 'pdf', isCad, isBim, isImg, sizeKB: f.size ? Math.round(f.size / 1024) : null });
+            }
+            return out;
+          };
+          return {
+            plans: detect(context._uploadedFileMeta?.plans),
+            legends: detect(context._uploadedFileMeta?.legends),
+            specs: detect(context._uploadedFileMeta?.specs),
+          };
+        })();
+        const cadFiles = [...fileMeta.plans, ...fileMeta.legends, ...fileMeta.specs].filter(f => f.isCad).length;
+        const bimFiles = [...fileMeta.plans, ...fileMeta.legends, ...fileMeta.specs].filter(f => f.isBim).length;
+        return `You are a DRAWING QUALITY & FORMAT INTAKE AGENT. Before SmartPlans estimates anything, your job is to determine whether the uploaded plans can support an AI-assisted bid at 94% or higher accuracy.
+
+PROJECT: ${context.projectName || 'Unknown'} | Type: ${context.projectType || 'Unknown'}
+DISCIPLINES: ${(context.disciplines || []).join(', ')}
+
+═══ DETERMINISTIC FILE METADATA (from upload pipeline) ═══
+Plans:  ${fileMeta.plans.length} file(s) — extensions: ${[...new Set(fileMeta.plans.map(f => f.ext))].join(', ') || 'unknown'}
+Legends: ${fileMeta.legends.length} file(s) — extensions: ${[...new Set(fileMeta.legends.map(f => f.ext))].join(', ') || 'unknown'}
+Specs:  ${fileMeta.specs.length} file(s) — extensions: ${[...new Set(fileMeta.specs.map(f => f.ext))].join(', ') || 'unknown'}
+${cadFiles > 0 ? `⚠️ ${cadFiles} CAD-format file(s) detected (DWG/DXF). The pipeline converted them to images for analysis — note in your output that the SOURCE was CAD, even though you see rendered images.\n` : ''}${bimFiles > 0 ? `⚠️ ${bimFiles} BIM-format file(s) detected (IFC/RVT). Source was BIM model.\n` : ''}
+═══ STEP 1 — AUTO-DETECT FILE FORMAT (do not ask the user) ═══
+Classify the upload as ONE of:
+  1. DWG / DXF CAD                — original vector CAD files
+  2. IFC / Revit BIM              — building information model
+  3. Vector PDF exported from CAD — sharp lines, selectable text, no JPEG halos
+  4. High-resolution scanned PDF/image — rasterized but readable
+  5. Low-resolution PDF/JPEG/image — pixelated symbols, unreadable text
+  6. Mixed-format document         — some pages vector, some raster
+  7. Unknown / requires manual review
+
+Use these signals together: file extension above, presence/absence of crisp vector linework in rendered images, JPEG compression artifacts (block noise, halos), text/symbol clarity, scale-bar readability, title-block readability.
+
+═══ STEP 2 — PAGE-BY-PAGE QUALITY CHECK ═══
+Rate every page Excellent | Good | Fair | Poor | Unusable.
+
+For each page, evaluate ALL of:
+- Drawing resolution (sharpness)
+- Symbol clarity (can device symbols be distinguished from each other)
+- Text/title block readability
+- Scale-bar readability
+- Legend availability/quality
+- Sheet-name and sheet-number readability
+- Vector vs raster origin
+- Whether measurements can be trusted (scale-bar + linework precision)
+- Whether repeated room/unit configurations can be identified
+
+═══ STEP 3 — ESTIMATE READINESS SCORE (0–100%) ═══
+This is NOT the final estimate accuracy. It is your confidence that the
+uploaded plans can support a final estimate accuracy of 94% or higher.
+Use the rubric:
+  • 94–100 — Suitable for AI estimating with high confidence.
+  • 85–93  — Usable but estimator review required (MEDIUM CONFIDENCE).
+  • 70–84  — Risky — proceed only with LOW CONFIDENCE warnings + RFIs.
+  • <70    — Not good enough; recommend better drawings.
+
+═══ STEP 4 — 94% ACCURACY GATE ═══
+Decide PASS or FAIL.
+PASS message: "PASS — These plans appear suitable for AI-assisted estimating at or above the 94% accuracy target, subject to normal estimator review."
+FAIL message: "FAIL — These plans are not good enough to support the 94% accuracy target without additional information or better-quality drawings."
+
+═══ STEP 5 — IDENTIFY PROBLEM PAGES ═══
+List every page that reduces confidence. For each: page number, sheet number/title if readable, the quality issue, why it hurts estimating accuracy, and a recommended correction.
+
+═══ STEP 6 — REQUEST BETTER INFORMATION (when FAIL) ═══
+If gate is FAIL, write a professional paragraph asking the customer for one or more of: vector PDF exported from CAD, original DWG/DXF, IFC/Revit model, 300+ DPI scan, complete legend, unit matrix or room schedule, enlarged unit plans, floor-by-floor key plans, missing sheets/addendums.
+
+═══ STEP 7 — MIXED DOCUMENT HANDLING ═══
+If some pages are good and others poor, separate the upload into:
+  - Usable pages (proceed normally)
+  - Caution pages (proceed with warnings)
+  - Unusable pages (skip or require replacement)
+Explain whether estimating can proceed PARTIALLY and which scope items cannot be trusted because of the bad pages.
+
+═══ STEP 8 — OUTPUT FORMAT ═══
+Return ONLY valid JSON in this exact shape:
+
+{
+  "detected_file_type": "DWG / DXF CAD | IFC / Revit BIM | Vector PDF exported from CAD | High-resolution scanned PDF/image | Low-resolution PDF/JPEG/image | Mixed-format document | Unknown / requires manual review",
+  "detected_file_type_evidence": "Brief one-paragraph explanation of how you decided",
+  "overall_readiness_score": 92,
+  "accuracy_gate": "PASS | FAIL",
+  "accuracy_gate_message": "PASS — These plans appear suitable... | FAIL — These plans are not good enough...",
+  "confidence_level": "High | Medium | Low | Not Suitable",
+  "summary": "Two- to four-sentence explanation of whether these plans can support 94%+ accuracy and why.",
+  "page_quality_summary": {
+    "excellent": 0,
+    "good": 0,
+    "fair": 0,
+    "poor": 0,
+    "unusable": 0
+  },
+  "page_ratings": [
+    { "page": 1, "sheet": "T-001", "title": "Title Sheet", "rating": "Good", "vector_or_raster": "vector" }
+  ],
+  "problem_pages": [
+    {
+      "page": 12,
+      "sheet": "E2.04",
+      "title": "Telecom Plan — 4th Floor",
+      "issue": "Low resolution / device symbols too small to classify",
+      "impact": "Cannot reliably distinguish 2D from 4D outlets — data outlet count will be off ±15%",
+      "recommended_fix": "Re-export as vector PDF from CAD or supply 300 DPI scan"
+    }
+  ],
+  "missing_or_needed_information": [
+    "Vector PDF exported from CAD",
+    "Complete legend for fire alarm devices",
+    "Enlarged typical-unit plan A-2.01"
+  ],
+  "recommended_action": "Proceed | Proceed with caution | Stop and request better documents",
+  "customer_document_request": "A professional paragraph the user can send to the customer if the gate failed. Empty string if gate=PASS.",
+  "estimator_notes": "Specific notes for the estimator before counting begins. Highlight any pages where counts will need manual verification.",
+  "mixed_document_breakdown": {
+    "usable_pages": [1, 2, 3],
+    "caution_pages": [4, 5],
+    "unusable_pages": [12, 13],
+    "partial_estimating_possible": true,
+    "scopes_that_cannot_be_trusted": ["Fire Alarm — page 12 is unusable", "..."]
+  }
+}
+
+CRITICAL RULES:
+- Do NOT ask the user to choose the file type. You auto-detect.
+- Do NOT pretend a poor scan can produce high-confidence counts. If the rubric says <70, output FAIL.
+- Do NOT continue past this brain if gate=FAIL. The downstream pipeline will halt unless the user explicitly overrides.
+- Be specific on problem pages. Generic complaints help nobody.
+- If the upload contains zero plan sheets (specs only), gate=FAIL and ask for plans.`;
+      },
+
       // ── BRAIN 34: Prevailing Wage Detector (Wave 0.3) ───────────
       PREVAILING_WAGE_DETECTOR: () => `You are a PREVAILING WAGE DETECTOR for construction bid documents. Your ONE job: determine whether this project requires federal Davis-Bacon or state prevailing wage rates.
 
@@ -11175,6 +11359,64 @@ ${legendContext}
       context._ocrScaleData = ocrScalePages;
       const withScale = ocrScalePages.filter(p => p.ftPerInch > 0);
       console.log(`[SmartBrains] OCR Scale: ${withScale.length}/${ocrScalePages.length} pages have deterministic scale data`);
+    }
+
+    // ═══ WAVE 0.1: Drawing Quality & Format Intake (v5.135.0) ═══
+    // Runs FIRST so a poor-quality plan set fails the 94% accuracy gate
+    // before we burn 30+ brain calls on a deck the AI can't read accurately.
+    // If gate=FAIL and no override is set, downstream waves are halted.
+    try {
+      // Surface upload metadata to the brain prompt (extension, size).
+      context._uploadedFileMeta = {
+        plans: (encodedFiles.plans || []).map(f => ({ name: f.name, size: f.size })),
+        legends: (encodedFiles.legends || []).map(f => ({ name: f.name, size: f.size })),
+        specs: (encodedFiles.specs || []).map(f => ({ name: f.name, size: f.size })),
+      };
+      progressCallback(3, '🧐 Wave 0.1: Drawing quality & format intake — checking 94% accuracy gate…', this._brainStatus);
+      const wave01Results = await this._runWave(0.1, ['DRAWING_INTAKE_QC'], encodedFiles, state, context, progressCallback);
+      context.wave0_1 = wave01Results;
+      const intake = wave01Results?.DRAWING_INTAKE_QC;
+      if (intake && !intake._failed && !intake._parseFailed) {
+        const intakeSummary = {
+          fileType: intake.detected_file_type || 'Unknown',
+          readinessScore: Number(intake.overall_readiness_score) || 0,
+          gate: String(intake.accuracy_gate || 'FAIL').toUpperCase(),
+          gateMessage: intake.accuracy_gate_message || '',
+          confidenceLevel: intake.confidence_level || 'Unknown',
+          summary: intake.summary || '',
+          pageQualitySummary: intake.page_quality_summary || {},
+          pageRatings: Array.isArray(intake.page_ratings) ? intake.page_ratings : [],
+          problemPages: Array.isArray(intake.problem_pages) ? intake.problem_pages : [],
+          missingInfo: Array.isArray(intake.missing_or_needed_information) ? intake.missing_or_needed_information : [],
+          recommendedAction: intake.recommended_action || '',
+          customerDocumentRequest: intake.customer_document_request || '',
+          estimatorNotes: intake.estimator_notes || '',
+          mixedDocumentBreakdown: intake.mixed_document_breakdown || null,
+          ts: new Date().toISOString(),
+        };
+        context._drawingIntake = intakeSummary;
+        state._drawingIntake = intakeSummary;
+        console.log(`[SmartBrains] 🧐 Drawing Intake — ${intakeSummary.fileType} | readiness ${intakeSummary.readinessScore}% | gate ${intakeSummary.gate} (${intakeSummary.confidenceLevel})`);
+        if (intakeSummary.gate === 'FAIL') {
+          console.warn(`[SmartBrains] ⛔ 94% ACCURACY GATE FAILED — ${intakeSummary.gateMessage}`);
+          if (!state._drawingIntakeOverride) {
+            console.warn('[SmartBrains] Halting downstream analysis. User must review the intake card and explicitly override before continuing.');
+            const haltErr = new Error(`Drawing intake gate failed: ${intakeSummary.gateMessage || 'plans not suitable for 94% accuracy target'}`);
+            haltErr._intakeFail = true;
+            haltErr._intakeSummary = intakeSummary;
+            throw haltErr;
+          } else {
+            console.warn('[SmartBrains] User override active — continuing despite intake FAIL. Bid will carry low-confidence flags throughout.');
+          }
+        }
+      } else {
+        console.warn('[SmartBrains] Wave 0.1 intake brain returned no usable result — proceeding without gate check (treat as caution).');
+        state._drawingIntake = { gate: 'UNKNOWN', readinessScore: 0, summary: 'Intake brain failed; downstream brains will run but estimate carries low confidence.' };
+      }
+    } catch (intakeErr) {
+      if (intakeErr && intakeErr._intakeFail) throw intakeErr; // propagate the halt up
+      console.warn('[SmartBrains] Wave 0.1 errored non-fatally:', intakeErr?.message || intakeErr);
+      context.wave0_1 = {};
     }
 
     // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) — NON-FATAL ═══
@@ -13849,6 +14091,7 @@ ${legendContext}
       quantityAnomalies: context._quantityAnomalies || null,
       confidenceScoring: context._confidenceScoring || null,
       unitConfigurations: context._unitConfigurations || null,
+      drawingIntake: context._drawingIntake || null,
       quantitiesUnverified: context._quantitiesUnverified || false,
       quantitiesUnverifiedReason: context._quantitiesUnverifiedReason || '',
       // v5.125.1: per-discipline coverage

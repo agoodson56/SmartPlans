@@ -1875,6 +1875,8 @@ function startNewBid() {
   state._confidenceScoring = null;
   state._quantityAnomalies = null;
   state._unitConfigurations = null;
+  state._drawingIntake = null;
+  state._drawingIntakeOverride = false;
   state._proposalNarrative = null;
   state._mathAuditLog = [];
   state._mathAuditFixes = 0;
@@ -10020,6 +10022,8 @@ function renderStep7(container) {
 
     ${buildKeynoteCard(state)}
 
+    ${buildDrawingIntakeCard(state)}
+
     ${buildProjectFitnessCard(state)}
 
     ${buildMathAuditorCard(state)}
@@ -13455,7 +13459,50 @@ async function runGeminiAnalysis(updateProgress) {
         if (typeof SmartBrains !== 'undefined') SmartBrains._providerOverride = null;
       }
     } catch (err) {
-      if (err && err.code === 'MODEL_HEALTH_GATE') {
+      // v5.135.0 — Drawing Intake QC gate failed before any other brain ran.
+      // Surface the intake result to the estimator and let them decide whether
+      // to override (proceed at low confidence) or cancel (request better plans).
+      if (err && err._intakeFail) {
+        state.analyzing = false;
+        AnalysisTimer.stop();
+        const summary = err._intakeSummary || {};
+        state._drawingIntake = summary;
+        const probLines = (summary.problemPages || []).slice(0, 6).map(p => `  • Page ${p.page || '?'}${p.sheet ? ` (${p.sheet})` : ''}: ${p.issue || 'quality issue'}`).join('\n');
+        const missingLines = (summary.missingInfo || []).slice(0, 5).map(m => `  • ${m}`).join('\n');
+        const msg =
+          `⛔ 94% ACCURACY GATE — FAIL\n\n` +
+          `Detected file type: ${summary.fileType || 'Unknown'}\n` +
+          `Readiness score: ${summary.readinessScore || 0}% (need 94%+)\n` +
+          `Confidence level: ${summary.confidenceLevel || 'Unknown'}\n\n` +
+          `${summary.summary || summary.gateMessage || 'Plans are not good enough to support the 94% accuracy target.'}\n\n` +
+          (probLines ? `Problem pages:\n${probLines}\n\n` : '') +
+          (missingLines ? `Information needed from customer:\n${missingLines}\n\n` : '') +
+          `RECOMMENDED: Cancel and request better drawings before bidding.\n\n` +
+          `OR: Click OK to OVERRIDE the gate. The estimate will run, but every output ` +
+          `will carry low-confidence warnings, and the bid will not be defensible if challenged.`;
+        const acceptOverride = confirm(msg);
+        if (acceptOverride) {
+          state._drawingIntakeOverride = true;
+          if (typeof spToast === 'function') spToast('Drawing intake gate OVERRIDDEN — bid will run with low-confidence flags throughout.', 'warn');
+          // Retry — the override flag now lets the wave runner past the gate.
+          try {
+            state.analyzing = true;
+            result = await SmartBrains.runFullAnalysis(state, updateProgress);
+          } catch (retryErr) {
+            state.analyzing = false;
+            AnalysisTimer.stop();
+            state.aiError = `Intake override retry failed: ${retryErr?.message || retryErr}`;
+            render();
+            return;
+          } finally {
+            if (typeof SmartBrains !== 'undefined') SmartBrains._providerOverride = null;
+          }
+        } else {
+          if (typeof spToast === 'function') spToast('Analysis cancelled — please request better drawings and re-upload.', 'info');
+          render();
+          return;
+        }
+      } else if (err && err.code === 'MODEL_HEALTH_GATE') {
         state.analyzing = false;
         AnalysisTimer.stop();
         const h = err.health || {};
@@ -13516,6 +13563,8 @@ async function runGeminiAnalysis(updateProgress) {
     state._confidenceScoring = result.confidenceScoring || null;
     // v5.134.0 — repeated-unit configuration breakdown (apartments / dorms / hotels).
     state._unitConfigurations = result.unitConfigurations || null;
+    // v5.135.0 — drawing intake QC (file format detection + 94% accuracy gate).
+    state._drawingIntake = result.drawingIntake || null;
     state._quantitiesUnverified = result.quantitiesUnverified || false;
     state._quantitiesUnverifiedReason = result.quantitiesUnverifiedReason || '';
     // v5.125.1: per-discipline coverage
@@ -14644,6 +14693,7 @@ function _restoreStateFromPayload(id, pkg, est) {
   if (pkg?.quantityAnomalies) state._quantityAnomalies = pkg.quantityAnomalies;
   if (pkg?.confidenceScoring) state._confidenceScoring = pkg.confidenceScoring;
   if (pkg?.unitConfigurations) state._unitConfigurations = pkg.unitConfigurations;
+  if (pkg?.drawingIntake) state._drawingIntake = pkg.drawingIntake;
   if (pkg?.checklistChecked) state._checklistChecked = pkg.checklistChecked;
 
   // ── Restore 3D Engine reference result (was saved but never restored) ──
@@ -18245,6 +18295,121 @@ function buildQuantityAnomalyCard(st) {
               </div>
             </div>
           `).join('')}
+        </div>
+      ` : ''}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// v5.135.0 — DRAWING INTAKE QC CARD
+// Renders the file-format detection + 94% accuracy gate + per-page
+// quality breakdown. Shown FIRST on Step 7 since it dictates whether
+// any of the rest of the estimate can be trusted. When gate=FAIL the
+// card includes the customer document request paragraph.
+// ═══════════════════════════════════════════════════════════════
+function buildDrawingIntakeCard(st) {
+  const intake = st._drawingIntake;
+  if (!intake) return '';
+  const score = Number(intake.readinessScore) || 0;
+  const gate = String(intake.gate || 'UNKNOWN').toUpperCase();
+  const conf = intake.confidenceLevel || 'Unknown';
+  const passed = gate === 'PASS';
+  const failed = gate === 'FAIL';
+  const overridden = !!st._drawingIntakeOverride;
+  const color = passed ? '#22c55e' : (failed ? '#ef4444' : '#f59e0b');
+  const banner = passed ? '✅ PASS — 94% ACCURACY GATE'
+                : (failed ? '⛔ FAIL — 94% ACCURACY GATE' + (overridden ? ' (OVERRIDDEN)' : '')
+                : '⚠️ INTAKE INCOMPLETE');
+
+  const pq = intake.pageQualitySummary || {};
+  const pqEntries = [
+    { label: 'Excellent', count: Number(pq.excellent) || 0, color: '#22c55e' },
+    { label: 'Good',      count: Number(pq.good)      || 0, color: '#84cc16' },
+    { label: 'Fair',      count: Number(pq.fair)      || 0, color: '#f59e0b' },
+    { label: 'Poor',      count: Number(pq.poor)      || 0, color: '#f97316' },
+    { label: 'Unusable',  count: Number(pq.unusable)  || 0, color: '#ef4444' },
+  ];
+  const totalPages = pqEntries.reduce((s, e) => s + e.count, 0);
+
+  const problemRows = (intake.problemPages || []).slice(0, 12).map(p => `
+    <tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+      <td style="padding:8px 10px;font-size:12px;font-weight:600;color:var(--text-primary);text-align:center;">${esc(String(p.page || '?'))}</td>
+      <td style="padding:8px 10px;font-size:12px;color:var(--text-secondary);">${esc(p.sheet || '—')}${p.title ? ` <span style="color:var(--text-muted);">${esc(p.title)}</span>` : ''}</td>
+      <td style="padding:8px 10px;font-size:12px;color:var(--text-primary);">${esc(p.issue || '—')}</td>
+      <td style="padding:8px 10px;font-size:11px;color:var(--text-secondary);">${esc(p.impact || '—')}</td>
+      <td style="padding:8px 10px;font-size:11px;color:#0d9488;">${esc(p.recommended_fix || p.recommendedFix || '—')}</td>
+    </tr>`).join('');
+
+  const missingList = (intake.missingInfo || []).map(m => `<li style="margin-bottom:4px;">${esc(m)}</li>`).join('') || '<li style="color:var(--text-muted);font-style:italic;">None.</li>';
+
+  return `
+    <div class="info-card" id="drawing-intake-card" style="border-left:3px solid ${color};">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <h3 class="info-card-title" style="margin:0;">🧐 DRAWING INTAKE — FILE QUALITY & 94% ACCURACY GATE</h3>
+        <span style="font-size:11px;padding:4px 12px;border-radius:8px;background:${color}22;color:${color};font-weight:700;letter-spacing:1px;">${banner}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px;">
+        <div style="padding:12px;background:rgba(0,0,0,0.03);border-radius:8px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;">Detected Format</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${esc(intake.fileType || 'Unknown')}</div>
+        </div>
+        <div style="padding:12px;background:rgba(0,0,0,0.03);border-radius:8px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;">Readiness Score</div>
+          <div style="font-size:22px;font-weight:800;color:${color};">${score}%</div>
+        </div>
+        <div style="padding:12px;background:rgba(0,0,0,0.03);border-radius:8px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;">Confidence</div>
+          <div style="font-size:13px;font-weight:600;color:${color};">${esc(conf)}</div>
+        </div>
+        <div style="padding:12px;background:rgba(0,0,0,0.03);border-radius:8px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;">Recommended Action</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-primary);">${esc(intake.recommendedAction || '—')}</div>
+        </div>
+      </div>
+      ${intake.summary ? `<div style="padding:10px 12px;background:rgba(0,0,0,0.02);border-left:2px solid ${color};border-radius:4px;font-size:12px;color:var(--text-primary);line-height:1.6;margin-bottom:14px;">${esc(intake.summary)}</div>` : ''}
+      ${totalPages > 0 ? `
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600;margin-right:4px;">Page Quality (${totalPages}):</span>
+          ${pqEntries.filter(e => e.count > 0).map(e => `
+            <span style="padding:4px 10px;border-radius:6px;background:${e.color}22;color:${e.color};font-size:11px;font-weight:700;">${e.label}: ${e.count}</span>
+          `).join('')}
+        </div>
+      ` : ''}
+      ${problemRows ? `
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#ef4444;margin-bottom:6px;font-weight:600;">Problem Pages (${(intake.problemPages || []).length})</div>
+        <div style="overflow-x:auto;border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:14px;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr style="background:var(--bg-surface-2);">
+              <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;">Page</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;">Sheet</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;">Issue</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;">Impact</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;">Fix</th>
+            </tr></thead>
+            <tbody>${problemRows}</tbody>
+          </table>
+        </div>
+      ` : ''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;font-weight:600;">Information Needed</div>
+          <ul style="margin:0;padding-left:20px;font-size:12px;color:var(--text-primary);line-height:1.6;">${missingList}</ul>
+        </div>
+        ${intake.estimatorNotes ? `
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;font-weight:600;">Estimator Notes</div>
+          <div style="padding:10px;background:rgba(13,148,136,0.04);border:1px solid rgba(13,148,136,0.15);border-radius:6px;font-size:12px;color:var(--text-primary);line-height:1.6;">${esc(intake.estimatorNotes)}</div>
+        </div>` : ''}
+      </div>
+      ${failed && intake.customerDocumentRequest ? `
+        <div style="padding:14px 16px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.25);border-radius:8px;margin-top:6px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#ef4444;margin-bottom:8px;font-weight:700;">📧 Customer Document Request</div>
+          <div style="font-size:12px;color:var(--text-primary);line-height:1.7;white-space:pre-wrap;">${esc(intake.customerDocumentRequest)}</div>
+        </div>
+      ` : ''}
+      ${overridden ? `
+        <div style="margin-top:14px;padding:10px 14px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:12px;color:#92400e;line-height:1.5;">
+          <strong>⚠️ Estimator override active.</strong> Bid carries low-confidence flags throughout. Verify counts and pricing manually before submission.
         </div>
       ` : ''}
     </div>`;

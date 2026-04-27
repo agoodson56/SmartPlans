@@ -178,6 +178,26 @@ const SmartPlansExport = {
             });
         }
 
+        // 6g. Drawing intake QC gate — v5.135.0.
+        // If the user ran the estimate after overriding the 94% accuracy gate
+        // FAIL, every export needs a loud warning so the bid is never submitted
+        // without acknowledging the underlying plan-quality issue.
+        const intake = state._drawingIntake;
+        if (intake && String(intake.gate || '').toUpperCase() === 'FAIL') {
+            warnings.push({
+                severity: 'warn',
+                code: 'drawing_intake_gate_failed',
+                message: `Drawing intake gate FAILED (readiness ${intake.readinessScore || 0}%, confidence ${intake.confidenceLevel || 'unknown'}). The estimator overrode the gate to proceed — every count, pricing, and pathway in this bid carries elevated uncertainty. Recommended: request better drawings before submission.`,
+                details: {
+                    fileType: intake.fileType,
+                    readinessScore: intake.readinessScore,
+                    confidenceLevel: intake.confidenceLevel,
+                    problemPages: (intake.problemPages || []).slice(0, 5),
+                    missingInfo: intake.missingInfo || [],
+                },
+            });
+        }
+
         // 6f. Repeated-unit project missing or low-confidence configurations
         // (v5.134.0 fix). For apartments / dorms / hotels, the BOM should be built
         // from per-configuration counts × unit-count multiplication. If those
@@ -439,6 +459,9 @@ const SmartPlansExport = {
             // v5.134.0 — Unit Configurations (apartments / dorms / hotels):
             // {configurations: [...], confidence: 'high|medium|low|n/a', notes: '', is_repeated_unit_project}
             unitConfigurations: state._unitConfigurations || null,
+
+            // v5.135.0 — Drawing Quality & Format Intake (94% accuracy gate result).
+            drawingIntake: state._drawingIntake || null,
 
             // Estimator Review Checklist — checked items (so reopened bids remember progress)
             checklistChecked: state._checklistChecked || {},
