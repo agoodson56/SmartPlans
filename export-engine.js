@@ -108,34 +108,6 @@ const SmartPlansExport = {
             });
         }
 
-        // 5. Cost per SF outside benchmark range
-        const grandTotal = Number(state._lockedBidTotal || 0);
-        const profile = state._buildingProfile || {};
-        const sf = Number(profile.total_sf || profile.totalSF || 0);
-        if (grandTotal > 1000 && sf >= 100) {
-            const costPerSF = grandTotal / sf;
-            const projectType = String(profile.building_type || 'mixed_use').toLowerCase().replace(/[\s-]/g, '_');
-            const ranges = {
-                mixed_use:    { min: 5,  max: 35 },
-                office:       { min: 4,  max: 25 },
-                healthcare:   { min: 12, max: 60 },
-                education:    { min: 5,  max: 30 },
-                retail:       { min: 3,  max: 20 },
-                warehouse:    { min: 2,  max: 12 },
-                transit:      { min: 15, max: 80 },
-                data_center:  { min: 20, max: 120 },
-            };
-            const range = ranges[projectType] || ranges.mixed_use;
-            if (costPerSF < range.min || costPerSF > range.max) {
-                warnings.push({
-                    severity: 'warn',
-                    code: 'cost_per_sf_outlier',
-                    message: `Cost per SF $${costPerSF.toFixed(2)} outside ${range.min}-${range.max} range for ${projectType}`,
-                    details: { costPerSF: this._round(costPerSF), projectType, range, grandTotal, sf },
-                });
-            }
-        }
-
         // 6. Brain failures requiring review
         const failed = [];
         for (const wave of Object.values(state.brainResults || {})) {
@@ -368,27 +340,10 @@ const SmartPlansExport = {
             // Proposal Narrative — AI-generated persuasive proposal draft (Wave 4.1)
             proposalNarrative: state._proposalNarrative || null,
 
-            // Building Profile — Inferred building characteristics from Wave 0.35
-            buildingProfile: state._buildingProfile || null,
-
-            // Spec Compliance — Specification vs BOM gap analysis from Wave 3.25
-            specCompliance: state._specCompliance ? {
-                compliance_score: state._specCompliance.compliance_score,
-                requirements_checked: state._specCompliance.spec_requirements_checked,
-                requirements_met: state._specCompliance.requirements_met,
-                requirements_missing: state._specCompliance.requirements_missing,
-                gaps: (state._specCompliance.gaps || []).filter(g => g.status === 'missing').map(g => ({
-                    section: g.spec_section, requirement: g.requirement, severity: g.severity, estimatedCost: g.estimated_cost_if_missing
-                })),
-            } : null,
-
             // Quantity Anomalies — Statistical outlier flags
             quantityAnomalies: (state._quantityAnomalies || []).map(a => ({
                 item: a.item, category: a.category, type: a.type, severity: a.severity, detail: a.detail, suggestion: a.suggestion
             })),
-
-            // Cost-Per-SF Benchmark — Industry comparison
-            costPerSF: state._costPerSF || null,
 
             // Per-Item Confidence Scoring — Grade distribution
             confidenceScoring: state._confidenceScoring || null,
@@ -4597,7 +4552,6 @@ ${innerHTML}
             const cm = bs.categoryMarkups[catName] || {
                 materialMarkup: bs.defaultMaterialMarkup,
                 laborMarkup: bs.defaultLaborMarkup,
-                confidence: 'medium'
             };
 
             // AUDIT FIX C7: Equipment gets 15% markup, subs get 10% — not material 50%
@@ -4608,8 +4562,7 @@ ${innerHTML}
             const travelCost = isTravel ? cat.subtotal : 0;
             const matPct = cm.materialMarkup;
             const labPct = cm.laborMarkup;
-            const confidence = cm.confidence;
-            const contingencyPct = bs.contingencyByConfidence[confidence] || 10;
+            const contingencyPct = 10; // Confidence Level removed — flat 10% contingency
 
             const matWithMarkup = materialCost * (1 + matPct / 100);
             const labWithMarkup = laborCost * (1 + labPct / 100);
@@ -4632,7 +4585,6 @@ ${innerHTML}
                 laborCost: this._round(laborCost),
                 materialMarkup: matPct,
                 laborMarkup: labPct,
-                confidence: confidence,
                 contingencyPct: contingencyPct,
                 contingencyAmt: contingencyAmt,
                 finalPrice: finalPrice,

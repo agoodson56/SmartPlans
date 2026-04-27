@@ -486,8 +486,6 @@ const SmartBrains = {
     // ── Wave 0.3: Preflight Gates (run BEFORE downstream brains so they can hard-stop bad inputs) ──
     PREVAILING_WAGE_DETECTOR: { id: 34, name: 'Prevailing Wage Detector', wave: 0.3, emoji: '⚖️', needsFiles: ['plans', 'specs'], maxTokens: 16384, useProModel: true },
     SHEET_INVENTORY_GUARD:    { id: 35, name: 'Sheet Inventory Guard',    wave: 0.3, emoji: '📑', needsFiles: ['plans', 'specs'], maxTokens: 16384, useProModel: true },
-    // ── Wave 0.35: Building Profile Inference (infers SF, rooms, floors from plans) ──
-    BUILDING_PROFILER: { id: 32, name: 'Building Profiler', wave: 0.35, emoji: '🏛️', needsFiles: ['plans'], maxTokens: 32768, useProModel: true },
     // ── Wave 0.75: RFP Criteria Parsing (reads specs for evaluation scoring) ──
     RFP_CRITERIA_PARSER: { id: 30, name: 'RFP Criteria Parser', wave: 0.75, emoji: '🏅', needsFiles: ['specs'], maxTokens: 32768, useProModel: true },
     // ── Wave 1: First Read — Document Intelligence ──
@@ -526,7 +524,6 @@ const SmartBrains = {
     CROSS_VALIDATOR: { id: 15, name: 'Cross Validator', wave: 3, emoji: '✅', needsFiles: [], maxTokens: 65536, useProModel: true },
     DEVILS_ADVOCATE: { id: 16, name: "Devil's Advocate", wave: 3, emoji: '😈', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
     // ── Wave 3.25: Spec Compliance Checker (reads specs + BOM, ensures every spec requirement has a BOM item) ──
-    SPEC_COMPLIANCE_CHECKER: { id: 33, name: 'Spec Compliance Checker', wave: 3.25, emoji: '📜', needsFiles: ['specs'], maxTokens: 65536, useProModel: true },
     // ── Wave 3.5: 4th, 5th, 6th Read — Deep Accuracy Pass (3 brains, Pro model) ──
     DETAIL_VERIFIER: { id: 18, name: 'Detail Verifier', wave: 3.5, emoji: '🔎', needsFiles: ['legends', 'plans'], maxTokens: 65536, useProModel: true },
     CROSS_SHEET_ANALYZER: { id: 19, name: 'Cross-Sheet Analyzer', wave: 3.5, emoji: '📊', needsFiles: ['plans'], maxTokens: 65536, useProModel: true },
@@ -11348,29 +11345,8 @@ ${legendContext}
       context.wave0_3 = {};
     }
 
-    // ═══ WAVE 0.35: Building Profile Inference (1 brain, Pro model) — NON-FATAL ═══
-    try {
-      progressCallback(8, '🏛️ Wave 0.35: Inferring building profile — SF, rooms, floors…', this._brainStatus);
-      const wave035Results = await this._runWave(0.35, ['BUILDING_PROFILER'], encodedFiles, state, context, progressCallback);
-      context.wave0_35 = wave035Results;
-      const bp = wave035Results.BUILDING_PROFILER;
-      if (bp && !bp._failed && !bp._parseFailed) {
-        context._buildingProfile = bp;
-        state._buildingProfile = bp;
-        console.log(`[SmartBrains] 🏛️ Building Profile: ${bp.building_type || 'unknown'} — ${(bp.total_gross_sf || 0).toLocaleString()} SF, ${bp.num_floors || '?'} floor(s), ${bp.total_rooms || '?'} room(s), ${bp.total_doors || '?'} door(s)`);
-        if (bp.floors) {
-          for (const f of bp.floors) {
-            console.log(`[SmartBrains]   📐 ${f.name}: ${(f.sf || 0).toLocaleString()} SF, ${f.rooms || 0} rooms`);
-          }
-        }
-        // Push building profile into session memory so all downstream brains see it
-        context._brainInsights = context._brainInsights || [];
-        context._brainInsights.push({ source: 'BUILDING_PROFILER', type: 'building_profile', detail: `${bp.building_type} — ${(bp.total_gross_sf || 0).toLocaleString()} SF, ${bp.num_floors} floors, ${bp.total_rooms} rooms, ${bp.total_doors} doors, ceiling: ${bp.ceiling_type || 'unknown'}` });
-      }
-    } catch (e) {
-      console.warn('[SmartBrains] Wave 0.35 Building Profiler failed (non-fatal):', e.message);
-      context.wave0_35 = {};
-    }
+    // Wave 0.35 Building Profile inference — REMOVED
+    context.wave0_35 = {};
 
     // ═══ SESSION MEMORY — Shared insight accumulator across all waves ═══
     // Each brain can output an "insights" array of observations that later brains will see.
@@ -13040,66 +13016,6 @@ ${legendContext}
       }
     }
 
-    // ═══ COST-PER-SF BENCHMARK — Industry $/SF comparison (ZERO AI cost) ═══
-    // Compares total bid against industry benchmarks by building type.
-    // Suppressed when quantities are unverified — a $/SF check on phantom device counts
-    // produces a misleading "suspiciously low" finding that's an artifact of bad inputs,
-    // not a real pricing problem.
-    if (context._quantitiesUnverified) {
-      console.log('[SmartBrains] ⏭  Cost-Per-SF Benchmark SKIPPED — quantities unverified');
-    } else if (_pricer && context._buildingProfile) {
-      const bp = context._buildingProfile;
-      const totalSF = bp.total_gross_sf || 0;
-      const grandTotal = _pricer.grand_total || 0;
-
-      if (totalSF > 0 && grandTotal > 0) {
-        const costPerSF = grandTotal / totalSF;
-
-        // Industry benchmarks ($/SF for ELV/low-voltage scope, material only)
-        const benchmarks = {
-          'healthcare':  { low: 8, mid: 14, high: 22, label: 'Healthcare/Medical' },
-          'office':      { low: 5, mid: 9, high: 15, label: 'Commercial Office' },
-          'education':   { low: 6, mid: 11, high: 18, label: 'Education/K-12' },
-          'government':  { low: 8, mid: 15, high: 24, label: 'Government/VA' },
-          'retail':      { low: 3, mid: 6, high: 10, label: 'Retail' },
-          'industrial':  { low: 2, mid: 5, high: 9, label: 'Industrial/Warehouse' },
-          'mixed_use':   { low: 5, mid: 10, high: 18, label: 'Mixed Use' },
-        };
-
-        const bType = (bp.building_type || 'office').toLowerCase();
-        const bench = benchmarks[bType] || benchmarks['office'];
-
-        let rating = 'normal';
-        let ratingEmoji = '✅';
-        if (costPerSF < bench.low * 0.7) { rating = 'suspiciously_low'; ratingEmoji = '🔴'; }
-        else if (costPerSF < bench.low) { rating = 'below_range'; ratingEmoji = '🟡'; }
-        else if (costPerSF > bench.high * 1.3) { rating = 'suspiciously_high'; ratingEmoji = '🔴'; }
-        else if (costPerSF > bench.high) { rating = 'above_range'; ratingEmoji = '🟡'; }
-        else { rating = 'within_range'; ratingEmoji = '✅'; }
-
-        const costPerSFData = {
-          building_type: bench.label,
-          total_sf: totalSF,
-          grand_total: grandTotal,
-          cost_per_sf: Math.round(costPerSF * 100) / 100,
-          benchmark_low: bench.low,
-          benchmark_mid: bench.mid,
-          benchmark_high: bench.high,
-          rating: rating,
-          percentile: Math.min(100, Math.max(0, Math.round(((costPerSF - bench.low) / (bench.high - bench.low)) * 100))),
-          analysis: rating === 'suspiciously_low' ? 'Cost is significantly below industry range — likely missing scope items or using below-market pricing'
-                  : rating === 'below_range' ? 'Cost is below typical range — verify all scope items are included'
-                  : rating === 'above_range' ? 'Cost is above typical range — consider value engineering opportunities'
-                  : rating === 'suspiciously_high' ? 'Cost is significantly above industry range — check for quantity over-counts or inflated unit costs'
-                  : 'Cost is within typical industry range for this building type',
-        };
-
-        context._costPerSF = costPerSFData;
-        state._costPerSF = costPerSFData;
-        console.log(`[SmartBrains] ═══ COST-PER-SF BENCHMARK: $${costPerSF.toFixed(2)}/SF ${ratingEmoji} (${bench.label} range: $${bench.low}-$${bench.high}/SF) ═══`);
-      }
-    }
-
     // ═══ WAVE 2.25: Labor Calculator (runs AFTER Pricer to use priced quantities) ═══
     progressCallback(62, '👷 Wave 2.25: Labor Calculator — computing labor hours…', this._brainStatus);
     const wave225Results = await this._runWave(2.25, ['LABOR_CALCULATOR'], filteredEncodedFiles, state, context, progressCallback);
@@ -13297,33 +13213,8 @@ ${legendContext}
     context.wave3 = wave3Results;
     console.log('[SmartBrains] ═══ Wave 3 Complete ═══');
 
-    // ═══ WAVE 3.25: Spec Compliance Checker (reads specs + BOM, finds gaps) — NON-FATAL ═══
-    if ((encodedFiles.specs || []).length > 0) {
-      try {
-        progressCallback(78, '📜 Wave 3.25: Checking spec compliance — finding BOM gaps…', this._brainStatus);
-        const wave325Results = await this._runWave(3.25, ['SPEC_COMPLIANCE_CHECKER'], filteredEncodedFiles, state, context, progressCallback);
-        context.wave3_25 = wave325Results;
-        const specCheck = wave325Results.SPEC_COMPLIANCE_CHECKER;
-        if (specCheck && !specCheck._failed && !specCheck._parseFailed) {
-          context._specCompliance = specCheck;
-          state._specCompliance = specCheck;
-          const gaps = specCheck.gaps || [];
-          const critical = gaps.filter(g => g.severity === 'critical');
-          const warnings = gaps.filter(g => g.severity === 'warning');
-          console.log(`[SmartBrains] 📜 Spec Compliance: ${specCheck.compliance_score || 0}% — ${specCheck.spec_requirements_checked || 0} checked, ${gaps.length} gap(s) found (${critical.length} critical, ${warnings.length} warning)`);
-          for (const g of critical.slice(0, 5)) {
-            console.log(`[SmartBrains]   🔴 ${g.spec_section}: ${g.requirement} — est. $${(g.estimated_cost_if_missing || 0).toLocaleString()}`);
-          }
-          // Inject spec gaps into session memory for downstream brains
-          for (const g of critical.slice(0, 3)) {
-            context._brainInsights.push({ source: 'SPEC_COMPLIANCE_CHECKER', type: 'spec_gap', detail: `MISSING: ${g.requirement} (${g.spec_section}) — $${(g.estimated_cost_if_missing || 0).toLocaleString()}` });
-          }
-        }
-      } catch (e) {
-        console.warn('[SmartBrains] Wave 3.25 Spec Compliance failed (non-fatal):', e.message);
-        context.wave3_25 = {};
-      }
-    }
+    // Wave 3.25 Spec Compliance Checker — REMOVED
+    context.wave3_25 = {};
 
     // ═══ WAVE 3.5: Deep Accuracy Pass (3 parallel brains, Pro) ═══
     try {
@@ -13764,10 +13655,7 @@ ${legendContext}
       rfpCriteria: context._rfpCriteria || null,
       clarificationQuestions: context._clarificationQuestions || [],
       sessionInsights: context._brainInsights || [],
-      buildingProfile: context._buildingProfile || null,
-      specCompliance: context._specCompliance || null,
       quantityAnomalies: context._quantityAnomalies || null,
-      costPerSF: context._costPerSF || null,
       confidenceScoring: context._confidenceScoring || null,
       quantitiesUnverified: context._quantitiesUnverified || false,
       quantitiesUnverifiedReason: context._quantitiesUnverifiedReason || '',

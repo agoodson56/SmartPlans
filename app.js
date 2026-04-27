@@ -6161,41 +6161,31 @@ function buildBidStrategyCard(st) {
   if (!bom || !bom.categories || bom.categories.length === 0) return '';
   const bs = st.bidStrategy;
   const fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const confColors = { high: '#10b981', medium: '#f59e0b', low: '#ef4444' };
-  const confBgColors = { high: 'rgba(16,185,129,0.08)', medium: 'rgba(245,158,11,0.08)', low: 'rgba(239,68,68,0.08)' };
-  const confBorderColors = { high: 'rgba(16,185,129,0.3)', medium: 'rgba(245,158,11,0.3)', low: 'rgba(239,68,68,0.3)' };
   const isLaborCat = (name) => /\blabor\b|\binstall(ation)?\b|rough[\s-]?in|trim[\s-]?out|\bcommission(ing)?\b|\bprogram(ming)?\s+(labor|service|hours)\b|\btest(ing)?\s*[&,]\s*commission|\bmobiliz/i.test(name);
+  const FLAT_CONTINGENCY_PCT = 10;
   let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
   let catRows = '';
   bom.categories.forEach((cat, ci) => {
     const catName = cat.name;
     const isLabor = isLaborCat(catName);
-    const cm = bs.categoryMarkups[catName] || { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup, confidence: 'medium' };
+    const cm = bs.categoryMarkups[catName] || { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup };
     const materialCost = isLabor ? 0 : cat.subtotal;
     const laborCost = isLabor ? cat.subtotal : 0;
-    const matPct = cm.materialMarkup, labPct = cm.laborMarkup, conf = cm.confidence;
-    const contPct = bs.contingencyByConfidence[conf] || 10;
+    const matPct = cm.materialMarkup, labPct = cm.laborMarkup;
     const matMarked = materialCost * (1 + matPct / 100);
     const labMarked = laborCost * (1 + labPct / 100);
     const subMarked = matMarked + labMarked;
-    const contAmt = subMarked * (contPct / 100);
+    const contAmt = subMarked * (FLAT_CONTINGENCY_PCT / 100);
     const finalPrice = subMarked + contAmt;
     totalMaterial += materialCost; totalLabor += laborCost;
     totalMarkup += (matMarked - materialCost) + (labMarked - laborCost);
     totalContingency += contAmt;
-    const cc = confColors[conf], cbg = confBgColors[conf], cbr = confBorderColors[conf];
     catRows += `<tr class="bid-strategy-row" data-bs-cat="${esc(catName)}" data-bs-idx="${ci}" style="border-bottom:1px solid var(--border-subtle);">
       <td style="padding:10px 12px;font-size:12px;font-weight:600;color:var(--text-primary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(catName)}">${esc(catName)}</td>
       <td style="padding:10px 8px;font-size:12px;color:var(--text-secondary);text-align:right;">${fmtD(materialCost)}</td>
       <td style="padding:10px 4px;text-align:center;"><input type="number" class="bid-strategy-input bs-mat-markup" data-bs-cat="${esc(catName)}" value="${matPct}" min="0" max="200" step="1" style="width:58px;padding:4px 6px;border-radius:0;border:1px solid var(--border-medium);background:var(--bg-surface-2);color:var(--text-primary);font-size:12px;text-align:center;outline:none;" ${isLabor ? 'disabled' : ''} /><span style="font-size:10px;color:var(--text-muted);">%</span></td>
       <td style="padding:10px 8px;font-size:12px;color:var(--text-secondary);text-align:right;">${fmtD(laborCost)}</td>
       <td style="padding:10px 4px;text-align:center;"><input type="number" class="bid-strategy-input bs-lab-markup" data-bs-cat="${esc(catName)}" value="${labPct}" min="0" max="200" step="1" style="width:58px;padding:4px 6px;border-radius:0;border:1px solid var(--border-medium);background:var(--bg-surface-2);color:var(--text-primary);font-size:12px;text-align:center;outline:none;" ${!isLabor ? 'disabled' : ''} /><span style="font-size:10px;color:var(--text-muted);">%</span></td>
-      <td style="padding:10px 4px;text-align:center;"><select class="bid-strategy-input bs-confidence" data-bs-cat="${esc(catName)}" style="padding:4px 6px;border-radius:0;border:1px solid ${cbr};background:${cbg};color:${cc};font-size:11px;font-weight:700;cursor:pointer;outline:none;text-transform:uppercase;">
-        <option value="high" ${conf === 'high' ? 'selected' : ''} style="color:#10b981;">High</option>
-        <option value="medium" ${conf === 'medium' ? 'selected' : ''} style="color:#f59e0b;">Medium</option>
-        <option value="low" ${conf === 'low' ? 'selected' : ''} style="color:#ef4444;">Low</option>
-      </select></td>
-      <td style="padding:10px 8px;font-size:11px;text-align:center;color:${cc};font-weight:700;">${contPct}%</td>
       <td style="padding:10px 12px;font-size:12px;font-weight:700;color:var(--accent-teal);text-align:right;">${fmtD(finalPrice)}</td>
     </tr>`;
   });
@@ -6208,11 +6198,11 @@ function buildBidStrategyCard(st) {
         <span id="bid-strategy-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">&#9654;</span>
       </div>
       <div id="bid-strategy-collapsible" style="display:none;margin-top:12px;">
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;padding-left:8px;line-height:1.6;">Adjust markup percentages and confidence levels for each BOM category. Higher markup on uncertain items, lower on well-known items. Contingency is auto-calculated from confidence level.</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;padding-left:8px;line-height:1.6;">Adjust markup percentages for each BOM category. A flat 10% contingency is included in every Final Price.</div>
         <div style="overflow-x:auto;border:1px solid var(--border-subtle);">
           <table style="width:100%;border-collapse:collapse;font-size:12px;" id="bid-strategy-table">
             <thead><tr style="background:var(--bg-surface-2);">
-              <th class="bs-th">Category</th><th class="bs-th" style="text-align:right;">Material Cost</th><th class="bs-th" style="text-align:center;">Mat Markup</th><th class="bs-th" style="text-align:right;">Labor Cost</th><th class="bs-th" style="text-align:center;">Lab Markup</th><th class="bs-th" style="text-align:center;">Confidence</th><th class="bs-th" style="text-align:center;">Conting.</th><th class="bs-th" style="text-align:right;">Final Price</th>
+              <th class="bs-th">Category</th><th class="bs-th" style="text-align:right;">Material Cost</th><th class="bs-th" style="text-align:center;">Mat Markup</th><th class="bs-th" style="text-align:right;">Labor Cost</th><th class="bs-th" style="text-align:center;">Lab Markup</th><th class="bs-th" style="text-align:right;">Final Price</th>
             </tr></thead>
             <tbody>${catRows}</tbody>
           </table>
@@ -6252,22 +6242,9 @@ function bindBidStrategyEvents(container) {
       if (!input.classList.contains('bid-strategy-input')) return;
       const catName = input.dataset.bsCat; if (!catName) return;
       const bs = state.bidStrategy;
-      if (!bs.categoryMarkups[catName]) bs.categoryMarkups[catName] = { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup, confidence: 'medium' };
+      if (!bs.categoryMarkups[catName]) bs.categoryMarkups[catName] = { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup };
       if (input.classList.contains('bs-mat-markup')) bs.categoryMarkups[catName].materialMarkup = parseFloat(input.value) || 0;
       else if (input.classList.contains('bs-lab-markup')) bs.categoryMarkups[catName].laborMarkup = parseFloat(input.value) || 0;
-      recalcBidStrategySummary();
-    });
-    bsTable.addEventListener('change', (e) => {
-      const sel = e.target;
-      if (!sel.classList.contains('bs-confidence')) return;
-      const catName = sel.dataset.bsCat; if (!catName) return;
-      const bs = state.bidStrategy;
-      if (!bs.categoryMarkups[catName]) bs.categoryMarkups[catName] = { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup, confidence: 'medium' };
-      bs.categoryMarkups[catName].confidence = sel.value;
-      const cCols = { high: '#10b981', medium: '#f59e0b', low: '#ef4444' };
-      const cBgs = { high: 'rgba(16,185,129,0.08)', medium: 'rgba(245,158,11,0.08)', low: 'rgba(239,68,68,0.08)' };
-      const cBrs = { high: 'rgba(16,185,129,0.3)', medium: 'rgba(245,158,11,0.3)', low: 'rgba(239,68,68,0.3)' };
-      sel.style.color = cCols[sel.value]; sel.style.background = cBgs[sel.value]; sel.style.borderColor = cBrs[sel.value];
       recalcBidStrategySummary();
     });
   }
@@ -6299,26 +6276,24 @@ function recalcBidStrategySummary() {
   const bs = state.bidStrategy;
   const isLaborCat = (name) => /\blabor\b|\binstall(ation)?\b|rough[\s-]?in|trim[\s-]?out|\bcommission(ing)?\b|\bprogram(ming)?\s+(labor|service|hours)\b|\btest(ing)?\s*[&,]\s*commission|\bmobiliz/i.test(name);
   const fmtD = (v) => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const FLAT_CONTINGENCY_PCT = 10;
   let totalMaterial = 0, totalLabor = 0, totalMarkup = 0, totalContingency = 0;
   document.querySelectorAll('.bid-strategy-row').forEach(row => {
     const catName = row.dataset.bsCat, ci = parseInt(row.dataset.bsIdx, 10);
     const cat = bom.categories[ci]; if (!cat) return;
     const isLabor = isLaborCat(catName);
-    const cm = bs.categoryMarkups[catName] || { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup, confidence: 'medium' };
+    const cm = bs.categoryMarkups[catName] || { materialMarkup: bs.defaultMaterialMarkup, laborMarkup: bs.defaultLaborMarkup };
     const materialCost = isLabor ? 0 : cat.subtotal, laborCost = isLabor ? cat.subtotal : 0;
-    const contPct = bs.contingencyByConfidence[cm.confidence] || 10;
     const matMarked = materialCost * (1 + cm.materialMarkup / 100);
     const labMarked = laborCost * (1 + cm.laborMarkup / 100);
     const subMarked = matMarked + labMarked;
-    const contAmt = subMarked * (contPct / 100);
+    const contAmt = subMarked * (FLAT_CONTINGENCY_PCT / 100);
     const finalPrice = subMarked + contAmt;
     totalMaterial += materialCost; totalLabor += laborCost;
     totalMarkup += (matMarked - materialCost) + (labMarked - laborCost);
     totalContingency += contAmt;
     const cells = row.querySelectorAll('td');
-    const cCols = { high: '#10b981', medium: '#f59e0b', low: '#ef4444' };
-    if (cells[6]) { cells[6].textContent = contPct + '%'; cells[6].style.color = cCols[cm.confidence]; }
-    if (cells[7]) cells[7].textContent = fmtD(finalPrice);
+    if (cells[5]) cells[5].textContent = fmtD(finalPrice);
   });
   const grandTotal = totalMaterial + totalLabor + totalMarkup + totalContingency;
   const vals = { 'bs-total-material': fmtD(totalMaterial), 'bs-total-labor': fmtD(totalLabor), 'bs-total-markup': fmtD(totalMarkup), 'bs-total-contingency': fmtD(totalContingency), 'bs-grand-total': fmtD(grandTotal) };
@@ -9986,13 +9961,7 @@ function renderStep7(container) {
 
     ${buildMathAuditorCard(state)}
 
-    ${buildBuildingProfileCard(state)}
-
-    ${buildCostPerSFCard(state)}
-
     ${buildQuantityAnomalyCard(state)}
-
-    ${buildSpecComplianceCard(state)}
 
     ${buildConfidenceScoringCard(state)}
 
@@ -10003,8 +9972,6 @@ function renderStep7(container) {
     ${buildBidStrategyCard(state)}
 
     ${buildCablePathwayCard(state)}
-
-    ${buildBidPhasesCard(state)}
 
     ${buildChangeOrderCard(state)}
 
@@ -10042,22 +10009,6 @@ function renderStep7(container) {
     </div>
 
     ${exportPanel}
-
-    ${state.estimateId ? `
-    <div style="border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;"></div>
-    <div class="info-card" style="margin-bottom:22px;border:1px solid rgba(129,140,248,0.15);background:rgba(129,140,248,0.03);">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-left:8px;">
-        <div class="info-card-title" style="margin-bottom:0;color:var(--accent-indigo);">🕐 Version History</div>
-        <button id="btn-load-revisions" style="display:flex;align-items:center;gap:4px;padding:7px 12px;border-radius:8px;border:1px solid rgba(129,140,248,0.35);background:rgba(129,140,248,0.06);color:var(--accent-indigo);cursor:pointer;font-size:12px;font-weight:600;">
-          View Revisions
-        </button>
-      </div>
-      <div class="info-card-body" style="font-size:13px;color:var(--text-muted);line-height:1.6;">
-        Previous versions are automatically saved when you re-run an analysis. Click "View Revisions" to compare or restore.
-      </div>
-      <div id="revision-inline-list" style="margin-top:12px;"></div>
-    </div>
-    ` : ''}
 
     <div class="info-card info-card--sky">
       <div class="info-card-title">What to Do Next</div>
@@ -10399,7 +10350,6 @@ function renderStep7(container) {
 
   bindBidStrategyEvents(container);
   bindCablePathwayEvents(container);
-  bindBidPhasesEvents(container);
   bindChangeOrderEvents(container);
   bindSymbolInventoryEvents(container);
 
@@ -10452,24 +10402,10 @@ function renderStep7(container) {
     } catch (e) { /* parse fail — non-fatal */ }
   }
 
-  // ── Building Profile toggle ──
-  const bpToggle = document.getElementById('building-profile-toggle');
-  if (bpToggle) bpToggle.addEventListener('click', () => {
-    state._buildingProfileOpen = !state._buildingProfileOpen;
-    render();
-  });
-
   // ── Quantity Anomaly toggle ──
   const anomToggle = document.getElementById('anomaly-toggle');
   if (anomToggle) anomToggle.addEventListener('click', () => {
     state._anomaliesOpen = !state._anomaliesOpen;
-    render();
-  });
-
-  // ── Spec Compliance toggle ──
-  const specToggle = document.getElementById('spec-compliance-toggle');
-  if (specToggle) specToggle.addEventListener('click', () => {
-    state._specComplianceOpen = !state._specComplianceOpen;
     render();
   });
 
@@ -11260,54 +11196,6 @@ function renderStep7(container) {
   if (rfiPdfBtn) rfiPdfBtn.addEventListener('click', () => {
     exportRFIs('pdf');
   });
-
-  // Version History — load revisions inline in Step 6
-  const revBtn = document.getElementById("btn-load-revisions");
-  if (revBtn) {
-    revBtn.addEventListener("click", async () => {
-      if (!state.estimateId) return;
-      revBtn.textContent = 'Loading...';
-      revBtn.disabled = true;
-
-      try {
-        const res = await fetchWithRetry(`/api/estimates/${state.estimateId}/revisions`, { headers: { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken }, _timeout: 10000 }, 3);
-        const data = await res.json();
-        const revisions = data.revisions || [];
-        const inlineList = document.getElementById('revision-inline-list');
-        if (!inlineList) return;
-
-        if (revisions.length === 0) {
-          inlineList.innerHTML = `<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:13px;">No previous versions found. Revisions are created automatically when you re-analyze.</div>`;
-        } else {
-          inlineList.innerHTML = revisions.map(rev => {
-            const dateStr = rev.created_at ? new Date(rev.created_at.endsWith('Z') ? rev.created_at : rev.created_at + 'Z').toLocaleDateString('en-US', {
-              month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
-            }) : '';
-            const costStr = rev.contract_value ? '$' + Number(rev.contract_value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '';
-            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid rgba(129,140,248,0.1);border-radius:8px;margin-bottom:6px;background:rgba(129,140,248,0.02);">
-              <div>
-                <span style="font-weight:600;font-size:13px;color:var(--text-primary);">Rev #${rev.revision_number}</span>
-                <span style="font-size:12px;color:var(--text-muted);margin-left:8px;">${dateStr}</span>
-                ${costStr ? '<span style="font-size:12px;color:var(--accent-indigo);margin-left:8px;font-weight:600;">' + costStr + '</span>' : ''}
-              </div>
-              <div style="display:flex;gap:6px;">
-                <button data-action="inline-compare" data-est-id="${esc(state.estimateId)}" data-rev-id="${esc(rev.id)}" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(56,189,248,0.25);background:rgba(56,189,248,0.06);color:var(--accent-sky);cursor:pointer;font-size:11px;font-weight:600;">Compare</button>
-                <button data-action="inline-restore" data-est-id="${esc(state.estimateId)}" data-rev-id="${esc(rev.id)}" data-rev-num="${rev.revision_number}" style="padding:5px 10px;border-radius:6px;border:1px solid rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);color:#10b981;cursor:pointer;font-size:11px;font-weight:600;">Restore</button>
-              </div>
-            </div>`;
-          }).join('');
-        }
-
-        revBtn.textContent = 'Refresh';
-        revBtn.disabled = false;
-      } catch (err) {
-        console.error('[SmartPlans] Failed to load revisions:', err);
-        revBtn.textContent = 'View Revisions';
-        revBtn.disabled = false;
-        console.error('[SmartPlans]', err); spToast('Failed to load revisions. Please try again.', 'error');
-      }
-    });
-  }
 
 }
 
@@ -13552,10 +13440,7 @@ async function runGeminiAnalysis(updateProgress) {
     state._proposalNarrative = result.proposalNarrative || null;
     state._mathAuditLog = result.stats?.mathAuditLog || [];
     state._mathAuditFixes = result.stats?.mathAuditFixes || 0;
-    state._buildingProfile = result.buildingProfile || null;
-    state._specCompliance = result.specCompliance || null;
     state._quantityAnomalies = result.quantityAnomalies || null;
-    state._costPerSF = result.costPerSF || null;
     state._confidenceScoring = result.confidenceScoring || null;
     state._quantitiesUnverified = result.quantitiesUnverified || false;
     state._quantitiesUnverifiedReason = result.quantitiesUnverifiedReason || '';
@@ -14665,10 +14550,7 @@ function _restoreStateFromPayload(id, pkg, est) {
 
   // ── Restore Proposal Narrative (Wave 4.1 persuasive draft) ──
   if (pkg?.proposalNarrative) state._proposalNarrative = pkg.proposalNarrative;
-  if (pkg?.buildingProfile) state._buildingProfile = pkg.buildingProfile;
-  if (pkg?.specCompliance) state._specCompliance = pkg.specCompliance;
   if (pkg?.quantityAnomalies) state._quantityAnomalies = pkg.quantityAnomalies;
-  if (pkg?.costPerSF) state._costPerSF = pkg.costPerSF;
   if (pkg?.confidenceScoring) state._confidenceScoring = pkg.confidenceScoring;
   if (pkg?.checklistChecked) state._checklistChecked = pkg.checklistChecked;
 
@@ -15221,7 +15103,6 @@ async function showSavedEstimates() {
       </div>
       <div class="est-card-actions">
         <button class="est-card-btn est-card-btn--load" data-action="load" data-est-id="${esc(est.id)}">📂 Load</button>
-        <button class="est-card-btn" data-action="history" data-est-id="${esc(est.id)}" data-est-name="${esc(est.project_name || '')}" style="border-color:rgba(129,140,248,0.25);color:var(--accent-indigo);">🕐 History</button>
         ${est.status === 'analyzed' || est.status === 'exported' ? `<button class="est-card-btn" data-action="actuals" data-est-id="${esc(est.id)}" data-est-name="${esc(est.project_name || '')}" style="border-color:rgba(5,150,105,0.25);color:#059669;">📊 Actuals</button>` : ''}
         <button class="est-card-btn est-card-btn--delete" data-action="delete" data-est-id="${esc(est.id)}" data-est-name="${esc(est.project_name || '')}">🗑 Delete</button>
       </div>
@@ -15270,7 +15151,6 @@ async function showSavedEstimates() {
     const estId = btn.getAttribute('data-est-id');
     const estName = btn.getAttribute('data-est-name') || '';
     if (action === 'load') loadEstimate(estId);
-    else if (action === 'history') showRevisionHistory(estId, estName);
     else if (action === 'actuals') showActualsPanel(estId, estName);
     else if (action === 'delete') deleteEstimate(estId, estName);
   });
@@ -15282,9 +15162,10 @@ async function showSavedEstimates() {
 
 
 // ═══════════════════════════════════════════════════════════════
-// REVISION HISTORY — Compare & revert previous estimate versions
+// REVISION HISTORY — REMOVED (Version History feature deleted)
 // ═══════════════════════════════════════════════════════════════
 
+/* removed-block-start
 async function showRevisionHistory(estimateId, projectName) {
   closeSavedPanel();
 
@@ -15572,6 +15453,7 @@ async function deleteRevision(estimateId, revId, projectName) {
     console.error('[SmartPlans]', err); spToast('Failed to delete revision. Please try again.', 'error');
   }
 }
+removed-block-end */
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -17838,10 +17720,10 @@ function buildEstimatorChecklistCard(st) {
             <li>Upload the <strong>actual floor plan sheets</strong> (E-1.x, T-1.x, FA-1.x, etc.) — not just the legend/cover sheet.</li>
             <li>Verify your selected disciplines match the sheets you uploaded.</li>
             <li>Resolve any ambiguous symbol dialogs that appear during the re-run.</li>
-            <li>Re-run the AI analysis. Pricing, labor, $/SF, and confidence grades will then be based on real counts.</li>
+            <li>Re-run the AI analysis. Pricing, labor, and confidence grades will then be based on real counts.</li>
           </ol>
           <div style="padding:10px 12px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:6px;font-size:12px;color:rgba(0,0,0,0.70);">
-            <strong>Why the other findings are hidden:</strong> the quantity anomaly, cost-per-SF, confidence, and room-walkthrough checks all depend on verified device counts. Running them on guessed data produces false alarms that bury the real issue (this one). They'll re-appear after a clean re-run.
+            <strong>Why the other findings are hidden:</strong> the quantity anomaly, confidence, and room-walkthrough checks all depend on verified device counts. Running them on guessed data produces false alarms that bury the real issue (this one). They'll re-appear after a clean re-run.
           </div>
         </div>
       </div>
@@ -17932,21 +17814,6 @@ function buildEstimatorChecklistCard(st) {
         why: 'Cross-validator found a discrepancy between brain outputs',
       });
     }
-  }
-
-  // ── Source 6: Cost-per-SF out of range ──
-  const cpf = st._costPerSF;
-  if (cpf && (cpf.rating === 'suspiciously_low' || cpf.rating === 'suspiciously_high' || cpf.rating === 'below_range' || cpf.rating === 'above_range')) {
-    actions.push({
-      id: 'cost-sf-range',
-      priority: cpf.rating.includes('suspiciously') ? 1 : 2,
-      icon: cpf.rating.includes('suspiciously') ? '🔴' : '🟡',
-      category: '$/SF Check',
-      catColor: '#14b8a6',
-      text: `Bid is $${cpf.cost_per_sf.toFixed(2)}/SF — ${cpf.rating.replace(/_/g, ' ')} for ${cpf.building_type}`,
-      detail: `Industry range: $${cpf.benchmark_low}-$${cpf.benchmark_high}/SF`,
-      why: cpf.analysis,
-    });
   }
 
   // ── Source 7: Clarification questions that weren't answered ──
@@ -18146,11 +18013,6 @@ function _printChecklist(mode) {
       actions.push({ id: `xval-${(issue.category || '').substring(0, 15)}`, priority: issue.severity === 'critical' ? 1 : 2, icon: '⚠️', category: 'Verification', text: `${issue.category || 'Issue'}: ${issue.description || ''}`, detail: issue.correction ? `Fix: ${issue.correction}` : '', why: 'Cross-validator discrepancy' });
     }
   }
-  // Cost/SF
-  const cpf = state._costPerSF;
-  if (cpf && (cpf.rating === 'suspiciously_low' || cpf.rating === 'suspiciously_high' || cpf.rating === 'below_range' || cpf.rating === 'above_range')) {
-    actions.push({ id: 'cost-sf-range', priority: cpf.rating.includes('suspiciously') ? 1 : 2, icon: '📊', category: '$/SF Check', text: `$${cpf.cost_per_sf.toFixed(2)}/SF — ${cpf.rating.replace(/_/g, ' ')}`, detail: `Range: $${cpf.benchmark_low}-$${cpf.benchmark_high}/SF`, why: cpf.analysis });
-  }
   // Clarifications
   for (const q of (state._clarificationQuestions || []).filter(q => !state._clarificationAnswers?.[q.id] && (q.severity === 'high' || q.severity === 'critical')).slice(0, 5)) {
     actions.push({ id: `clarify-${q.id}`, priority: 2, icon: '❓', category: 'Ambiguity', text: q.question || 'Unresolved ambiguity', detail: '', why: 'Unresolved ambiguity needs human judgment' });
@@ -18248,116 +18110,6 @@ function _printChecklist(mode) {
   openPrintAsPDF(html);
 }
 
-// ═══ BUILDING PROFILE CARD — Shows inferred building characteristics ═══
-function buildBuildingProfileCard(st) {
-  const bp = st._buildingProfile;
-  if (!bp) return '';
-  const isOpen = st._buildingProfileOpen || false;
-  const floors = bp.floors || [];
-  const sp = bp.special_spaces || {};
-  const pk = bp.parking || {};
-
-  return `
-    <div class="info-card" id="building-profile-card" style="border-left:3px solid #8b5cf6;background:linear-gradient(135deg,rgba(139,92,246,0.04),rgba(99,102,241,0.02));">
-      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="building-profile-toggle">
-        <h3 class="info-card-title" style="margin:0;">🏛️ BUILDING PROFILE</h3>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(139,92,246,0.15);color:#8b5cf6;font-weight:600;">${esc(bp.building_type || 'unknown')}</span>
-          <span style="font-size:11px;color:var(--text-secondary);">${(bp.total_gross_sf || 0).toLocaleString()} SF</span>
-          <span style="transform:rotate(${isOpen ? '180' : '0'}deg);transition:transform 0.2s;">▼</span>
-        </div>
-      </div>
-      ${isOpen ? `
-        <div style="margin-top:16px;">
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;">
-            <div style="padding:10px;background:rgba(139,92,246,0.06);border-radius:8px;text-align:center;">
-              <div style="font-size:20px;font-weight:800;color:#8b5cf6;">${(bp.total_gross_sf || 0).toLocaleString()}</div>
-              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);">Total SF</div>
-            </div>
-            <div style="padding:10px;background:rgba(99,102,241,0.06);border-radius:8px;text-align:center;">
-              <div style="font-size:20px;font-weight:800;color:#6366f1;">${bp.num_floors || '?'}</div>
-              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);">Floors</div>
-            </div>
-            <div style="padding:10px;background:rgba(14,165,233,0.06);border-radius:8px;text-align:center;">
-              <div style="font-size:20px;font-weight:800;color:#0ea5e9;">${bp.total_rooms || '?'}</div>
-              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);">Rooms</div>
-            </div>
-            <div style="padding:10px;background:rgba(20,184,166,0.06);border-radius:8px;text-align:center;">
-              <div style="font-size:20px;font-weight:800;color:#14b8a6;">${bp.total_doors || '?'}</div>
-              <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);">Doors</div>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:12px;">
-            <div style="color:var(--text-secondary);">Ceiling: <span style="color:var(--text-primary);font-weight:600;">${esc(bp.ceiling_type || 'unknown')}</span></div>
-            <div style="color:var(--text-secondary);">Corridors: <span style="color:var(--text-primary);font-weight:600;">${(bp.corridor_total_lf || 0).toLocaleString()} LF</span></div>
-            <div style="color:var(--text-secondary);">Elevators: <span style="color:var(--text-primary);font-weight:600;">${bp.elevators || 0}</span></div>
-            <div style="color:var(--text-secondary);">Stairwells: <span style="color:var(--text-primary);font-weight:600;">${bp.stairwells || 0}</span></div>
-            <div style="color:var(--text-secondary);">MDF/IDF: <span style="color:var(--text-primary);font-weight:600;">${sp.mdf_idf_rooms || 0}</span></div>
-            <div style="color:var(--text-secondary);">Parking: <span style="color:var(--text-primary);font-weight:600;">${pk.type || 'none'} (${pk.stalls || 0} stalls)</span></div>
-          </div>
-          ${floors.length > 0 ? `
-            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:6px;font-weight:600;">Floor Breakdown</div>
-            <table style="width:100%;font-size:12px;border-collapse:collapse;">
-              <thead><tr style="border-bottom:1px solid rgba(0,0,0,0.1);">
-                <th style="text-align:left;padding:6px;color:var(--text-secondary);font-size:11px;">Floor</th>
-                <th style="text-align:right;padding:6px;color:var(--text-secondary);font-size:11px;">SF</th>
-                <th style="text-align:right;padding:6px;color:var(--text-secondary);font-size:11px;">Rooms</th>
-              </tr></thead>
-              <tbody>
-                ${floors.map(f => `<tr style="border-bottom:1px solid rgba(0,0,0,0.04);">
-                  <td style="padding:6px;color:var(--text-primary);">${esc(f.name || '?')}</td>
-                  <td style="padding:6px;text-align:right;color:var(--text-primary);">${(f.sf || 0).toLocaleString()}</td>
-                  <td style="padding:6px;text-align:right;color:var(--text-primary);">${f.rooms || 0}</td>
-                </tr>`).join('')}
-              </tbody>
-            </table>
-          ` : ''}
-        </div>
-      ` : ''}
-    </div>`;
-}
-
-// ═══ COST-PER-SF BENCHMARK CARD — Industry $/SF comparison ═══
-function buildCostPerSFCard(st) {
-  if (st._quantitiesUnverified) return ''; // Suppressed — see blocking root-cause card
-  const data = st._costPerSF;
-  if (!data) return '';
-
-  const ratingColors = { within_range: '#22c55e', below_range: '#f59e0b', above_range: '#f59e0b', suspiciously_low: '#ef4444', suspiciously_high: '#ef4444' };
-  const ratingLabels = { within_range: 'WITHIN RANGE', below_range: 'BELOW RANGE', above_range: 'ABOVE RANGE', suspiciously_low: 'SUSPICIOUSLY LOW', suspiciously_high: 'SUSPICIOUSLY HIGH' };
-  const color = ratingColors[data.rating] || '#6366f1';
-  const label = ratingLabels[data.rating] || data.rating;
-
-  // Calculate gauge position (0-100)
-  const gaugePos = Math.min(100, Math.max(0, data.percentile));
-
-  return `
-    <div class="info-card" id="cost-per-sf-card" style="border-left:3px solid ${color};">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <h3 class="info-card-title" style="margin:0;">📊 COST-PER-SF BENCHMARK</h3>
-        <span style="font-size:11px;padding:3px 10px;border-radius:8px;background:${color}22;color:${color};font-weight:700;">${label}</span>
-      </div>
-      <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px;">
-        <span style="font-size:28px;font-weight:900;color:${color};">$${data.cost_per_sf.toFixed(2)}</span>
-        <span style="font-size:13px;color:var(--text-secondary);">/SF</span>
-      </div>
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
-        ${esc(data.building_type)} | ${(data.total_sf).toLocaleString()} SF | BOM Total: $${(data.grand_total).toLocaleString()}
-      </div>
-      <div style="position:relative;height:24px;background:linear-gradient(90deg,#ef4444 0%,#f59e0b 20%,#22c55e 35%,#22c55e 65%,#f59e0b 80%,#ef4444 100%);border-radius:12px;margin-bottom:6px;overflow:visible;">
-        <div style="position:absolute;left:${gaugePos}%;top:-2px;transform:translateX(-50%);width:4px;height:28px;background:#1e1e2e;border-radius:2px;box-shadow:0 0 6px rgba(0,0,0,0.3);"></div>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);">
-        <span>$${data.benchmark_low}/SF</span>
-        <span>$${data.benchmark_mid}/SF (mid)</span>
-        <span>$${data.benchmark_high}/SF</span>
-      </div>
-      <div style="margin-top:10px;padding:8px 12px;background:rgba(0,0,0,0.03);border-radius:8px;font-size:12px;color:var(--text-secondary);font-style:italic;">
-        ${esc(data.analysis)}
-      </div>
-    </div>`;
-}
-
 // ═══ QUANTITY ANOMALY CARD — Statistical outlier detection ═══
 function buildQuantityAnomalyCard(st) {
   if (st._quantitiesUnverified) return ''; // Suppressed — see blocking root-cause card
@@ -18392,76 +18144,6 @@ function buildQuantityAnomalyCard(st) {
               </div>
             </div>
           `).join('')}
-        </div>
-      ` : ''}
-    </div>`;
-}
-
-// ═══ SPEC COMPLIANCE CARD — Shows spec vs BOM gap analysis ═══
-function buildSpecComplianceCard(st) {
-  const sc = st._specCompliance;
-  if (!sc) return '';
-  const isOpen = st._specComplianceOpen || false;
-  const gaps = sc.gaps || [];
-  const critical = gaps.filter(g => g.severity === 'critical');
-  const warnings = gaps.filter(g => g.severity === 'warning');
-  const met = gaps.filter(g => g.status === 'met');
-  const missing = gaps.filter(g => g.status === 'missing');
-  const scoreColor = (sc.compliance_score || 0) >= 80 ? '#22c55e' : (sc.compliance_score || 0) >= 60 ? '#f59e0b' : '#ef4444';
-  const totalMissingCost = missing.reduce((s, g) => s + (g.estimated_cost_if_missing || 0), 0);
-
-  return `
-    <div class="info-card" id="spec-compliance-card" style="border-left:3px solid #14b8a6;background:linear-gradient(135deg,rgba(20,184,166,0.04),rgba(99,102,241,0.02));">
-      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" id="spec-compliance-toggle">
-        <h3 class="info-card-title" style="margin:0;">📜 SPEC COMPLIANCE CHECKER</h3>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-size:11px;padding:3px 10px;border-radius:8px;background:${scoreColor}22;color:${scoreColor};font-weight:700;">${sc.compliance_score || 0}%</span>
-          ${critical.length > 0 ? `<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(239,68,68,0.12);color:#ef4444;font-weight:600;">${critical.length} critical</span>` : ''}
-          <span style="transform:rotate(${isOpen ? '180' : '0'}deg);transition:transform 0.2s;">▼</span>
-        </div>
-      </div>
-      ${isOpen ? `
-        <div style="margin-top:16px;">
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">
-            <div style="padding:8px;background:rgba(20,184,166,0.06);border-radius:8px;text-align:center;">
-              <div style="font-size:16px;font-weight:800;color:#14b8a6;">${sc.spec_requirements_checked || 0}</div>
-              <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;">Checked</div>
-            </div>
-            <div style="padding:8px;background:rgba(34,197,94,0.06);border-radius:8px;text-align:center;">
-              <div style="font-size:16px;font-weight:800;color:#22c55e;">${sc.requirements_met || 0}</div>
-              <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;">Met</div>
-            </div>
-            <div style="padding:8px;background:rgba(239,68,68,0.06);border-radius:8px;text-align:center;">
-              <div style="font-size:16px;font-weight:800;color:#ef4444;">${sc.requirements_missing || 0}</div>
-              <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;">Missing</div>
-            </div>
-            <div style="padding:8px;background:rgba(245,158,11,0.06);border-radius:8px;text-align:center;">
-              <div style="font-size:16px;font-weight:800;color:#f59e0b;">$${totalMissingCost.toLocaleString()}</div>
-              <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;">At Risk</div>
-            </div>
-          </div>
-          ${missing.length > 0 ? `
-            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#ef4444;margin-bottom:6px;font-weight:600;">Missing Requirements</div>
-            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:16px;">
-              ${missing.slice(0, 15).map(g => `
-                <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;background:rgba(239,68,68,0.04);border-radius:6px;border-left:2px solid ${g.severity === 'critical' ? '#ef4444' : '#f59e0b'};">
-                  <span style="font-size:12px;flex-shrink:0;">${g.severity === 'critical' ? '🔴' : '🟡'}</span>
-                  <div style="flex:1;min-width:0;">
-                    <div style="font-size:12px;color:var(--text-primary);font-weight:500;">${esc(g.requirement || '')}</div>
-                    <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">Section ${esc(g.spec_section || '?')} | Est. $${(g.estimated_cost_if_missing || 0).toLocaleString()}</div>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          ` : ''}
-          ${(sc.testing_requirements || []).length > 0 ? `
-            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#0ea5e9;margin-bottom:6px;font-weight:600;">Testing Requirements</div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
-              ${(sc.testing_requirements || []).map(t => `
-                <span style="font-size:11px;padding:4px 8px;border-radius:6px;background:${t.in_bom ? 'rgba(34,197,94,0.1);color:#22c55e' : 'rgba(239,68,68,0.1);color:#ef4444'};">${esc(t.requirement?.substring(0, 40) || '?')} (${t.labor_hours_estimate || '?'}h) ${t.in_bom ? '✓' : '✗'}</span>
-              `).join('')}
-            </div>
-          ` : ''}
         </div>
       ` : ''}
     </div>`;
@@ -19546,8 +19228,9 @@ function bindChangeOrderEvents(container) {
 function getBidPhaseBOM() { if (!state.aiAnalysis) return { categories: [], grandTotal: 0 }; const bom = getFilteredBOM(state.aiAnalysis, state.disciplines); const overrides = state.supplierPriceOverrides || {}; for (const [key, ov] of Object.entries(overrides)) { const [ci, ii] = key.split('-').map(Number); if (bom.categories[ci] && bom.categories[ci].items[ii]) { const it = bom.categories[ci].items[ii]; if (ov.qty != null) it.qty = ov.qty; it.unitCost = ov.unitCost; it.extCost = Math.round(it.qty * ov.unitCost * 100) / 100; } } if (Object.keys(overrides).length > 0) { bom.grandTotal = 0; for (const cat of bom.categories) { cat.subtotal = cat.items.reduce((s, it) => s + it.extCost, 0); cat.subtotal = Math.round(cat.subtotal * 100) / 100; bom.grandTotal += cat.subtotal; } bom.grandTotal = Math.round(bom.grandTotal * 100) / 100; } return bom; }
 function getPhaseTotal(phase, bom) { if (phase.type === 'base') { const ae = new Set(); state.bidPhases.forEach(p => { if (p.id !== 'base') p.categoryIndices.forEach(ci => ae.add(ci)); }); let t = 0; bom.categories.forEach((cat, ci) => { if (!ae.has(ci)) t += cat.subtotal; }); return Math.round(t * 100) / 100; } let t = 0; phase.categoryIndices.forEach(ci => { if (bom.categories[ci]) t += bom.categories[ci].subtotal; }); return Math.round(t * 100) / 100; }
 function getBaseBidCategoryIndices(bom) { const ae = new Set(); state.bidPhases.forEach(p => { if (p.id !== 'base') p.categoryIndices.forEach(ci => ae.add(ci)); }); const idx = []; bom.categories.forEach((_, ci) => { if (!ae.has(ci)) idx.push(ci); }); return idx; }
-function buildBidPhasesCard(st) { if (!st.aiAnalysis) return ''; const bom = getBidPhaseBOM(); if (bom.categories.length === 0) return ''; const _fmt = (v) => { const abs = Math.abs(v); const str = '$' + abs.toLocaleString('en-US', {minimumFractionDigits:0,maximumFractionDigits:0}); return v < 0 ? '(' + str + ')' : str; }; const ptm = { base: {label:'Base Bid',bc:'bid-phase-badge--base'}, add: {label:'Add Alternate',bc:'bid-phase-badge--add'}, deduct: {label:'Deduct Alt',bc:'bid-phase-badge--deduct'}, optional: {label:'Optional',bc:'bid-phase-badge--optional'} }; let pr='',sr='',rt=0; st.bidPhases.forEach((phase, pi) => { const m = ptm[phase.type]||ptm.optional; const tot = getPhaseTotal(phase,bom); const dt = phase.type==='deduct' ? -Math.abs(tot) : tot; if (phase.includeInProposal) rt += dt; let ac = phase.type==='base' ? getBaseBidCategoryIndices(bom) : phase.categoryIndices; const cn = ac.map(ci => bom.categories[ci] ? esc(bom.categories[ci].name) : '').filter(Boolean); let cah=''; if (phase.type!=='base') { const avail=[]; bom.categories.forEach((cat,ci) => { const at = st.bidPhases.find(p => p.id!=='base' && p.id!==phase.id && p.categoryIndices.includes(ci)); if (!at) avail.push({ci,name:cat.name,chk:phase.categoryIndices.includes(ci)}); else if (phase.categoryIndices.includes(ci)) avail.push({ci,name:cat.name,chk:true}); }); cah = '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">' + avail.map(a => '<label class="bid-phase-cat-chip' + (a.chk?' bid-phase-cat-chip--active':'') + '" style="cursor:pointer;"><input type="checkbox" ' + (a.chk?'checked ':'') + 'style="display:none;" data-bid-phase-cat="' + phase.id + '" data-cat-idx="' + a.ci + '">' + esc(a.name) + '</label>').join('') + (avail.length===0?'<span style="font-size:11px;color:var(--text-muted);font-style:italic;">All categories assigned to other phases</span>':'') + '</div>'; } pr += '<div class="bid-phase-row" data-phase-idx="'+pi+'" style="padding:14px 16px;border:1px solid rgba(0,0,0,0.06);margin-bottom:8px;background:var(--bg-surface-2);"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;"><span class="bid-phase-badge '+m.bc+'">'+m.label+'</span>' + (phase.type==='base' ? '<span style="font-weight:600;font-size:13px;color:var(--text-primary);">'+esc(phase.name)+'</span>' : '<input type="text" class="bid-phase-name-input" data-phase-id="'+phase.id+'" value="'+esc(phase.name)+'" style="flex:1;padding:4px 8px;border:1px solid rgba(0,0,0,0.08);background:transparent;font-size:13px;font-weight:600;color:var(--text-primary);min-width:120px;outline:none;font-family:var(--font-sans);" />') + '</div><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:14px;font-weight:700;color:'+(phase.type==='deduct'?'#D97706':'var(--accent-teal)')+';">'+_fmt(dt)+'</span><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--text-muted);" title="Include in Proposal"><input type="checkbox" '+(phase.includeInProposal?'checked ':'')+' data-bid-phase-proposal="'+phase.id+'" style="accent-color:#0D9488;">Proposal</label>' + (phase.type!=='base' ? '<button data-bid-phase-remove="'+phase.id+'" title="Remove phase" style="background:none;border:1px solid rgba(225,29,72,0.2);color:#E11D48;cursor:pointer;font-size:12px;padding:2px 6px;line-height:1;">x</button>' : '') + '</div></div><div style="margin-top:6px;font-size:11px;color:var(--text-muted);">' + (cn.length>0 ? cn.join(', ') : '<em>No categories assigned</em>') + '</div>' + cah + '</div>'; sr += '<tr style="border-bottom:1px solid rgba(0,0,0,0.04);"><td style="padding:6px 10px;font-size:12px;color:var(--text-primary);">'+esc(phase.name)+'</td><td style="padding:6px 10px;font-size:11px;"><span class="bid-phase-badge '+m.bc+'" style="font-size:10px;padding:2px 6px;">'+m.label+'</span></td><td style="padding:6px 10px;font-size:12px;color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(cn.join(', ')||'—')+'</td><td style="padding:6px 10px;font-size:13px;font-weight:600;text-align:right;color:'+(phase.type==='deduct'?'#D97706':'var(--text-primary)')+';">'+_fmt(dt)+'</td><td style="padding:6px 10px;text-align:center;font-size:12px;">'+(phase.includeInProposal?'✓':'—')+'</td></tr>'; }); const st2 = '<div style="margin-top:16px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:rgba(13,148,136,0.06);"><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Phase</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Type</th><th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Categories</th><th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Amount</th><th style="padding:8px 10px;text-align:center;font-size:11px;color:var(--accent-teal);font-weight:700;border-bottom:2px solid rgba(13,148,136,0.15);">Proposal</th></tr></thead><tbody>'+sr+'<tr style="background:rgba(13,148,136,0.08);"><td colspan="3" style="padding:8px 10px;font-size:13px;font-weight:700;color:var(--text-primary);text-align:right;">Total if all accepted</td><td style="padding:8px 10px;font-size:14px;font-weight:700;color:var(--accent-teal);text-align:right;">'+_fmt(rt)+'</td><td></td></tr></tbody></table></div>'; return '<div style="border-top:1px solid rgba(0,0,0,0.06);margin:24px 0;"></div><div class="info-card" id="bid-phases-card" style="margin-bottom:22px;border:1px solid rgba(13,148,136,0.15);background:#FFFFFF;"><div style="display:flex;align-items:center;justify-content:space-between;padding-left:8px;cursor:pointer;" id="bid-phases-toggle"><div class="info-card-title" style="margin-bottom:0;"><i data-lucide="layers" style="width:16px;height:16px;"></i> Bid Phases &amp; Alternates</div><span id="bid-phases-toggle-icon" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s;padding:8px;">'+(st._bidPhasesOpen?'▼':'▶')+'</span></div><div id="bid-phases-collapsible" style="display:'+(st._bidPhasesOpen?'block':'none')+';margin-top:12px;"><div class="info-card-body" style="margin-bottom:12px;">Structure your bid with base and alternate pricing. Assign BOM categories to each phase — unassigned categories stay in the Base Bid.</div>'+pr+'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;"><button id="bid-phase-add-add" style="padding:6px 14px;border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.04);color:#059669;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Add Alternate</button><button id="bid-phase-add-deduct" style="padding:6px 14px;border:1px solid rgba(217,119,6,0.3);background:rgba(217,119,6,0.04);color:#D97706;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Deduct Alternate</button><button id="bid-phase-add-optional" style="padding:6px 14px;border:1px solid rgba(0,0,0,0.1);background:rgba(0,0,0,0.02);color:var(--text-muted);cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);">+ Optional Phase</button></div>'+st2+'</div></div>'; }
-function bindBidPhasesEvents(container) { const toggle = document.getElementById('bid-phases-toggle'); if (toggle) { toggle.addEventListener('click', () => { state._bidPhasesOpen = !state._bidPhasesOpen; const body = document.getElementById('bid-phases-collapsible'); const icon = document.getElementById('bid-phases-toggle-icon'); if (body) body.style.display = state._bidPhasesOpen ? 'block' : 'none'; if (icon) icon.textContent = state._bidPhasesOpen ? '▼' : '▶'; }); } const ah = {'bid-phase-add-add':'add','bid-phase-add-deduct':'deduct','bid-phase-add-optional':'optional'}; for (const [bi,ty] of Object.entries(ah)) { const btn = document.getElementById(bi); if (btn) btn.addEventListener('click', () => { state._bidPhaseCounter++; const n = state.bidPhases.filter(p=>p.type===ty).length+1; const lb = {add:`Add Alternate #${n}`,deduct:`Deduct Alternate #${n}`,optional:`Optional Phase #${n}`}; state.bidPhases.push({id:`phase-${Date.now()}-${state._bidPhaseCounter}`,name:lb[ty],type:ty,categoryIndices:[],includeInProposal:ty!=='optional'}); state._bidPhasesOpen=true; renderStep7(container); }); } document.querySelectorAll('[data-bid-phase-remove]').forEach(b => { b.addEventListener('click', e => { e.stopPropagation(); state.bidPhases = state.bidPhases.filter(p => p.id !== b.dataset.bidPhaseRemove); renderStep7(container); }); }); document.querySelectorAll('.bid-phase-name-input').forEach(inp => { inp.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === inp.dataset.phaseId); if (ph) ph.name = inp.value.trim() || ph.name; }); }); document.querySelectorAll('[data-bid-phase-proposal]').forEach(cb => { cb.addEventListener('change', () => { const ph = state.bidPhases.find(p => p.id === cb.dataset.bidPhaseProposal); if (ph) { ph.includeInProposal = cb.checked; renderStep7(container); } }); }); document.querySelectorAll('[data-bid-phase-cat]').forEach(cb => { cb.addEventListener('change', () => { const pid = cb.dataset.bidPhaseCat; const ci = parseInt(cb.dataset.catIdx); const ph = state.bidPhases.find(p => p.id === pid); if (!ph) return; if (cb.checked) { state.bidPhases.forEach(p => { if (p.id!=='base' && p.id!==pid) p.categoryIndices = p.categoryIndices.filter(c=>c!==ci); }); if (!ph.categoryIndices.includes(ci)) ph.categoryIndices.push(ci); } else { ph.categoryIndices = ph.categoryIndices.filter(c=>c!==ci); } renderStep7(container); }); }); }
+// buildBidPhasesCard / bindBidPhasesEvents — UI REMOVED.
+// state.bidPhases keeps its default [{ id:'base', name:'Base Bid', type:'base', categoryIndices:[], includeInProposal:true }]
+// so SmartPM phase assignments and the export pipeline silently reduce to single-phase mode.
 
 // LOW-2 fix: Duplicate beforeunload listener removed — the more comprehensive
 // version inside DOMContentLoaded (line ~12764) checks legendFiles and analyzing state too.
@@ -19962,9 +19645,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         case 'close-saved-panel':
           closeSavedPanel();
           break;
-        case 'close-revision-panel':
-          closeRevisionPanel();
-          break;
         case 'close-actuals-panel':
           closeActualsPanel();
           break;
@@ -19978,16 +19658,6 @@ document.addEventListener("DOMContentLoaded", async () => {
           // Remove the popup container (closest positioned div)
           { const popup = btn.closest('div[style]');
             if (popup) popup.remove(); }
-          break;
-        case 'inline-compare':
-          compareRevision(btn.getAttribute('data-est-id'), btn.getAttribute('data-rev-id'));
-          break;
-        case 'inline-restore':
-          restoreRevision(
-            btn.getAttribute('data-est-id'),
-            btn.getAttribute('data-rev-id'),
-            parseInt(btn.getAttribute('data-rev-num'), 10)
-          );
           break;
         case 'open-pdf-tool':
           openPdfPageTool();
