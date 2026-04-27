@@ -41,7 +41,10 @@ CREATE TABLE IF NOT EXISTS estimate_revisions (
     modified_by TEXT,            -- Who triggered this revision (user ID)
     modified_by_name TEXT,       -- Cached name of who made the change
     created_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(estimate_id, revision_number)
+    UNIQUE(estimate_id, revision_number),
+    -- M11 fix (audit 2026-04-27): cascade so deleting an estimate cleans
+    -- up its revision history. Existing prod databases need scripts/migrate-cascade-fks.sql.
+    FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_revisions_estimate ON estimate_revisions(estimate_id);
@@ -63,7 +66,9 @@ CREATE TABLE IF NOT EXISTS supplier_quotes (
     original_total REAL DEFAULT 0,
     quoted_total REAL,
     status TEXT DEFAULT 'sent',
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    -- M11 fix (audit 2026-04-27): cascade-delete with parent estimate.
+    FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_supplier_quotes_estimate ON supplier_quotes(estimate_id);
@@ -149,7 +154,9 @@ CREATE TABLE IF NOT EXISTS estimate_exclusions (
     text TEXT NOT NULL,
     category TEXT,
     sort_order INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    -- M11 fix (audit 2026-04-27): cascade-delete with parent estimate.
+    FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_exclusions_estimate ON estimate_exclusions(estimate_id);
@@ -173,7 +180,9 @@ CREATE TABLE IF NOT EXISTS project_actuals (
     actual_labor_hours REAL,
     variance_pct REAL,
     notes TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    -- M11 fix (audit 2026-04-27): cascade-delete with parent estimate.
+    FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_actuals_estimate ON project_actuals(estimate_id);
@@ -351,7 +360,10 @@ CREATE TABLE IF NOT EXISTS bid_corrections (
     delta_pct REAL,              -- (corrected - original) / original * 100
     region TEXT,                 -- Regional multiplier key (optional)
     corrected_by TEXT,           -- User id / name (optional)
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    -- M11 fix (audit 2026-04-27): SET NULL (not CASCADE) — corrections are
+    -- training data we keep even if the parent estimate is purged.
+    FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_bid_corrections_type ON bid_corrections(project_type);

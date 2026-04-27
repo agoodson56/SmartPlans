@@ -24,6 +24,15 @@ export async function onRequestGet(context) {
     }
 
     try {
+        // L5 fix (audit 2026-04-27): support optional limit / offset query
+        // params so the 101st estimate is reachable. Defaults preserve the
+        // pre-fix behavior (LIMIT 100, OFFSET 0). Limit is clamped to a
+        // sane range to defend against pathological clients.
+        const url = new URL(request.url);
+        const rawLimit = parseInt(url.searchParams.get('limit') || '100', 10);
+        const rawOffset = parseInt(url.searchParams.get('offset') || '0', 10);
+        const limit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 100, 500));
+        const offset = Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0);
 
         let query, binds;
         if (user?.is_admin) {
@@ -35,8 +44,8 @@ export async function onRequestGet(context) {
              FROM estimates e
              LEFT JOIN user_accounts u ON u.id = e.created_by
              LEFT JOIN user_accounts m ON m.id = e.modified_by
-             ORDER BY e.updated_at DESC LIMIT 100`;
-            binds = [];
+             ORDER BY e.updated_at DESC LIMIT ? OFFSET ?`;
+            binds = [limit, offset];
         } else if (user) {
             // Non-admin users see only their own estimates
             query = `SELECT e.id, e.project_name, e.project_type, e.project_location, e.disciplines,
@@ -47,8 +56,8 @@ export async function onRequestGet(context) {
              LEFT JOIN user_accounts u ON u.id = e.created_by
              LEFT JOIN user_accounts m ON m.id = e.modified_by
              WHERE e.created_by = ?
-             ORDER BY e.updated_at DESC LIMIT 100`;
-            binds = [user.id];
+             ORDER BY e.updated_at DESC LIMIT ? OFFSET ?`;
+            binds = [user.id, limit, offset];
         } else {
             // No valid session — return all (app-token-only legacy access)
             // The app token was already validated above, so this is authenticated
@@ -59,13 +68,18 @@ export async function onRequestGet(context) {
              FROM estimates e
              LEFT JOIN user_accounts u ON u.id = e.created_by
              LEFT JOIN user_accounts m ON m.id = e.modified_by
-             ORDER BY e.updated_at DESC LIMIT 100`;
-            binds = [];
+             ORDER BY e.updated_at DESC LIMIT ? OFFSET ?`;
+            binds = [limit, offset];
         }
 
         const stmt = env.DB.prepare(query);
-        const res = binds.length > 0 ? await stmt.bind(...binds).all() : await stmt.all();
-        return Response.json({ estimates: res.results || [] });
+        const res = await stmt.bind(...binds).all();
+        const rows = res.results || [];
+        return Response.json({
+            estimates: rows,
+            // L5: pagination metadata so the client can know whether to fetch the next page.
+            pagination: { limit, offset, returned: rows.length, hasMore: rows.length === limit },
+        });
     } catch (err) {
         console.error('Failed to load estimates:', err.message);
         return Response.json({ error: 'Failed to load estimates' }, { status: 500 });

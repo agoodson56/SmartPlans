@@ -9913,21 +9913,41 @@ ${rfp.mwbe_requirements?.goal_pct > 0 ? `⚠️ ${rfp.mwbe_requirements.type} go
       }
 
       // Deduplicate: if the same page was uploaded from two PDFs (same page position, similar size),
-      // keep only one copy to avoid double-counting
+      // keep only one copy to avoid double-counting.
+      // L6 fix (audit 2026-04-27): pre-fix the dedup key used `Math.round(size/1024)`
+      // KB rounding. PDFs re-saved with different compressors got different sizes
+      // → both kept (redundant scans). Conversely, two unrelated pages of the same
+      // KB rounded size collided as "duplicate". Switch to a content fingerprint:
+      // sample 3 slices of the base64 string. Cheap (no crypto), near-unique, and
+      // robust against compression diffs.
+      const _contentFingerprint = (file) => {
+        try {
+          const b64 = file.base64 || file.data || file.content || '';
+          if (typeof b64 !== 'string' || b64.length === 0) return `size:${file.size || 0}`;
+          // 3 short slices: head, middle, tail. Keeps key small but content-derived.
+          const head = b64.substring(0, 64);
+          const midStart = Math.max(0, Math.floor(b64.length / 2) - 32);
+          const middle = b64.substring(midStart, midStart + 64);
+          const tail = b64.substring(Math.max(0, b64.length - 64));
+          return `${head}|${middle}|${tail}|${b64.length}`;
+        } catch (_) {
+          return `size:${file.size || 0}`;
+        }
+      };
       const deduped = [];
       const seen = new Map(); // key: chunkNumber, value: file
       for (const f of pageChunks) {
         // Extract page/chunk number from filename (e.g., "legend_chunk14.jpg" → "14", "set_page5_T-101.jpg" → "5")
         const match = f.name.match(/_(?:chunk|page)(\d+)/);
         const chunkNum = match ? match[1] : f.name;
-        // Include category (legends/plans/specs) to avoid cross-PDF collisions
-        const sizeKey = `${f.category || f.name.replace(/_(?:chunk|page)\d+.*/, '')}_page${chunkNum}_${Math.round(f.size / 1024)}`;
+        // Compose dedup key: category + page index + content fingerprint
+        const dedupKey = `${f.category || f.name.replace(/_(?:chunk|page)\d+.*/, '')}_page${chunkNum}_${_contentFingerprint(f)}`;
 
-        if (!seen.has(sizeKey)) {
-          seen.set(sizeKey, f);
+        if (!seen.has(dedupKey)) {
+          seen.set(dedupKey, f);
           deduped.push(f);
         } else {
-          console.log(`[Brain:${brain.name}] Skipping duplicate chunk: ${f.name} (same page as ${seen.get(sizeKey).name})`);
+          console.log(`[Brain:${brain.name}] Skipping duplicate chunk: ${f.name} (same content as ${seen.get(dedupKey).name})`);
         }
       }
 

@@ -181,12 +181,16 @@ if (projectsToReplace.length > 0) {
 lines.push('');
 
 lines.push(`-- ─── distributor_prices: ${pricingRows.length} rows ───`);
+// L4 fix (audit 2026-04-27): INSERT OR IGNORE so a partial DELETE step
+// (from an interrupted earlier run) can't cause a UNIQUE collision on the
+// optional unique index. The scoped DELETE above remains the primary
+// idempotency mechanism; this is defense-in-depth.
 for (const r of pricingRows) {
     // r[7] is `notes`; tag it with SEED_MARKER so future runs can find/delete its own rows
     const tagged = [...r];
     tagged[7] = `${SEED_MARKER}|${r[7] ?? 'unknown'}`;
     lines.push(
-        `INSERT INTO distributor_prices (id, item_name, manufacturer, part_number, distributor, unit_cost, unit, category, notes) VALUES (lower(hex(randomblob(16))), ${tagged.map(sq).join(', ')});`,
+        `INSERT OR IGNORE INTO distributor_prices (id, item_name, manufacturer, part_number, distributor, unit_cost, unit, category, notes) VALUES (lower(hex(randomblob(16))), ${tagged.map(sq).join(', ')});`,
     );
 }
 lines.push('');
@@ -197,7 +201,7 @@ for (const r of laborRows) {
     const tagged = [...r];
     tagged[7] = `${SEED_MARKER}|${r[7] ?? 'unknown'}`;
     lines.push(
-        `INSERT INTO labor_standards (id, activity, discipline, role, unit, unit_minutes, unit_hours, source_standard, source_bid, sample_count) VALUES (lower(hex(randomblob(16))), ${tagged.map(sq).join(', ')});`,
+        `INSERT OR IGNORE INTO labor_standards (id, activity, discipline, role, unit, unit_minutes, unit_hours, source_standard, source_bid, sample_count) VALUES (lower(hex(randomblob(16))), ${tagged.map(sq).join(', ')});`,
     );
 }
 lines.push('');
@@ -206,7 +210,7 @@ if (proposalRows.length > 0) {
     lines.push(`-- ─── winning_proposals: ${proposalRows.length} rows ───`);
     for (const r of proposalRows) {
         lines.push(
-            `INSERT INTO winning_proposals (id, project_name, project_type, contract_value, win_margin_pct, executive_summary, scope_narrative, value_propositions, exclusions_text, strategy_notes, outcome) VALUES (lower(hex(randomblob(16))), ${r.map(sq).join(', ')});`,
+            `INSERT OR IGNORE INTO winning_proposals (id, project_name, project_type, contract_value, win_margin_pct, executive_summary, scope_narrative, value_propositions, exclusions_text, strategy_notes, outcome) VALUES (lower(hex(randomblob(16))), ${r.map(sq).join(', ')});`,
         );
     }
     lines.push('');

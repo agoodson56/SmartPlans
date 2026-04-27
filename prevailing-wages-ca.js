@@ -477,14 +477,36 @@ const CA_PREVAILING_WAGES = {
     return this.countyMap[county] || null;
   },
 
+  // M4 fix (audit 2026-04-27): when a county isn't mapped, fall back to a
+  // statewide-conservative default (Sacramento PW zone) and stamp _fallback
+  // metadata so the caller can warn the estimator. Pre-fix the function
+  // returned null silently and the calling code defaulted to NPW rates,
+  // which underbid labor 30-40% on federal projects in unmapped counties.
+  // Sacramento is chosen as the default because it's the political/geographic
+  // center of the state with mid-range rates — won't wildly over- or
+  // under-bid an unknown CA county.
+  _DEFAULT_FALLBACK_ZONE: 'sacramento',
+  _normalizeCountyName(county) {
+    if (!county || typeof county !== 'string') return '';
+    return county.trim().replace(/\s+county\s*$/i, '').trim();
+  },
   getRates(county, wageType) {
-    const zone = this.countyMap[county];
-    if (!zone) return null;
+    const normalized = this._normalizeCountyName(county);
+    let zone = this.countyMap[normalized] || this.countyMap[county];
+    let usedFallback = false;
+    if (!zone) {
+      zone = this._DEFAULT_FALLBACK_ZONE;
+      usedFallback = true;
+      // eslint-disable-next-line no-console
+      console.warn(`[CA Wages] County "${county}" not mapped — falling back to ${zone} zone. Bid labor rates may be off; verify against published CA DIR rates for the actual county.`);
+    }
     const zoneData = this.zones[zone];
     if (!zoneData) return null;
     // PLA rates are typically 5-10% above DIR — use DIR as base with PLA multiplier
-    if (wageType === 'davis-bacon') return zoneData.davis_bacon;
-    if (wageType === 'pla' && zoneData.dir) {
+    let rates;
+    if (wageType === 'davis-bacon') {
+      rates = zoneData.davis_bacon;
+    } else if (wageType === 'pla' && zoneData.dir) {
       // Apply PLA premium (8% above DIR) since PLA agreements include additional trust fund contributions
       const plaRates = {};
       for (const [role, rateObj] of Object.entries(zoneData.dir)) {
@@ -492,13 +514,27 @@ const CA_PREVAILING_WAGES = {
         if (typeof rateObj !== 'object' || rateObj === null) { plaRates[role] = rateObj; continue; }
         plaRates[role] = { base: +(rateObj.base * 1.08).toFixed(2), fringe: +(rateObj.fringe * 1.08).toFixed(2), total: +(rateObj.total * 1.08).toFixed(2) };
       }
-      return plaRates;
+      rates = plaRates;
+    } else {
+      rates = zoneData.dir;
     }
-    return zoneData.dir;
+    if (rates && usedFallback) {
+      // Mark the rate object so downstream code can surface a UI warning.
+      // We attach via Object.defineProperty so existing iteration code
+      // (Object.entries) doesn't see the metadata as a labor role.
+      try {
+        Object.defineProperty(rates, '_fallback', { value: true, enumerable: false, configurable: true });
+        Object.defineProperty(rates, '_fallbackZone', { value: zone, enumerable: false, configurable: true });
+        Object.defineProperty(rates, '_fallbackCounty', { value: county, enumerable: false, configurable: true });
+      } catch (_) { /* non-extensible objects: skip metadata */ }
+    }
+    return rates;
   },
 
   getZoneLabel(county) {
-    const zone = this.countyMap[county];
+    const normalized = this._normalizeCountyName(county);
+    const zone = this.countyMap[normalized] || this.countyMap[county];
+    if (!zone) return `${county || 'Unknown County'} (using ${this._DEFAULT_FALLBACK_ZONE} fallback)`;
     return this.zones[zone]?.label || county;
   },
 

@@ -4,6 +4,47 @@
 // Eliminates Cloudflare 524 timeouts completely
 // ═══════════════════════════════════════════════════════════════
 
+// H3 fix (audit 2026-04-27): key-health cache via Cloudflare Cache API.
+// Pre-fix the proxy rotated keys round-robin by brainSlot regardless of
+// whether a key was rate-limited — every Nth request burned a 429 round-trip
+// before retrying. Now: on 429 the key is marked blocked for 60s in the
+// Cache API (survives across worker invocations), and key selection skips
+// blocked keys, falling forward to the next available.
+const KEY_HEALTH_TTL_SEC = 60; // how long a 429'd key stays blocked
+const _keyHealthUrl = (keyName) => `https://internal.smartplans/key-health/${encodeURIComponent(keyName)}`;
+async function _isKeyBlocked(keyName) {
+    try {
+        const cache = caches.default;
+        const hit = await cache.match(new Request(_keyHealthUrl(keyName)));
+        if (!hit) return false;
+        const data = await hit.json();
+        if (!data || !Number.isFinite(data.blockedUntil)) return false;
+        return Date.now() < data.blockedUntil;
+    } catch (e) {
+        // Cache API failure should never block requests — fail open.
+        return false;
+    }
+}
+async function _markKeyBlocked(keyName, reason, ctx) {
+    try {
+        const cache = caches.default;
+        const blockedUntil = Date.now() + (KEY_HEALTH_TTL_SEC * 1000);
+        const body = JSON.stringify({ blockedUntil, reason: String(reason || 'unknown').substring(0, 80), ts: Date.now() });
+        const res = new Response(body, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': `max-age=${KEY_HEALTH_TTL_SEC}`,
+            },
+        });
+        const put = cache.put(new Request(_keyHealthUrl(keyName)), res);
+        if (ctx && typeof ctx.waitUntil === 'function') {
+            ctx.waitUntil(put);
+        } else {
+            await put;
+        }
+    } catch (e) { /* cache failure is non-fatal */ }
+}
+
 export async function onRequestPost(context) {
     const { env, request } = context;
 
@@ -58,16 +99,33 @@ export async function onRequestPost(context) {
             usedSlot = keyNames.indexOf(uploadKeyName);
             console.log(`[Proxy] Brain ${brainSlot} → pinned to upload key ${uploadKeyName} (slot ${usedSlot})`);
         } else {
-            // PRIORITY 2: Normal slot-based rotation
+            // PRIORITY 2: Normal slot-based rotation, skipping recently 429'd keys.
+            // H3 fix: read key-health cache and skip any key that's blocked. The
+            // loop falls forward through all 18 keys; if every key is blocked we
+            // fall back to using the slot key anyway (better to try and fail than
+            // return 500 with no attempt).
             const slotIndex = brainSlot % keyNames.length;
+            let firstAvailableKey = null;
+            let firstAvailableSlot = -1;
             for (let i = 0; i < keyNames.length; i++) {
                 const idx = (slotIndex + i) % keyNames.length;
-                const key = env[keyNames[idx]];
-                if (key) {
-                    apiKey = key;
-                    usedSlot = idx;
-                    break;
+                const keyName = keyNames[idx];
+                const keyVal = env[keyName];
+                if (!keyVal) continue;
+                // First non-empty key (fallback if every key is blocked)
+                if (firstAvailableKey === null) {
+                    firstAvailableKey = keyVal;
+                    firstAvailableSlot = idx;
                 }
+                if (await _isKeyBlocked(keyName)) continue;
+                apiKey = keyVal;
+                usedSlot = idx;
+                break;
+            }
+            if (!apiKey && firstAvailableKey) {
+                apiKey = firstAvailableKey;
+                usedSlot = firstAvailableSlot;
+                console.warn(`[Proxy] All non-blocked keys exhausted — falling back to slot ${usedSlot} (may be rate-limited).`);
             }
         }
 
@@ -140,6 +198,13 @@ export async function onRequestPost(context) {
                 if (!geminiResponse.ok) {
                     const errText = await geminiResponse.text();
                     console.warn(`[Proxy] Model "${model}" returned ${geminiResponse.status}: ${errText.substring(0, 500)}`);
+
+                    // H3: on 429 (rate limit) or 503 (overloaded), mark this key blocked
+                    // so the next request rotates past it instead of burning another round-trip.
+                    if ((geminiResponse.status === 429 || geminiResponse.status === 503) && usedSlot >= 0 && keyNames[usedSlot]) {
+                        await _markKeyBlocked(keyNames[usedSlot], `${geminiResponse.status} ${model}`, context);
+                        console.warn(`[Proxy] Key slot ${usedSlot} (${keyNames[usedSlot]}) marked blocked for ${KEY_HEALTH_TTL_SEC}s due to ${geminiResponse.status}.`);
+                    }
 
                     // Log request diagnostics for 400 errors
                     if (geminiResponse.status === 400) {

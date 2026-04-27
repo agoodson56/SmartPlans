@@ -7,22 +7,63 @@
 import { isAllowedOrigin } from '../_shared/cors.js';
 
 // ── GET: Health check ──────────────────────────────────────────
-// SEC: Sanitized — no version, no key counts, no internal details
+// H2 fix (audit 2026-04-27): per-component breakdown so the response is
+// actionable. Pre-fix the endpoint returned an opaque 503 with no clue
+// whether D1 was unbound, in a bad state, AI keys missing, or something
+// else. Now each subsystem is checked independently and reported with
+// its own status. Overall status is:
+//   - 'ok' if every component reports ok
+//   - 'degraded' if at least one optional check failed but D1 read works
+//   - 'error' only if the critical D1 read fails
+// SEC: Component values stay boolean / labels — no key counts, no internal
+// details that would help an attacker probe the infrastructure.
 export async function onRequestGet(context) {
   const { env } = context;
-  const result = {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-  };
+  const components = {};
+  let overall = 'ok';
 
-  // Check D1 database connectivity
+  // 1. D1 read (critical — if this fails the app is unusable)
   try {
     await env.DB.prepare('SELECT 1').first();
+    components.d1_read = 'ok';
   } catch (err) {
-    result.status = 'error';
+    components.d1_read = 'error';
+    overall = 'error';
   }
 
-  const statusCode = result.status === 'ok' ? 200 : 503;
+  // 2. D1 write capability (catches read-only / quota states that pass SELECT)
+  if (components.d1_read === 'ok') {
+    try {
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS _health_probe (id INTEGER PRIMARY KEY, ts TEXT)`).run();
+      const probeId = Date.now();
+      await env.DB.prepare(`INSERT INTO _health_probe (id, ts) VALUES (?, ?)`).bind(probeId, new Date().toISOString()).run();
+      await env.DB.prepare(`DELETE FROM _health_probe WHERE id = ?`).bind(probeId).run();
+      components.d1_write = 'ok';
+    } catch (err) {
+      components.d1_write = 'error';
+      if (overall === 'ok') overall = 'degraded';
+    }
+  } else {
+    components.d1_write = 'unknown';
+  }
+
+  // 3. AI proxy — at least one non-empty key bound (don't expose the actual count)
+  const hasGeminiKey = Object.keys(env || {}).some(k => /^GEMINI_KEY/i.test(k) && env[k]);
+  const hasClaudeKey = Object.keys(env || {}).some(k => /^(CLAUDE|ANTHROPIC)/i.test(k) && env[k]);
+  components.ai_keys = (hasGeminiKey || hasClaudeKey) ? 'ok' : 'missing';
+  if (components.ai_keys === 'missing' && overall === 'ok') overall = 'degraded';
+
+  // 4. R2 binding (optional)
+  components.r2 = env && env.R2_BUCKET ? 'ok' : 'unbound';
+
+  const result = {
+    status: overall,
+    components,
+    timestamp: new Date().toISOString(),
+  };
+  // Return 200 even on 'degraded' so monitoring can distinguish "totally down"
+  // (503) from "something's off but core flow still works" (200 with degraded).
+  const statusCode = overall === 'error' ? 503 : 200;
   return Response.json(result, { status: statusCode });
 }
 

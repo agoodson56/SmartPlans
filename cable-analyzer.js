@@ -32,6 +32,55 @@ const CableAnalyzer = {
     jHookSpacingFt:   4.5,    // J-hook every 4.5 ft of horizontal run (BICSI pathway support)
   },
 
+  // ── M8 fix (audit 2026-04-27): per-project-type defaults for run length and routing factor ──
+  // Pre-fix the global defaults assumed mid-size commercial (175ft / 1.30). For warehouses,
+  // small offices, multi-family corridors, prisons, and data centers those numbers were
+  // either over- or under-estimating cable footage by 30%+. These overrides are auto-merged
+  // into `cfg` based on state.projectType / state.isTransitRailroad / project name keywords.
+  // Caller can still override via state.cableConfigOverrides.
+  projectTypeDefaults: {
+    warehouse:        { defaultRunFt: 220, routingFactor: 1.20 }, // long open spans, simple routing
+    industrial:       { defaultRunFt: 220, routingFactor: 1.20 },
+    small_office:     { defaultRunFt: 110, routingFactor: 1.20 }, // <10K SF, short runs
+    office:           { defaultRunFt: 175, routingFactor: 1.30 }, // standard commercial baseline
+    multi_family:     { defaultRunFt: 200, routingFactor: 1.35 }, // long corridors, vertical riser drops
+    apartment:        { defaultRunFt: 200, routingFactor: 1.35 },
+    education:        { defaultRunFt: 190, routingFactor: 1.35 },
+    healthcare:       { defaultRunFt: 250, routingFactor: 1.40 }, // plenum routing, ICRA workarounds
+    medical:          { defaultRunFt: 250, routingFactor: 1.40 },
+    va:               { defaultRunFt: 250, routingFactor: 1.40 },
+    government:       { defaultRunFt: 220, routingFactor: 1.35 },
+    transit:          { defaultRunFt: 280, routingFactor: 1.45 }, // long platforms, conduit-only routing
+    railroad:         { defaultRunFt: 280, routingFactor: 1.45 },
+    prison:           { defaultRunFt: 200, routingFactor: 1.45 }, // secure routing, thick walls
+    correctional:     { defaultRunFt: 200, routingFactor: 1.45 },
+    data_center:      { defaultRunFt: 150, routingFactor: 1.20 }, // dense racks, short runs
+    retail:           { defaultRunFt: 160, routingFactor: 1.30 },
+  },
+
+  // M8: resolve per-project defaults given state. Returns a partial cfg patch the
+  // caller merges into the BICSI defaults. Looks at state.projectType slug,
+  // state.isTransitRailroad, and project name keywords (residential / apartment / etc).
+  _resolveProjectTypeDefaults(state) {
+    if (!state) return null;
+    if (state.isTransitRailroad) return this.projectTypeDefaults.transit;
+    const t = String(state.projectType || '').toLowerCase().replace(/[\s-]+/g, '_');
+    if (t && this.projectTypeDefaults[t]) return this.projectTypeDefaults[t];
+    const name = String(state.projectName || '').toLowerCase();
+    const subtype = String(state.projectSubtype || '').toLowerCase();
+    const text = `${name} ${subtype} ${t}`;
+    if (/data\s*center|colo\b|colocation|server\s*farm/.test(text)) return this.projectTypeDefaults.data_center;
+    if (/prison|correctional|detention|jail/.test(text)) return this.projectTypeDefaults.prison;
+    if (/warehouse|distribution|logistics|industrial|manufacturing|fence/.test(text)) return this.projectTypeDefaults.warehouse;
+    if (/apartment|multi.?family|condo|residential|housing/.test(text)) return this.projectTypeDefaults.multi_family;
+    if (/hospital|clinic|medical|healthcare|patient/.test(text)) return this.projectTypeDefaults.healthcare;
+    if (/va\b|veteran|veterans|federal\s*medical/.test(text)) return this.projectTypeDefaults.va;
+    if (/school|education|university|college|classroom/.test(text)) return this.projectTypeDefaults.education;
+    if (/court|state\s*office|government|capitol|sheriff|police/.test(text)) return this.projectTypeDefaults.government;
+    if (/retail|store|shop|mall/.test(text)) return this.projectTypeDefaults.retail;
+    return null;
+  },
+
   // Computed total vertical + slack overhead per run (BICSI compliant)
   get _bicsiOverheadFt() {
     const d = this.defaults;
@@ -156,10 +205,19 @@ const CableAnalyzer = {
   // MAIN ENTRY POINT
   // ═══════════════════════════════════════════════════════════════
   buildCableSchedule(state, overrides) {
-    const cfg = { ...this.defaults, ...(overrides || {}) };
+    // M8 fix (audit 2026-04-27): merge order is BICSI defaults → project-type
+    // overrides → caller overrides. Per-project defaults handle the wide range
+    // of project types (warehouse 220ft, small office 110ft, multi-family 200ft,
+    // transit 280ft) that the global 175ft baseline got wrong by ±30%.
+    const projectTypePatch = this._resolveProjectTypeDefaults(state) || {};
+    const userOverrides = overrides || (state && state.cableConfigOverrides) || {};
+    const cfg = { ...this.defaults, ...projectTypePatch, ...userOverrides };
+    if (Object.keys(projectTypePatch).length > 0 && !overrides) {
+      console.log(`[CableAnalyzer] M8: project-type defaults applied — defaultRunFt=${cfg.defaultRunFt}, routingFactor=${cfg.routingFactor}`);
+    }
     // AUDIT FIX #11: Medical/government projects use 1.40 routing factor per BICSI TDMM
     const projType = (state.projectType || state.buildingType || '').toLowerCase();
-    if (/medical|hospital|healthcare|clinic|government|federal|dod|va\b|correctional|detention/i.test(projType) && !overrides?.routingFactor) {
+    if (/medical|hospital|healthcare|clinic|government|federal|dod|va\b|correctional|detention/i.test(projType) && !userOverrides.routingFactor) {
       cfg.routingFactor = 1.40;
       console.log(`[CableAnalyzer] Medical/government project detected — using 1.40 routing factor`);
     }

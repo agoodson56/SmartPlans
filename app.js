@@ -4136,13 +4136,23 @@ function renderStepNav() {
   });
   nav.innerHTML = html;
 
-  nav.querySelectorAll(".step-btn.clickable").forEach(btn => {
-    btn.addEventListener("click", () => {
-      state.currentStep = parseInt(btn.dataset.step, 10);
+  // L7 fix (audit 2026-04-27): event delegation. Pre-fix, every renderStepNav
+  // call attached a fresh click listener to each step button. After 50+ renders
+  // a single click fired 50 callbacks, slowed UI, and risked duplicate state
+  // mutations. Now: a single delegated listener attached once on first render
+  // (idempotent via the `_stepNavBound` flag).
+  if (!nav.dataset.stepNavBound) {
+    nav.addEventListener('click', (e) => {
+      const btn = e.target.closest('.step-btn.clickable');
+      if (!btn || btn.disabled) return;
+      const idx = parseInt(btn.dataset.step, 10);
+      if (!Number.isFinite(idx)) return;
+      state.currentStep = idx;
       render();
       scrollContentTop();
     });
-  });
+    nav.dataset.stepNavBound = '1';
+  }
 }
 
 // ─── Content Router ───
