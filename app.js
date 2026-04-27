@@ -370,13 +370,17 @@ const DISCIPLINES = [
   "Structured Cabling",
   "Audio Visual",
   "Distributed Antenna Systems (DAS)",
+  "ERRCS",
   "Paging / Intercom",
   "Nurse Call Systems",
+  "Micro Duct",
+  "Point-to-Point",
   // Division 28 — Electronic Safety & Security
   "CCTV",
   "Access Control",
   "Intrusion Detection",
   "Fire Alarm",
+  "Two-Way Radio",
   // Division 8 — Openings (Door Hardware)
   "Door Hardware / Electrified Hardware",
   // Division 1 — General Requirements
@@ -389,8 +393,8 @@ const DISCIPLINES = [
 const CSI_DIVISIONS = {
   "01": { name: "General Requirements", disciplines: ["all"], description: "Mobilization, PM, bonds, permits, travel" },
   "08": { name: "Openings", disciplines: ["Access Control"], description: "Door hardware, frames, electrified hardware for access control" },
-  "27": { name: "Communications", disciplines: ["Structured Cabling", "Audio Visual"], description: "Cabling infrastructure, AV systems, telecom" },
-  "28": { name: "Electronic Safety & Security", disciplines: ["CCTV", "Access Control", "Fire Alarm", "Intrusion Detection"], description: "Security, surveillance, fire alarm, intrusion" },
+  "27": { name: "Communications", disciplines: ["Structured Cabling", "Audio Visual", "Distributed Antenna Systems (DAS)", "ERRCS", "Paging / Intercom", "Nurse Call Systems", "Micro Duct", "Point-to-Point"], description: "Cabling infrastructure, AV systems, telecom, ERRCS, micro duct, P2P" },
+  "28": { name: "Electronic Safety & Security", disciplines: ["CCTV", "Access Control", "Fire Alarm", "Intrusion Detection", "Two-Way Radio"], description: "Security, surveillance, fire alarm, intrusion, two-way radio" },
 };
 
 // Maps a discipline to its primary CSI division(s)
@@ -573,6 +577,83 @@ const EXCLUSION_TEMPLATES = {
     ],
     clarification: [
       { text: "Final antenna count and placement subject to RF design validation", category: "DAS" },
+    ],
+  },
+  // Emergency Responder Radio Communication System — public safety BDA per IFC 510 / NFPA 1221
+  "ERRCS": {
+    exclusion: [
+      { text: "Excludes any custom RF filters required for on-site interference issues", category: "ERRCS" },
+      { text: "Excludes conduit, raceway, and junction boxes (by Electrical Contractor)", category: "ERRCS" },
+      { text: "Excludes primary power circuits to BDA/battery backup (by Electrical Contractor)", category: "ERRCS" },
+      { text: "Excludes simplex (talk-around / tactical) channels", category: "ERRCS" },
+      { text: "Excludes shielded or fortified rooms in coverage plan", category: "ERRCS" },
+      { text: "Excludes 3rd-party benchmark / UL on-site inspection fees", category: "ERRCS" },
+      { text: "Excludes permit and Plan Check fees", category: "ERRCS" },
+      { text: "Excludes non-penetrating roof mount cinder blocks if needed for donor antenna", category: "ERRCS" },
+    ],
+    assumption: [
+      { text: "Assumes off-air donor signal is at least -75 dBm at the donor antenna location", category: "ERRCS" },
+      { text: "Assumes UPS / battery backup serves as reliable secondary power", category: "ERRCS" },
+      { text: "Assumes NEMA 4 enclosures rating provided for all active components by 3D", category: "ERRCS" },
+      { text: "Assumes NFPA 72 compliant remote annunciator provided by 3D", category: "ERRCS" },
+      { text: "Assumes raceways for donor antenna provided by others", category: "ERRCS" },
+    ],
+    clarification: [
+      { text: "If/when AHJ adopts NFPA 1221 there may be additional equipment required for alarm and monitoring", category: "ERRCS" },
+      { text: "Local interpretations of code may incur additional cost", category: "ERRCS" },
+      { text: "Final BDA gain, antenna count, and placement subject to ERRCS coverage assessment", category: "ERRCS" },
+    ],
+  },
+  // Micro duct — multi-family residential pre-installed conduit pathway IDF→unit
+  "Micro Duct": {
+    exclusion: [
+      { text: "Excludes pull cords (string only included where listed)", category: "Micro Duct" },
+      { text: "Excludes core drilling and structural penetrations (by GC/EC)", category: "Micro Duct" },
+      { text: "Excludes fire-rated penetration sleeves and firestopping (by Firestopping Contractor)", category: "Micro Duct" },
+      { text: "Excludes service-provider fiber/coax pulled through micro duct after turnover", category: "Micro Duct" },
+    ],
+    assumption: [
+      { text: "Assumes one micro duct per residential unit, IDF to unit demarcation point (media can)", category: "Micro Duct" },
+      { text: "Assumes accessible pathways (open ceiling or accessible chase) along entire route", category: "Micro Duct" },
+      { text: "Assumes standard 8.5/10mm or 12/10mm micro duct unless otherwise specified", category: "Micro Duct" },
+      { text: "Assumes micro duct is empty at turnover — service-provider cabling is not included", category: "Micro Duct" },
+    ],
+    clarification: [
+      { text: "Micro duct quantity is one per unit unless plans show otherwise", category: "Micro Duct" },
+    ],
+  },
+  // Two-way radio infrastructure — internal facility radio system (separate from ERRCS public safety)
+  "Two-Way Radio": {
+    exclusion: [
+      { text: "Excludes radio handsets and chargers (by owner)", category: "Two-Way Radio" },
+      { text: "Excludes FCC licensing fees and frequency coordination", category: "Two-Way Radio" },
+      { text: "Excludes dedicated electrical circuits to repeater / base station (by Electrical Contractor)", category: "Two-Way Radio" },
+      { text: "Excludes interfacing with public-safety ERRCS (separate system)", category: "Two-Way Radio" },
+    ],
+    assumption: [
+      { text: "Assumes single repeater / base station for the facility unless multi-site is specified", category: "Two-Way Radio" },
+      { text: "Assumes rooftop antenna location with clear line-of-sight", category: "Two-Way Radio" },
+      { text: "Assumes plenum-rated coax pathways available throughout", category: "Two-Way Radio" },
+    ],
+    clarification: [
+      { text: "Final coverage subject to on-site signal verification — additional repeaters / leaky-coax may be required", category: "Two-Way Radio" },
+    ],
+  },
+  // Point-to-Point — wireless backhaul, AV/video link, or fiber link between buildings
+  "Point-to-Point": {
+    exclusion: [
+      { text: "Excludes spectrum licensing fees if licensed band is required", category: "Point-to-Point" },
+      { text: "Excludes mounting structures / non-penetrating roof mounts beyond what is listed", category: "Point-to-Point" },
+      { text: "Excludes dedicated electrical circuits to radio / fiber endpoints (by Electrical Contractor)", category: "Point-to-Point" },
+      { text: "Excludes path-survey or RF site survey unless listed as separate line item", category: "Point-to-Point" },
+    ],
+    assumption: [
+      { text: "Assumes clear line-of-sight between endpoints (or clear fiber pathway for fiber P2P)", category: "Point-to-Point" },
+      { text: "Assumes endpoints are within range stated by manufacturer for the selected radio model", category: "Point-to-Point" },
+      { text: "Assumes one P2P link unless multiple are explicitly listed", category: "Point-to-Point" },
+    ],
+    clarification: [
+      { text: "P2P link throughput and reliability subject to weather and interference; SLA not warrantied beyond manufacturer spec", category: "Point-to-Point" },
     ],
   },
   // ── BY_OTHERS / RESPONSIBILITY MATRIX exclusions (auto-added when detected) ──
@@ -1393,8 +1474,12 @@ const SmartDefaults = {
     'Paging / Intercom': 'Count all paging speakers (ceiling, wall, horn), amplifiers, intercom stations, call stations, master stations, and paging zones.',
     'Nurse Call Systems': 'Count all patient stations, staff stations, pillow speakers, dome lights, code blue stations, duty stations, and master stations.',
     'Distributed Antenna Systems (DAS)': 'Count all DAS antennas/remote units, head-end equipment locations, donor antennas, fiber/coax backbone runs, and coverage zones.',
+    'ERRCS': 'Count all ERRCS / public-safety BDA antennas, splitters, BDAs (main + remote), battery backup units, donor antennas, NFPA 72 annunciators, plenum coax feeder cable LF, rigid riser coax LF, and ERRCS coverage zones per IFC 510 / NFPA 1221.',
     'Audio Visual': 'Count all displays/monitors, projectors, speakers, microphones, control panels/touch screens, AV racks, video conferencing systems, digital signage, and sound masking zones.',
     'Intrusion Detection': 'Count all motion detectors, door contacts, glass break sensors, keypads, intrusion panels, sirens, and duress buttons.',
+    'Micro Duct': 'Count empty micro ducts pulled IDF→residential unit (typically one per unit), micro duct LF, splice/transition points, and pull-string terminations. Common in multi-family residential.',
+    'Point-to-Point': 'Count P2P wireless radios (pairs), P2P fiber link endpoints, dish antennas, mounting brackets, surge suppressors, and P2P link distances. One link = two endpoints.',
+    'Two-Way Radio': 'Count repeaters / base stations, donor antennas, leaky-coax / radiating cable LF, antenna count, BDA / amplifier units, battery backup, and coverage zones. Internal facility radio (NOT public-safety ERRCS).',
     'Door Hardware / Electrified Hardware': 'Count all electrified doors, electric strikes, mag locks, auto-operators, door position switches, power supplies, and low-voltage door hardware.',
     'General Requirements / Conditions': 'Include project mobilization, general conditions, supervision, as-built documentation, commissioning, testing & labeling, waste removal, and warranty requirements.',
   },

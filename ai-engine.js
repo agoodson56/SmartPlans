@@ -572,6 +572,21 @@ const SmartBrains = {
     'FA':  ['Fire Alarm'],
     'FP':  ['Fire Alarm'],
 
+    // ERRCS / public-safety BDA sheets
+    'ER':  ['ERRCS'],
+    'BDA': ['ERRCS'],
+
+    // Micro duct sheets (multi-family residential pre-conduit)
+    'MD':  ['Micro Duct'],
+
+    // Point-to-Point sheets (wireless backhaul / fiber link)
+    'PP':  ['Point-to-Point'],
+    'P2P': ['Point-to-Point'],
+
+    // Two-way radio sheets
+    'TW':  ['Two-Way Radio'],
+    '2W':  ['Two-Way Radio'],
+
     // Electrical — relevant for power coordination, conduit, device locations
     'E':   ['Structured Cabling', 'CCTV', 'Access Control', 'Audio Visual', 'Intrusion Detection', 'Fire Alarm'],
     'EP':  ['Structured Cabling', 'CCTV', 'Access Control', 'Audio Visual', 'Intrusion Detection', 'Fire Alarm'],
@@ -608,14 +623,18 @@ const SmartBrains = {
     'Audio Visual':       /audio|visual|av\b|speaker|display|projector|sound|paging|intercom.*av/i,
     'Intrusion Detection':/intrusion|alarm\s*panel|motion\s*detect|glass\s*break|keypad.*alarm|burglar/i,
     'Fire Alarm':         /fire\s*alarm|facp|smoke\s*detect|pull\s*station|horn.*strobe|notification|nac\b|slc\b|duct\s*detect/i,
+    'ERRCS':              /errcs|emergency\s*responder|public\s*safety\s*radio|bda\b|ifc\s*510|nfpa\s*1221|donor\s*antenna|800\s*mhz|700\s*mhz/i,
+    'Micro Duct':         /micro\s*duct|microduct|mtrj|sub\s*duct|innerduct/i,
+    'Two-Way Radio':      /two[-\s]?way\s*radio|repeater|base\s*station|leaky\s*coax|radiating\s*cable/i,
+    'Point-to-Point':     /point[-\s]?to[-\s]?point|p2p\b|wireless\s*backhaul|wireless\s*link|fiber\s*link/i,
   },
 
   // Spec section to CSI division mapping
   SPEC_DIVISION_MAP: {
     '01': ['all'],        // General Requirements
     '08': ['Access Control'], // Openings
-    '27': ['Structured Cabling', 'Audio Visual'],
-    '28': ['CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection'],
+    '27': ['Structured Cabling', 'Audio Visual', 'Distributed Antenna Systems (DAS)', 'ERRCS', 'Paging / Intercom', 'Nurse Call Systems', 'Micro Duct', 'Point-to-Point'],
+    '28': ['CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection', 'Two-Way Radio'],
   },
 
   /**
@@ -3052,13 +3071,17 @@ const SmartBrains = {
     'Structured Cabling':                ['T-', 'TD-', 'TEL-', 'COM-', 'D-', 'TC-', 'IT-', 'T0', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9'],
     'Audio Visual':                      ['AV-', 'AV0', 'AV1', 'AV2'],
     'Distributed Antenna Systems (DAS)': ['DAS-', 'DAS0', 'DAS1'],
+    'ERRCS':                             ['ER-', 'ER0', 'ER1', 'ERRCS-', 'BDA-', 'BDA0'],
     'Paging / Intercom':                 ['PA-', 'PA0', 'IC-', 'IC0'],
     'Nurse Call Systems':                ['NC-', 'NC0', 'NC1'],
+    'Micro Duct':                        ['MD-', 'MD0', 'MD1'],
+    'Point-to-Point':                    ['PP-', 'PP0', 'P2P-', 'P2P0'],
     // Division 28 — Electronic Safety & Security
     'CCTV':                              ['CCTV-', 'CCTV0', 'CCTV1', 'V-', 'V0', 'V1', 'CAM-'],
     'Access Control':                    ['AC-', 'AC0', 'AC1', 'ACS-', 'ACS0'],
     'Intrusion Detection':               ['IDS-', 'IDS0', 'ID-', 'ID0', 'INTR-'],
     'Fire Alarm':                        ['FA-', 'FA0', 'FA1', 'FA2', 'FA3', 'FALP-', 'FP-', 'FP0', 'FP1', 'FP2'],
+    'Two-Way Radio':                     ['TW-', 'TW0', '2W-', '2W0'],
     // Division 8 — Openings
     'Door Hardware / Electrified Hardware': ['HW-', 'HW0', 'DH-', 'DH0', 'DR-', 'DR0'],
     // Division 1 — General Requirements
@@ -3070,12 +3093,16 @@ const SmartBrains = {
     'Structured Cabling':                ['27 10', '27 11', '27 13', '27 15', '271'],
     'Audio Visual':                      ['27 41', '27 42', '27 51', '274'],
     'Distributed Antenna Systems (DAS)': ['27 21', '27 22', '272'],
+    'ERRCS':                             ['27 53', '28 47', '275'],
     'Paging / Intercom':                 ['27 51', '27 52', '275'],
     'Nurse Call Systems':                ['27 52', '275'],
+    'Micro Duct':                        ['27 05', '27 11 16', '27 11', '270'],
+    'Point-to-Point':                    ['27 32', '27 41', '273'],
     'CCTV':                              ['28 23', '282'],
     'Access Control':                    ['28 13', '281'],
     'Intrusion Detection':               ['28 16', '281'],
     'Fire Alarm':                        ['28 31', '28 30', '283'],
+    'Two-Way Radio':                     ['27 53', '28 47', '275'],
     'Door Hardware / Electrified Hardware': ['08 71', '08 74', '08 75', '087'],
     'General Requirements / Conditions': ['01 00', '01 10', '01 20', '01 30', '01 40', '01 50', '01 70', '01 73', '01 77', '01 78', '011', '012', '013', '014', '015', '017'],
   },
@@ -3145,8 +3172,12 @@ const SmartBrains = {
         'Structured Cabling': ['TELECOM', 'TELECOMMUNICATIONS', 'STRUCTURED CABLING', 'STRUCTUREDCABLING', 'DATA CABLING', 'DATACABLING'],
         'Audio Visual':      ['AUDIO VISUAL', 'AUDIOVISUAL', 'AUDIO-VISUAL', 'AV SYSTEM'],
         'Distributed Antenna Systems (DAS)': ['DAS ', 'DISTRIBUTED ANTENNA', 'DISTRIBUTEDANTENNA'],
+        'ERRCS':             ['ERRCS', 'EMERGENCY RESPONDER', 'EMERGENCYRESPONDER', 'PUBLIC SAFETY RADIO', 'PUBLICSAFETYRADIO', 'BDA', 'IFC 510', 'IFC510', 'NFPA 1221', 'NFPA1221'],
         'Paging / Intercom': ['PAGING', 'INTERCOM', 'PA SYSTEM'],
         'Nurse Call Systems': ['NURSE CALL', 'NURSECALL'],
+        'Micro Duct':        ['MICRO DUCT', 'MICRODUCT', 'MICRO-DUCT', 'INNERDUCT', 'SUBDUCT'],
+        'Point-to-Point':    ['POINT TO POINT', 'POINTTOPOINT', 'POINT-TO-POINT', 'P2P', 'WIRELESS BACKHAUL', 'WIRELESSBACKHAUL', 'WIRELESS LINK', 'WIRELESSLINK'],
+        'Two-Way Radio':     ['TWO WAY RADIO', 'TWOWAYRADIO', 'TWO-WAY RADIO', '2-WAY RADIO', '2WAYRADIO', 'REPEATER', 'LEAKY COAX', 'RADIATING CABLE'],
         'Door Hardware / Electrified Hardware': ['DOOR HARDWARE', 'DOORHARDWARE', 'ELECTRIFIED HARDWARE', 'DOOR SCHEDULE', 'DOORSCHEDULE'],
         'General Requirements / Conditions': ['GENERAL REQUIREMENTS', 'GENERALREQUIREMENTS', 'GENERAL CONDITIONS', 'GENERALCONDITIONS', 'DIVISION 01', 'DIVISION01', 'DIV 01', 'DIV01'],
       };
