@@ -6570,6 +6570,30 @@ ${(() => {
   return result;
 })()}
 
+═══ LABOR STANDARDS — BICSI-STYLE ACTIVITY UNITS FROM PAST 3D BIDS (v5.128.1) ═══
+${(() => {
+  const stds = context.laborStandards || [];
+  if (stds.length === 0) return 'No labor standards available — use NECA guidelines below.';
+  // Filter to disciplines relevant to this project, plus null/general standards
+  const selected = (context.disciplines || []).map(d => String(d).toLowerCase());
+  const relevant = stds.filter(s => {
+    if (!s.discipline) return true;
+    return selected.some(sel => String(s.discipline).toLowerCase().includes(sel) || sel.includes(String(s.discipline).toLowerCase()));
+  });
+  // Sort by sample_count desc — most-confirmed standards first
+  relevant.sort((a, b) => (b.sample_count || 1) - (a.sample_count || 1));
+  let result = 'These are PRODUCTION-RATE labor units from prior 3D bids (averaged across sample_count bids). When an activity in your task list matches one of these, prefer this rate over the generic NECA range — it reflects how 3D actually performs the work:\n';
+  for (const s of relevant.slice(0, 60)) {
+    const mins = s.unit_minutes != null ? s.unit_minutes.toFixed(2) : '-';
+    const hrs = s.unit_hours != null ? s.unit_hours.toFixed(3) : '-';
+    const role = s.role ? ` [${s.role}]` : '';
+    const samples = s.sample_count > 1 ? ` (n=${s.sample_count})` : '';
+    result += `  - ${s.activity}${role}: ${mins} min/${s.unit || 'EA'} = ${hrs} hrs${samples}\n`;
+  }
+  if (relevant.length > 60) result += `  ... and ${relevant.length - 60} more (filter via /api/labor-standards?discipline=...&search=...)\n`;
+  return result;
+})()}
+
 ═══ LABOR-TO-MATERIAL RATIO SANITY CHECK (CRITICAL) ═══
 Before finalizing your labor estimate, verify against these industry benchmarks:
 - Low-voltage construction: labor = 35-55% of material cost (before markups)
@@ -12395,11 +12419,15 @@ ${legendContext}
       ? `/api/bid-corrections?project_type=${projectTypeParam}&limit=300`
       : `/api/bid-corrections?limit=300`;
 
-    const [rlResult, dpResult, bmResult, bcResult] = await Promise.allSettled([
+    const [rlResult, dpResult, bmResult, bcResult, lsResult] = await Promise.allSettled([
       fetch('/api/rate-library', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
       fetch('/api/distributor-prices', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
       fetch('/api/benchmarks', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
       fetch(correctionsUrl, { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
+      // v5.128.1: BICSI activity-level labor units from past 3D bids,
+      // grounds Labor Calculator on real production rates instead of NECA defaults.
+      // (Note: winningProposals is fetched separately at Pre-Wave 4 — see line ~13443.)
+      fetch('/api/labor-standards', { headers: this._authHeaders() }).then(r => r.ok ? r.json() : null),
     ]);
 
     if (rlResult.status === 'fulfilled' && rlResult.value?.rates?.length > 0) {
@@ -12422,6 +12450,11 @@ ${legendContext}
       console.log(`[SmartBrains] 🧠 Estimator Feedback Loop: loaded ${context._historicalCorrections.length} historical corrections for ${state.projectType || 'all project types'}`);
     } else {
       context._historicalCorrections = [];
+    }
+
+    if (lsResult.status === 'fulfilled' && Array.isArray(lsResult.value?.standards) && lsResult.value.standards.length > 0) {
+      context.laborStandards = lsResult.value.standards;
+      console.log(`[SmartBrains] 👷 Labor Standards: loaded ${context.laborStandards.length} BICSI activity-level labor units from past bids`);
     }
 
     // ─── v5.126.0 PHASE 1.7: Pre-Pricer Consensus Counts Guard ───
