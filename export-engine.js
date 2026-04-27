@@ -178,6 +178,27 @@ const SmartPlansExport = {
             });
         }
 
+        // 6f. Repeated-unit project missing or low-confidence configurations
+        // (v5.134.0 fix). For apartments / dorms / hotels, the BOM should be built
+        // from per-configuration counts × unit-count multiplication. If those
+        // configurations are missing or low-confidence, the bid is unreliable
+        // and an RFI must go to the customer before submission.
+        const uc = state._unitConfigurations;
+        if (uc && uc.is_repeated_unit_project) {
+            const cfgCount = Array.isArray(uc.configurations) ? uc.configurations.length : 0;
+            const conf = String(uc.confidence || 'n/a').toLowerCase();
+            if (cfgCount === 0 || conf === 'low') {
+                warnings.push({
+                    severity: 'block',
+                    code: 'unit_configurations_missing_or_low_confidence',
+                    message: cfgCount === 0
+                        ? 'Repeated-unit project (apartment / dorm / hotel) but no typical-unit configurations were extracted from the plans. Bid totals are NOT verified by per-configuration math. Confirm the unit-type counts with the customer (RFI auto-generated) before submitting.'
+                        : `Repeated-unit project with LOW confidence on unit configurations (${cfgCount} extracted). Confirm the unit-type counts with the customer (RFI auto-generated) before submitting.`,
+                    details: { confidence: conf, configurations: uc.configurations || [], notes: uc.notes || '' },
+                });
+            }
+        }
+
         // 6e. TIA-568 cable runs >295ft (M7 fix 2026-04-27).
         // Cable Analyzer caps these at 295ft and continues, but the install will
         // require >295ft of cable (under-pulled). Surface at export time so the
@@ -414,6 +435,10 @@ const SmartPlansExport = {
 
             // Per-Item Confidence Scoring — Grade distribution
             confidenceScoring: state._confidenceScoring || null,
+
+            // v5.134.0 — Unit Configurations (apartments / dorms / hotels):
+            // {configurations: [...], confidence: 'high|medium|low|n/a', notes: '', is_repeated_unit_project}
+            unitConfigurations: state._unitConfigurations || null,
 
             // Estimator Review Checklist — checked items (so reopened bids remember progress)
             checklistChecked: state._checklistChecked || {},

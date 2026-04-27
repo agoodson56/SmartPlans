@@ -4425,6 +4425,37 @@ const SmartBrains = {
       }
     }
 
+    // v5.134.0 fix — unit_configurations math validator.
+    // Each config's totals[device] MUST equal devices_per_unit[device] × unit_count.
+    // Reject and trigger retry if the AI shipped totals that disagree with the math
+    // (off by more than 1 unit per device to allow for rounding edge cases).
+    if (Array.isArray(parsed.unit_configurations) && parsed.unit_configurations.length > 0) {
+      const mismatches = [];
+      for (const cfg of parsed.unit_configurations) {
+        if (!cfg || typeof cfg !== 'object') continue;
+        const dpu = cfg.devices_per_unit || {};
+        const totals = cfg.totals || {};
+        const uc = Number(cfg.unit_count) || 0;
+        if (uc <= 0 || !Object.keys(dpu).length) continue;
+        for (const [device, perUnit] of Object.entries(dpu)) {
+          const perUnitN = Number(perUnit) || 0;
+          const totalN = Number(totals[device]) || 0;
+          const expected = perUnitN * uc;
+          if (Math.abs(totalN - expected) > 1) {
+            mismatches.push(`${cfg.name || '?'}: ${device} total=${totalN}, expected=${perUnitN}×${uc}=${expected}`);
+            if (mismatches.length >= 5) break;
+          }
+        }
+        if (mismatches.length >= 5) break;
+      }
+      if (mismatches.length > 0) {
+        return {
+          valid: false,
+          reason: `${brainKey}: unit_configurations math is inconsistent — ${mismatches.join('; ')}. totals[device] must equal devices_per_unit[device] × unit_count for every device in every configuration.`,
+        };
+      }
+    }
+
     return { valid: true };
   },
 
@@ -4482,6 +4513,87 @@ const SmartBrains = {
     } catch (e) { return obj; }
   },
 
+  // ═══════════════════════════════════════════════════════════
+  // v5.134.0 — REPEATED-UNIT CONFIGURATION SCANNER
+  // ═══════════════════════════════════════════════════════════
+  // Apartments / dorms / hotels / barracks / student-housing have
+  // many functionally identical units. Counting them by scanning
+  // every individual room is slow AND error-prone — the AI gets
+  // bored, loses count, or skips repeated rooms. The right approach
+  // is the way human estimators do it:
+  //   1. Find the typical-unit pages (Unit A, Unit B, ADA, etc.)
+  //   2. Count devices per unit type
+  //   3. Find how many of each unit type exist (key plan, schedule)
+  //   4. Multiply
+  //   5. Sum across configurations
+  // This block is injected into every counting brain so they all
+  // apply the same methodology.
+  _isRepeatedUnitProject(context) {
+    if (!context) return false;
+    const text = `${context.projectName || ''} ${context.projectType || ''} ${context.projectSubtype || ''}`.toLowerCase();
+    if (!text.trim()) return false;
+    return /apartment|multi.?family|dormitory|dorm\b|student\s*housing|hotel|motel|hospitality|condo|condominium|barrack|housing\s*development|residential\s*tower|mixed.?use\s*residential/.test(text);
+  },
+
+  _unitConfigInstructions() {
+    return `
+═══ REPEATED-UNIT PROJECTS — CONFIGURATION-FIRST COUNTING (MANDATORY) ═══
+
+If this project has REPEATED LIVING UNITS — apartments, dormitories, hotels,
+student housing, motels, military barracks, condos — you MUST count devices
+by configuration FIRST, not by scanning every individual room/unit.
+
+STEP 1 — FIND CONFIGURATIONS. Before counting anything, locate:
+  • Typical-unit / typical-room plan sheets
+  • Enlarged plans of unit interiors
+  • Unit matrix pages, room configuration sheets
+  • Apartment / dorm / hotel-room type layouts (e.g., "Unit A", "Studio",
+    "1-Bedroom", "2-Bedroom", "ADA Unit", "King Room", "Double Queen",
+    "Dorm Type 1", "Dorm Type 2")
+  • Key plans showing unit stacking
+  • Unit schedules / room schedules
+
+STEP 2 — DEVICE COUNT PER CONFIGURATION. For each configuration, count
+every in-scope low-voltage device drawn inside that ONE unit: data outlets,
+voice outlets, WAPs, cameras, card readers, mag locks, door contacts, smoke
+detectors, fire alarm strobes, intrusion sensors, AV touch panels, nurse
+call stations, etc. Provide the per-unit count.
+
+STEP 3 — UNIT QUANTITY PER CONFIGURATION. Find how many of each
+configuration exist in the project. Use unit schedules, key plans, floor
+plans, building/floor stacking plans, match lines, room numbers.
+
+STEP 4 — MULTIPLY. devices_per_config × unit_count = total_for_that_config.
+Sum across all configurations for the project total.
+
+STEP 5 — DO NOT ASSUME UNITS ARE IDENTICAL. Different configurations
+must be counted separately even if the building has many units.
+
+STEP 6 — LOW CONFIDENCE + RFI. If you cannot find typical-unit pages,
+or you cannot determine matching unit counts with confidence, set
+unit_configurations_confidence = "low" AND emit a clarification question
+asking the customer to confirm the unit-type counts and the configurations.
+
+OUTPUT (in addition to your normal counts) the following JSON field:
+"unit_configurations": [
+  {
+    "name": "Unit A — 1BR",
+    "source_sheet": "A-2.01 Typical Unit A",
+    "devices_per_unit": { "data_outlet": 4, "wap": 1, "smoke_detector": 2 },
+    "unit_count": 60,
+    "totals": { "data_outlet": 240, "wap": 60, "smoke_detector": 120 }
+  }
+],
+"unit_configurations_confidence": "high|medium|low",
+"unit_configurations_notes": "..."
+
+If the project is NOT a repeated-unit type (commercial office, transit
+station, warehouse, retail, etc.), output unit_configurations: [] and
+unit_configurations_confidence: "n/a".
+═══════════════════════════════════════════════════════════════
+`;
+  },
+
   _getPrompt(brainKey, context) {
     // AUDIT FIX #17 + v5.126.0 PHASE 1.8: Prompt injection defense.
     // Collapse all whitespace (newlines, tabs, multiple spaces) to single
@@ -4528,6 +4640,7 @@ DISCIPLINES: ${(context.disciplines || []).join(', ')}
 NOTE: Documents have been pre-filtered to only include sheets/specs matching the selected disciplines above. Only count devices belonging to these disciplines — ignore any symbols from other trades that may appear on shared sheets.
 
 YOUR MISSION: Scan EVERY sheet and count EVERY device symbol for the selected disciplines. Be exhaustive.
+${this._isRepeatedUnitProject(context) ? this._unitConfigInstructions() : ''}
 ${context._vectorSummary ? `
 ═══ 🧭 DETERMINISTIC VECTOR EXTRACTION (v5.127.2 — TRUST THIS) ═══
 ${context._vectorSummary}
@@ -4636,6 +4749,9 @@ Return ONLY valid JSON:
     { "type": "camera", "subtype": "fixed_dome", "room": "Lobby", "floor": "1st Floor", "sheet": "E1.01", "qty": 3 },
     { "type": "camera", "subtype": "fixed_dome", "room": "Corridor A", "floor": "1st Floor", "sheet": "E1.01", "qty": 5 }
   ],
+  "unit_configurations": [],
+  "unit_configurations_confidence": "n/a",
+  "unit_configurations_notes": "",
   "unidentified_symbols": [],
   "notes": "string with any observations"
 }`,
@@ -7972,7 +8088,7 @@ DISCIPLINES: ${(context.disciplines || []).join(', ')}
 
 LEGEND DICTIONARY (from Legend Decoder):
 ${JSON.stringify(context.wave0?.LEGEND_DECODER || {}, null, 2).substring(0, 4000)}
-
+${this._isRepeatedUnitProject(context) ? this._unitConfigInstructions() : ''}
 YOUR METHODOLOGY — ROOM-BY-ROOM SCAN:
 1. Identify every distinct room/space/area on each sheet
 2. For EACH room, count every device symbol inside its boundaries
@@ -8006,6 +8122,8 @@ Return ONLY valid JSON (same schema as Symbol Scanner):
   "totals": { "camera": 48, "data_outlet": 200 },
   "outlet_breakdown": { "1D": 10, "2D": 80, "4D": 15, "6D": 0 },
   "methodology": "room-by-room",
+  "unit_configurations": [],
+  "unit_configurations_confidence": "n/a",
   "unidentified_symbols": [],
   "notes": ""
 }`,
@@ -8058,7 +8176,7 @@ Return ONLY valid JSON:
 
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
-
+${this._isRepeatedUnitProject(context) ? this._unitConfigInstructions() : ''}
 YOUR METHODOLOGY — 9-ZONE GRID DIVISION (3×3):
 For each sheet:
 1. Mentally divide the drawing into a 3×3 GRID (9 zones): TL, TC, TR, ML, MC, MR, BL, BC, BR
@@ -8091,11 +8209,32 @@ Return ONLY valid JSON:
   "outlet_breakdown": { "1D": 10, "2D": 80, "4D": 15, "6D": 0 },
   "boundary_devices": [
     { "sheet": "E1.01", "type": "data_outlet", "count": 3, "note": "On grid boundary — counted once in nearest zone" }
-  ]
+  ],
+  "unit_configurations": [],
+  "unit_configurations_confidence": "n/a"
 }`,
 
       // ── BRAIN 9: Consensus Arbitrator (Wave 1.75) ─────────────
       CONSENSUS_ARBITRATOR: () => `You are a SENIOR CONSENSUS ANALYST. Multiple independent teams just counted every device symbol on the same construction drawings using different methodologies. Your job is to find the TRUTH.
+${this._isRepeatedUnitProject(context) ? `
+═══ REPEATED-UNIT RECONCILIATION (apartments / dorms / hotels) ═══
+The scanner brains were instructed to count by configuration first
+(Unit A × N units, Unit B × M units, etc.). Their unit_configurations
+arrays should be in this prompt below. Your job:
+  1. Reconcile the configurations across reads — same configuration name
+     and source_sheet should match, devices_per_unit should be near-identical.
+  2. Verify the math: for each configuration, totals = devices_per_unit × unit_count.
+     If a scanner shipped totals that don't match its math, flag it.
+  3. If two scanners disagree on unit_count for the same config (e.g.,
+     Symbol Scanner says 60 of Unit A, Shadow Scanner says 64), pick the
+     count from the scanner that cited a unit schedule or key plan, not
+     a visual count. If neither cited a source, mark unit_configurations_confidence = "low".
+  4. Sum all configurations and verify the project totals match.
+     A project total that doesn't match the sum of (devices_per_unit × unit_count)
+     across all configurations is wrong — surface it as a dispute.
+  5. Output the reconciled unit_configurations array (one entry per config)
+     and confidence level in your JSON.
+` : ''}
 ${(() => {
   // Wave 10 C3 (v5.128.7): inject deterministic ground truth when Wave 4
   // reconcile produced overrides. pdf.js reads EXACT text labels from the
@@ -8223,6 +8362,11 @@ Return ONLY valid JSON:
   "disputes": [
     { "device_type": "data_outlet", "read1": 200, "read2": 180, "read3": 210, "variance_pct": 15, "likely_problem_area": "Sheet E1.02 open office zone", "needs_rescan": true }
   ],
+  "unit_configurations": [
+    { "name": "Unit A — 1BR", "source_sheet": "A-2.01", "devices_per_unit": { "data_outlet": 4, "wap": 1, "smoke_detector": 2 }, "unit_count": 60, "totals": { "data_outlet": 240, "wap": 60, "smoke_detector": 120 } }
+  ],
+  "unit_configurations_confidence": "high|medium|low|n/a",
+  "unit_configurations_notes": "",
   "confidence": 94,
   "total_items_compared": 15,
   "items_in_consensus": 12,
@@ -8478,6 +8622,7 @@ Return ONLY valid JSON:
       // ── BRAIN 20: Final Reconciliation (Wave 3.75 — 6th Read) ──
       FINAL_RECONCILIATION: () => {
         const consensus = context.wave1_75?.CONSENSUS_ARBITRATOR?.consensus_counts || {};
+        const consensusUnitConfigs = context.wave1_75?.CONSENSUS_ARBITRATOR?.unit_configurations || [];
         const detailVerifier = context.wave3_5?.DETAIL_VERIFIER || {};
         const crossSheet = context.wave3_5?.CROSS_SHEET_ANALYZER || {};
         const reverseVerifier = context.wave2_75?.REVERSE_VERIFIER || {};
@@ -8486,6 +8631,28 @@ Return ONLY valid JSON:
 
 PROJECT: ${context.projectName || 'Unknown'}
 DISCIPLINES: ${(context.disciplines || []).join(', ')}
+${this._isRepeatedUnitProject(context) ? `
+═══ REPEATED-UNIT PROJECT — UNIT-CONFIGURATION RECONCILIATION ═══
+The CONSENSUS_ARBITRATOR produced this unit_configurations array from the
+counting brains. Verify the math, fix any inconsistencies, and emit the
+final authoritative version in your output.
+
+CONSENSUS UNIT CONFIGURATIONS:
+${JSON.stringify(consensusUnitConfigs, null, 2).substring(0, 4000)}
+
+REQUIREMENTS for your final unit_configurations output:
+  1. Each entry must have: name, source_sheet, devices_per_unit, unit_count, totals.
+  2. totals[device] MUST equal devices_per_unit[device] × unit_count for every device.
+     Recompute and fix if the consensus values disagree.
+  3. The sum of totals across all configurations should account for every device
+     in the unit-side scope (you may have additional non-unit devices in common areas
+     like corridors, lobbies, MDF rooms — those go in the regular totals as before).
+  4. If you cannot find typical-unit pages OR cannot determine unit counts:
+     set unit_configurations_confidence = "low" AND describe what's missing
+     in unit_configurations_notes (this triggers an RFI to the customer).
+  5. Final_counts in your output should EQUAL the sum of unit_configurations totals
+     PLUS any common-area devices not assigned to a configuration.
+` : ''}
 
 ═══ DATA FROM ALL 5 PRIOR READS ═══
 
@@ -8527,6 +8694,11 @@ Return ONLY valid JSON:
   "adjustment_log": [
     { "device_type": "data_outlet", "original_consensus": 200, "final_count": 208, "adjustment": "+8", "reason": "Detail Verifier found 4 behind annotations + Cross-Sheet caught 4 missed at boundaries" }
   ],
+  "unit_configurations": [
+    { "name": "Unit A — 1BR", "source_sheet": "A-2.01", "devices_per_unit": { "data_outlet": 4, "wap": 1, "smoke_detector": 2 }, "unit_count": 60, "totals": { "data_outlet": 240, "wap": 60, "smoke_detector": 120 } }
+  ],
+  "unit_configurations_confidence": "high|medium|low|n/a",
+  "unit_configurations_notes": "",
   "confidence_score": 97,
   "total_devices_counted": 0,
   "reading_methodology": "6-read consensus with precision verification"
@@ -13214,6 +13386,45 @@ ${legendContext}
       const wave375Results = await this._runWave(3.75, ['FINAL_RECONCILIATION'], filteredEncodedFiles, state, context, progressCallback);
       context.wave3_75 = wave375Results;
       console.log('[SmartBrains] ═══ Wave 3.75 Complete — 6th Read done ═══');
+
+      // v5.134.0 — capture unit_configurations from FINAL_RECONCILIATION (preferred)
+      // or CONSENSUS_ARBITRATOR (fallback) into context + state so app/export can
+      // surface the configuration breakdown and trigger an RFI on low confidence.
+      const final = wave375Results?.FINAL_RECONCILIATION;
+      const consensus = context.wave1_75?.CONSENSUS_ARBITRATOR;
+      const uc = (Array.isArray(final?.unit_configurations) && final.unit_configurations.length > 0)
+        ? final.unit_configurations
+        : (Array.isArray(consensus?.unit_configurations) ? consensus.unit_configurations : []);
+      const ucConfidence = final?.unit_configurations_confidence
+        || consensus?.unit_configurations_confidence
+        || (this._isRepeatedUnitProject(context) ? 'low' : 'n/a');
+      const ucNotes = final?.unit_configurations_notes || consensus?.unit_configurations_notes || '';
+      const unitConfigData = {
+        configurations: uc,
+        confidence: ucConfidence,
+        notes: ucNotes,
+        is_repeated_unit_project: this._isRepeatedUnitProject(context),
+      };
+      context._unitConfigurations = unitConfigData;
+      state._unitConfigurations = unitConfigData;
+      if (this._isRepeatedUnitProject(context)) {
+        if (uc.length > 0) {
+          console.log(`[SmartBrains] 🏢 Unit configurations: ${uc.length} type(s) — ${uc.map(c => `${c.name}×${c.unit_count}`).join(', ')} (confidence: ${ucConfidence})`);
+        } else {
+          console.warn('[SmartBrains] 🏢 Repeated-unit project but NO unit_configurations were extracted — RFI will be generated to confirm unit-type counts.');
+        }
+        // Auto-generate clarification questions for low confidence or missing data.
+        if (ucConfidence === 'low' || uc.length === 0) {
+          context._clarificationQuestions = context._clarificationQuestions || [];
+          context._clarificationQuestions.push({
+            id: 'unit_config_confirm',
+            severity: 'high',
+            category: 'Unit Configurations',
+            question: 'Please confirm the unit-type counts for this project (e.g., "Unit A — 1BR × 60", "Unit B — 2BR × 24", "ADA Unit × 4"). The plans did not clearly identify the configurations or matching unit counts. Without this, device counts and BOM may be wrong.',
+            why: 'Repeated-unit projects (apartments / dorms / hotels) require per-configuration counting × unit-count math. Cannot proceed accurately without confirmed configurations.',
+          });
+        }
+      }
     } catch (e) {
       console.warn('[SmartBrains] Wave 3.75 failed (non-fatal, continuing):', e.message);
       context.wave3_75 = {};
@@ -13637,6 +13848,7 @@ ${legendContext}
       sessionInsights: context._brainInsights || [],
       quantityAnomalies: context._quantityAnomalies || null,
       confidenceScoring: context._confidenceScoring || null,
+      unitConfigurations: context._unitConfigurations || null,
       quantitiesUnverified: context._quantitiesUnverified || false,
       quantitiesUnverifiedReason: context._quantitiesUnverifiedReason || '',
       // v5.125.1: per-discipline coverage

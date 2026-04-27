@@ -1874,6 +1874,7 @@ function startNewBid() {
   state._specCompliance = null;
   state._confidenceScoring = null;
   state._quantityAnomalies = null;
+  state._unitConfigurations = null;
   state._proposalNarrative = null;
   state._mathAuditLog = [];
   state._mathAuditFixes = 0;
@@ -10025,6 +10026,8 @@ function renderStep7(container) {
 
     ${buildQuantityAnomalyCard(state)}
 
+    ${buildUnitConfigurationsCard(state)}
+
     ${buildConfidenceScoringCard(state)}
 
     ${build3DEngineCard(state)}
@@ -13511,6 +13514,8 @@ async function runGeminiAnalysis(updateProgress) {
     state._mathAuditFixes = result.stats?.mathAuditFixes || 0;
     state._quantityAnomalies = result.quantityAnomalies || null;
     state._confidenceScoring = result.confidenceScoring || null;
+    // v5.134.0 — repeated-unit configuration breakdown (apartments / dorms / hotels).
+    state._unitConfigurations = result.unitConfigurations || null;
     state._quantitiesUnverified = result.quantitiesUnverified || false;
     state._quantitiesUnverifiedReason = result.quantitiesUnverifiedReason || '';
     // v5.125.1: per-discipline coverage
@@ -14638,6 +14643,7 @@ function _restoreStateFromPayload(id, pkg, est) {
   if (pkg?.proposalNarrative) state._proposalNarrative = pkg.proposalNarrative;
   if (pkg?.quantityAnomalies) state._quantityAnomalies = pkg.quantityAnomalies;
   if (pkg?.confidenceScoring) state._confidenceScoring = pkg.confidenceScoring;
+  if (pkg?.unitConfigurations) state._unitConfigurations = pkg.unitConfigurations;
   if (pkg?.checklistChecked) state._checklistChecked = pkg.checklistChecked;
 
   // ── Restore 3D Engine reference result (was saved but never restored) ──
@@ -18240,6 +18246,96 @@ function buildQuantityAnomalyCard(st) {
             </div>
           `).join('')}
         </div>
+      ` : ''}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// v5.134.0 — UNIT CONFIGURATIONS CARD
+// Apartments / dorms / hotels: shows the per-configuration math
+// (devices_per_unit × unit_count = totals) so the estimator can
+// see and verify how the device counts were assembled, not just
+// stare at a single grand total. Renders only when the project
+// is a repeated-unit type AND configurations were extracted (or
+// when extraction failed and an RFI is needed).
+// ═══════════════════════════════════════════════════════════════
+function buildUnitConfigurationsCard(st) {
+  const uc = st._unitConfigurations;
+  if (!uc) return '';
+  if (!uc.is_repeated_unit_project) return '';
+  const configs = Array.isArray(uc.configurations) ? uc.configurations : [];
+  const confidence = uc.confidence || 'n/a';
+  const isLow = confidence === 'low' || configs.length === 0;
+  const color = isLow ? '#ef4444' : (confidence === 'medium' ? '#f59e0b' : '#22c55e');
+  const headerLabel = isLow ? 'LOW CONFIDENCE — RFI REQUIRED'
+                            : (confidence === 'medium' ? 'MEDIUM CONFIDENCE'
+                            : 'HIGH CONFIDENCE');
+
+  // Aggregate totals across all configurations for the project-level summary.
+  const projectTotals = {};
+  for (const c of configs) {
+    if (!c || !c.totals) continue;
+    for (const [device, qty] of Object.entries(c.totals)) {
+      const n = Number(qty) || 0;
+      projectTotals[device] = (projectTotals[device] || 0) + n;
+    }
+  }
+  const projectTotalDevices = Object.values(projectTotals).reduce((s, n) => s + n, 0);
+
+  let rows = '';
+  if (configs.length > 0) {
+    for (const c of configs) {
+      const dpu = c.devices_per_unit || {};
+      const totals = c.totals || {};
+      const unitCount = Number(c.unit_count) || 0;
+      const dpuList = Object.entries(dpu).map(([d, n]) => `${esc(d)}: ${Number(n)||0}`).join(', ') || '—';
+      const totalsList = Object.entries(totals).map(([d, n]) => `${esc(d)}: ${Number(n)||0}`).join(', ') || '—';
+      rows += `<tr style="border-bottom:1px solid rgba(0,0,0,0.06);">
+        <td style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--text-primary);">${esc(c.name || 'Unnamed')}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--text-secondary);">${esc(c.source_sheet || '—')}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--text-secondary);max-width:280px;">${dpuList}</td>
+        <td style="padding:8px 12px;text-align:center;font-size:13px;font-weight:700;color:#0d9488;">${unitCount}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--text-secondary);max-width:280px;">${totalsList}</td>
+      </tr>`;
+    }
+  }
+
+  const projectSummary = projectTotalDevices > 0
+    ? `<div style="margin-top:14px;padding:12px 14px;background:rgba(13,148,136,0.06);border:1px solid rgba(13,148,136,0.18);border-radius:8px;font-size:12px;color:var(--text-primary);">
+         <div style="font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#0d9488;font-size:11px;margin-bottom:6px;">Project totals from configurations</div>
+         ${Object.entries(projectTotals).map(([d, n]) => `<span style="display:inline-block;margin-right:14px;"><strong>${esc(d)}:</strong> ${n}</span>`).join('')}
+       </div>`
+    : '';
+
+  return `
+    <div class="info-card" id="unit-config-card" style="border-left:3px solid ${color};">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h3 class="info-card-title" style="margin:0;">🏢 UNIT CONFIGURATIONS</h3>
+        <span style="font-size:11px;padding:3px 10px;border-radius:8px;background:${color}22;color:${color};font-weight:700;">${headerLabel}</span>
+      </div>
+      ${isLow ? `
+        <div style="padding:12px 14px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.6;color:var(--text-primary);">
+          <strong style="color:#ef4444;">RFI required.</strong> ${configs.length === 0
+            ? 'No typical-unit / unit-matrix pages were found in the plans, OR the matching unit counts could not be determined.'
+            : 'Unit configurations were partially extracted but the unit counts are uncertain.'}
+          A clarification question has been auto-added to the RFI list — please confirm the unit-type counts with the customer (e.g., "Unit A — 1BR × 60", "Unit B — 2BR × 24") before submitting the bid. Repeated-unit projects (apartments, dorms, hotels) require per-configuration counting × unit-count math.
+          ${uc.notes ? `<div style="margin-top:8px;font-style:italic;color:var(--text-secondary);">Note: ${esc(uc.notes)}</div>` : ''}
+        </div>
+      ` : ''}
+      ${configs.length > 0 ? `
+        <div style="overflow-x:auto;border:1px solid var(--border-subtle);border-radius:6px;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr style="background:var(--bg-surface-2);">
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;">Configuration</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;">Source Sheet</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;">Devices / Unit</th>
+              <th style="padding:10px 12px;text-align:center;font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;"># Units</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:1px;">Totals</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        ${projectSummary}
       ` : ''}
     </div>`;
 }
