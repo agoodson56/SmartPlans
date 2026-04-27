@@ -3298,7 +3298,14 @@ const SmartBrains = {
       : (brainDef.useProModel ? (this.config.proModel || this.config.model)
          : (brainDef.useAccuracyModel && this.config.accuracyModel) ? this.config.accuracyModel
          : this.config.model);
-    const url = useClaude ? '/api/ai/claude-invoke' : this.config.proxyEndpoint;
+    // v5.129.13 (CRITICAL bid-fix): make `url` mutable so we can re-route
+    // when a Claude model is blacklisted mid-session and the fallback
+    // switches to Gemini. Pre-fix, `url` was declared `const` and stayed
+    // pinned to /api/ai/claude-invoke even after `modelName` flipped to
+    // gemini-2.5-pro/flash → every retry slammed the Claude proxy with
+    // a Gemini-shape body and got 404, exhausting the retry budget on
+    // every electrical sheet that triggered Claude's 5 MB image limit.
+    let url = useClaude ? '/api/ai/claude-invoke' : this.config.proxyEndpoint;
     if (useClaude && this.config.DEBUG) console.log(`[Brain:${brainDef.name}] Provider override → Claude (${modelName})`);
 
     // Check for uploaded file URIs — needed for key pinning in both main loop and fallback
@@ -3317,6 +3324,9 @@ const SmartBrains = {
       if (fallback) {
         console.log(`[Brain:${brainDef.name}] Skipping blacklisted model ${modelName} → using ${fallback}`);
         modelName = fallback;
+        // v5.129.13: also re-route the URL — switching from Claude
+        // to Gemini means the request must go to the Gemini proxy.
+        url = this.config.proxyEndpoint;
       } else {
         // ALL models blacklisted — skip retry loop entirely, go straight to fallback
         console.warn(`[Brain:${brainDef.name}] All models blacklisted — skipping to fallback`);
@@ -3978,7 +3988,11 @@ const SmartBrains = {
 
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), this.config.timeout);
-        const response = await fetch(url, {
+        // v5.129.13: legacy "last attempt" fallback always uses the
+        // configured Gemini proxy (this.config.model is a Gemini model).
+        // Pre-fix this used the outer `url` which could still be
+        // /api/ai/claude-invoke from a Claude-overridden first call.
+        const response = await fetch(this.config.proxyEndpoint, {
           method: 'POST',
           headers: this._authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(fbBody),
