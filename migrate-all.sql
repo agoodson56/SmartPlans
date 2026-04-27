@@ -283,6 +283,25 @@ CREATE TABLE IF NOT EXISTS bid_decisions (
 CREATE INDEX IF NOT EXISTS idx_bid_decisions_category ON bid_decisions(category);
 CREATE INDEX IF NOT EXISTS idx_bid_decisions_type ON bid_decisions(project_type);
 
+-- Labor standards (BICSI-style activity-level labor units)
+CREATE TABLE IF NOT EXISTS labor_standards (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    activity TEXT NOT NULL,
+    discipline TEXT,
+    role TEXT,
+    unit TEXT DEFAULT 'EA',
+    unit_minutes REAL,
+    unit_hours REAL,
+    source_standard TEXT DEFAULT 'won-bid',
+    source_bid TEXT,
+    sample_count INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_labor_std_activity ON labor_standards(activity);
+CREATE INDEX IF NOT EXISTS idx_labor_std_discipline ON labor_standards(discipline);
+CREATE INDEX IF NOT EXISTS idx_labor_std_role ON labor_standards(role);
+
 -- Performance indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_revisions_created ON estimate_revisions(created_at DESC);

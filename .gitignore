@@ -1,2 +1,7 @@
 .wrangler/
 node_modules/
+
+# Generated bid-seed SQL — proprietary pricing data, never commit
+scripts/seed.sql
+scripts/seed-*.sql
+

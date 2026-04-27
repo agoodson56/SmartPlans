@@ -359,6 +359,32 @@ CREATE INDEX IF NOT EXISTS idx_bid_corrections_disc ON bid_corrections(disciplin
 CREATE INDEX IF NOT EXISTS idx_bid_corrections_item ON bid_corrections(item_name);
 CREATE INDEX IF NOT EXISTS idx_bid_corrections_created ON bid_corrections(created_at DESC);
 
+-- ═══════════════════════════════════════════════════════════════
+-- Labor Standards — BICSI-style activity-level labor units
+-- Per-task minutes/hours from prior bids and reference standards.
+-- Used by Labor Calculator brain to ground hour calculations on
+-- real production rates rather than AI-generated guesses.
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS labor_standards (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    activity TEXT NOT NULL,           -- e.g. "PULL CAT6 CABLE", "TERMINATE C6 WS/PP"
+    discipline TEXT,                  -- CCTV | ACCESS_CONTROL | STRUCTURED_CABLING | ...
+    role TEXT,                        -- CABLE_INSTALLER | DATA_TECH_II | PROJECT_MANAGER | ...
+    unit TEXT DEFAULT 'EA',           -- EA | LF | FT | DROP
+    unit_minutes REAL,                -- Minutes per unit
+    unit_hours REAL,                  -- Hours per unit (computed: unit_minutes/60 if not set)
+    source_standard TEXT DEFAULT 'won-bid',
+    source_bid TEXT,                  -- Which prior bid this row came from
+    sample_count INTEGER DEFAULT 1,   -- How many bids confirmed this rate
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_labor_std_activity ON labor_standards(activity);
+CREATE INDEX IF NOT EXISTS idx_labor_std_discipline ON labor_standards(discipline);
+CREATE INDEX IF NOT EXISTS idx_labor_std_role ON labor_standards(role);
+
 -- Performance indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_estimates_updated ON estimates(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_revisions_created ON estimate_revisions(created_at DESC);
