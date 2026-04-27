@@ -3911,10 +3911,21 @@ function canProceed() {
 }
 
 function getAccuracyEstimate() {
+  // v5.135.1 — base accuracy now derived from auto-detected intake (when present)
+  // rather than the manual file-format dropdown (which has been removed).
+  // Pre-analysis: assume vector-PDF baseline since that's the common case.
+  // Post-analysis: trust the Drawing Intake QC readiness score directly.
   let base = 58;
+  const intake = state._drawingIntake;
+  if (intake && Number.isFinite(Number(intake.readinessScore))) {
+    return Math.min(99, Math.round(Number(intake.readinessScore)));
+  }
+  // Fallbacks for old saved bids that still have state.fileFormat set,
+  // OR pre-analysis preview before Wave 0.1 has run.
   const fmt = state.fileFormat;
   if (fmt === "Vector PDF (from CAD)" || fmt === "DWG / DXF (AutoCAD)" || fmt === "IFC / Revit BIM") base = 86;
   else if (fmt === "High-res scan (300+ DPI)") base = 70;
+  else base = 80; // Reasonable mid-range default before intake runs
   if (state.legendFiles.length > 0) base += 5;
   if (state.specFiles.length > 0) base += 3;
   if (state.knownQuantities.trim()) base += 2;
@@ -4618,34 +4629,16 @@ function _renderWageZonePreview(st) {
 
 // ─── Step 0: Project Setup ───
 function renderStep0(container) {
-  const formatOptions = FILE_FORMATS.map(f => `<option value="${esc(f.label)}" ${state.fileFormat === f.label ? 'selected' : ''}>${esc(f.label)}</option>`).join("");
+  // v5.135.1 — file-format dropdown removed. The Wave 0.1 Drawing Intake QC
+  // brain auto-detects vector PDF / DWG / IFC / scan / mixed from the upload
+  // and emits the 94% accuracy gate. Asking the user to pre-classify is
+  // redundant and contradicts the auto-detection. state.fileFormat remains
+  // for backwards-compat with old saved bids but is no longer set by Step 0.
   const projectTypeOptions = PROJECT_TYPES.map(t => `<option value="${esc(t)}" ${state.projectType === t ? 'selected' : ''}>${esc(t)}</option>`).join("");
   const disciplineChips = DISCIPLINES.map(d => {
     const sel = state.disciplines.includes(d) ? " selected" : "";
     return `<button class="chip${sel}" data-disc="${esc(d)}">${sel ? "✓ " : ""}${esc(d)}</button>`;
   }).join("");
-
-  let formatFeedback = "";
-  if (state.fileFormat) {
-    const fi = getFormatInfo(state.fileFormat);
-    if (fi) {
-      const q = fi.quality;
-      let msg = "";
-      if (q === "best") msg = "Excellent choice. This format preserves full symbol data, text selectability, and precise geometry. You'll get the highest accuracy possible.";
-      else if (q === "ok") msg = "Acceptable but not ideal. Scanned plans lose text selectability and fine detail. Expect 70–85% accuracy. If possible, request vector PDFs from the architect.";
-      else msg = "This format will significantly limit accuracy. Small symbols blur together and text becomes unreadable. Strongly recommend requesting higher-quality files from the design team.";
-
-      formatFeedback = `
-        <div class="format-badge ${q}">
-          ${q === "best" ? "✓ Best Quality" : q === "ok" ? "⚠ Acceptable" : "⚠ Low Quality"}
-        </div>
-        <div class="info-card info-card--${q === "best" ? "emerald" : q === "ok" ? "amber" : "rose"}">
-          <div class="info-card-title">Format Quality</div>
-          <div class="info-card-body">${msg}</div>
-        </div>
-      `;
-    }
-  }
 
   container.innerHTML = `
     <h2 class="step-heading">Tell me about your project</h2>
@@ -4746,13 +4739,15 @@ function renderStep0(container) {
     </div>
 
     <div class="form-group">
-      <label class="form-label" for="file-format">What file format are your drawings in?</label>
-      <select class="form-select" id="file-format">
-        <option value="">Select…</option>
-        ${formatOptions}
-      </select>
+      <label class="form-label">File format</label>
+      <p class="form-hint" style="margin-top:4px;">
+        🧐 <strong>Auto-detected after upload.</strong> The Drawing Intake QC scan reads each
+        sheet's resolution, symbol clarity, scale, and legend, then classifies the source
+        (Vector PDF, DWG/DXF, IFC/Revit, high-res scan, low-res scan, mixed). The 94%
+        Accuracy Gate runs on every upload — you'll see the result on Step 7 before any
+        counting begins. No need to pre-select the format.
+      </p>
     </div>
-    ${formatFeedback}
 
     <div class="form-group">
       <label class="form-label" for="specific-items">Specific items to count <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
@@ -5300,10 +5295,7 @@ function renderStep0(container) {
     renderFooter();
   });
 
-  const fmtSelect = document.getElementById("file-format");
-  fmtSelect.value = state.fileFormat;
-  fmtSelect.addEventListener("change", () => { state.fileFormat = fmtSelect.value; renderStep0(container); renderFooter(); });
-
+  // v5.135.1 — file-format dropdown removed (auto-detected by Drawing Intake QC).
   document.getElementById("specific-items").addEventListener("input", e => { state.specificItems = e.target.value; SmartDefaults.markManual('specificItems'); });
   document.getElementById("known-quantities").addEventListener("input", e => { state.knownQuantities = e.target.value; });
   document.getElementById("code-jurisdiction").addEventListener("input", e => { state.codeJurisdiction = e.target.value; });
@@ -5842,7 +5834,7 @@ function renderStep5(container) {
       </div>
       <div class="summary-card">
         <div class="summary-card-label">File Format</div>
-        <div class="summary-card-value">${esc(state.fileFormat) || "Not specified"}</div>
+        <div class="summary-card-value">${esc(state._drawingIntake?.fileType || state.fileFormat || 'Auto-detect on upload')}</div>
       </div>
       <div class="summary-card">
         <div class="summary-card-label">Code Jurisdiction</div>
@@ -11830,7 +11822,7 @@ Project: "${state.projectName}"
 Project Type: ${state.projectType}
 Project Location: ${state.projectLocation || "Not specified"}
 ELV Disciplines to analyze: ${state.disciplines.join(", ")}
-File Format: ${state.fileFormat || "Not specified"}
+File Format: ${state._drawingIntake?.fileType || state.fileFormat || "Auto-detect on upload"}
 Code Jurisdiction: ${state.codeJurisdiction || "Not specified"}
 Prevailing Wage: ${state.prevailingWage === "davis-bacon" ? "Davis-Bacon Act (Federal)" : state.prevailingWage === "state-prevailing" ? "State Prevailing Wage" : state.prevailingWage === "pla" ? "Project Labor Agreement (PLA)" : "Not applicable — standard rates"}
 Work Shift: ${state.workShift === "2nd-shift" ? "2nd Shift (3PM-11:30PM)" : state.workShift === "3rd-shift" ? "3rd Shift / Overnight (11PM-7:30AM)" : state.workShift === "weekends" ? "Weekends Only" : state.workShift === "split" ? "Split Shift (around occupants)" : state.workShift === "mixed" ? "Mixed — varies by phase" : state.workShift === "4-10" ? "4/10s (4 days × 10 hours)" : "1st Shift — Standard (7AM-3:30PM)"}
