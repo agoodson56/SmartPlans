@@ -11148,6 +11148,30 @@ ${legendContext}
     // re-probing happens if a full 5 min elapsed since last check.
     this._providerOverride = null;
     this._wave10CrossCheckDisagreements = [];
+
+    // v5.139.0 (2026-04-28): CLAUDE PRIMARY MODE — at 3-4 bids/day, reliability
+    // dominates cost. Default every run onto Claude Opus 4.7 when configured
+    // and reachable; Gemini becomes the cross-check validator instead of the
+    // workhorse. Triggered by today's Google AI 524-storm: the existing
+    // health-probe gate (lines ~11100) only watches API-key availability and
+    // doesn't catch upstream-timeout outages, so Gemini-as-primary kept
+    // failing brain after brain on a "healthy" key pool. This flip makes
+    // Claude the default and demotes Gemini to fallback. Reverts in one line:
+    // delete the block below to restore Gemini-primary behavior.
+    if (this.config.enableClaudeFallback) {
+      try {
+        const claudeOk = await this._checkClaudeAvailable();
+        if (claudeOk) {
+          this._providerOverride = 'anthropic';
+          console.log('[SmartBrains] 🎯 Claude Opus primary mode active (v5.139.0) — Gemini becomes cross-check validator');
+        } else {
+          console.warn('[SmartBrains] ⚠️ Claude not configured — falling back to Gemini-primary for this run');
+        }
+      } catch (e) {
+        console.warn('[SmartBrains] Claude availability probe failed (non-fatal, using Gemini):', e.message);
+      }
+    }
+
     if (this._circuitBreaker) {
       this._circuitBreaker.consecutive429s = 0;
       this._circuitBreaker.trippedUntil = 0;
