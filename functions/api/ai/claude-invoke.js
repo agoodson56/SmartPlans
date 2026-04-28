@@ -181,26 +181,36 @@ function _translateGeminiToAnthropic(geminiBody, model) {
         for (const part of (turn.parts || [])) {
             if (part.text != null) {
                 content.push({ type: 'text', text: String(part.text) });
-            } else if (part.inlineData?.data) {
-                // Inline base64 image or PDF — Anthropic supports image
-                // directly, PDFs via the document content block type
-                const mime = part.inlineData.mimeType || 'application/octet-stream';
+                continue;
+            }
+            // v5.140.0: Accept BOTH snake_case (inline_data / mime_type — what
+            // ai-engine.js _buildFileParts produces, line 3281) AND camelCase
+            // (inlineData / mimeType — what _translateGeminiToAnthropic was
+            // originally written to expect). Pre-fix, snake_case parts from
+            // every brain call were silently dropped by the proxy → Claude
+            // got text-only context for visual brains, hallucinating or
+            // failing. The mismatch was invisible because the proxy returned
+            // 200 with a Gemini-shaped empty response.
+            const inline = part.inlineData ?? part.inline_data;
+            if (inline?.data) {
+                const mime = inline.mimeType || inline.mime_type || 'application/octet-stream';
                 if (mime.startsWith('image/')) {
                     content.push({
                         type: 'image',
-                        source: { type: 'base64', media_type: mime, data: part.inlineData.data },
+                        source: { type: 'base64', media_type: mime, data: inline.data },
                     });
                 } else if (mime === 'application/pdf') {
                     content.push({
                         type: 'document',
-                        source: { type: 'base64', media_type: mime, data: part.inlineData.data },
+                        source: { type: 'base64', media_type: mime, data: inline.data },
                     });
                 }
                 // Other MIME types silently dropped — Claude won't understand them
             }
             // fileData (Gemini File API URI refs) intentionally skipped —
-            // Claude has no equivalent. Brain must provide inlineData to
-            // be Claude-compatible.
+            // Claude has no equivalent. _invokeBrain (v5.140.0) auto-routes
+            // any brain with fileData parts back to Gemini so this proxy
+            // never sees them in primary-mode operation.
         }
         if (content.length > 0) {
             messages.push({ role, content });

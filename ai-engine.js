@@ -3307,7 +3307,25 @@ const SmartBrains = {
     // uses opts to force Claude for the second call). When either is
     // 'anthropic', route to the Claude proxy + model instead of Gemini.
     const providerOverride = opts.providerOverride || this._providerOverride || null;
-    const useClaude = providerOverride === 'anthropic';
+    let useClaude = providerOverride === 'anthropic';
+
+    // v5.140.0: When Claude is primary, brains with Gemini File API URIs
+    // (fileData refs) are blind to Claude — the proxy strips those refs
+    // because Anthropic can't resolve Gemini-hosted URIs. Pre-fix, every
+    // such brain ran on text-only context and hallucinated. Now: detect
+    // the condition up front and silently route THIS brain back to
+    // Gemini. Per-brain fallback, not whole-bid. The opts override case
+    // (cross-check) is unchanged — cross-check has its own fileData guard
+    // earlier (see _runSingleBrain).
+    if (useClaude && !opts.providerOverride) {
+      const hasFileDataRefs = fileParts.some(p => p && p.fileData && p.fileData.fileUri);
+      if (hasFileDataRefs) {
+        if (this.config.DEBUG) {
+          console.log(`[Brain:${brainDef.name}] v5.140 fallback → Gemini (brain has Gemini File API URIs Claude cannot resolve)`);
+        }
+        useClaude = false;
+      }
+    }
 
     // Determine model and URL up front (accessible in fallback block)
     let modelName = useClaude
