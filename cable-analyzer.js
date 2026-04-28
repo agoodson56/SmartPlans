@@ -69,15 +69,25 @@ const CableAnalyzer = {
     const name = String(state.projectName || '').toLowerCase();
     const subtype = String(state.projectSubtype || '').toLowerCase();
     const text = `${name} ${subtype} ${t}`;
+    // M2 fix (audit-2 2026-04-27): order patterns most-specific first so a name
+    // like "Industrial Logistics Warehouse" matches `warehouse` (which has the
+    // most-specific routing) rather than tripping on `industrial` alone first.
+    // Multi-word matches and longer-tail patterns checked before single-word
+    // generic ones (office, retail).
     if (/data\s*center|colo\b|colocation|server\s*farm/.test(text)) return this.projectTypeDefaults.data_center;
     if (/prison|correctional|detention|jail/.test(text)) return this.projectTypeDefaults.prison;
-    if (/warehouse|distribution|logistics|industrial|manufacturing|fence/.test(text)) return this.projectTypeDefaults.warehouse;
-    if (/apartment|multi.?family|condo|residential|housing/.test(text)) return this.projectTypeDefaults.multi_family;
+    if (/va\b|veteran|veterans|federal\s*medical/.test(text)) return this.projectTypeDefaults.va; // before healthcare
     if (/hospital|clinic|medical|healthcare|patient/.test(text)) return this.projectTypeDefaults.healthcare;
-    if (/va\b|veteran|veterans|federal\s*medical/.test(text)) return this.projectTypeDefaults.va;
+    if (/apartment|multi.?family|condo|residential|housing|dorm/.test(text)) return this.projectTypeDefaults.multi_family;
     if (/school|education|university|college|classroom/.test(text)) return this.projectTypeDefaults.education;
     if (/court|state\s*office|government|capitol|sheriff|police/.test(text)) return this.projectTypeDefaults.government;
+    // Warehouse / industrial — check warehouse-specific keywords first to avoid
+    // "Industrial Office Park" matching `industrial` and getting warehouse routing.
+    if (/warehouse|distribution\s*center|logistics\s*center|cold\s*storage/.test(text)) return this.projectTypeDefaults.warehouse;
+    if (/industrial|manufacturing|fence/.test(text)) return this.projectTypeDefaults.industrial || this.projectTypeDefaults.warehouse;
     if (/retail|store|shop|mall/.test(text)) return this.projectTypeDefaults.retail;
+    // small_office detection — only match small-office indicators, not generic "office"
+    if (/small\s*office|tenant\s*improvement|ti\s*build|<\s*10000/.test(text)) return this.projectTypeDefaults.small_office;
     return null;
   },
 
@@ -240,7 +250,13 @@ const CableAnalyzer = {
     // Check scale confidence — only use device-level mode if we have reliable scale data
     const scaleConfidence = this._assessScaleConfidence(spatial);
 
-    if (deviceLocator?.devices?.length > 0 && scaleConfidence >= 0.5) {
+    // M3 fix (audit-2 2026-04-27): unified threshold 0.65 across cable-analyzer
+    // and scale-calibration so a sheet that scale-calibration flags as
+    // _lowConfidenceWarn (<0.65) doesn't sneak into device-level cable
+    // estimation here. Pre-fix: 0.50 here vs 0.60 there meant scales at
+    // 0.55 confidence drove cable footage AND triggered the "verify scale"
+    // warning — confusing for the estimator and risk of 30% cable miscalc.
+    if (deviceLocator?.devices?.length > 0 && scaleConfidence >= 0.65) {
       // ── DEVICE-LEVEL MODE: per-device positions from DEVICE_LOCATOR ──
       // Only use when scale confidence is sufficient (OCR, title block, or 2+ consistent doors)
       mode = 'device-level';

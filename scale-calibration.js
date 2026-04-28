@@ -428,12 +428,16 @@ const ScaleCalibration = {
     // 50% over- or under-pulled bid. Set _lowConfidenceWarn so the consumer
     // (export gate / UI) can surface a "verify scale" prompt to the estimator
     // before the bid is submitted.
-    s._lowConfidenceWarn = (s.activeSource && s.activeSource !== 'manual' && (s.confidence || 0) < 0.60);
+    // M3 fix (audit-2 2026-04-27): bumped threshold 0.60 -> 0.65 to match the
+    // cable-analyzer device-level mode gate. Now both modules agree: scales
+    // below 0.65 are flagged AND don't drive device-level cable estimation.
+    s._lowConfidenceWarn = (s.activeSource && s.activeSource !== 'manual' && (s.confidence || 0) < 0.65);
   },
 
-  // M5: enumerate sheets where the resolved scale carries low confidence.
-  // Returns [{ sheetId, confidence, source }] for any sheet that's relying
-  // on a scale source under 60% confidence (and not a manual override).
+  // M5+M3: enumerate sheets where the resolved scale carries low confidence.
+  // Returns [{ sheetId, confidence, source }] for any sheet relying on a scale
+  // source under 65% confidence (and not a manual override). Threshold bumped
+  // from 0.60 to 0.65 in audit-2 to match cable-analyzer's device-level gate.
   getLowConfidenceSheets() {
     const out = [];
     for (const sid of Object.keys(this._sheets || {})) {

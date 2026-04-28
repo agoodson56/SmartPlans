@@ -125,7 +125,12 @@ export async function onRequestPost(context) {
             if (!apiKey && firstAvailableKey) {
                 apiKey = firstAvailableKey;
                 usedSlot = firstAvailableSlot;
-                console.warn(`[Proxy] All non-blocked keys exhausted — falling back to slot ${usedSlot} (may be rate-limited).`);
+                // M8 fix (audit-2 2026-04-27): mark this attempt so we can
+                // surface a distinct allKeysExhausted error to the client if
+                // it 429s again. Pre-fix the client just saw _proxyError and
+                // retried with the same blocked key in a tight loop.
+                console.warn(`[Proxy] All non-blocked keys exhausted — falling back to slot ${usedSlot} (likely rate-limited).`);
+                context._allKeysExhausted = true;
             }
         }
 
@@ -204,6 +209,17 @@ export async function onRequestPost(context) {
                     if ((geminiResponse.status === 429 || geminiResponse.status === 503) && usedSlot >= 0 && keyNames[usedSlot]) {
                         await _markKeyBlocked(keyNames[usedSlot], `${geminiResponse.status} ${model}`, context);
                         console.warn(`[Proxy] Key slot ${usedSlot} (${keyNames[usedSlot]}) marked blocked for ${KEY_HEALTH_TTL_SEC}s due to ${geminiResponse.status}.`);
+                        // M8 fix (audit-2 2026-04-27): if every key was already blocked when
+                        // we picked this one, signal "allKeysExhausted" so the client can
+                        // back off rather than retry tight-loop on the same blocked slots.
+                        if (context._allKeysExhausted) {
+                            const safeErr = errText.replace(/key=[^&"\s]+/gi, 'key=REDACTED').substring(0, 300);
+                            await writer.write(encoder.encode(
+                                `data: ${JSON.stringify({_proxyError: true, status: geminiResponse.status, allKeysExhausted: true, message: 'All Gemini keys are rate-limited — back off and retry in 60s', _debug: safeErr})}\n\n`
+                            ));
+                            await writer.close();
+                            return;
+                        }
                     }
 
                     // Log request diagnostics for 400 errors

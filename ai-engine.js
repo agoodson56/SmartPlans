@@ -4603,6 +4603,13 @@ Sum across all configurations for the project total.
 STEP 5 — DO NOT ASSUME UNITS ARE IDENTICAL. Different configurations
 must be counted separately even if the building has many units.
 
+STEP 5B — COMMON AREAS (Tier 5 cleanup audit-2 2026-04-27): lobbies,
+corridors, mech/MDF rooms, fitness rooms, leasing offices, mailrooms,
+parking, and exterior security are NOT inside any unit. Count those
+devices SEPARATELY in your normal totals — DO NOT include them in
+devices_per_unit. The project total = sum(unit_configurations.totals)
+PLUS common-area devices.
+
 STEP 6 — LOW CONFIDENCE + RFI. If you cannot find typical-unit pages,
 or you cannot determine matching unit counts with confidence, set
 unit_configurations_confidence = "low" AND emit a clarification question
@@ -5674,7 +5681,22 @@ HOW TO APPLY:
 On prior ${context.projectType || 'similar'} bids, estimators corrected your output for these items.
 Apply these lessons now — do NOT repeat the same mistakes:
 
-${priorCorrections.slice(0, 30).map(c => {
+${(() => {
+  // W5 fix (audit-2 2026-04-27): expand cap from 30 to 75 with item-name
+  // dedup so the most-recent correction per item wins. Pre-fix the first 30
+  // by API order dropped older but distinct learnings; with dedup we keep
+  // the highest-signal entries (most recent per item) up to 75.
+  const seen = new Set();
+  const deduped = [];
+  for (const c of priorCorrections) {
+    const itemKey = String(c.item_name || '').toLowerCase().trim();
+    if (!itemKey || seen.has(itemKey)) continue;
+    seen.add(itemKey);
+    deduped.push(c);
+    if (deduped.length >= 75) break;
+  }
+  return deduped;
+})().map(c => {
     const dir = Number(c.delta_pct) > 0 ? 'RAISED' : 'LOWERED';
     const field = c.field_changed === 'qty' ? 'qty' : 'unit cost';
     const delta = Math.abs(Number(c.delta_pct) || 0).toFixed(1);
@@ -5934,6 +5956,11 @@ ${(() => {
   const rates = context.rateLibrary || [];
   if (rates.length === 0) return 'No rate library entries — use pricing database below.';
   let result = 'These are REAL prices from completed projects — verified by the estimator. Use these INSTEAD of the generic pricing database when a match exists.\n\n';
+  // W1 fix (audit-2 2026-04-27): sort by use_count DESC within each category
+  // so the most-frequently-used rates rise to the top. Pre-fix took the first
+  // 30 by API order which dropped frequent-use items if API returned them late.
+  // Also include lastUsed when available so AI can prefer recent rates over
+  // dated ones.
   const byCategory = {};
   for (const r of rates) {
     const cat = r.category || 'Uncategorized';
@@ -5941,16 +5968,18 @@ ${(() => {
     byCategory[cat].push(r);
   }
   for (const [cat, items] of Object.entries(byCategory)) {
+    items.sort((a, b) => (b.use_count || 0) - (a.use_count || 0));
     result += cat + ':\n';
     for (const r of items.slice(0, 30)) {
       result += '  - ' + r.item_name + ': $' + r.unit_cost + '/' + (r.unit || 'ea');
       if (r.labor_hours) result += ' (labor: ' + r.labor_hours + ' hrs)';
+      if (r.use_count > 0) result += ' [used ' + r.use_count + 'x]';
       if (r.supplier) result += ' [' + r.supplier + ']';
       if (r.notes) result += ' — ' + r.notes;
       result += '\n';
     }
   }
-  result += '\nRULE: If a rate library entry matches an item you are pricing, use the rate library price. It is more accurate than the generic database.';
+  result += '\nRULE: If a rate library entry matches an item you are pricing, use the rate library price. It is more accurate than the generic database. Prefer entries with higher [used Nx] counts — those are battle-tested.';
   return result;
 })()}
 
@@ -9914,7 +9943,15 @@ Return ONLY valid JSON:
     const brain = this.BRAINS[brainKey];
     if (prompt && brain && brain.wave >= 1.5 && (context._brainInsights || []).length > 0) {
       const insights = context._brainInsights;
-      const relevantInsights = insights.slice(0, 15); // Cap to prevent prompt bloat
+      // H11 fix (audit-2 2026-04-27): hard-cap the array at 200 entries to
+      // prevent unbounded growth across many waves on a large bid. Pre-fix the
+      // array could reach 2000+ entries on a 200-page plan set; injection was
+      // already capped at 15 so prompt bloat was contained, but in-memory size
+      // was untracked. Drop oldest first since priority is by recency.
+      if (insights.length > 200) {
+        insights.splice(0, insights.length - 200);
+      }
+      const relevantInsights = insights.slice(0, 15); // injection cap
       if (relevantInsights.length > 0) {
         prompt += `\n\n═══ SESSION MEMORY — Observations from earlier analysis passes ═══
 Earlier brains discovered the following. Use these to improve your accuracy:
@@ -11410,13 +11447,69 @@ ${legendContext}
           }
         }
       } else {
-        console.warn('[SmartBrains] Wave 0.1 intake brain returned no usable result — proceeding without gate check (treat as caution).');
-        state._drawingIntake = { gate: 'UNKNOWN', readinessScore: 0, summary: 'Intake brain failed; downstream brains will run but estimate carries low confidence.' };
+        // C7 fix (audit-2 2026-04-27): treat unusable result as gate=UNKNOWN
+        // and BLOCK unless explicitly overridden. Pre-fix this silently logged
+        // and continued, defeating the QC gate when the intake brain itself
+        // crashed (vs. returning gate=FAIL).
+        console.warn('[SmartBrains] Wave 0.1 intake brain returned no usable result — gate=UNKNOWN.');
+        const unknownSummary = {
+          gate: 'UNKNOWN',
+          gateMessage: 'Drawing Intake QC could not run. The 94% accuracy gate did not produce a verdict.',
+          readinessScore: 0,
+          confidenceLevel: 'Unknown',
+          fileType: 'Unknown',
+          summary: 'Intake brain returned no usable output. The pipeline will halt unless the user explicitly overrides — without a quality verdict, every downstream output carries elevated uncertainty.',
+          pageQualitySummary: {},
+          pageRatings: [],
+          problemPages: [],
+          missingInfo: ['Drawing Intake QC was unable to assess plan quality. Proceed only if you trust the upload manually.'],
+          recommendedAction: 'Stop and rerun, or override at your discretion.',
+          customerDocumentRequest: '',
+          estimatorNotes: 'Intake QC unavailable. Treat the bid as low-confidence regardless of downstream readiness flags.',
+          ts: new Date().toISOString(),
+        };
+        context._drawingIntake = unknownSummary;
+        state._drawingIntake = unknownSummary;
+        if (!state._drawingIntakeOverride) {
+          const haltErr = new Error('Drawing intake gate UNKNOWN: brain returned no usable output. Override to proceed at low confidence.');
+          haltErr._intakeFail = true;
+          haltErr._intakeSummary = unknownSummary;
+          throw haltErr;
+        }
+        console.warn('[SmartBrains] User override active — continuing despite UNKNOWN intake. Bid carries low-confidence flags throughout.');
       }
     } catch (intakeErr) {
       if (intakeErr && intakeErr._intakeFail) throw intakeErr; // propagate the halt up
-      console.warn('[SmartBrains] Wave 0.1 errored non-fatally:', intakeErr?.message || intakeErr);
+      // C7: brain crashed (not gate failed). Treat same as UNKNOWN: soft block
+      // unless override. Don't swallow silently any more.
+      console.error('[SmartBrains] Wave 0.1 crashed:', intakeErr?.message || intakeErr);
       context.wave0_1 = {};
+      const crashSummary = {
+        gate: 'UNKNOWN',
+        gateMessage: `Drawing Intake QC crashed: ${intakeErr?.message || 'unknown error'}`,
+        readinessScore: 0,
+        confidenceLevel: 'Unknown',
+        fileType: 'Unknown',
+        summary: 'The Drawing Intake QC brain failed to run (network error, parse failure, or AI rate limit). The 94% accuracy gate did not produce a verdict — proceed only if you can verify plan quality manually.',
+        pageQualitySummary: {},
+        pageRatings: [],
+        problemPages: [],
+        missingInfo: ['Intake QC unavailable. Verify plan quality manually before submission.'],
+        recommendedAction: 'Retry analysis when AI services recover, or override to proceed at low confidence.',
+        customerDocumentRequest: '',
+        estimatorNotes: 'Intake QC crashed. Bid carries elevated uncertainty.',
+        crashError: intakeErr?.message || String(intakeErr),
+        ts: new Date().toISOString(),
+      };
+      context._drawingIntake = crashSummary;
+      state._drawingIntake = crashSummary;
+      if (!state._drawingIntakeOverride) {
+        const haltErr = new Error(`Drawing intake gate UNKNOWN (crash): ${intakeErr?.message || 'unknown'}. Override to proceed at low confidence.`);
+        haltErr._intakeFail = true;
+        haltErr._intakeSummary = crashSummary;
+        throw haltErr;
+      }
+      console.warn('[SmartBrains] User override active — continuing despite intake crash. Bid carries low-confidence flags throughout.');
     }
 
     // ═══ WAVE 0: Legend Pre-Processing (1 brain, Pro model) — NON-FATAL ═══
@@ -13658,8 +13751,14 @@ ${legendContext}
         // Auto-generate clarification questions for low confidence or missing data.
         if (ucConfidence === 'low' || uc.length === 0) {
           context._clarificationQuestions = context._clarificationQuestions || [];
+          // C8 fix (audit-2 2026-04-27): make ID unique per project so batch
+          // bids don't share the same RFI key. Pre-fix every multi-family project
+          // hit id='unit_config_confirm' so answers collided across bids.
+          const projectKey = state.estimateId
+            || (context.projectName ? context.projectName.replace(/\s+/g, '_').slice(0, 30) : null)
+            || `bid_${Date.now()}`;
           context._clarificationQuestions.push({
-            id: 'unit_config_confirm',
+            id: `unit_config_confirm_${projectKey}`,
             severity: 'high',
             category: 'Unit Configurations',
             question: 'Please confirm the unit-type counts for this project (e.g., "Unit A — 1BR × 60", "Unit B — 2BR × 24", "ADA Unit × 4"). The plans did not clearly identify the configurations or matching unit counts. Without this, device counts and BOM may be wrong.',

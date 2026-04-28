@@ -486,19 +486,68 @@ const CA_PREVAILING_WAGES = {
   // center of the state with mid-range rates — won't wildly over- or
   // under-bid an unknown CA county.
   _DEFAULT_FALLBACK_ZONE: 'sacramento',
+  // M4 fix (audit-2 2026-04-27): proximity table for unmapped counties.
+  // Pre-fix every unknown county fell to Sacramento, which OVERBIDS rural
+  // Central Valley counties (Bakersfield etc. ~23% lower than Sacramento).
+  // This table maps unmapped counties to their nearest mapped zone — closer
+  // to actual rates than a one-size-fits-all default. Coverage isn't perfect
+  // but it cuts the typical error by half on rural projects.
+  _COUNTY_PROXIMITY: {
+    // Central Valley → Fresno metro (lowest CA rates) when not Sacramento-area
+    fresno: 'central_valley', kern: 'central_valley', tulare: 'central_valley',
+    kings: 'central_valley', madera: 'central_valley', merced: 'central_valley',
+    stanislaus: 'central_valley', sanjoaquin: 'central_valley', 'san_joaquin': 'central_valley',
+    // North Coast / Wine Country → Bay Area
+    sonoma: 'bay_area_sf', napa: 'bay_area_sf', mendocino: 'bay_area_sf',
+    lake: 'bay_area_sf', marin: 'bay_area_sf', solano: 'bay_area_sf',
+    // North Sacramento Valley → Sacramento metro
+    yolo: 'sacramento', sutter: 'sacramento', yuba: 'sacramento',
+    butte: 'sacramento', glenn: 'sacramento', colusa: 'sacramento',
+    placer: 'sacramento', eldorado: 'sacramento', 'el_dorado': 'sacramento',
+    // Inland Empire → LA metro
+    riverside: 'inland_empire', sanbernardino: 'inland_empire', 'san_bernardino': 'inland_empire',
+    // SoCal (non-LA) → Orange / SD / IE depending
+    orange: 'la_metro', ventura: 'la_metro', santabarbara: 'la_metro', 'santa_barbara': 'la_metro',
+    sandiego: 'san_diego', 'san_diego': 'san_diego', imperial: 'san_diego',
+    // Sierra / High desert → Sacramento (east) or LA (south)
+    nevada: 'sacramento', alpine: 'sacramento', amador: 'sacramento',
+    calaveras: 'sacramento', tuolumne: 'sacramento', mariposa: 'sacramento',
+    inyo: 'la_metro', mono: 'la_metro',
+    // Central Coast
+    santacruz: 'bay_area_sf', 'santa_cruz': 'bay_area_sf',
+    monterey: 'bay_area_sf', sanbenito: 'bay_area_sf', 'san_benito': 'bay_area_sf',
+    sanluisobispo: 'la_metro', 'san_luis_obispo': 'la_metro', slo: 'la_metro',
+    // Far North → Sacramento
+    shasta: 'sacramento', tehama: 'sacramento', siskiyou: 'sacramento',
+    modoc: 'sacramento', lassen: 'sacramento', plumas: 'sacramento', sierra: 'sacramento',
+    trinity: 'sacramento', humboldt: 'sacramento', 'del_norte': 'sacramento', delnorte: 'sacramento',
+  },
   _normalizeCountyName(county) {
     if (!county || typeof county !== 'string') return '';
     return county.trim().replace(/\s+county\s*$/i, '').trim();
+  },
+  _proximityKey(county) {
+    return String(county || '').toLowerCase().replace(/[^a-z]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
   },
   getRates(county, wageType) {
     const normalized = this._normalizeCountyName(county);
     let zone = this.countyMap[normalized] || this.countyMap[county];
     let usedFallback = false;
+    let usedProximity = false;
     if (!zone) {
-      zone = this._DEFAULT_FALLBACK_ZONE;
-      usedFallback = true;
-      // eslint-disable-next-line no-console
-      console.warn(`[CA Wages] County "${county}" not mapped — falling back to ${zone} zone. Bid labor rates may be off; verify against published CA DIR rates for the actual county.`);
+      // M4: try proximity table first (rural counties → nearest metro)
+      const proxKey = this._proximityKey(normalized);
+      if (this._COUNTY_PROXIMITY[proxKey] && this.zones[this._COUNTY_PROXIMITY[proxKey]]) {
+        zone = this._COUNTY_PROXIMITY[proxKey];
+        usedProximity = true;
+        // eslint-disable-next-line no-console
+        console.warn(`[CA Wages] County "${county}" not directly mapped — using proximity zone "${zone}" (closer to actual rates than statewide default).`);
+      } else {
+        zone = this._DEFAULT_FALLBACK_ZONE;
+        usedFallback = true;
+        // eslint-disable-next-line no-console
+        console.warn(`[CA Wages] County "${county}" not in proximity table — falling back to ${zone}. Bid labor rates may be off ±20%; verify against published CA DIR rates.`);
+      }
     }
     const zoneData = this.zones[zone];
     if (!zoneData) return null;
@@ -518,7 +567,7 @@ const CA_PREVAILING_WAGES = {
     } else {
       rates = zoneData.dir;
     }
-    if (rates && usedFallback) {
+    if (rates && (usedFallback || usedProximity)) {
       // Mark the rate object so downstream code can surface a UI warning.
       // We attach via Object.defineProperty so existing iteration code
       // (Object.entries) doesn't see the metadata as a labor role.
@@ -526,6 +575,7 @@ const CA_PREVAILING_WAGES = {
         Object.defineProperty(rates, '_fallback', { value: true, enumerable: false, configurable: true });
         Object.defineProperty(rates, '_fallbackZone', { value: zone, enumerable: false, configurable: true });
         Object.defineProperty(rates, '_fallbackCounty', { value: county, enumerable: false, configurable: true });
+        Object.defineProperty(rates, '_fallbackKind', { value: usedProximity ? 'proximity' : 'default', enumerable: false, configurable: true });
       } catch (_) { /* non-extensible objects: skip metadata */ }
     }
     return rates;

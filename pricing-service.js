@@ -287,7 +287,10 @@ const SmartPlansPricing = {
      * library, 290 from static DB, 0 AI-generated".
      */
     rePriceMaterialPricerOutput(materialPricerResult, opts = {}) {
-        const stats = { total: 0, distributor: 0, rate_library: 0, static_db: 0, user_override: 0, ai_fallback: 0, unresolved: 0, deltaTotal: 0 };
+        // M1 fix (audit-2 2026-04-27): track stale distributor quotes so the
+        // export gate can surface a warning. Pre-fix isStale was set on the
+        // resolution but never propagated to stats or stamped on the item.
+        const stats = { total: 0, distributor: 0, distributor_stale: 0, rate_library: 0, static_db: 0, user_override: 0, ai_fallback: 0, unresolved: 0, deltaTotal: 0, staleItems: [] };
         if (!materialPricerResult || typeof materialPricerResult !== 'object') return stats;
         const { tier = 'mid', regionKey = 'national_average', userOverrides = {} } = opts;
 
@@ -322,6 +325,15 @@ const SmartPlansPricing = {
                     if (resolution.matched) item._priceMatchedName = resolution.matched;
                     if (resolution.distributor) item._priceDistributor = resolution.distributor;
                     if (resolution.partNumber) item._pricePartNumber = resolution.partNumber;
+                    // M1: stamp staleness so the export gate can warn
+                    if (resolution.isStale) {
+                        item._priceStale = true;
+                        item._priceAgeDays = resolution.ageDays || null;
+                        stats.distributor_stale++;
+                        if (stats.staleItems.length < 10) {
+                            stats.staleItems.push({ name, distributor: resolution.distributor || null, ageDays: resolution.ageDays || null });
+                        }
+                    }
                     stats[resolution.source] = (stats[resolution.source] || 0) + 1;
                 }
                 // Recalculate category subtotal from line items

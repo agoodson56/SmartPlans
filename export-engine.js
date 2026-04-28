@@ -178,6 +178,20 @@ const SmartPlansExport = {
             });
         }
 
+        // 6h. Stale distributor pricing (M1 fix audit-2 2026-04-27).
+        // When live distributor quotes >120 days old are used, the prices may
+        // be off by 5-15% (inflation + supplier rate changes). Surface as warn
+        // so the estimator either refreshes the quote or accepts the risk.
+        const livePricing = state._livePricingStats;
+        if (livePricing && (livePricing.distributor_stale || 0) > 0) {
+            warnings.push({
+                severity: 'warn',
+                code: 'distributor_pricing_stale',
+                message: `${livePricing.distributor_stale} item(s) priced from distributor quotes >120 days old. Re-quote critical items before submission. Stale quotes may be off 5–15% on volatile categories (cable, conduit, electronics).`,
+                details: { count: livePricing.distributor_stale, sample: (livePricing.staleItems || []).slice(0, 5) },
+            });
+        }
+
         // 6g. Drawing intake QC gate — v5.135.0.
         // If the user ran the estimate after overriding the 94% accuracy gate
         // FAIL, every export needs a loud warning so the bid is never submitted
@@ -462,6 +476,12 @@ const SmartPlansExport = {
 
             // v5.135.0 — Drawing Quality & Format Intake (94% accuracy gate result).
             drawingIntake: state._drawingIntake || null,
+            // H9 fix (audit-2 2026-04-27): persist the override flag so a
+            // saved bid that ran with override doesn't re-prompt on reload.
+            drawingIntakeOverride: !!state._drawingIntakeOverride,
+            // H10 fix: persist clarification answers + checklist verifications
+            clarificationAnswers: state._clarificationAnswers || {},
+            checklistChecked: state._checklistChecked || {},
 
             // Estimator Review Checklist — checked items (so reopened bids remember progress)
             checklistChecked: state._checklistChecked || {},
@@ -702,6 +722,23 @@ const SmartPlansExport = {
         }
     },
 
+    // ─── H7 fix (audit-2 2026-04-27): single source of truth for travel selection ──
+    // Travel can come from EITHER a "Travel & Incidentals" BOM category OR
+    // Stage 6 computeTravelIncidentals. Pre-fix the mutual-exclusion logic was
+    // duplicated across _computeFullBreakdown and applyBidStrategy with subtly
+    // different patterns, so on edge cases the two paths could disagree about
+    // whether to add Stage 6 on top of BOM travel. Now: one helper, both paths
+    // call it. bomTravelSum is the sum the caller already computed (or 0 if not).
+    _selectTravelSource(state, bomTravelSum) {
+        const hasBOMTravel = (Number(bomTravelSum) || 0) > 0;
+        const bomTravel = hasBOMTravel ? this._round(bomTravelSum) : 0;
+        let stage6Travel = 0;
+        if (!hasBOMTravel && state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
+            stage6Travel = this._round(computeTravelIncidentals().grandTotal || 0);
+        }
+        return { bomTravel, stage6Travel, total: this._round(bomTravel + stage6Travel) };
+    },
+
     // ─── Classify BOM categories into material/equipment/subs/labor ──
     _classifyBOM(bom) {
         let materials = 0, equipment = 0, subs = 0, labor = 0, bomTravel = 0;
@@ -802,14 +839,14 @@ const SmartPlansExport = {
             const directCost = materials + equipment + subs + laborBase;
             transitAdd = this._round(directCost * 0.18);
         }
-        // Use travel from BOM if it was already injected; otherwise compute from Stage 6.
-        // This prevents double-counting when injectTravelIntoBOM adds travel as a BOM category.
-        let travel = 0;
-        if (bomTravel > 0) {
-            travel = this._round(bomTravel);
-            console.log(`[Export] Travel from BOM category: $${travel.toLocaleString()} (not adding Stage 6 to avoid double-count)`);
-        } else if (state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
-            travel = this._round(computeTravelIncidentals().grandTotal || 0);
+        // H7 fix: use shared travel-source selector so applyBidStrategy and
+        // _computeFullBreakdown can never drift on the BOM-vs-Stage6 mutex.
+        const _travelSource = this._selectTravelSource(state, bomTravel);
+        const travel = _travelSource.total;
+        if (_travelSource.bomTravel > 0) {
+            console.log(`[Export] Travel from BOM category: $${_travelSource.bomTravel.toLocaleString()} (Stage 6 suppressed to avoid double-count)`);
+        } else if (_travelSource.stage6Travel > 0) {
+            console.log(`[Export] Travel from Stage 6: $${_travelSource.stage6Travel.toLocaleString()}`);
         }
 
         // AUDIT FIX #7: Bond rate from pricing tier (budget=1.5%, mid=2%, premium=2.5%)
@@ -4787,14 +4824,11 @@ ${innerHTML}
         const laborAlreadyBurdened = laborCalc?.total_base_cost > 0;
         const burden = (includeBurden && !laborAlreadyBurdened) ? this._round(totalLabor * burdenRate) : 0;
 
-        // AUDIT FIX C8: Only add deterministic travel if BOM didn't already include travel categories
-        // Check if any BOM category was flagged as travel (prevents double-counting)
-        const hasBOMTravel = totalTravelFromBOM > 0;
-        let stage6Travel = 0;
-        if (!hasBOMTravel && state.travel?.enabled && typeof computeTravelIncidentals === 'function') {
-            stage6Travel = this._round(computeTravelIncidentals().grandTotal || 0);
-        }
-        const travel = this._round(totalTravelFromBOM + stage6Travel);
+        // H7 fix (audit-2 2026-04-27): use shared travel-source selector to
+        // match _computeFullBreakdown exactly. Pre-fix this had its own
+        // duplicated logic that could drift on rounding edge cases.
+        const _travelSource = this._selectTravelSource(state, totalTravelFromBOM);
+        const travel = _travelSource.total;
 
         // Bonds based on pricing tier
         const pricingTier = state.pricingTier || cfg.tier || 'mid';

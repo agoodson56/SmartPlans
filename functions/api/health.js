@@ -61,9 +61,12 @@ export async function onRequestGet(context) {
     components,
     timestamp: new Date().toISOString(),
   };
-  // Return 200 even on 'degraded' so monitoring can distinguish "totally down"
-  // (503) from "something's off but core flow still works" (200 with degraded).
-  const statusCode = overall === 'error' ? 503 : 200;
+  // H13 fix (audit-2 2026-04-27): return 503 for both 'error' and 'degraded'
+  // so monitoring tools (Pingdom, UptimeRobot, Datadog) treat them as alerts.
+  // Pre-fix returned 200 + body.status='degraded' which most monitoring
+  // dashboards reported as healthy, masking real partial outages. The body
+  // still carries the granular component breakdown so dashboards can drill in.
+  const statusCode = (overall === 'error' || overall === 'degraded') ? 503 : 200;
   return Response.json(result, { status: statusCode });
 }
 

@@ -1877,6 +1877,16 @@ function startNewBid() {
   state._unitConfigurations = null;
   state._drawingIntake = null;
   state._drawingIntakeOverride = false;
+  // C5/C6/H5 fix (audit-2 2026-04-27): clear v5.135-v5.136 state fields that
+  // could cross-bid leak.
+  state._checklistActions = [];
+  state._checklistChecked = {};
+  state._checklistRestored = false;
+  state._tiaViolations = null;
+  state._scaleLowConfidenceSheets = null;
+  state._wave9Failed = null;
+  state._davisBaconScaleApplied = null;
+  state._orphanedOverrides = null;
   state._proposalNarrative = null;
   state._mathAuditLog = [];
   state._mathAuditFixes = 0;
@@ -10433,9 +10443,16 @@ function renderStep7(container) {
   // qty, record answer, or just verify). _applyChecklistChoice mutates
   // state if needed. _invalidateBomCache (called by helpers) forces the
   // bid total to recompute on the next render/export.
-  const checklistItems = document.querySelectorAll('.checklist-action-item');
-  checklistItems.forEach(item => {
-    item.addEventListener('click', async () => {
+  //
+  // H1 fix (audit-2 2026-04-27): event delegation on the parent container
+  // instead of one listener per row. Pre-fix every renderStep7 attached N
+  // listeners to N rows; after 50 renders each row fired N callbacks per
+  // click. Now: single delegated listener, idempotent via dataset flag.
+  const checklistContainer = document.getElementById('estimator-checklist-items');
+  if (checklistContainer && !checklistContainer.dataset.checklistBound) {
+    checklistContainer.addEventListener('click', async (e) => {
+      const item = e.target.closest('.checklist-action-item');
+      if (!item) return;
       const actionId = item.getAttribute('data-action-id');
       if (!actionId) return;
       const action = (state._checklistActions || []).find(a => a.id === actionId);
@@ -10444,10 +10461,7 @@ function renderStep7(container) {
       if (!action) {
         if (!state._checklistChecked) state._checklistChecked = {};
         state._checklistChecked[actionId] = !state._checklistChecked[actionId];
-        try {
-          const key = `sp_checklist_${state.projectName || 'default'}`;
-          localStorage.setItem(key, JSON.stringify(state._checklistChecked));
-        } catch (e) { /* localStorage full — non-fatal */ }
+        _saveChecklistChecked();
         render();
         return;
       }
@@ -10461,10 +10475,11 @@ function renderStep7(container) {
       try {
         const key = `sp_checklist_${state.projectName || 'default'}`;
         localStorage.setItem(key, JSON.stringify(state._checklistChecked));
-      } catch (e) { /* localStorage full — non-fatal */ }
+      } catch (err) { /* localStorage full — non-fatal */ }
       render();
     });
-  });
+    checklistContainer.dataset.checklistBound = '1';
+  }
 
   // ── Checklist PDF print buttons ──
   const printAllBtn = document.getElementById('checklist-print-all');
@@ -10475,6 +10490,38 @@ function renderStep7(container) {
   // ── Restore checklist state from localStorage (once per session) ──
   if (!state._checklistChecked && !state._checklistRestored) {
     state._checklistRestored = true;
+    // H3 fix (audit-2 2026-04-27): prune stale checklist entries before reading.
+    // Pre-fix every project's checklist accumulated forever; on quota-tight
+    // browsers (mobile) the saves silently failed. Now: drop entries not
+    // touched in the last 30 days, AND cap the manifest at 25 most-recent.
+    try {
+      const manifestKey = 'sp_checklist_manifest';
+      const manifest = JSON.parse(localStorage.getItem(manifestKey) || '{}');
+      const now = Date.now();
+      const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+      let pruned = 0;
+      // Drop entries older than 30 days
+      for (const [k, ts] of Object.entries(manifest)) {
+        if (typeof ts !== 'number' || (now - ts) > THIRTY_DAYS) {
+          try { localStorage.removeItem(`sp_checklist_${k}`); } catch (_) {}
+          delete manifest[k];
+          pruned++;
+        }
+      }
+      // Cap to 25 most-recent: drop oldest if over
+      const entries = Object.entries(manifest).sort((a, b) => b[1] - a[1]);
+      if (entries.length > 25) {
+        for (const [k] of entries.slice(25)) {
+          try { localStorage.removeItem(`sp_checklist_${k}`); } catch (_) {}
+          delete manifest[k];
+          pruned++;
+        }
+      }
+      if (pruned > 0) {
+        localStorage.setItem(manifestKey, JSON.stringify(manifest));
+        console.log(`[SmartPlans] Pruned ${pruned} stale checklist entries from localStorage`);
+      }
+    } catch (e) { /* manifest parse failure — non-fatal */ }
     try {
       const key = `sp_checklist_${state.projectName || 'default'}`;
       const saved = localStorage.getItem(key);
@@ -14707,6 +14754,9 @@ function _restoreStateFromPayload(id, pkg, est) {
   if (pkg?.confidenceScoring) state._confidenceScoring = pkg.confidenceScoring;
   if (pkg?.unitConfigurations) state._unitConfigurations = pkg.unitConfigurations;
   if (pkg?.drawingIntake) state._drawingIntake = pkg.drawingIntake;
+  // H9/H10 fix (audit-2 2026-04-27): persist override flag and clarification answers.
+  if (typeof pkg?.drawingIntakeOverride === 'boolean') state._drawingIntakeOverride = pkg.drawingIntakeOverride;
+  if (pkg?.clarificationAnswers && typeof pkg.clarificationAnswers === 'object') state._clarificationAnswers = pkg.clarificationAnswers;
   if (pkg?.checklistChecked) state._checklistChecked = pkg.checklistChecked;
 
   // ── Restore 3D Engine reference result (was saved but never restored) ──
@@ -15264,6 +15314,7 @@ async function showSavedEstimates() {
       </div>
       <div class="est-card-actions">
         <button class="est-card-btn est-card-btn--load" data-action="load" data-est-id="${esc(est.id)}">📂 Load</button>
+        ${est.status === 'analyzed' || est.status === 'exported' ? `<button class="est-card-btn" data-action="outcome" data-est-id="${esc(est.id)}" data-est-name="${esc(est.project_name || '')}" data-est-type="${esc(est.project_type || '')}" style="border-color:rgba(245,158,11,0.30);color:#b45309;">🏆 Outcome</button>` : ''}
         ${est.status === 'analyzed' || est.status === 'exported' ? `<button class="est-card-btn" data-action="actuals" data-est-id="${esc(est.id)}" data-est-name="${esc(est.project_name || '')}" style="border-color:rgba(5,150,105,0.25);color:#059669;">📊 Actuals</button>` : ''}
         <button class="est-card-btn est-card-btn--delete" data-action="delete" data-est-id="${esc(est.id)}" data-est-name="${esc(est.project_name || '')}">🗑 Delete</button>
       </div>
@@ -15313,6 +15364,10 @@ async function showSavedEstimates() {
     const estName = btn.getAttribute('data-est-name') || '';
     if (action === 'load') loadEstimate(estId);
     else if (action === 'actuals') showActualsPanel(estId, estName);
+    else if (action === 'outcome') {
+      const estType = btn.getAttribute('data-est-type') || '';
+      _showBidOutcomeModal(estId, estName, estType);
+    }
     else if (action === 'delete') deleteEstimate(estId, estName);
   });
 
@@ -18190,7 +18245,21 @@ function buildEstimatorChecklistCard(st) {
 // Returns a Promise that resolves with the user's choice key, or
 // 'cancel' if dismissed. The choices vary by action.type so each
 // dispatcher can branch cleanly.
+//
+// H2 fix (audit-2 2026-04-27): track the active modal in window._spActiveChecklistModal.
+// If a new render happens (or another modal opens) while this one is still up,
+// the prior one is force-closed with 'cancel' so the awaiting click handler
+// gets a resolution and doesn't hang. Plus a 5-minute hard timeout as
+// last-resort defense — no modal stays open forever.
+//
+// H4 fix: AbortController governs the keydown listener so it's automatically
+// removed when the modal closes (even if _close isn't reached because the DOM
+// was destroyed). No more leaked listeners stacking after every modal.
 function _showChecklistDecisionModal(action) {
+  // Force-close any prior open modal so it resolves and the new one stacks cleanly.
+  if (window._spActiveChecklistModal && typeof window._spActiveChecklistModal._forceCancel === 'function') {
+    try { window._spActiveChecklistModal._forceCancel(); } catch (_) { /* ignore */ }
+  }
   return new Promise(resolve => {
     const overlay = document.createElement('div');
     overlay.className = 'sp-checklist-modal-overlay';
@@ -18199,14 +18268,29 @@ function _showChecklistDecisionModal(action) {
     card.className = 'sp-checklist-modal';
     card.style.cssText = 'background:#fff;max-width:520px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.30);padding:24px;font-family:var(--font-sans, system-ui, sans-serif);max-height:90vh;overflow-y:auto;';
 
+    const abortCtrl = new AbortController();
+    let resolved = false;
+    let hardTimer = null;
     const _close = (choice, payload) => {
-      overlay.remove();
-      document.removeEventListener('keydown', _esc);
+      if (resolved) return;
+      resolved = true;
+      try { overlay.remove(); } catch (_) {}
+      try { abortCtrl.abort(); } catch (_) {}
+      if (hardTimer) clearTimeout(hardTimer);
+      if (window._spActiveChecklistModal && window._spActiveChecklistModal._overlay === overlay) {
+        window._spActiveChecklistModal = null;
+      }
       resolve({ choice, payload });
     };
-    const _esc = (e) => { if (e.key === 'Escape') _close('cancel'); };
-    document.addEventListener('keydown', _esc);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) _close('cancel'); });
+    // Public force-cancel hook so a fresh render or new modal can dismiss us.
+    window._spActiveChecklistModal = {
+      _overlay: overlay,
+      _forceCancel: () => _close('cancel'),
+    };
+    // 5-min hard timeout — ensures no awaiting click handler hangs forever.
+    hardTimer = setTimeout(() => _close('cancel'), 5 * 60 * 1000);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _close('cancel'); }, { signal: abortCtrl.signal });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) _close('cancel'); }, { signal: abortCtrl.signal });
 
     const src = action._source || {};
     let bodyHtml = '';
@@ -18256,7 +18340,8 @@ function _showChecklistDecisionModal(action) {
         <button data-choice="cancel" style="padding:11px 14px;border:1px solid rgba(0,0,0,0.1);border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>`;
     } else if (action.type === 'testing' || action.type === 'training' || action.type === 'submittal') {
       const hours = Number(src.labor_hours_estimate || src.labor_hours || src.engineering_hours) || 8;
-      const rate = action.type === 'submittal' ? 145 : 95;
+      // C1: rate now from state.laborRates (lead/journeyman for testing-training, pm/programmer for submittal)
+      const { rate, source: rateSource } = _resolveChecklistLaborRate(action.type);
       const cost = hours * rate;
       const labelMap = { testing: 'testing', training: 'training', submittal: 'engineering' };
       bodyHtml = `
@@ -18264,7 +18349,7 @@ function _showChecklistDecisionModal(action) {
         <div style="font-size:12px;color:#64748b;margin-bottom:14px;">Spec requires ${labelMap[action.type]} not currently in your labor estimate.</div>
         <div style="padding:12px 14px;background:rgba(14,165,233,0.05);border-left:3px solid #0ea5e9;border-radius:6px;font-size:13px;color:#1e293b;margin-bottom:18px;">
           <strong>Add to bid:</strong> ${hours} ${labelMap[action.type]} hours × ${fmt$(rate)}/hr = <strong>${fmt$(cost)}</strong><br>
-          <span style="color:#64748b;font-size:12px;">Inserts as a manual labor line item. You can edit qty/rate in the BOM after.</span>
+          <span style="color:#64748b;font-size:11px;">Rate source: ${safe(rateSource)} (edit qty/rate in BOM after add).</span>
         </div>
         <div style="margin-bottom:14px;">
           <label style="font-size:12px;color:#475569;font-weight:600;">Adjust hours (optional):</label>
@@ -18380,82 +18465,259 @@ function _showChecklistDecisionModal(action) {
   });
 }
 
+// C1 fix (audit-2 2026-04-27): pull labor rates from state.laborRates instead
+// of hardcoded $95/$145. Falls back to the previous hardcoded values only if
+// state.laborRates is missing entirely. Stamps the resolved rate + source on
+// the manual item for audit trail.
+function _resolveChecklistLaborRate(actionType) {
+  const lr = state.laborRates || {};
+  // testing/training: skilled tech work (lead or journeyman)
+  // submittal: engineering / project manager rate
+  if (actionType === 'submittal') {
+    return { rate: lr.pm || lr.programmer || lr.lead || 145, source: lr.pm ? 'laborRates.pm' : (lr.programmer ? 'laborRates.programmer' : 'fallback:145') };
+  }
+  // testing & training
+  return { rate: lr.lead || lr.journeyman || 95, source: lr.lead ? 'laborRates.lead' : (lr.journeyman ? 'laborRates.journeyman' : 'fallback:95') };
+}
+
+// C4 fix (audit-2 2026-04-27): bound AI's estimated_cost_if_missing. The
+// AI sometimes returns 0 (silent miss) or absurdly large numbers (hallucination).
+// Reject extremes and prompt the user; fall back to a safe default of $1000.
+function _sanityBoundChecklistCost(cost) {
+  const n = Number(cost);
+  if (!Number.isFinite(n)) return { bounded: 1000, suspect: true, reason: 'AI returned non-numeric value' };
+  if (n < 50) return { bounded: n, suspect: true, reason: `AI cost $${n} too low — likely a miss` };
+  if (n > 500000) return { bounded: 500000, suspect: true, reason: `AI cost $${n.toLocaleString()} too high — capped at $500K, verify before submitting` };
+  return { bounded: Math.round(n * 100) / 100, suspect: false, reason: null };
+}
+
+// W2 (audit-2 2026-04-27): record bid outcome — won / lost / pending —
+// against bid_decisions D1 table so accuracy-dashboard can compute win rate
+// and the learning loop can improve future calibration. Pre-fix the user's
+// stated "win 75%" goal was unmeasurable because the field existed in the
+// schema but no UI ever wrote to it.
+function _showBidOutcomeModal(estimateId, projectName, projectType) {
+  if (!estimateId) {
+    if (typeof spToast === 'function') spToast('No estimate selected.', 'error');
+    return;
+  }
+  // Force-close any prior modal so this stacks cleanly (H2 pattern).
+  if (window._spActiveChecklistModal && typeof window._spActiveChecklistModal._forceCancel === 'function') {
+    try { window._spActiveChecklistModal._forceCancel(); } catch (_) {}
+  }
+  const safe = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,41,66,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const card = document.createElement('div');
+  card.style.cssText = 'background:#fff;max-width:520px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.30);padding:24px;font-family:var(--font-sans, system-ui, sans-serif);max-height:90vh;overflow-y:auto;';
+
+  const abortCtrl = new AbortController();
+  const close = () => { try { overlay.remove(); } catch (_) {} try { abortCtrl.abort(); } catch (_) {} };
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); }, { signal: abortCtrl.signal });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); }, { signal: abortCtrl.signal });
+
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+      <span style="font-size:24px;">🏆</span>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#b45309;text-transform:uppercase;letter-spacing:1.5px;">Record Bid Outcome</div>
+        <div style="font-size:13px;color:#0f172a;font-weight:600;margin-top:2px;">${safe(projectName || 'Untitled bid')}</div>
+      </div>
+    </div>
+    <p style="font-size:12px;color:#64748b;margin-bottom:14px;line-height:1.5;">
+      Recording the outcome lets SmartPlans compute your win rate and learn from
+      what wins vs. what loses. Without this data, the 75% win-rate goal is invisible.
+    </p>
+    <div style="margin-bottom:14px;">
+      <label style="font-size:12px;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Outcome:</label>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">
+        <button data-bo-choice="won"     style="padding:10px 16px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.06);color:#10b981;font-weight:700;font-size:12px;border-radius:8px;cursor:pointer;">✓ Won</button>
+        <button data-bo-choice="lost"    style="padding:10px 16px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.06);color:#ef4444;font-weight:700;font-size:12px;border-radius:8px;cursor:pointer;">✗ Lost</button>
+        <button data-bo-choice="pending" style="padding:10px 16px;border:1px solid rgba(0,0,0,0.15);background:#fff;color:#475569;font-weight:600;font-size:12px;border-radius:8px;cursor:pointer;">⏱ Pending</button>
+        <button data-bo-choice="no_bid"  style="padding:10px 16px;border:1px solid rgba(0,0,0,0.15);background:#fff;color:#475569;font-weight:600;font-size:12px;border-radius:8px;cursor:pointer;">— Did not submit</button>
+      </div>
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="font-size:12px;color:#475569;font-weight:600;">Award price (if won, or competitor's price if lost — optional):</label>
+      <input id="sp-bo-award-input" type="number" placeholder="$ amount" min="0" step="100" style="width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;font-size:14px;margin-top:6px;outline:none;" />
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="font-size:12px;color:#475569;font-weight:600;">Notes (e.g., who won, why we lost, customer feedback — optional):</label>
+      <textarea id="sp-bo-notes-input" rows="3" placeholder="Acme Co. won at $420K — beat us by 8%. They had prior relationship." style="width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;font-size:13px;margin-top:6px;outline:none;font-family:inherit;resize:vertical;"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button data-bo-choice="cancel" style="padding:10px 14px;border:1px solid rgba(0,0,0,0.1);background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;border-radius:8px;">Cancel</button>
+    </div>`;
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  setTimeout(() => card.querySelector('#sp-bo-award-input')?.focus(), 50);
+
+  card.querySelectorAll('button[data-bo-choice]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const outcome = btn.getAttribute('data-bo-choice');
+      if (outcome === 'cancel') return close();
+      const award = parseFloat(card.querySelector('#sp-bo-award-input')?.value);
+      const notes = (card.querySelector('#sp-bo-notes-input')?.value || '').trim();
+      const payload = {
+        estimate_id: estimateId,
+        project_name: projectName || 'Untitled',
+        project_type: projectType || '',
+        category: 'overall',
+        outcome,
+        adjusted_value: Number.isFinite(award) ? award : null,
+        reason: notes || null,
+      };
+      try {
+        const res = await fetchWithRetry('/api/bid-decisions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken },
+          body: JSON.stringify(payload),
+          _timeout: 10000,
+        }, 2);
+        const data = await res.json();
+        if (data.success || data.saved > 0) {
+          if (typeof spToast === 'function') spToast(`Outcome recorded: ${outcome}.`, 'success');
+        } else {
+          if (typeof spToast === 'function') spToast(`Save failed: ${data.error || 'unknown error'}`, 'error');
+        }
+      } catch (err) {
+        console.error('[BidOutcome] save failed:', err);
+        if (typeof spToast === 'function') spToast('Could not save outcome — check connection.', 'error');
+      }
+      close();
+    });
+  });
+}
+
+// Save checklist state + update manifest so H3 pruning works.
+function _saveChecklistChecked() {
+  try {
+    const projectKey = state.projectName || 'default';
+    const key = `sp_checklist_${projectKey}`;
+    localStorage.setItem(key, JSON.stringify(state._checklistChecked || {}));
+    const manifestKey = 'sp_checklist_manifest';
+    const manifest = JSON.parse(localStorage.getItem(manifestKey) || '{}');
+    manifest[projectKey] = Date.now();
+    localStorage.setItem(manifestKey, JSON.stringify(manifest));
+  } catch (e) { /* localStorage full — non-fatal */ }
+}
+
 // Apply the user's choice to the bid (mutate state, invalidate cache).
 // Returns true if the bid was changed (so caller knows to render).
+//
+// NOTE on catIndex (C2 audit reviewed): the catIndex field on manualBomItems
+// is informational only — _applyUserBOMEdits routes every manual item to a
+// "Manual Additions" category by NAME, not by index. catIndex is preserved
+// for compatibility but the actual placement is always "Manual Additions".
 function _applyChecklistChoice(action, choice, payload) {
   if (!action || !choice || choice === 'cancel') return false;
   const src = action._source || {};
   let mutated = false;
 
   if (choice === 'add' && action.type === 'spec_gap') {
-    const cost = Number(src.estimated_cost_if_missing) || 0;
+    const rawCost = Number(src.estimated_cost_if_missing) || 0;
+    // C4: sanity-bound and flag suspect values.
+    const bounded = _sanityBoundChecklistCost(rawCost);
     state.manualBomItems = state.manualBomItems || [];
     state.manualBomItems.push({
       id: 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-      catIndex: 0,
+      catIndex: 0, // informational only — _applyUserBOMEdits routes to "Manual Additions" by name
       name: src.requirement || action.text || 'Spec gap item',
       qty: 1,
       unit: 'EA',
-      unitCost: cost,
+      unitCost: bounded.bounded,
       mfg: '',
       partNumber: '',
       _addedFrom: 'checklist:spec_gap',
       _specSection: src.spec_section || null,
+      _aiEstimatedCost: rawCost,
+      _costSuspect: bounded.suspect,
+      _costSuspectReason: bounded.reason,
     });
     _invalidateBomCache();
     mutated = true;
-    if (typeof spToast === 'function') spToast(`Added "${(src.requirement || action.text).substring(0, 50)}" to bid${cost > 0 ? ` at $${cost.toLocaleString()}` : ''}.`, 'success');
+    if (typeof spToast === 'function') {
+      const msg = bounded.suspect
+        ? `Added "${(src.requirement || action.text).substring(0, 50)}" at $${bounded.bounded.toLocaleString()} — VERIFY: ${bounded.reason}`
+        : `Added "${(src.requirement || action.text).substring(0, 50)}" to bid at $${bounded.bounded.toLocaleString()}.`;
+      spToast(msg, bounded.suspect ? 'warn' : 'success');
+    }
   } else if (choice === 'change_qty' && action.type === 'anomaly') {
-    // Anomaly qty change — apply via supplier override on the matching item.
-    const itemName = String(src.item || '').toLowerCase();
+    // C3 fix (audit-2 2026-04-27): match by FULL item name + category, not 20-char substring.
+    // H8 fix: use _applyUserBOMEdits so prior supplier overrides aren't lost.
+    const itemName = String(src.item || '').toLowerCase().trim();
+    const itemCat = String(src.category || '').toLowerCase().trim();
     let appliedTo = null;
     if (state.aiAnalysis && itemName) {
       try {
-        const bom = (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis)
+        let bom = (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis)
           ? SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis)
           : null;
+        // H8: layer in existing user edits (overrides + manual items + deletions) so we
+        // match against the post-edit BOM, not the raw AI output. Otherwise an existing
+        // override on this same item gets overwritten when we set our new override.
+        if (bom && typeof SmartPlansExport._applyUserBOMEdits === 'function') {
+          bom = SmartPlansExport._applyUserBOMEdits(bom, state);
+        }
         if (bom && bom.categories) {
-          outer: for (let ci = 0; ci < bom.categories.length; ci++) {
+          // Two-phase match: (1) exact item-name match within the same category;
+          // (2) exact item-name match across any category; (3) refuse to guess.
+          let bestCi = -1, bestIi = -1;
+          for (let ci = 0; ci < bom.categories.length; ci++) {
             const cat = bom.categories[ci];
+            const cname = String(cat.name || '').toLowerCase();
             for (let ii = 0; ii < (cat.items || []).length; ii++) {
               const it = cat.items[ii];
-              const n = String(it.item || it.name || it.description || '').toLowerCase();
-              if (n.includes(itemName.substring(0, Math.min(20, itemName.length)))) {
-                const key = `${ci}-${ii}`;
-                state.supplierPriceOverrides = state.supplierPriceOverrides || {};
-                state.supplierPriceOverrides[key] = {
-                  ...(state.supplierPriceOverrides[key] || {}),
-                  qty: payload.newQty,
-                  unitCost: it.unitCost,
-                  supplierName: 'Checklist anomaly fix',
-                  appliedAt: new Date().toISOString(),
-                  _origCatName: cat.name || '',
-                  _origItemName: it.item || it.name || it.description || '',
-                };
-                appliedTo = `${cat.name} → ${it.item || it.name}`;
-                _invalidateBomCache();
-                mutated = true;
-                break outer;
+              const n = String(it.item || it.name || it.description || '').toLowerCase().trim();
+              if (n === itemName) {
+                if (!itemCat || cname.includes(itemCat) || itemCat.includes(cname)) {
+                  bestCi = ci; bestIi = ii;
+                  break;
+                }
+                if (bestCi < 0) { bestCi = ci; bestIi = ii; }
               }
             }
+            if (bestCi >= 0 && (!itemCat || String(bom.categories[bestCi].name || '').toLowerCase().includes(itemCat))) break;
+          }
+          if (bestCi >= 0) {
+            const cat = bom.categories[bestCi];
+            const it = cat.items[bestIi];
+            const key = `${bestCi}-${bestIi}`;
+            state.supplierPriceOverrides = state.supplierPriceOverrides || {};
+            state.supplierPriceOverrides[key] = {
+              ...(state.supplierPriceOverrides[key] || {}),
+              qty: payload.newQty,
+              unitCost: it.unitCost,
+              supplierName: 'Checklist anomaly fix',
+              appliedAt: new Date().toISOString(),
+              _origCatName: cat.name || '',
+              _origItemName: it.item || it.name || it.description || '',
+              _checklistApplied: true,
+            };
+            appliedTo = `${cat.name} → ${it.item || it.name}`;
+            _invalidateBomCache();
+            mutated = true;
           }
         }
-      } catch (e) { /* fall through */ }
+      } catch (e) {
+        console.warn('[Checklist] Qty override extract failed:', e && e.message);
+      }
     }
     if (typeof spToast === 'function') {
       spToast(appliedTo
         ? `Quantity for "${appliedTo}" set to ${payload.newQty}.`
-        : `Couldn't find a matching BOM line to update — no change applied.`,
+        : `Couldn't find a matching BOM line for "${src.item || ''}" — edit the BOM directly instead.`,
         appliedTo ? 'success' : 'error');
     }
   } else if (choice === 'add_labor' && (action.type === 'testing' || action.type === 'training' || action.type === 'submittal')) {
     const defaultHours = Number(src.labor_hours_estimate || src.labor_hours || src.engineering_hours) || 8;
     const hours = (payload.hours != null && payload.hours > 0) ? payload.hours : defaultHours;
-    const rate = action.type === 'submittal' ? 145 : 95;
+    // C1: rate from state.laborRates with fallbacks
+    const { rate, source: rateSource } = _resolveChecklistLaborRate(action.type);
     state.manualBomItems = state.manualBomItems || [];
     state.manualBomItems.push({
       id: 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-      catIndex: 0,
+      catIndex: 0, // informational — see note above
       name: action.text,
       qty: hours,
       unit: 'HR',
@@ -18464,10 +18726,11 @@ function _applyChecklistChoice(action, choice, payload) {
       partNumber: '',
       _addedFrom: `checklist:${action.type}`,
       _specSection: src.spec_section || null,
+      _laborRateSource: rateSource,
     });
     _invalidateBomCache();
     mutated = true;
-    if (typeof spToast === 'function') spToast(`Added ${hours} ${action.type} hours to bid at $${rate}/hr.`, 'success');
+    if (typeof spToast === 'function') spToast(`Added ${hours} ${action.type} hours @ $${rate}/hr (${rateSource}).`, 'success');
   } else if (choice === 'record_answer' && action.type === 'clarification') {
     state._clarificationAnswers = state._clarificationAnswers || {};
     state._clarificationAnswers[src.id || action.id.replace(/^clarify-/, '')] = {
@@ -19010,10 +19273,137 @@ function computeBidReadinessScore(st) {
   return { score, grade, label, color, factors };
 }
 
+// W4 (audit-2 2026-04-27) — comparable past bids lookup.
+// Async-fetches winning_proposals + bid_decisions filtered by project_type,
+// caches on state._comparableBids. Surface in win-probability panel so the
+// estimator sees min/median/max contract_value of similar bids before pricing.
+async function _loadComparableBids() {
+  if (state._comparableBidsLoading) return;
+  if (!state.analysisComplete) return;
+  const projectType = String(state.projectType || '').toLowerCase().trim();
+  if (!projectType) return;
+  // Cache key — refresh when project type changes
+  const cacheKey = `${projectType}|${(state.disciplines || []).sort().join(',')}`;
+  if (state._comparableBids && state._comparableBidsKey === cacheKey) return;
+  state._comparableBidsLoading = true;
+  try {
+    const headers = { 'X-App-Token': _appToken, 'X-Session-Token': _sessionToken };
+    const [winRes, decRes] = await Promise.allSettled([
+      fetchWithRetry(`/api/winning-proposals?project_type=${encodeURIComponent(projectType)}`, { headers, _timeout: 8000 }, 1),
+      fetchWithRetry(`/api/bid-decisions?project_type=${encodeURIComponent(projectType)}`, { headers, _timeout: 8000 }, 1),
+    ]);
+    const wins = winRes.status === 'fulfilled' && winRes.value.ok ? (await winRes.value.json()).proposals || [] : [];
+    const decisions = decRes.status === 'fulfilled' && decRes.value.ok ? (await decRes.value.json()).decisions || [] : [];
+    // Aggregate: contract values from wins + adjusted_value from won decisions
+    const values = [];
+    for (const w of wins) { if (Number(w.contract_value) > 0) values.push(Number(w.contract_value)); }
+    for (const d of decisions) {
+      if (d.outcome === 'won' && Number(d.adjusted_value) > 0) values.push(Number(d.adjusted_value));
+    }
+    values.sort((a, b) => a - b);
+    const median = values.length > 0 ? values[Math.floor(values.length / 2)] : 0;
+    const wonCount = decisions.filter(d => d.outcome === 'won').length;
+    const lostCount = decisions.filter(d => d.outcome === 'lost').length;
+    const totalDecisions = wonCount + lostCount;
+    const winRate = totalDecisions > 0 ? (wonCount / totalDecisions) : null;
+    state._comparableBids = {
+      sampleSize: values.length,
+      min: values[0] || 0,
+      median: median || 0,
+      max: values[values.length - 1] || 0,
+      winCount: wonCount,
+      lossCount: lostCount,
+      winRate,
+      projectType,
+      ts: Date.now(),
+    };
+    state._comparableBidsKey = cacheKey;
+    if (typeof render === 'function') render();
+  } catch (e) {
+    console.warn('[Comparables] load failed:', e?.message || e);
+  } finally {
+    state._comparableBidsLoading = false;
+  }
+}
+
+// W3 (audit-2 2026-04-27) — pre-bid win-probability heuristic.
+// Combines (a) base win-rate by project type, (b) readiness score, (c) scope
+// coverage, (d) bid-total sanity. Returns 0–100 % and a label. Until enough
+// real win/loss data accrues via W2, base rates are sensible defaults; once
+// bid_decisions has sufficient samples, this can be re-anchored to actuals.
+function computeWinProbability(st) {
+  if (!st || !st.analysisComplete) return null;
+  const projectType = String(st.projectType || st._buildingProfile?.building_type || '').toLowerCase();
+  // Base win rates — placeholder until W2 data accumulates per project type
+  const BASE_RATES = {
+    transit: 0.35,           // highly competitive, federal-process bids
+    railroad: 0.35,
+    'multi_family': 0.60,    // less competitive, fewer specialized bidders
+    apartment: 0.60,
+    multifamily: 0.60,
+    healthcare: 0.55,
+    medical: 0.55,
+    va: 0.50,
+    education: 0.50,
+    school: 0.50,
+    retail: 0.45,
+    office: 0.45,
+    commercial: 0.45,
+    warehouse: 0.55,
+    industrial: 0.55,
+    government: 0.45,
+    correctional: 0.40,
+    'data_center': 0.50,
+  };
+  let base = 0.50;
+  for (const [k, v] of Object.entries(BASE_RATES)) {
+    if (projectType.includes(k)) { base = v; break; }
+  }
+  // Readiness multiplier: ratio (so 87% readiness = 0.87 multiplier)
+  const readiness = computeBidReadinessScore(st);
+  const readinessMul = Math.max(0.30, (readiness?.score || 50) / 100);
+  // Scope coverage: any zero-discipline gap drops the multiplier hard
+  const gaps = Array.isArray(st._disciplineCoverageGaps) ? st._disciplineCoverageGaps.length : 0;
+  const scopeMul = gaps === 0 ? 1.0 : (gaps === 1 ? 0.75 : 0.55);
+  // Sanity multiplier: if the bid total guard fired (clamp), the price
+  // is at the edge of defensibility — modest hit
+  const clampActive = !!st._bidTotalGuardClamp;
+  const sanityMul = clampActive ? 0.85 : 1.0;
+  // Drawing-intake fail without override = 0 chance of competitive bid
+  const intakeOverride = !!st._drawingIntakeOverride;
+  const intakeGate = String(st._drawingIntake?.gate || '').toUpperCase();
+  const intakeMul = (intakeGate === 'FAIL' && !intakeOverride) ? 0.20 : (intakeGate === 'FAIL' ? 0.70 : 1.0);
+  const raw = base * readinessMul * scopeMul * sanityMul * intakeMul;
+  const pct = Math.max(5, Math.min(95, Math.round(raw * 100)));
+  let label = 'Even odds';
+  let color = '#f59e0b';
+  if (pct >= 65) { label = 'Strong chance'; color = '#10b981'; }
+  else if (pct >= 50) { label = 'Above average'; color = '#22c55e'; }
+  else if (pct >= 35) { label = 'Below average'; color = '#f59e0b'; }
+  else { label = 'Long shot'; color = '#ef4444'; }
+  return {
+    pct,
+    label,
+    color,
+    factors: {
+      baseRate: Math.round(base * 100),
+      readiness: Math.round(readinessMul * 100),
+      scope: Math.round(scopeMul * 100),
+      sanity: Math.round(sanityMul * 100),
+      intake: Math.round(intakeMul * 100),
+    },
+  };
+}
+
 // ═══ BID READINESS SCORE CARD — prominent top-of-page display ═══
 function buildBidReadinessCard(st) {
   const result = computeBidReadinessScore(st);
   if (!st.analysisComplete) return '';
+  const winProb = computeWinProbability(st);
+  // W4: kick off comparable-bids fetch in background — populates state._comparableBids,
+  // re-renders when ready. Idempotent via cache key.
+  setTimeout(() => { try { _loadComparableBids(); } catch (_) {} }, 100);
+  const comparables = st._comparableBids;
 
   const circumference = 2 * Math.PI * 54; // radius 54 → ~339.3
   const dashoffset = circumference - (result.score / 100) * circumference;
@@ -19057,6 +19447,30 @@ function buildBidReadinessCard(st) {
         </div>
       </div>
 
+      ${winProb ? `
+        <div style="flex-basis:100%;display:flex;gap:12px;align-items:center;padding:14px 16px;background:rgba(255,255,255,0.05);border-left:3px solid ${winProb.color};border-radius:6px;margin-top:4px;">
+          <div style="flex-shrink:0;text-align:center;">
+            <div style="font-size:32px;font-weight:900;color:${winProb.color};line-height:1;">${winProb.pct}%</div>
+            <div style="font-size:9px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:1px;margin-top:4px;">Win Probability</div>
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:700;color:${winProb.color};text-transform:uppercase;letter-spacing:1px;">${esc(winProb.label)}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:4px;line-height:1.5;">
+              Base ${winProb.factors.baseRate}% × readiness ${winProb.factors.readiness}% × scope ${winProb.factors.scope}% × sanity ${winProb.factors.sanity}% × intake ${winProb.factors.intake}%.
+              <br><span style="font-style:italic;color:rgba(255,255,255,0.4);">Calibration improves as you record bid outcomes (🏆 Outcome button on Saved Estimates).</span>
+            </div>
+          </div>
+        </div>` : ''}
+      ${comparables && comparables.sampleSize > 0 ? `
+        <div style="flex-basis:100%;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;margin-top:4px;">
+          <div style="font-size:10px;font-weight:800;color:#EBB328;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">📊 Comparable Past Bids — ${esc(comparables.projectType)} (n=${comparables.sampleSize})</div>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:rgba(255,255,255,0.85);line-height:1.6;">
+            <div><span style="color:rgba(255,255,255,0.5);">Min:</span> <strong>$${Math.round(comparables.min).toLocaleString()}</strong></div>
+            <div><span style="color:rgba(255,255,255,0.5);">Median:</span> <strong style="color:#EBB328;">$${Math.round(comparables.median).toLocaleString()}</strong></div>
+            <div><span style="color:rgba(255,255,255,0.5);">Max:</span> <strong>$${Math.round(comparables.max).toLocaleString()}</strong></div>
+            ${comparables.winRate != null ? `<div><span style="color:rgba(255,255,255,0.5);">Recorded win rate:</span> <strong style="color:${comparables.winRate >= 0.6 ? '#10b981' : comparables.winRate >= 0.4 ? '#f59e0b' : '#ef4444'};">${Math.round(comparables.winRate * 100)}%</strong> (${comparables.winCount}W / ${comparables.lossCount}L)</div>` : '<div style="color:rgba(255,255,255,0.4);font-style:italic;">No outcomes recorded yet — use 🏆 Outcome button</div>'}
+          </div>
+        </div>` : ''}
       ${result.score < 70 ? `
         <div style="flex-basis:100%;padding:12px 16px;background:rgba(239,68,68,0.12);border-left:3px solid #ef4444;border-radius:6px;margin-top:4px;">
           <div style="font-size:11px;font-weight:800;color:#ef4444;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">⚠ Bid Not Ready</div>
@@ -20444,11 +20858,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       const manualCount = (state.manualBomItems || []).length;
       const deletedCount = state.deletedBomItems ? Object.keys(state.deletedBomItems).length : 0;
       const exclusionsCount = (state.exclusions || []).length;
+      // H10 fix (audit-2 2026-04-27): include clarification answers + checklist
+      // verifications so a tab close doesn't lose 15 minutes of estimator decisions.
+      const clarificationCount = state._clarificationAnswers ? Object.keys(state._clarificationAnswers).length : 0;
+      const checklistVerifiedCount = state._checklistChecked ? Object.values(state._checklistChecked).filter(v => v === true).length : 0;
+      const modalOpen = !!window._spActiveChecklistModal;
       const hasPreAnalysisWork = (state.projectName && state.projectName.trim())
         || state.planFiles.length > 0
         || state.legendFiles.length > 0;
-      const hasPostAnalysisWork = overrideCount > 0 || manualCount > 0 || deletedCount > 0 || exclusionsCount > 0;
-      const hasInFlightWork = state.analyzing || window._savingEstimate;
+      const hasPostAnalysisWork = overrideCount > 0 || manualCount > 0 || deletedCount > 0
+        || exclusionsCount > 0 || clarificationCount > 0 || checklistVerifiedCount > 0;
+      const hasInFlightWork = state.analyzing || window._savingEstimate || modalOpen;
       const hasWork = hasPreAnalysisWork || hasPostAnalysisWork || hasInFlightWork;
       // Show prompt if (a) analysis in progress, (b) save in flight, or (c) unsaved
       // edits exist (regardless of analysisComplete). Pre-fix only checked
