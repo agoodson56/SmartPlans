@@ -10988,8 +10988,22 @@ ${legendContext}
     // v5.129.9: bumped batch 2→4, stagger 2000→1000ms. With 18 proxy-managed
     // keys spreading load, 4 concurrent brains/batch is well under the per-key
     // rate ceiling. Halved stagger because 2s was over-cautious.
-    const BATCH_SIZE = 4;
-    const STAGGER_DELAY_MS = 1000; // 1 second between batches
+    // v5.141.0 (2026-04-28): Frances bid revealed Cloudflare 503 throttling
+    // when 4 parallel brain calls each carry ~30 MB of plan PDFs. Wave 1
+    // batch 1 (Code Compliance, MDF/IDF, Cable & Pathway, Special Conditions)
+    // all needsFiles=['plans','specs'] → quad-stack of base64 plan data hits
+    // Cloudflare's per-instance throughput ceiling and 503s on BOTH the
+    // Claude proxy AND the Gemini proxy in lockstep. Single-bid investigation
+    // confirmed the throttle is Cloudflare-side, not provider-side.
+    //
+    // Drop to BATCH_SIZE=1 (sequential standard brains) + 3s stagger so
+    // Cloudflare/Anthropic both get breathing room between heavy-payload calls.
+    // Wave 1 wall-clock grows from ~30s to ~5min on a 23-PDF bid — acceptable
+    // tradeoff for actually completing the bid instead of dying at batch 1.
+    //
+    // Per-page brains were already sequential (line ~11008) and unaffected.
+    const BATCH_SIZE = 1;
+    const STAGGER_DELAY_MS = 3000; // 3 seconds between sequential calls
 
     // Helper: route brain to per-page or standard execution
     const runBrain = async (key) => {
