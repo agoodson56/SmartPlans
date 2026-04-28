@@ -2905,13 +2905,31 @@ const SmartBrains = {
         }
 
         // ── STEP 2: Determine discipline from sheet ID prefix ──
+        // v5.138.0 fix (E-sheet drop bug): mirror _classifyBySheetId — progressive
+        // prefix matching (3 → 2 → 1 chars). Pre-fix, the single-pass greedy regex
+        // pulled "ED" / "ESD" / "EE" from sheet IDs like "ED-1.01" — none of those
+        // sub-variants are in SHEET_DISCIPLINE_MAP, so the page hit the "unknown
+        // prefix → default include" branch. Then the PLUMBING/MECHANICAL/
+        // STRUCTURAL/HVAC keyword backup saw an unmapped prefix + electrical
+        // coordination text ("MECHANICAL EQUIPMENT", "STRUCTURAL ANCHORING") and
+        // SKIPPED the page. Whole E-sheet sets disappeared before brain processing.
+        // Post-fix: ED → fallback "E" (mapped to all 6 ELV disciplines) → kept.
         let skipThisPage = false;
+        let mappedDisciplines = undefined;
         if (hasDisciplineFilter && sheetId) {
-          // Extract the letter prefix from sheet ID (e.g., "T" from "T-101", "FA" from "FA-201")
-          const prefixMatch = sheetId.match(/^([A-Z]{1,3})/);
+          const normalizedId = String(sheetId).toUpperCase().replace(/[\s.\-_]/g, '');
+          const prefixMatch = normalizedId.match(/^([A-Z]{1,3})/);
           if (prefixMatch) {
-            sheetPrefix = prefixMatch[1];
-            const mappedDisciplines = prefixDisciplineMap[sheetPrefix];
+            const fullPrefix = prefixMatch[1];
+            for (let len = fullPrefix.length; len >= 1; len--) {
+              const candidate = fullPrefix.substring(0, len);
+              if (prefixDisciplineMap[candidate] !== undefined) {
+                sheetPrefix = candidate;
+                mappedDisciplines = prefixDisciplineMap[candidate];
+                break;
+              }
+            }
+            if (!sheetPrefix) sheetPrefix = fullPrefix;
 
             if (mappedDisciplines !== undefined) {
               if (mappedDisciplines.includes('all')) {
@@ -2926,23 +2944,20 @@ const SmartBrains = {
                 skipThisPage = !overlap;
               }
             }
-            // If prefix not in map, include by default (unknown = safe to include)
+            // If prefix not in map even after fallback, include by default (unknown = safe to include)
           }
 
-          // Also check for discipline keywords in page text (backup detection)
+          // Backup detection: only fires for prefixes the map either doesn't know
+          // OR explicitly marks as non-ELV (length 0). Sheets whose progressive
+          // fallback found a non-empty discipline list (e.g., "ED" → "E" → ELV)
+          // are protected — they stay in even if their text mentions HVAC.
           if (!skipThisPage && sheetPrefix) {
-            const upperText = pageText.toUpperCase();
-            // If page clearly belongs to an unselected discipline by keyword
-            const keywordChecks = [
-              { kw: 'PLUMBING', disc: [] },
-              { kw: 'MECHANICAL', disc: [] },
-              { kw: 'STRUCTURAL', disc: [] },
-              { kw: 'HVAC', disc: [] },
-            ];
-            for (const { kw, disc } of keywordChecks) {
-              if (upperText.includes(kw) && disc.length === 0) {
-                // Only skip if sheet prefix is also not ELV-relevant
-                if (!prefixDisciplineMap[sheetPrefix] || prefixDisciplineMap[sheetPrefix].length === 0) {
+            const prefixHasELV = Array.isArray(mappedDisciplines) && mappedDisciplines.length > 0;
+            if (!prefixHasELV) {
+              const upperText = pageText.toUpperCase();
+              const otherDisciplineKeywords = ['PLUMBING', 'MECHANICAL', 'STRUCTURAL', 'HVAC'];
+              for (const kw of otherDisciplineKeywords) {
+                if (upperText.includes(kw)) {
                   skipThisPage = true;
                   break;
                 }
