@@ -10428,15 +10428,36 @@ function renderStep7(container) {
     render();
   });
 
-  // ── Estimator Checklist interactive checkboxes ──
+  // ── Estimator Checklist — INTERACTIVE DECISIONS (v5.136.0) ──
+  // Click a row -> modal asks the estimator's call (add to bid, change
+  // qty, record answer, or just verify). _applyChecklistChoice mutates
+  // state if needed. _invalidateBomCache (called by helpers) forces the
+  // bid total to recompute on the next render/export.
   const checklistItems = document.querySelectorAll('.checklist-action-item');
   checklistItems.forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', async () => {
       const actionId = item.getAttribute('data-action-id');
       if (!actionId) return;
+      const action = (state._checklistActions || []).find(a => a.id === actionId);
+      // If we somehow lost the action object (e.g., post-restore mismatch),
+      // fall back to legacy passive toggle so clicking still does *something*.
+      if (!action) {
+        if (!state._checklistChecked) state._checklistChecked = {};
+        state._checklistChecked[actionId] = !state._checklistChecked[actionId];
+        try {
+          const key = `sp_checklist_${state.projectName || 'default'}`;
+          localStorage.setItem(key, JSON.stringify(state._checklistChecked));
+        } catch (e) { /* localStorage full — non-fatal */ }
+        render();
+        return;
+      }
+      const { choice, payload } = await _showChecklistDecisionModal(action);
+      if (choice === 'cancel') return;
+      _applyChecklistChoice(action, choice, payload);
+      // Mark verified (or unmark on toggle re-click — for now any non-cancel
+      // choice marks the row complete since the decision was made).
       if (!state._checklistChecked) state._checklistChecked = {};
-      state._checklistChecked[actionId] = !state._checklistChecked[actionId];
-      // Persist to localStorage so checks survive page refresh
+      state._checklistChecked[actionId] = true;
       try {
         const key = `sp_checklist_${state.projectName || 'default'}`;
         localStorage.setItem(key, JSON.stringify(state._checklistChecked));
@@ -17882,6 +17903,8 @@ function buildEstimatorChecklistCard(st) {
     const cost = g.estimated_cost_if_missing || 0;
     actions.push({
       id: `spec-${g.spec_section}-${(g.requirement || '').substring(0, 20)}`,
+      type: 'spec_gap',
+      _source: g,
       priority: g.severity === 'critical' ? 1 : 2,
       icon: g.severity === 'critical' ? '🔴' : '🟡',
       category: 'Spec Gap',
@@ -17889,6 +17912,7 @@ function buildEstimatorChecklistCard(st) {
       text: `${g.requirement || 'Unknown requirement'}`,
       detail: `Section ${g.spec_section || '?'} — not found in BOM${cost > 0 ? ` (~$${cost.toLocaleString()})` : ''}`,
       why: g.severity === 'critical' ? 'Required by spec — missing this loses the bid or creates a change order' : 'Spec requirement not matched to a BOM line item',
+      actionVerb: cost > 0 ? `Add to bid (~$${cost.toLocaleString()})` : 'Add to bid',
     });
   }
 
@@ -17896,6 +17920,8 @@ function buildEstimatorChecklistCard(st) {
   for (const a of (st._quantityAnomalies || [])) {
     actions.push({
       id: `anom-${a.type}-${(a.item || '').substring(0, 20)}`,
+      type: 'anomaly',
+      _source: a,
       priority: a.severity === 'warning' ? 2 : 3,
       icon: a.severity === 'warning' ? '⚠️' : 'ℹ️',
       category: 'Qty Anomaly',
@@ -17903,6 +17929,7 @@ function buildEstimatorChecklistCard(st) {
       text: `Verify: ${a.item}`,
       detail: a.detail,
       why: a.suggestion,
+      actionVerb: 'Agree or change qty',
     });
   }
 
@@ -17914,6 +17941,8 @@ function buildEstimatorChecklistCard(st) {
     for (const item of lowConf.slice(0, 10)) {
       actions.push({
         id: `conf-${(item.item || item.device_type || '').substring(0, 20)}`,
+        type: 'low_confidence',
+        _source: item,
         priority: item._confidence.grade === 'D' ? 1 : 3,
         icon: item._confidence.grade === 'D' ? '🔴' : '🟡',
         category: item._confidence.grade === 'D' ? 'Low Confidence' : 'Review',
@@ -17921,6 +17950,7 @@ function buildEstimatorChecklistCard(st) {
         text: `${item.item || item.device_type || 'Unknown'} — Grade ${item._confidence.grade} (${item._confidence.score}/100)`,
         detail: `Qty: ${item.qty || 0} | $${(item.extCost || item.ext_cost || 0).toLocaleString()}`,
         why: 'Multiple verification flags — cross-check quantity and pricing against plans',
+        actionVerb: 'Confirm or correct',
       });
     }
   }
@@ -17931,6 +17961,8 @@ function buildEstimatorChecklistCard(st) {
     for (const c of (devil.challenges || []).filter(c => c.severity === 'critical' || c.severity === 'warning').slice(0, 5)) {
       actions.push({
         id: `devil-${(c.category || '').substring(0, 15)}-${(c.description || '').substring(0, 15)}`,
+        type: 'risk_flag',
+        _source: c,
         priority: c.severity === 'critical' ? 1 : 2,
         icon: c.severity === 'critical' ? '😈' : '🤔',
         category: 'Risk Flag',
@@ -17938,6 +17970,7 @@ function buildEstimatorChecklistCard(st) {
         text: `${c.category || 'Risk'}: ${c.description || ''}`,
         detail: c.estimated_impact ? `Potential impact: ${c.estimated_impact}` : '',
         why: 'Devil\'s Advocate challenged this — verify it\'s accounted for',
+        actionVerb: 'Acknowledge',
       });
     }
   }
@@ -17948,6 +17981,8 @@ function buildEstimatorChecklistCard(st) {
     for (const issue of (validator.issues || []).filter(i => i.severity === 'critical' || i.severity === 'warning').slice(0, 5)) {
       actions.push({
         id: `xval-${(issue.category || '').substring(0, 15)}-${(issue.description || '').substring(0, 15)}`,
+        type: 'verification',
+        _source: issue,
         priority: issue.severity === 'critical' ? 1 : 2,
         icon: '⚠️',
         category: 'Verification',
@@ -17955,6 +17990,7 @@ function buildEstimatorChecklistCard(st) {
         text: `${issue.category || 'Issue'}: ${issue.description || ''}`,
         detail: issue.correction ? `Suggested fix: ${issue.correction}` : '',
         why: 'Cross-validator found a discrepancy between brain outputs',
+        actionVerb: 'Acknowledge',
       });
     }
   }
@@ -17964,6 +18000,8 @@ function buildEstimatorChecklistCard(st) {
   for (const q of questions.filter(q => q.severity === 'high' || q.severity === 'critical').slice(0, 5)) {
     actions.push({
       id: `clarify-${q.id}`,
+      type: 'clarification',
+      _source: q,
       priority: q.severity === 'critical' ? 1 : 2,
       icon: '❓',
       category: 'Ambiguity',
@@ -17971,6 +18009,7 @@ function buildEstimatorChecklistCard(st) {
       text: q.question || 'Unresolved ambiguity',
       detail: q.options ? `Options: ${q.options.join(' | ')}` : '',
       why: 'SmartPlans found an ambiguity it couldn\'t resolve — your judgment needed',
+      actionVerb: 'Answer',
     });
   }
 
@@ -17982,6 +18021,8 @@ function buildEstimatorChecklistCard(st) {
       const txt = typeof m === 'string' ? m : (m.description || m.room || JSON.stringify(m));
       actions.push({
         id: `room-${txt.substring(0, 20)}`,
+        type: 'room_gap',
+        _source: typeof m === 'string' ? { description: m } : m,
         priority: 2,
         icon: '🏠',
         category: 'Room Gap',
@@ -17989,6 +18030,7 @@ function buildEstimatorChecklistCard(st) {
         text: txt.length > 80 ? txt.substring(0, 80) + '…' : txt,
         detail: '',
         why: 'Room-by-room walkthrough found a room missing expected devices',
+        actionVerb: 'Add device or acknowledge',
       });
     }
   }
@@ -18002,6 +18044,8 @@ function buildEstimatorChecklistCard(st) {
     for (const t of testReqs.slice(0, 3)) {
       actions.push({
         id: `test-${(t.requirement || '').substring(0, 20)}`,
+        type: 'testing',
+        _source: t,
         priority: 2,
         icon: '🧪',
         category: 'Testing',
@@ -18009,11 +18053,14 @@ function buildEstimatorChecklistCard(st) {
         text: `Testing: ${t.requirement || 'Required testing'}`,
         detail: `Est. ${t.labor_hours_estimate || '?'} labor hours — not in BOM`,
         why: 'Spec requires testing that isn\'t accounted for in labor hours',
+        actionVerb: `Add ${t.labor_hours_estimate || 'est.'} labor hours`,
       });
     }
     for (const t of trainReqs.slice(0, 2)) {
       actions.push({
         id: `train-${(t.description || '').substring(0, 20)}`,
+        type: 'training',
+        _source: t,
         priority: 3,
         icon: '📚',
         category: 'Training',
@@ -18021,11 +18068,14 @@ function buildEstimatorChecklistCard(st) {
         text: `Training: ${t.description || 'Required training'}`,
         detail: `Est. ${t.labor_hours || '?'} hours — not in BOM`,
         why: 'Spec requires training that isn\'t accounted for in labor',
+        actionVerb: `Add ${t.labor_hours || 'est.'} labor hours`,
       });
     }
     for (const t of submitReqs.slice(0, 2)) {
       actions.push({
         id: `submit-${(t.item || '').substring(0, 20)}`,
+        type: 'submittal',
+        _source: t,
         priority: 3,
         icon: '📋',
         category: 'Submittal',
@@ -18033,12 +18083,17 @@ function buildEstimatorChecklistCard(st) {
         text: `Submittal: ${t.item || 'Required submittal'}`,
         detail: `Est. ${t.engineering_hours || '?'} engineering hours`,
         why: 'Spec requires submittals — add engineering time to labor',
+        actionVerb: `Add ${t.engineering_hours || 'est.'} engineering hours`,
       });
     }
   }
 
   // Sort by priority (1=critical first, then 2=warning, then 3=info)
   actions.sort((a, b) => a.priority - b.priority);
+
+  // v5.136.0 — stash so the click handler can dispatch by id without
+  // re-aggregating from raw state.
+  st._checklistActions = actions;
 
   // If nothing to show, return a "clean bill of health" card
   if (actions.length === 0) {
@@ -18095,7 +18150,7 @@ function buildEstimatorChecklistCard(st) {
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;" id="estimator-checklist-items">
         ${actions.map((a, idx) => `
-          <div class="checklist-action-item" data-action-id="${esc(a.id)}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:8px;background:${checked[a.id] ? 'rgba(34,197,94,0.04)' : a.priority === 1 ? 'rgba(239,68,68,0.04)' : 'rgba(0,0,0,0.02)'};border-left:3px solid ${checked[a.id] ? '#22c55e' : a.catColor};cursor:pointer;transition:all 0.15s;${checked[a.id] ? 'opacity:0.6;' : ''}">
+          <div class="checklist-action-item" data-action-id="${esc(a.id)}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:8px;background:${checked[a.id] ? 'rgba(34,197,94,0.04)' : a.priority === 1 ? 'rgba(239,68,68,0.04)' : 'rgba(0,0,0,0.02)'};border-left:3px solid ${checked[a.id] ? '#22c55e' : a.catColor};cursor:pointer;transition:all 0.15s;${checked[a.id] ? 'opacity:0.6;' : ''}" title="${esc(a.actionVerb || 'Click to verify')}">
             <div style="flex-shrink:0;width:20px;height:20px;border:2px solid ${checked[a.id] ? '#22c55e' : 'rgba(0,0,0,0.2)'};border-radius:4px;display:flex;align-items:center;justify-content:center;margin-top:1px;background:${checked[a.id] ? '#22c55e' : 'transparent'};">
               ${checked[a.id] ? '<span style="color:white;font-size:12px;font-weight:900;">✓</span>' : ''}
             </div>
@@ -18107,6 +18162,7 @@ function buildEstimatorChecklistCard(st) {
               <div style="font-size:12.5px;color:var(--text-primary);font-weight:${checked[a.id] ? '400' : '600'};line-height:1.4;${checked[a.id] ? 'text-decoration:line-through;' : ''}">${esc(a.text)}</div>
               ${a.detail ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${esc(a.detail)}</div>` : ''}
               <div style="font-size:11px;color:${a.catColor};margin-top:3px;font-style:italic;">↳ ${esc(a.why)}</div>
+              ${!checked[a.id] && a.actionVerb ? `<div style="font-size:10px;color:var(--text-muted);margin-top:5px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">▸ Click: ${esc(a.actionVerb)}</div>` : ''}
             </div>
           </div>
         `).join('')}
@@ -18121,6 +18177,317 @@ function buildEstimatorChecklistCard(st) {
 }
 
 // ═══ CHECKLIST PDF GENERATOR — Print all or unchecked-only to PDF ═══
+// ═══════════════════════════════════════════════════════════════
+// v5.136.0 — INTERACTIVE CHECKLIST: AUTO-APPLY DECISIONS
+// Click any checklist row -> modal asks "agree / change / cancel"
+// and applies the change to the BOM (add line item, change qty,
+// record answer). _invalidateBomCache() then forces recompute on
+// the next render / export. Pre-fix the checkbox was passive
+// verification only — the bid never updated.
+// ═══════════════════════════════════════════════════════════════
+
+// Build and show a centered modal with action-specific buttons.
+// Returns a Promise that resolves with the user's choice key, or
+// 'cancel' if dismissed. The choices vary by action.type so each
+// dispatcher can branch cleanly.
+function _showChecklistDecisionModal(action) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'sp-checklist-modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,41,66,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    const card = document.createElement('div');
+    card.className = 'sp-checklist-modal';
+    card.style.cssText = 'background:#fff;max-width:520px;width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.30);padding:24px;font-family:var(--font-sans, system-ui, sans-serif);max-height:90vh;overflow-y:auto;';
+
+    const _close = (choice, payload) => {
+      overlay.remove();
+      document.removeEventListener('keydown', _esc);
+      resolve({ choice, payload });
+    };
+    const _esc = (e) => { if (e.key === 'Escape') _close('cancel'); };
+    document.addEventListener('keydown', _esc);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) _close('cancel'); });
+
+    const src = action._source || {};
+    let bodyHtml = '';
+    let buttonsHtml = '';
+
+    // Helpers
+    const safe = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const fmt$ = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+    if (action.type === 'spec_gap') {
+      const cost = Number(src.estimated_cost_if_missing) || 0;
+      bodyHtml = `
+        <div style="font-size:14px;color:#1e293b;margin-bottom:8px;line-height:1.5;"><strong>${safe(src.requirement || action.text)}</strong></div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:14px;">Spec Section ${safe(src.spec_section || '?')} — currently NOT in your BOM.</div>
+        <div style="padding:12px 14px;background:rgba(239,68,68,0.05);border-left:3px solid #ef4444;border-radius:6px;font-size:13px;color:#1e293b;margin-bottom:18px;">
+          <strong>Estimated cost if missing:</strong> ${cost > 0 ? fmt$(cost) : 'unknown'}<br>
+          <span style="color:#64748b;font-size:12px;">If you click "Add to bid" we'll insert this as a manual BOM line item under <em>Manual Additions</em>${cost > 0 ? ` at ${fmt$(cost)}` : ''}. The grand total recalculates automatically.</span>
+        </div>`;
+      buttonsHtml = `
+        <button data-choice="add" style="flex:1;padding:11px 14px;border:none;border-radius:8px;background:#10b981;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">✓ Add to bid${cost > 0 ? ` (${fmt$(cost)})` : ''}</button>
+        <button data-choice="verify" style="flex:1;padding:11px 14px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;background:#fff;color:#475569;font-weight:600;font-size:13px;cursor:pointer;">Already in scope — verify</button>
+        <button data-choice="cancel" style="padding:11px 14px;border:1px solid rgba(0,0,0,0.1);border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>`;
+    } else if (action.type === 'anomaly') {
+      const currentQty = Number(src.current_qty || src.qty || 0);
+      const suggested = Number(src.suggested_qty || src.expected_qty || 0);
+      bodyHtml = `
+        <div style="font-size:14px;color:#1e293b;margin-bottom:8px;line-height:1.5;"><strong>Verify quantity: ${safe(src.item || action.text)}</strong></div>
+        ${currentQty > 0 ? `<div style="font-size:12px;color:#64748b;margin-bottom:6px;">Current count: <strong style="color:#1e293b;">${currentQty}</strong></div>` : ''}
+        <div style="font-size:13px;color:#1e293b;padding:10px 12px;background:rgba(245,158,11,0.06);border-left:3px solid #f59e0b;border-radius:6px;margin-bottom:14px;">${safe(src.detail || action.detail || '')}<br><em style="color:#64748b;font-size:12px;">${safe(src.suggestion || action.why || '')}</em></div>
+        <div style="margin-bottom:14px;">
+          <label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Replace with quantity (leave blank to verify current count):</label>
+          <input id="sp-checklist-qty-input" type="number" placeholder="${suggested > 0 ? suggested : ''}" min="0" step="1" style="width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;font-size:14px;margin-top:6px;outline:none;" />
+        </div>`;
+      buttonsHtml = `
+        <button data-choice="change_qty" style="flex:1;padding:11px 14px;border:none;border-radius:8px;background:#f59e0b;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">Apply new qty</button>
+        <button data-choice="verify" style="flex:1;padding:11px 14px;border:1px solid rgba(16,185,129,0.3);border-radius:8px;background:rgba(16,185,129,0.08);color:#10b981;font-weight:600;font-size:13px;cursor:pointer;">Count is correct</button>
+        <button data-choice="cancel" style="padding:11px 14px;border:1px solid rgba(0,0,0,0.1);border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>`;
+    } else if (action.type === 'low_confidence') {
+      const item = src;
+      bodyHtml = `
+        <div style="font-size:14px;color:#1e293b;margin-bottom:8px;line-height:1.5;"><strong>${safe(item.item || item.device_type || 'Unknown')}</strong></div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:14px;">Confidence Grade ${safe(item._confidence?.grade || '?')} — qty <strong>${item.qty || 0}</strong> @ ${fmt$(item.unitCost || item.unit_cost || 0)} = ${fmt$(item.extCost || item.ext_cost || 0)}</div>
+        <div style="font-size:13px;color:#1e293b;padding:10px 12px;background:rgba(0,0,0,0.03);border-radius:6px;margin-bottom:14px;">Cross-check the quantity and price against the plans. If they're correct, mark verified. To edit, change them in the BOM editor on Step 7 — the modal will close and the row will jump into focus.</div>`;
+      buttonsHtml = `
+        <button data-choice="verify" style="flex:1;padding:11px 14px;border:none;border-radius:8px;background:#10b981;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">✓ Counts &amp; price are correct</button>
+        <button data-choice="open_bom" style="flex:1;padding:11px 14px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;background:#fff;color:#475569;font-weight:600;font-size:13px;cursor:pointer;">Open BOM editor</button>
+        <button data-choice="cancel" style="padding:11px 14px;border:1px solid rgba(0,0,0,0.1);border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>`;
+    } else if (action.type === 'testing' || action.type === 'training' || action.type === 'submittal') {
+      const hours = Number(src.labor_hours_estimate || src.labor_hours || src.engineering_hours) || 8;
+      const rate = action.type === 'submittal' ? 145 : 95;
+      const cost = hours * rate;
+      const labelMap = { testing: 'testing', training: 'training', submittal: 'engineering' };
+      bodyHtml = `
+        <div style="font-size:14px;color:#1e293b;margin-bottom:8px;line-height:1.5;"><strong>${safe(action.text)}</strong></div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:14px;">Spec requires ${labelMap[action.type]} not currently in your labor estimate.</div>
+        <div style="padding:12px 14px;background:rgba(14,165,233,0.05);border-left:3px solid #0ea5e9;border-radius:6px;font-size:13px;color:#1e293b;margin-bottom:18px;">
+          <strong>Add to bid:</strong> ${hours} ${labelMap[action.type]} hours × ${fmt$(rate)}/hr = <strong>${fmt$(cost)}</strong><br>
+          <span style="color:#64748b;font-size:12px;">Inserts as a manual labor line item. You can edit qty/rate in the BOM after.</span>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="font-size:12px;color:#475569;font-weight:600;">Adjust hours (optional):</label>
+          <input id="sp-checklist-hours-input" type="number" placeholder="${hours}" min="0.5" step="0.5" style="width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;font-size:14px;margin-top:6px;outline:none;" />
+        </div>`;
+      buttonsHtml = `
+        <button data-choice="add_labor" style="flex:1;padding:11px 14px;border:none;border-radius:8px;background:#0ea5e9;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">Add labor to bid</button>
+        <button data-choice="verify" style="flex:1;padding:11px 14px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;background:#fff;color:#475569;font-weight:600;font-size:13px;cursor:pointer;">Already in scope — verify</button>
+        <button data-choice="cancel" style="padding:11px 14px;border:1px solid rgba(0,0,0,0.1);border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>`;
+    } else if (action.type === 'clarification') {
+      const opts = Array.isArray(src.options) ? src.options : [];
+      bodyHtml = `
+        <div style="font-size:14px;color:#1e293b;margin-bottom:8px;line-height:1.5;"><strong>${safe(src.question || action.text)}</strong></div>
+        ${src.context ? `<div style="font-size:12px;color:#64748b;margin-bottom:14px;">${safe(src.context)}</div>` : ''}
+        <div style="margin-bottom:14px;">
+          <label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Your answer:</label>
+          ${opts.length > 0 ? `<select id="sp-checklist-answer-input" style="width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;font-size:14px;margin-top:6px;background:#fff;outline:none;">
+            <option value="">— pick an option —</option>
+            ${opts.map(o => `<option value="${safe(o)}">${safe(o)}</option>`).join('')}
+            <option value="__custom__">Other / custom answer…</option>
+          </select>
+          <input id="sp-checklist-custom-input" type="text" placeholder="Type custom answer…" style="display:none;width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;font-size:14px;margin-top:6px;outline:none;" />` : `
+          <input id="sp-checklist-answer-input" type="text" placeholder="Type your answer…" style="width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;font-size:14px;margin-top:6px;outline:none;" />`}
+        </div>`;
+      buttonsHtml = `
+        <button data-choice="record_answer" style="flex:1;padding:11px 14px;border:none;border-radius:8px;background:#6366f1;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">Record answer</button>
+        <button data-choice="cancel" style="padding:11px 14px;border:1px solid rgba(0,0,0,0.1);border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>`;
+    } else if (action.type === 'room_gap') {
+      bodyHtml = `
+        <div style="font-size:14px;color:#1e293b;margin-bottom:8px;line-height:1.5;"><strong>${safe(action.text)}</strong></div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:14px;">${safe(src.detail || src.description || '')}</div>
+        <div style="padding:12px 14px;background:rgba(249,115,22,0.05);border-left:3px solid #f97316;border-radius:6px;font-size:13px;color:#1e293b;margin-bottom:18px;">
+          Room-by-room walkthrough flagged this as missing expected devices. To add a device, open the BOM editor. To dismiss, mark verified (you've reviewed and the room is correct).
+        </div>`;
+      buttonsHtml = `
+        <button data-choice="open_bom" style="flex:1;padding:11px 14px;border:none;border-radius:8px;background:#f97316;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">Open BOM editor</button>
+        <button data-choice="verify" style="flex:1;padding:11px 14px;border:1px solid rgba(0,0,0,0.15);border-radius:8px;background:#fff;color:#475569;font-weight:600;font-size:13px;cursor:pointer;">Acknowledge</button>
+        <button data-choice="cancel" style="padding:11px 14px;border:1px solid rgba(0,0,0,0.1);border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>`;
+    } else {
+      // risk_flag, verification, default
+      bodyHtml = `
+        <div style="font-size:14px;color:#1e293b;margin-bottom:8px;line-height:1.5;"><strong>${safe(action.text)}</strong></div>
+        ${action.detail ? `<div style="font-size:12px;color:#64748b;margin-bottom:8px;">${safe(action.detail)}</div>` : ''}
+        <div style="font-size:12px;color:${action.catColor};font-style:italic;margin-bottom:14px;">${safe(action.why)}</div>
+        <div style="padding:10px 12px;background:rgba(0,0,0,0.03);border-radius:6px;font-size:12px;color:#475569;margin-bottom:14px;">This is an advisory flag. Acknowledge after you've considered the risk and confirmed your bid handles it.</div>`;
+      buttonsHtml = `
+        <button data-choice="verify" style="flex:1;padding:11px 14px;border:none;border-radius:8px;background:#10b981;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">✓ Acknowledge</button>
+        <button data-choice="cancel" style="padding:11px 14px;border:1px solid rgba(0,0,0,0.1);border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>`;
+    }
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">
+        <span style="font-size:24px;">${action.icon || '📋'}</span>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:${action.catColor || '#64748b'};text-transform:uppercase;letter-spacing:1.5px;">${safe(action.category || 'Review')}</div>
+          <div style="font-size:13px;color:#0f172a;font-weight:600;margin-top:2px;">Estimator decision needed</div>
+        </div>
+      </div>
+      ${bodyHtml}
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;">${buttonsHtml}</div>`;
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    // Wire dropdown -> custom-input toggle for clarifications
+    const sel = card.querySelector('#sp-checklist-answer-input');
+    const customIn = card.querySelector('#sp-checklist-custom-input');
+    if (sel && customIn && sel.tagName === 'SELECT') {
+      sel.addEventListener('change', () => {
+        customIn.style.display = sel.value === '__custom__' ? 'block' : 'none';
+        if (sel.value === '__custom__') customIn.focus();
+      });
+    }
+
+    // Wire button clicks
+    card.querySelectorAll('button[data-choice]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const c = btn.getAttribute('data-choice');
+        const payload = {};
+        if (c === 'change_qty') {
+          const v = card.querySelector('#sp-checklist-qty-input')?.value;
+          const n = parseFloat(v);
+          if (!Number.isFinite(n) || n < 0) {
+            spToast('Enter a valid quantity (0 or higher), or click "Count is correct" to keep current.', 'error');
+            return;
+          }
+          payload.newQty = n;
+        }
+        if (c === 'add_labor') {
+          const v = card.querySelector('#sp-checklist-hours-input')?.value;
+          const n = parseFloat(v);
+          payload.hours = Number.isFinite(n) && n > 0 ? n : null; // null -> use default from action
+        }
+        if (c === 'record_answer') {
+          let answer = sel ? sel.value : '';
+          if (answer === '__custom__') answer = (customIn?.value || '').trim();
+          if (sel && sel.tagName !== 'SELECT') answer = sel.value.trim();
+          if (!answer) {
+            spToast('Pick or type an answer first.', 'error');
+            return;
+          }
+          payload.answer = answer;
+        }
+        _close(c, payload);
+      });
+    });
+
+    // Auto-focus the qty/answer field if present
+    setTimeout(() => {
+      (card.querySelector('#sp-checklist-qty-input')
+        || card.querySelector('#sp-checklist-hours-input')
+        || card.querySelector('#sp-checklist-answer-input'))?.focus();
+    }, 50);
+  });
+}
+
+// Apply the user's choice to the bid (mutate state, invalidate cache).
+// Returns true if the bid was changed (so caller knows to render).
+function _applyChecklistChoice(action, choice, payload) {
+  if (!action || !choice || choice === 'cancel') return false;
+  const src = action._source || {};
+  let mutated = false;
+
+  if (choice === 'add' && action.type === 'spec_gap') {
+    const cost = Number(src.estimated_cost_if_missing) || 0;
+    state.manualBomItems = state.manualBomItems || [];
+    state.manualBomItems.push({
+      id: 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      catIndex: 0,
+      name: src.requirement || action.text || 'Spec gap item',
+      qty: 1,
+      unit: 'EA',
+      unitCost: cost,
+      mfg: '',
+      partNumber: '',
+      _addedFrom: 'checklist:spec_gap',
+      _specSection: src.spec_section || null,
+    });
+    _invalidateBomCache();
+    mutated = true;
+    if (typeof spToast === 'function') spToast(`Added "${(src.requirement || action.text).substring(0, 50)}" to bid${cost > 0 ? ` at $${cost.toLocaleString()}` : ''}.`, 'success');
+  } else if (choice === 'change_qty' && action.type === 'anomaly') {
+    // Anomaly qty change — apply via supplier override on the matching item.
+    const itemName = String(src.item || '').toLowerCase();
+    let appliedTo = null;
+    if (state.aiAnalysis && itemName) {
+      try {
+        const bom = (typeof SmartPlansExport !== 'undefined' && SmartPlansExport._extractBOMFromAnalysis)
+          ? SmartPlansExport._extractBOMFromAnalysis(state.aiAnalysis)
+          : null;
+        if (bom && bom.categories) {
+          outer: for (let ci = 0; ci < bom.categories.length; ci++) {
+            const cat = bom.categories[ci];
+            for (let ii = 0; ii < (cat.items || []).length; ii++) {
+              const it = cat.items[ii];
+              const n = String(it.item || it.name || it.description || '').toLowerCase();
+              if (n.includes(itemName.substring(0, Math.min(20, itemName.length)))) {
+                const key = `${ci}-${ii}`;
+                state.supplierPriceOverrides = state.supplierPriceOverrides || {};
+                state.supplierPriceOverrides[key] = {
+                  ...(state.supplierPriceOverrides[key] || {}),
+                  qty: payload.newQty,
+                  unitCost: it.unitCost,
+                  supplierName: 'Checklist anomaly fix',
+                  appliedAt: new Date().toISOString(),
+                  _origCatName: cat.name || '',
+                  _origItemName: it.item || it.name || it.description || '',
+                };
+                appliedTo = `${cat.name} → ${it.item || it.name}`;
+                _invalidateBomCache();
+                mutated = true;
+                break outer;
+              }
+            }
+          }
+        }
+      } catch (e) { /* fall through */ }
+    }
+    if (typeof spToast === 'function') {
+      spToast(appliedTo
+        ? `Quantity for "${appliedTo}" set to ${payload.newQty}.`
+        : `Couldn't find a matching BOM line to update — no change applied.`,
+        appliedTo ? 'success' : 'error');
+    }
+  } else if (choice === 'add_labor' && (action.type === 'testing' || action.type === 'training' || action.type === 'submittal')) {
+    const defaultHours = Number(src.labor_hours_estimate || src.labor_hours || src.engineering_hours) || 8;
+    const hours = (payload.hours != null && payload.hours > 0) ? payload.hours : defaultHours;
+    const rate = action.type === 'submittal' ? 145 : 95;
+    state.manualBomItems = state.manualBomItems || [];
+    state.manualBomItems.push({
+      id: 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      catIndex: 0,
+      name: action.text,
+      qty: hours,
+      unit: 'HR',
+      unitCost: rate,
+      mfg: '',
+      partNumber: '',
+      _addedFrom: `checklist:${action.type}`,
+      _specSection: src.spec_section || null,
+    });
+    _invalidateBomCache();
+    mutated = true;
+    if (typeof spToast === 'function') spToast(`Added ${hours} ${action.type} hours to bid at $${rate}/hr.`, 'success');
+  } else if (choice === 'record_answer' && action.type === 'clarification') {
+    state._clarificationAnswers = state._clarificationAnswers || {};
+    state._clarificationAnswers[src.id || action.id.replace(/^clarify-/, '')] = {
+      answer: payload.answer,
+      answeredAt: new Date().toISOString(),
+    };
+    mutated = true;
+    if (typeof spToast === 'function') spToast(`Answer recorded.`, 'success');
+  } else if (choice === 'open_bom') {
+    // Scroll to BOM editor on Step 7 (best-effort — table id varies).
+    setTimeout(() => {
+      const tbl = document.getElementById('bom-editable-table') || document.querySelector('[id*="bom" i]');
+      if (tbl) tbl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+    if (typeof spToast === 'function') spToast(`Edit qty/cost in the BOM editor — totals recalculate automatically.`, 'info');
+  }
+
+  return mutated;
+}
+
 function _printChecklist(mode) {
   const checked = state._checklistChecked || {};
 
