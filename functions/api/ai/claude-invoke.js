@@ -58,10 +58,25 @@ export async function onRequestPost(context) {
         // Anthropic:  { model, max_tokens, system, messages: [{role, content: [{type:'text',text} | {type:'image',source}]}] }
         const anthropicBody = _translateGeminiToAnthropic(body, requestedModel);
 
-        // ── 4. Forward to Anthropic ─────────────────────────────
-        // NOTE: Anthropic supports streaming; we use non-streaming here for simpler
-        // integration with the existing SmartBrains retry loop. Streaming can be
-        // added in a future wave if per-token progress is needed.
+        // v5.142.0 (2026-04-28): STREAMING. The non-streaming path made
+        // Cloudflare hold the entire request open while Anthropic thought,
+        // which routinely tripped the Pages Function ~30s wall-clock kill on
+        // heavy-vision brains (Symbol Scanner, Plan Legend Scanner, Spatial
+        // Layout). Each one 504'd, fell back to Gemini, which also returned
+        // empty when Google's API was degraded.
+        //
+        // Now: ask Anthropic for streaming output, pipe its SSE through a
+        // TransformStream that reshapes Anthropic events into Gemini-shape
+        // SSE chunks, return the piped stream as the response. Cloudflare
+        // sees an active streaming response and does NOT enforce wall-clock
+        // the same way — bytes flowing = function alive.
+        //
+        // The browser SmartBrains code already handles SSE responses (see
+        // ai-engine.js line 3609 — branches on Content-Type: text/event-stream
+        // and parses Gemini-shape chunks). Zero browser changes required.
+        anthropicBody.stream = true;
+
+        // ── 4. Forward to Anthropic with streaming ──────────────
         const anthropicUrl = 'https://api.anthropic.com/v1/messages';
         const started = Date.now();
         // v5.128.10 (bid-hang fix): Bound the upstream fetch with an
@@ -70,6 +85,9 @@ export async function onRequestPost(context) {
         // would retry up to 5× (see ai-engine.config.maxRetries) producing the
         // "20 min stuck in the same spot" symptom. 90s is long enough for
         // Claude Opus thinking but short enough to fail fast on a true hang.
+        // v5.142.0: This timer now only protects the INITIAL response — once
+        // the stream starts flowing we trust the per-token cadence to keep
+        // the connection healthy.
         const upstreamController = new AbortController();
         const upstreamTimer = setTimeout(() => upstreamController.abort(), 90000);
 
@@ -90,6 +108,7 @@ export async function onRequestPost(context) {
                     // paying for dual-model consensus.
                     'anthropic-version': '2023-06-01',
                     'anthropic-beta': 'pdfs-2024-09-25',
+                    'accept': 'text/event-stream',
                 },
                 body: JSON.stringify(anthropicBody),
                 signal: upstreamController.signal,
@@ -102,34 +121,172 @@ export async function onRequestPost(context) {
             console.warn(`[ClaudeProxy] Brain ${brainSlot} aborted: ${msg}`);
             return Response.json({ error: 'anthropic_timeout', status: 504, detail: msg }, { status: 504 });
         }
+        // Once headers arrive, the upstream is alive; clear the open-time guard.
         clearTimeout(upstreamTimer);
 
-        const upstreamText = await upstream.text();
-        let upstreamData;
-        try { upstreamData = JSON.parse(upstreamText); }
-        catch { upstreamData = { rawText: upstreamText }; }
-
         if (!upstream.ok) {
-            console.warn(`[ClaudeProxy] Brain ${brainSlot} → ${upstream.status} after ${Date.now() - started}ms: ${upstreamText.substring(0, 500)}`);
+            // Non-200 from Anthropic: error is in the response body as JSON,
+            // NOT as an SSE stream. Read it and return a non-streaming error.
+            const errText = await upstream.text();
+            let errData;
+            try { errData = JSON.parse(errText); } catch { errData = { rawText: errText }; }
+            console.warn(`[ClaudeProxy] Brain ${brainSlot} → ${upstream.status} after ${Date.now() - started}ms: ${errText.substring(0, 500)}`);
             return Response.json({
                 error: 'anthropic_error',
                 status: upstream.status,
-                detail: upstreamData?.error?.message || upstreamText.substring(0, 500),
+                detail: errData?.error?.message || errText.substring(0, 500),
             }, { status: upstream.status });
         }
 
-        // ── 5. Translate Anthropic response → Gemini-shaped response ──
-        // so ai-engine's JSON parser doesn't branch on provider.
-        const geminiShaped = _translateAnthropicToGemini(upstreamData);
-        geminiShaped._provider = 'anthropic';
-        geminiShaped._model = upstreamData.model || requestedModel;
-        geminiShaped._upstreamMs = Date.now() - started;
-        return Response.json(geminiShaped, { status: 200 });
+        // ── 5. Pipe Anthropic SSE through a translator that reshapes
+        //       events into Gemini-shape SSE chunks ────────────────
+        const transformer = _makeAnthropicToGeminiSseTransformer({
+            model: requestedModel,
+            startedMs: started,
+        });
+
+        return new Response(upstream.body.pipeThrough(transformer), {
+            status: 200,
+            headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'X-Provider': 'anthropic',
+                'X-Model': requestedModel,
+            },
+        });
 
     } catch (err) {
         console.error('[ClaudeProxy] fatal:', err.message);
         return Response.json({ error: 'proxy_fatal', detail: err.message }, { status: 500 });
     }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SSE TRANSFORMER — Anthropic events → Gemini-shape SSE chunks
+// (v5.142.0)
+// ═══════════════════════════════════════════════════════════════
+//
+// Anthropic emits a sequence of SSE events:
+//   event: message_start         data: {message: {usage: {input_tokens}}}
+//   event: content_block_start   data: {content_block: {type: 'text'}}
+//   event: content_block_delta   data: {delta: {type: 'text_delta', text: 'foo'}}
+//   event: content_block_stop
+//   event: message_delta         data: {delta: {stop_reason}, usage: {output_tokens}}
+//   event: message_stop
+//   event: error                 data: {error: {type, message}}
+//
+// SmartBrains expects Gemini-shape SSE chunks:
+//   data: {candidates: [{content: {role, parts: [{text}]}}]}
+//   data: {candidates: [{finishReason: 'STOP'}], usageMetadata: {...}}
+//
+// We accumulate text deltas, then emit one Gemini-shape chunk per Anthropic
+// content_block_delta + a final chunk on message_stop carrying finishReason
+// and usageMetadata.
+function _makeAnthropicToGeminiSseTransformer({ model, startedMs }) {
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let stopReason = null;
+
+    const emit = (controller, obj) => {
+        controller.enqueue(encoder.encode('data: ' + JSON.stringify(obj) + '\n\n'));
+    };
+
+    const mapStop = (r) => {
+        if (!r) return 'STOP';
+        if (r === 'end_turn') return 'STOP';
+        if (r === 'max_tokens') return 'MAX_TOKENS';
+        if (r === 'stop_sequence') return 'STOP';
+        return String(r).toUpperCase();
+    };
+
+    const processEvent = (eventType, dataStr, controller) => {
+        if (!dataStr) return;
+        let evt;
+        try { evt = JSON.parse(dataStr); } catch { return; }
+
+        // Anthropic uses both top-level "type" field and SSE event name; trust
+        // the data.type when present (it's authoritative).
+        const t = evt.type || eventType;
+
+        if (t === 'message_start') {
+            inputTokens = evt.message?.usage?.input_tokens || 0;
+            outputTokens = evt.message?.usage?.output_tokens || 0;
+        } else if (t === 'content_block_delta') {
+            const text = evt.delta?.text;
+            if (typeof text === 'string' && text.length > 0) {
+                emit(controller, {
+                    candidates: [{
+                        content: { role: 'model', parts: [{ text }] },
+                    }],
+                });
+            }
+        } else if (t === 'message_delta') {
+            if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+            if (evt.usage?.output_tokens) outputTokens = evt.usage.output_tokens;
+        } else if (t === 'message_stop') {
+            // Final chunk: finishReason + usageMetadata
+            emit(controller, {
+                candidates: [{
+                    content: { role: 'model', parts: [{ text: '' }] },
+                    finishReason: mapStop(stopReason),
+                }],
+                usageMetadata: {
+                    promptTokenCount: inputTokens,
+                    candidatesTokenCount: outputTokens,
+                    totalTokenCount: inputTokens + outputTokens,
+                },
+                _provider: 'anthropic',
+                _model: model,
+                _upstreamMs: Date.now() - startedMs,
+            });
+        } else if (t === 'error') {
+            // Anthropic mid-stream error — surface as a proxy error chunk
+            emit(controller, {
+                _proxyError: {
+                    status: 500,
+                    message: evt.error?.message || 'Anthropic stream error',
+                    type: evt.error?.type || 'stream_error',
+                },
+            });
+        }
+        // content_block_start / content_block_stop / ping events are ignored
+    };
+
+    return new TransformStream({
+        transform(chunk, controller) {
+            buffer += decoder.decode(chunk, { stream: true });
+            // SSE events are separated by a blank line (\n\n)
+            const events = buffer.split('\n\n');
+            buffer = events.pop() ?? '';
+            for (const evt of events) {
+                if (!evt.trim()) continue;
+                let eventType = '';
+                let dataStr = '';
+                for (const line of evt.split('\n')) {
+                    if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+                    else if (line.startsWith('event:')) eventType = line.slice(6).trim();
+                    else if (line.startsWith('data: ')) dataStr += line.slice(6);
+                    else if (line.startsWith('data:')) dataStr += line.slice(5);
+                }
+                processEvent(eventType, dataStr, controller);
+            }
+        },
+        flush(controller) {
+            // Any trailing buffered event
+            if (buffer.trim()) {
+                let eventType = '';
+                let dataStr = '';
+                for (const line of buffer.split('\n')) {
+                    if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+                    else if (line.startsWith('data: ')) dataStr += line.slice(6);
+                }
+                processEvent(eventType, dataStr, controller);
+            }
+        },
+    });
 }
 
 export async function onRequestOptions() {
