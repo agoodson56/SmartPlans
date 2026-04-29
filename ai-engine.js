@@ -806,16 +806,31 @@ const SmartBrains = {
    */
   async _detectProjectMetadataFromSpec(specFiles) {
     const result = { wageType: null, state: null, county: null, cityState: null, jurisdiction: null };
-    if (!Array.isArray(specFiles) || specFiles.length === 0) return result;
+    if (!Array.isArray(specFiles) || specFiles.length === 0) {
+      console.log('[SpecDetect/Meta] No spec files to scan for metadata');
+      return result;
+    }
 
     let combinedText = '';
+    const fileSizes = [];
     for (const file of specFiles) {
       try {
         const t = await this._extractTextFromSpec(file);
-        if (t) combinedText += '\n' + t;
-      } catch (_) { /* non-fatal */ }
+        if (t) {
+          combinedText += '\n' + t;
+          fileSizes.push(`${file.name || 'spec'}=${t.length}ch`);
+        } else {
+          fileSizes.push(`${file.name || 'spec'}=EMPTY`);
+        }
+      } catch (e) {
+        fileSizes.push(`${file.name || 'spec'}=ERR(${e.message})`);
+      }
     }
-    if (!combinedText || combinedText.length < 100) return result;
+    console.log(`[SpecDetect/Meta] Extracted text from ${specFiles.length} file(s): ${fileSizes.join(', ')} — combined ${combinedText.length} chars`);
+    if (!combinedText || combinedText.length < 100) {
+      console.log('[SpecDetect/Meta] Combined text too short — bailing out');
+      return result;
+    }
 
     // Helper — pull a context snippet around a regex match for evidence
     const snippetAt = (text, idx, before = 40, after = 140) => {
@@ -840,6 +855,8 @@ const SmartBrains = {
     let stateMatch = combinedText.match(stateAffirmative);
     let plaMatch = combinedText.match(plaAffirmative);
     let plaAcronymMatch = combinedText.match(plaAcronym);
+
+    console.log(`[SpecDetect/Meta] Wage signals: dbAffirmative=${!!dbMatch}, dbConditional=${!!dbConditionalMatch}, dbWeak=${dbWeak.test(combinedText)}, statePW=${!!stateMatch}, plaAffirmative=${!!plaMatch}, plaAcronym=${!!plaAcronymMatch}`);
 
     // Decide wage type. Priority: PLA > DBA > state. (PLA usually overrides
     // standard prevailing wage for the trades it covers; if no PLA, federal
@@ -979,6 +996,7 @@ const SmartBrains = {
       };
     }
 
+    console.log(`[SpecDetect/Meta] Final picks: wage=${result.wageType?.value || 'none'}, state=${result.state?.value || 'none'}, county=${result.county?.value || 'none'}, jurisdiction=${result.jurisdiction?.value || 'none'}`);
     return result;
   },
 
