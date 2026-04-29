@@ -609,6 +609,15 @@ const SmartBrains = {
     'L':   ['CCTV'],
     'SP':  ['CCTV', 'Access Control'],
 
+    // v5.144.8: industry-common security/AV sheet prefixes that were missing
+    'VS':  ['CCTV'],                                  // Video Surveillance plan sheets
+    'SE':  ['CCTV', 'Access Control', 'Intrusion Detection'],  // Security Electronic
+    'AV':  ['Audio Visual'],                          // Audio Visual plan sheets
+    'NC':  ['Nurse Call Systems'],                    // Nurse Call plan sheets
+    'PA':  ['Paging / Intercom'],                     // Paging plan sheets
+    'IC':  ['Paging / Intercom'],                     // Intercom plan sheets
+    'DAS': ['Distributed Antenna Systems (DAS)'],     // DAS plan sheets
+
     // Structural — relevant for seismic bracing, core drilling
     'S':   [],  // Skip structural unless specifically needed
 
@@ -3480,19 +3489,22 @@ const SmartBrains = {
           // Text extraction failed — include page by default
         }
 
-        // ── STEP 2: Determine discipline from sheet ID prefix ──
-        // v5.138.0 fix (E-sheet drop bug): mirror _classifyBySheetId — progressive
-        // prefix matching (3 → 2 → 1 chars). Pre-fix, the single-pass greedy regex
-        // pulled "ED" / "ESD" / "EE" from sheet IDs like "ED-1.01" — none of those
-        // sub-variants are in SHEET_DISCIPLINE_MAP, so the page hit the "unknown
-        // prefix → default include" branch. Then the PLUMBING/MECHANICAL/
-        // STRUCTURAL/HVAC keyword backup saw an unmapped prefix + electrical
-        // coordination text ("MECHANICAL EQUIPMENT", "STRUCTURAL ANCHORING") and
-        // SKIPPED the page. Whole E-sheet sets disappeared before brain processing.
-        // Post-fix: ED → fallback "E" (mapped to all 6 ELV disciplines) → kept.
-        let skipThisPage = false;
+        // ── STEP 2: Classify sheet for downstream brain context ──
+        // v5.144.8: estimator mandate — NEVER skip any page. Every uploaded
+        // page goes to the AI brains. Pre-fix, the discipline filter caused
+        // real-bid pages to silently disappear because product codes (RJ45,
+        // CAT6, CR2330) were misread as sheet IDs and routed to "skip"
+        // because RJ/CAT/CR weren't in SHEET_DISCIPLINE_MAP. Plus VS-prefix
+        // (Video Surveillance), DS-prefix (Door Schedule), and other
+        // legitimate LV sheet families weren't in the map either. Cost
+        // increase from sending 100% of pages: ~9% on a typical bid; the
+        // accuracy benefit (no silent missing scope) is worth it.
+        //
+        // We still extract sheet prefix below for chunk-naming and for the
+        // SHEET_INVENTORY_GUARD downstream, but NEVER use it to skip pages.
+        let skipThisPage = false; // ALWAYS false — kept for log clarity
         let mappedDisciplines = undefined;
-        if (hasDisciplineFilter && sheetId) {
+        if (sheetId) {
           const normalizedId = String(sheetId).toUpperCase().replace(/[\s.\-_]/g, '');
           const prefixMatch = normalizedId.match(/^([A-Z]{1,3})/);
           if (prefixMatch) {
@@ -3506,39 +3518,6 @@ const SmartBrains = {
               }
             }
             if (!sheetPrefix) sheetPrefix = fullPrefix;
-
-            if (mappedDisciplines !== undefined) {
-              if (mappedDisciplines.includes('all')) {
-                // General/cover sheets — always include
-                skipThisPage = false;
-              } else if (mappedDisciplines.length === 0) {
-                // Structural, mechanical, plumbing — skip (not ELV-relevant)
-                skipThisPage = true;
-              } else {
-                // Check if any mapped discipline is in user's selection
-                const overlap = mappedDisciplines.some(d => selectedSet.has(d));
-                skipThisPage = !overlap;
-              }
-            }
-            // If prefix not in map even after fallback, include by default (unknown = safe to include)
-          }
-
-          // Backup detection: only fires for prefixes the map either doesn't know
-          // OR explicitly marks as non-ELV (length 0). Sheets whose progressive
-          // fallback found a non-empty discipline list (e.g., "ED" → "E" → ELV)
-          // are protected — they stay in even if their text mentions HVAC.
-          if (!skipThisPage && sheetPrefix) {
-            const prefixHasELV = Array.isArray(mappedDisciplines) && mappedDisciplines.length > 0;
-            if (!prefixHasELV) {
-              const upperText = pageText.toUpperCase();
-              const otherDisciplineKeywords = ['PLUMBING', 'MECHANICAL', 'STRUCTURAL', 'HVAC'];
-              for (const kw of otherDisciplineKeywords) {
-                if (upperText.includes(kw)) {
-                  skipThisPage = true;
-                  break;
-                }
-              }
-            }
           }
         }
 
@@ -3559,12 +3538,12 @@ const SmartBrains = {
           canvasScaleResults.push({ found: false, pixelsPerFoot: 0, confidence: 0, method: 'scale_bar_canvas', pageNum: p, sheetId: sheetId || `page_${p}` });
         }
 
-        // ── STEP 4: Skip page if discipline filter says so ──
+        // ── STEP 4: NO SKIPPING (v5.144.8 — estimator mandate "every page accounted for") ──
+        // skipThisPage is forced false above. Block kept for diagnostic clarity:
+        // if a future change ever sets skipThisPage=true, the log line still fires.
         if (skipThisPage) {
-          const reason = sheetPrefix ? `prefix "${sheetPrefix}" not in selected disciplines` : 'not relevant';
-          console.log(`[SmartBrains] ✗ Skipping page ${p}/${totalPages} (${sheetId || 'unknown'}) — ${reason}`);
-          skippedPages++;
-          continue;
+          console.warn(`[SmartBrains] ⚠ skipThisPage=true on page ${p} — ignoring (no-skip policy active)`);
+          skipThisPage = false;
         }
 
         // ── STEP 5: Render page at upload resolution (2x) → JPEG ──
