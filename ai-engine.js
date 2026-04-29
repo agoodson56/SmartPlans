@@ -841,9 +841,13 @@ const SmartBrains = {
 
     // ── WAGE TYPE DETECTION ─────────────────────────────────────────────
     // Affirmative phrasing only — boilerplate "if applicable" is filtered out.
-    const dbAffirmative = /\b(this\s+(contract|project)\s+(is|shall\s+be)\s+subject\s+to\s+(the\s+)?Davis[-\s]?Bacon|wages\s+(must|shall)\s+be\s+paid\s+(in\s+accordance\s+with|per|under)\s+(the\s+)?Davis[-\s]?Bacon|federally[-\s]funded\s+construction\s+contract|davis[-\s]?bacon\s+(act|wage[s]?\s+(apply|shall\s+apply))|dbra\b)/i;
-    const dbWeak = /\bdavis[-\s]?bacon\b/i;
-    const dbConditional = /\b(if\s+applicable|where\s+applicable|if\s+federally[-\s]funded|when\s+required|as\s+applicable)[\s,].{0,120}davis[-\s]?bacon|davis[-\s]?bacon.{0,40}\b(if\s+applicable|where\s+applicable|when\s+required)\b/i;
+    // v5.144.6 fix: pdf.js text extraction can split "Davis-Bacon" across text
+    // items, joining with spaces to produce "Davis- Bacon" (2 separator chars).
+    // Use [-\s]* (zero-or-MORE) instead of [-\s]? so we tolerate any number of
+    // dashes/spaces between "davis" and "bacon".
+    const dbAffirmative = /\b(this\s+(contract|project)\s+(is|shall\s+be)\s+subject\s+to\s+(the\s+)?Davis[-\s]*Bacon|wages\s+(must|shall)\s+be\s+paid\s+(in\s+accordance\s+with|per|under)\s+(the\s+)?Davis[-\s]*Bacon|federally[-\s]funded\s+construction\s+contract|davis[-\s]*bacon\s*(act|wage[s]?\s+(apply|shall\s+apply))|dbra\b|contracts?\s+(are\s+)?subject\s+to\s+(the\s+)?davis[-\s]*bacon)/i;
+    const dbWeak = /\bdavis[-\s]*bacon\b/i;
+    const dbConditional = /\b(if\s+applicable|where\s+applicable|if\s+federally[-\s]funded|when\s+required|as\s+applicable)[\s,].{0,120}davis[-\s]*bacon|davis[-\s]*bacon.{0,40}\b(if\s+applicable|where\s+applicable|when\s+required)\b/i;
 
     const stateAffirmative = /\b(california\s+labor\s+code\s+section\s+177[1-3]|cal\.?\s*lab\.?\s*code\s+§?\s*177[1-3]|california\s+department\s+of\s+industrial\s+relations|state\s+prevailing\s+wage\s+(determination|rates?)|general\s+prevailing\s+wage\s+determination|DAS[-\s]?14[02]\b|certified\s+payroll\s+(record|report)\b|PWCR\b|DIR\s+(registration|number))/i;
 
@@ -930,8 +934,14 @@ const SmartBrains = {
     }
 
     // ── CALIFORNIA COUNTY DETECTION ────────────────────────────────────
-    // Reliable: "[County Name] County" pattern. Fallback: just the county
-    // name appearing within 200 chars of "California" or after a CA city ZIP.
+    // v5.144.6: federal wage determinations list 5-20 counties as a regional
+    // boilerplate ("Counties: Alameda, Calaveras, Contra Costa, ... in
+    // California."). Picking the first alphabetically gives the wrong answer
+    // when the actual project city is in a county that appears later in the
+    // list. Two-pass approach:
+    //   1. Detect multi-county lists; flag them as boilerplate (no auto-pick).
+    //   2. Cross-reference project city → county map to disambiguate when
+    //      the project's location is known.
     if (result.state?.value === 'CA' || caHits >= 1) {
       const counties = [
         'Alameda', 'Alpine', 'Amador', 'Butte', 'Calaveras', 'Colusa',
@@ -945,21 +955,97 @@ const SmartBrains = {
         'Sierra', 'Siskiyou', 'Solano', 'Sonoma', 'Stanislaus', 'Sutter',
         'Tehama', 'Trinity', 'Tulare', 'Tuolumne', 'Ventura', 'Yolo', 'Yuba',
       ];
-      // Try strongest first: "[County] County" format
-      for (const c of counties) {
-        const re = new RegExp(`\\b${c}\\s+County\\b`, 'i');
-        const m = combinedText.match(re);
-        if (m) {
+
+      // City → county lookup for the most common CA cities. Used to
+      // disambiguate when a multi-county wage determination is detected.
+      const cityToCounty = {
+        'martinez': 'Contra Costa', 'concord': 'Contra Costa', 'walnut creek': 'Contra Costa',
+        'richmond': 'Contra Costa', 'antioch': 'Contra Costa', 'pittsburg': 'Contra Costa',
+        'pleasant hill': 'Contra Costa', 'san ramon': 'Contra Costa', 'danville': 'Contra Costa',
+        'oakland': 'Alameda', 'fremont': 'Alameda', 'hayward': 'Alameda', 'berkeley': 'Alameda',
+        'livermore': 'Alameda', 'pleasanton': 'Alameda', 'dublin': 'Alameda',
+        'sacramento': 'Sacramento', 'elk grove': 'Sacramento', 'folsom': 'Sacramento',
+        'rancho cordova': 'Sacramento', 'citrus heights': 'Sacramento',
+        'davis': 'Yolo', 'woodland': 'Yolo', 'west sacramento': 'Yolo',
+        'roseville': 'Placer', 'rocklin': 'Placer', 'auburn': 'Placer', 'lincoln': 'Placer',
+        'san francisco': 'San Francisco',
+        'san jose': 'Santa Clara', 'sunnyvale': 'Santa Clara', 'santa clara': 'Santa Clara',
+        'mountain view': 'Santa Clara', 'palo alto': 'Santa Clara', 'cupertino': 'Santa Clara',
+        'san mateo': 'San Mateo', 'redwood city': 'San Mateo', 'daly city': 'San Mateo',
+        'los angeles': 'Los Angeles', 'long beach': 'Los Angeles', 'glendale': 'Los Angeles',
+        'pasadena': 'Los Angeles', 'santa monica': 'Los Angeles', 'burbank': 'Los Angeles',
+        'anaheim': 'Orange', 'irvine': 'Orange', 'santa ana': 'Orange', 'huntington beach': 'Orange',
+        'san diego': 'San Diego', 'chula vista': 'San Diego', 'oceanside': 'San Diego',
+        'fresno': 'Fresno', 'clovis': 'Fresno',
+        'bakersfield': 'Kern',
+        'stockton': 'San Joaquin',
+        'modesto': 'Stanislaus',
+        'san bernardino': 'San Bernardino', 'fontana': 'San Bernardino', 'rancho cucamonga': 'San Bernardino',
+        'riverside': 'Riverside', 'corona': 'Riverside', 'moreno valley': 'Riverside',
+        'ventura': 'Ventura', 'oxnard': 'Ventura', 'thousand oaks': 'Ventura',
+        'santa barbara': 'Santa Barbara',
+        'monterey': 'Monterey', 'salinas': 'Monterey',
+        'santa cruz': 'Santa Cruz',
+        'napa': 'Napa', 'san rafael': 'Marin', 'novato': 'Marin',
+        'vallejo': 'Solano', 'fairfield': 'Solano', 'vacaville': 'Solano',
+        'santa rosa': 'Sonoma', 'petaluma': 'Sonoma',
+        'redding': 'Shasta', 'chico': 'Butte',
+      };
+
+      // Step 1: detect if this looks like a multi-county boilerplate list.
+      // Pattern: "Counties:" or 4+ different county names within 300 chars.
+      const countiesListPattern = /\bcounties?\s*:[\s\S]{0,800}?\bin\s+California\b/i;
+      const multiCountyBlock = combinedText.match(countiesListPattern);
+      let isMultiCountyBoilerplate = false;
+      if (multiCountyBlock) {
+        const countNames = counties.filter(c =>
+          new RegExp(`\\b${c}\\b`, 'i').test(multiCountyBlock[0])
+        );
+        if (countNames.length >= 4) {
+          isMultiCountyBoilerplate = true;
+          console.log(`[SpecDetect/Meta] Multi-county boilerplate detected (${countNames.length} counties listed) — skipping bare-name auto-pick`);
+        }
+      }
+
+      // Step 2: try city-based lookup if project name/text contains a known city
+      let cityCounty = null;
+      const lowerText = combinedText.toLowerCase();
+      // Sort cities longest-first so multi-word cities like "san francisco" win over "san ramon" etc.
+      const sortedCities = Object.keys(cityToCounty).sort((a, b) => b.length - a.length);
+      for (const city of sortedCities) {
+        // Match city followed by ", CA" or "California" within 60 chars (project address context)
+        const cityRe = new RegExp(`\\b${city.replace(/\s/g, '\\s+')}\\b[,\\s]{0,40}(ca\\b|california\\b)`, 'i');
+        const cm = combinedText.match(cityRe);
+        if (cm) {
+          cityCounty = cityToCounty[city];
           result.county = {
-            value: c,
-            confidence: 0.92,
-            evidence: snippetAt(combinedText, m.index, 30, 100),
+            value: cityCounty,
+            confidence: 0.90,
+            evidence: snippetAt(combinedText, cm.index, 30, 100) + ` [city "${city}" → ${cityCounty} County via lookup]`,
           };
           break;
         }
       }
-      // Fallback: bare county name within proximity of CA-context word
+
+      // Step 3: explicit "[County Name] County" pattern (still strong signal
+      // unless we already found a city-based match)
       if (!result.county) {
+        for (const c of counties) {
+          const re = new RegExp(`\\b${c}\\s+County\\b`, 'i');
+          const m = combinedText.match(re);
+          if (m) {
+            result.county = {
+              value: c,
+              confidence: isMultiCountyBoilerplate ? 0.50 : 0.92,
+              evidence: snippetAt(combinedText, m.index, 30, 100),
+            };
+            break;
+          }
+        }
+      }
+
+      // Step 4: bare county-name fallback — but ONLY if not multi-county boilerplate
+      if (!result.county && !isMultiCountyBoilerplate) {
         for (const c of counties) {
           const re = new RegExp(`\\b${c}\\b`, 'i');
           const m = combinedText.match(re);
