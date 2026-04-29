@@ -1901,6 +1901,9 @@ function startNewBid() {
   // detected disciplines don't pre-check chips on a fresh bid.
   state._specDetectedDisciplines = [];
   state._specDetectionEvidence = {};
+  // v5.144.1: project metadata auto-detect (wage / state / county / code)
+  state._specDetectedMetadata = null;
+  state._specMetadataApplied = {};
   state._addendaDelta = null;
   state._rfpCriteria = null;
   state._checklistChecked = {};
@@ -4753,8 +4756,9 @@ function renderStep0(container) {
     <!-- v5.144.0: Spec upload moved up — runs auto-detect on upload to pre-pick disciplines below -->
     <div class="form-group">
       <label class="form-label">Specifications <span style="color:var(--text-muted);font-weight:400">(optional but highly recommended)</span></label>
-      <p class="form-hint">Drop the spec book here BEFORE picking disciplines. SmartPlans reads the table of contents, finds every CSI section, and pre-checks the matching disciplines below. Saves you from forgetting a trade. <strong>If you don't have specs yet, skip this — pick disciplines manually below.</strong></p>
+      <p class="form-hint">Drop the spec book here BEFORE picking disciplines. SmartPlans reads the table of contents, finds every CSI section, and pre-checks the matching disciplines below. <strong>v5.144.1:</strong> the same scan also auto-detects wage type (Davis-Bacon / CA prevailing / PLA), state, county, and code jurisdiction — review and confirm before applying. <strong>If you don't have specs yet, skip this — pick disciplines manually below.</strong></p>
       <div id="spec-upload-step0"></div>
+      <div id="spec-metadata-confirm" style="margin-top:10px;"></div>
       <div id="spec-detect-status" style="margin-top:10px;"></div>
     </div>
 
@@ -5313,29 +5317,51 @@ function renderStep0(container) {
         if (files && files.length > 0 && typeof SmartBrains !== 'undefined' && SmartBrains._detectDisciplinesFromSpec) {
           const statusEl = document.getElementById('spec-detect-status');
           if (statusEl) {
-            statusEl.innerHTML = `<div style="padding:10px 14px;background:rgba(99,102,241,0.06);border-left:3px solid #6366F1;border-radius:6px;font-size:12px;color:#475569;">⏳ Reading spec book — looking for CSI sections to pre-pick disciplines…</div>`;
+            statusEl.innerHTML = `<div style="padding:10px 14px;background:rgba(99,102,241,0.06);border-left:3px solid #6366F1;border-radius:6px;font-size:12px;color:#475569;">⏳ Reading spec book — finding CSI sections + project metadata (wage type, state/county, code jurisdiction)…</div>`;
           }
           try {
-            const result = await SmartBrains._detectDisciplinesFromSpec(files);
-            if (result && Array.isArray(result.disciplines) && result.disciplines.length > 0) {
-              // Merge detected disciplines with whatever was already selected
+            // Run discipline + metadata detect in parallel — they share the
+            // same text-extraction pass internally so this is single-cost.
+            const [discResult, metaResult] = await Promise.all([
+              SmartBrains._detectDisciplinesFromSpec(files),
+              SmartBrains._detectProjectMetadataFromSpec ? SmartBrains._detectProjectMetadataFromSpec(files) : Promise.resolve(null),
+            ]);
+
+            // ── Apply discipline picks (auto-merge — same as v5.144.0) ──
+            let disciplineMsg = '';
+            if (discResult && Array.isArray(discResult.disciplines) && discResult.disciplines.length > 0) {
               const previouslySelected = new Set(state.disciplines || []);
-              const detected = new Set(result.disciplines);
+              const detected = new Set(discResult.disciplines);
               state.disciplines = Array.from(new Set([...previouslySelected, ...detected]));
               state._specDetectedDisciplines = Array.from(detected);
-              state._specDetectionEvidence = result.evidence || {};
-              // Defensive: don't let SmartDefaults re-cascade and erase auto-picks
+              state._specDetectionEvidence = discResult.evidence || {};
               state._disciplinesUserTouched = true;
               if (typeof SmartDefaults !== 'undefined') SmartDefaults.markManual('disciplines');
-              if (typeof spToast === 'function') {
-                spToast(`✨ Auto-detected ${detected.size} discipline${detected.size === 1 ? '' : 's'} from spec — review and adjust below`, 'success');
-              }
-              renderStep0(container);
+              disciplineMsg = `✨ Auto-detected ${detected.size} discipline${detected.size === 1 ? '' : 's'}`;
             } else {
               if (statusEl) {
                 statusEl.innerHTML = `<div style="padding:10px 14px;background:rgba(245,158,11,0.06);border-left:3px solid #F59E0B;border-radius:6px;font-size:12px;color:#92400E;">⚠️ Could not auto-detect disciplines from this spec. Possible reasons: scanned/image PDF, DOCX format (convert to PDF), or unusual section numbering. Pick disciplines manually below.</div>`;
               }
             }
+
+            // ── Stash metadata for confirm-then-apply UI (no auto-fill) ──
+            // Wage misclassification is a 20-30% bid swing so we surface
+            // detected wage/state/county/jurisdiction as a confirm panel.
+            // The user reviews and clicks "Apply Detected" before any
+            // form field actually changes.
+            state._specDetectedMetadata = metaResult || null;
+
+            const detectedFields = [];
+            if (metaResult?.wageType) detectedFields.push(`wage=${metaResult.wageType.value}`);
+            if (metaResult?.state)    detectedFields.push(`state=${metaResult.state.value}`);
+            if (metaResult?.county)   detectedFields.push(`county=${metaResult.county.value}`);
+            if (metaResult?.jurisdiction) detectedFields.push(`code=${metaResult.jurisdiction.value}`);
+
+            if (typeof spToast === 'function') {
+              const parts = [disciplineMsg, detectedFields.length > 0 ? `📋 ${detectedFields.length} project fields` : ''].filter(Boolean);
+              if (parts.length > 0) spToast(`${parts.join(' + ')} — review and adjust below`, 'success');
+            }
+            renderStep0(container);
           } catch (e) {
             console.warn('[SpecDetect] Auto-detect threw:', e?.message);
             if (statusEl) {
@@ -5343,14 +5369,130 @@ function renderStep0(container) {
             }
           }
         } else if (!files || files.length === 0) {
-          // Files cleared — also clear the detection state so the chips lose their badges
+          // Files cleared — also clear the detection state
           state._specDetectedDisciplines = [];
           state._specDetectionEvidence = {};
+          state._specDetectedMetadata = null;
           renderStep0(container);
         }
       },
       accept: '.pdf,.doc,.docx,.txt',
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // v5.144.1: PROJECT METADATA CONFIRM PANEL
+  // ═══════════════════════════════════════════════════════════════
+  // Surfaces detected wage type, state, county, code jurisdiction in a
+  // yellow confirm panel. User reviews each field, ticks the boxes for
+  // the picks they want, clicks "Apply Detected" — only then are the
+  // actual form dropdowns updated. Wage misclassification is 20-30%
+  // of bid total so we don't silently auto-fill it.
+  const metaPanel = document.getElementById('spec-metadata-confirm');
+  const meta = state._specDetectedMetadata;
+  const metaApplied = state._specMetadataApplied || {};
+
+  if (metaPanel && meta && (meta.wageType || meta.state || meta.county || meta.jurisdiction)) {
+    const wageLabel = (v) => v === 'davis-bacon' ? 'Davis-Bacon (federal)'
+                          : v === 'state-prevailing' ? 'CA State Prevailing Wage'
+                          : v === 'pla' ? 'Project Labor Agreement (PLA)'
+                          : v;
+    const confColor = (c) => c >= 0.85 ? '#10b981' : (c >= 0.70 ? '#f59e0b' : '#ef4444');
+    const confLabel = (c) => c >= 0.85 ? 'High' : (c >= 0.70 ? 'Medium' : 'Low');
+    const fieldRow = (key, label, picked, fieldData) => {
+      if (!fieldData || !fieldData.value) return '';
+      const checked = !metaApplied[key]; // default checked = will-apply unless user already applied
+      const conf = Number.isFinite(fieldData.confidence) ? fieldData.confidence : 0.5;
+      const evidence = fieldData.evidence ? `<div style="margin-top:4px;padding:6px 10px;background:rgba(0,0,0,0.04);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#475569;line-height:1.45;">"${esc(fieldData.evidence.substring(0, 220))}${fieldData.evidence.length > 220 ? '…' : ''}"</div>` : '';
+      return `
+        <div style="padding:10px 12px;border:1px solid rgba(0,0,0,0.06);border-radius:6px;margin-bottom:8px;background:#fff;">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+            <input type="checkbox" class="meta-confirm-cb" data-meta-key="${esc(key)}" ${checked ? 'checked' : ''} ${metaApplied[key] ? 'disabled' : ''} style="margin-top:3px;flex-shrink:0;">
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#64748b;font-weight:700;">${esc(label)}</span>
+                <span style="font-size:13px;font-weight:700;color:#0F2942;">${esc(picked)}</span>
+                <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(${conf >= 0.85 ? '16,185,129' : conf >= 0.70 ? '245,158,11' : '239,68,68'},0.12);color:${confColor(conf)};font-size:10px;font-weight:700;">${confLabel(conf)} ${Math.round(conf * 100)}%</span>
+                ${metaApplied[key] ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(13,148,136,0.12);color:#0D9488;font-size:10px;font-weight:700;">✓ APPLIED</span>` : ''}
+              </div>
+              ${evidence}
+            </div>
+          </label>
+        </div>`;
+    };
+
+    const allApplied = ['wageType', 'state', 'county', 'jurisdiction'].every(k => !meta[k] || metaApplied[k]);
+
+    metaPanel.innerHTML = `
+      <div style="padding:14px 16px;background:linear-gradient(135deg,rgba(245,158,11,0.06),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.30);border-radius:10px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <span style="font-size:18px;">📋</span>
+          <div style="font-size:13px;font-weight:800;color:#92400E;">Project Metadata Detected — Review &amp; Confirm</div>
+          ${allApplied ? `<span style="margin-left:auto;padding:3px 10px;border-radius:4px;background:rgba(13,148,136,0.15);color:#0D9488;font-size:10px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;">All Applied</span>` : ''}
+        </div>
+        <p style="font-size:11.5px;color:#78350F;margin-bottom:10px;line-height:1.55;">Wage misclassification is a 20–30% bid swing — confirm each pick before applying. Uncheck anything that's wrong, then click <strong>Apply Detected</strong>.</p>
+        ${fieldRow('wageType', 'Wage Standard', meta.wageType ? wageLabel(meta.wageType.value) : '', meta.wageType)}
+        ${fieldRow('state', 'State', meta.state?.value || '', meta.state)}
+        ${fieldRow('county', 'County', meta.county?.value || '', meta.county)}
+        ${fieldRow('jurisdiction', 'Code Jurisdiction', meta.jurisdiction?.value || '', meta.jurisdiction)}
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;">
+          <button class="header-btn" id="meta-skip-btn" type="button" style="font-size:11px;">Dismiss</button>
+          <button class="header-btn header-btn--start" id="meta-apply-btn" type="button" style="font-size:12px;${allApplied ? 'opacity:0.5;cursor:not-allowed;' : ''}" ${allApplied ? 'disabled' : ''}>${allApplied ? 'All Applied' : '✓ Apply Detected'}</button>
+        </div>
+      </div>`;
+
+    // Apply button — write detected values into state for the checked fields,
+    // mark them as applied (so the panel reflects "✓ APPLIED"), re-render so
+    // the form dropdowns show the new values.
+    const applyBtn = document.getElementById('meta-apply-btn');
+    if (applyBtn && !allApplied) {
+      applyBtn.addEventListener('click', () => {
+        const checks = metaPanel.querySelectorAll('.meta-confirm-cb');
+        state._specMetadataApplied = state._specMetadataApplied || {};
+        let appliedCount = 0;
+        checks.forEach(cb => {
+          if (!cb.checked || cb.disabled) return;
+          const key = cb.dataset.metaKey;
+          if (key === 'wageType' && meta.wageType) {
+            state.prevailingWage = meta.wageType.value;
+            state._specMetadataApplied.wageType = true;
+            appliedCount++;
+          } else if (key === 'state' && meta.state) {
+            // Build / update projectLocation
+            const cur = (state.projectLocation || '').trim();
+            const cityFromMeta = meta.cityState?.value;
+            if (cityFromMeta) {
+              state.projectLocation = cityFromMeta;
+            } else if (cur && !cur.includes(meta.state.value)) {
+              state.projectLocation = `${cur}, ${meta.state.value}`;
+            } else if (!cur) {
+              state.projectLocation = meta.state.value;
+            }
+            state._specMetadataApplied.state = true;
+            appliedCount++;
+          } else if (key === 'county' && meta.county) {
+            state._pwCounty = meta.county.value;
+            state._specMetadataApplied.county = true;
+            appliedCount++;
+          } else if (key === 'jurisdiction' && meta.jurisdiction) {
+            state.codeJurisdiction = meta.jurisdiction.value;
+            state._specMetadataApplied.jurisdiction = true;
+            appliedCount++;
+          }
+        });
+        if (appliedCount > 0 && typeof spToast === 'function') {
+          spToast(`✓ Applied ${appliedCount} project field${appliedCount === 1 ? '' : 's'} from spec`, 'success');
+        }
+        renderStep0(container);
+      });
+    }
+    const skipBtn = document.getElementById('meta-skip-btn');
+    if (skipBtn) {
+      skipBtn.addEventListener('click', () => {
+        state._specDetectedMetadata = null;
+        renderStep0(container);
+      });
+    }
   }
 
   // Show auto-detect evidence summary if specs already analyzed

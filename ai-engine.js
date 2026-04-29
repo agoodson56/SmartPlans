@@ -783,6 +783,199 @@ const SmartBrains = {
   },
 
   /**
+   * v5.144.1: Auto-detect project METADATA from spec text — wage requirements,
+   * state, county, code jurisdiction. Returns each field with a confidence
+   * score and evidence snippet. Wage misclassification is a 20-30% bid swing
+   * so the UI surfaces these as "suggested — confirm before applying," not
+   * silently auto-fills like disciplines.
+   *
+   * Returns: {
+   *   wageType: { value: 'davis-bacon'|'state-prevailing'|'pla', confidence: 0..1, evidence: string } | null,
+   *   state:    { value: 'CA', confidence: 0..1, evidence: string } | null,
+   *   county:   { value: 'Sacramento', confidence: 0..1, evidence: string } | null,
+   *   cityState:{ value: 'Sacramento, CA', confidence: 0..1, evidence: string } | null,
+   *   jurisdiction: { value: 'CBC 2022', confidence: 0..1, evidence: string } | null,
+   * }
+   */
+  async _detectProjectMetadataFromSpec(specFiles) {
+    const result = { wageType: null, state: null, county: null, cityState: null, jurisdiction: null };
+    if (!Array.isArray(specFiles) || specFiles.length === 0) return result;
+
+    let combinedText = '';
+    for (const file of specFiles) {
+      try {
+        const t = await this._extractTextFromSpec(file);
+        if (t) combinedText += '\n' + t;
+      } catch (_) { /* non-fatal */ }
+    }
+    if (!combinedText || combinedText.length < 100) return result;
+
+    // Helper — pull a context snippet around a regex match for evidence
+    const snippetAt = (text, idx, before = 40, after = 140) => {
+      const start = Math.max(0, idx - before);
+      const end = Math.min(text.length, idx + after);
+      return text.substring(start, end).replace(/\s+/g, ' ').trim();
+    };
+
+    // ── WAGE TYPE DETECTION ─────────────────────────────────────────────
+    // Affirmative phrasing only — boilerplate "if applicable" is filtered out.
+    const dbAffirmative = /\b(this\s+(contract|project)\s+(is|shall\s+be)\s+subject\s+to\s+(the\s+)?Davis[-\s]?Bacon|wages\s+(must|shall)\s+be\s+paid\s+(in\s+accordance\s+with|per|under)\s+(the\s+)?Davis[-\s]?Bacon|federally[-\s]funded\s+construction\s+contract|davis[-\s]?bacon\s+(act|wage[s]?\s+(apply|shall\s+apply))|dbra\b)/i;
+    const dbWeak = /\bdavis[-\s]?bacon\b/i;
+    const dbConditional = /\b(if\s+applicable|where\s+applicable|if\s+federally[-\s]funded|when\s+required|as\s+applicable)[\s,].{0,120}davis[-\s]?bacon|davis[-\s]?bacon.{0,40}\b(if\s+applicable|where\s+applicable|when\s+required)\b/i;
+
+    const stateAffirmative = /\b(california\s+labor\s+code\s+section\s+177[1-3]|cal\.?\s*lab\.?\s*code\s+§?\s*177[1-3]|california\s+department\s+of\s+industrial\s+relations|state\s+prevailing\s+wage\s+(determination|rates?)|general\s+prevailing\s+wage\s+determination|DAS[-\s]?14[02]\b|certified\s+payroll\s+(record|report)\b|PWCR\b|DIR\s+(registration|number))/i;
+
+    const plaAffirmative = /\bproject\s+labor\s+agreement\b|\bcommunity\s+workforce\s+agreement\b/i;
+    const plaAcronym = /\bPLA\b/;  // case-sensitive — avoid matching part of "appliance"
+
+    let dbMatch = combinedText.match(dbAffirmative);
+    let dbConditionalMatch = combinedText.match(dbConditional);
+    let stateMatch = combinedText.match(stateAffirmative);
+    let plaMatch = combinedText.match(plaAffirmative);
+    let plaAcronymMatch = combinedText.match(plaAcronym);
+
+    // Decide wage type. Priority: PLA > DBA > state. (PLA usually overrides
+    // standard prevailing wage for the trades it covers; if no PLA, federal
+    // funding → DBA wins; otherwise CA state PW if invoked.)
+    if (plaMatch) {
+      const idx = combinedText.search(plaAffirmative);
+      result.wageType = {
+        value: 'pla',
+        confidence: 0.85,
+        evidence: snippetAt(combinedText, idx),
+      };
+    } else if (dbMatch && !dbConditionalMatch) {
+      const idx = combinedText.search(dbAffirmative);
+      result.wageType = {
+        value: 'davis-bacon',
+        confidence: 0.95,
+        evidence: snippetAt(combinedText, idx),
+      };
+    } else if (dbWeak.test(combinedText) && !dbConditionalMatch && stateMatch) {
+      // Weak DBA mention + strong state PW evidence — likely federally-funded
+      // CA project. DBA wins (federal trumps state when both apply).
+      const idx = combinedText.search(dbWeak);
+      result.wageType = {
+        value: 'davis-bacon',
+        confidence: 0.78,
+        evidence: snippetAt(combinedText, idx) + ' [Federal trumps state on dual-trigger projects]',
+      };
+    } else if (stateMatch) {
+      const idx = combinedText.search(stateAffirmative);
+      result.wageType = {
+        value: 'state-prevailing',
+        confidence: 0.88,
+        evidence: snippetAt(combinedText, idx),
+      };
+    } else if (plaAcronymMatch) {
+      // Acronym-only PLA mention — lower confidence
+      const idx = combinedText.search(plaAcronym);
+      result.wageType = {
+        value: 'pla',
+        confidence: 0.65,
+        evidence: snippetAt(combinedText, idx),
+      };
+    }
+
+    // ── STATE DETECTION ─────────────────────────────────────────────────
+    // Approach: count strong CA signals; if ≥2, call it CA. Otherwise look
+    // for "[State Name]" or "[ST]" with comma context.
+    const caHits = (combinedText.match(/\b(california|state\s+of\s+california|cal\.?\s*lab|CBC\s*\d{4})\b/gi) || []).length;
+    if (caHits >= 2) {
+      const idx = combinedText.search(/\bcalifornia\b/i);
+      result.state = {
+        value: 'CA',
+        confidence: caHits >= 5 ? 0.95 : 0.80,
+        evidence: idx >= 0 ? snippetAt(combinedText, idx) : 'Multiple California references found',
+      };
+    } else {
+      // Generic state detection — look for "City, ST 95___" pattern (US ZIP)
+      const stateMatch = combinedText.match(/\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)*),\s*(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s+\d{5}/);
+      if (stateMatch) {
+        result.state = {
+          value: stateMatch[2],
+          confidence: 0.85,
+          evidence: snippetAt(combinedText, stateMatch.index, 20, 80),
+        };
+        result.cityState = {
+          value: `${stateMatch[1]}, ${stateMatch[2]}`,
+          confidence: 0.85,
+          evidence: snippetAt(combinedText, stateMatch.index, 20, 80),
+        };
+      }
+    }
+
+    // ── CALIFORNIA COUNTY DETECTION ────────────────────────────────────
+    // Reliable: "[County Name] County" pattern. Fallback: just the county
+    // name appearing within 200 chars of "California" or after a CA city ZIP.
+    if (result.state?.value === 'CA' || caHits >= 1) {
+      const counties = [
+        'Alameda', 'Alpine', 'Amador', 'Butte', 'Calaveras', 'Colusa',
+        'Contra Costa', 'Del Norte', 'El Dorado', 'Fresno', 'Glenn',
+        'Humboldt', 'Imperial', 'Inyo', 'Kern', 'Kings', 'Lake', 'Lassen',
+        'Los Angeles', 'Madera', 'Marin', 'Mariposa', 'Mendocino', 'Merced',
+        'Modoc', 'Mono', 'Monterey', 'Napa', 'Nevada', 'Orange', 'Placer',
+        'Plumas', 'Riverside', 'Sacramento', 'San Benito', 'San Bernardino',
+        'San Diego', 'San Francisco', 'San Joaquin', 'San Luis Obispo',
+        'San Mateo', 'Santa Barbara', 'Santa Clara', 'Santa Cruz', 'Shasta',
+        'Sierra', 'Siskiyou', 'Solano', 'Sonoma', 'Stanislaus', 'Sutter',
+        'Tehama', 'Trinity', 'Tulare', 'Tuolumne', 'Ventura', 'Yolo', 'Yuba',
+      ];
+      // Try strongest first: "[County] County" format
+      for (const c of counties) {
+        const re = new RegExp(`\\b${c}\\s+County\\b`, 'i');
+        const m = combinedText.match(re);
+        if (m) {
+          result.county = {
+            value: c,
+            confidence: 0.92,
+            evidence: snippetAt(combinedText, m.index, 30, 100),
+          };
+          break;
+        }
+      }
+      // Fallback: bare county name within proximity of CA-context word
+      if (!result.county) {
+        for (const c of counties) {
+          const re = new RegExp(`\\b${c}\\b`, 'i');
+          const m = combinedText.match(re);
+          if (!m) continue;
+          // Check nearby ±200 chars for a CA-context word
+          const window = combinedText.substring(Math.max(0, m.index - 200), Math.min(combinedText.length, m.index + 200));
+          if (/\bcalifornia\b|\bCA\s+\d{5}|\bcal\.?\s*lab/i.test(window)) {
+            result.county = {
+              value: c,
+              confidence: 0.65, // lower — just a name match in CA-context
+              evidence: snippetAt(combinedText, m.index, 50, 120),
+            };
+            break;
+          }
+        }
+      }
+    }
+
+    // ── CODE JURISDICTION DETECTION ────────────────────────────────────
+    // California Building Code first (preferred when state=CA), then IBC.
+    const cbcMatch = combinedText.match(/\b(?:california\s+building\s+code|CBC)[,\s]*(20\d{2})\b/i);
+    const ibcMatch = combinedText.match(/\b(?:international\s+building\s+code|IBC)[,\s]*(20\d{2})\b/i);
+    if (cbcMatch) {
+      result.jurisdiction = {
+        value: `CBC ${cbcMatch[1]}`,
+        confidence: 0.92,
+        evidence: snippetAt(combinedText, cbcMatch.index, 30, 100),
+      };
+    } else if (ibcMatch) {
+      result.jurisdiction = {
+        value: `IBC ${ibcMatch[1]}`,
+        confidence: 0.92,
+        evidence: snippetAt(combinedText, ibcMatch.index, 30, 100),
+      };
+    }
+
+    return result;
+  },
+
+  /**
    * v5.144.0: Extract plain text from a spec file for the auto-detector.
    * PDF → pdf.js. TXT → direct read. DOCX → not supported in browser without
    * a parser; we skip with a warning and rely on plans-only fallback.

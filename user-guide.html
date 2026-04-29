@@ -65,7 +65,7 @@
     <div>
       <h1>SmartPlans — User Guide</h1>
       <p>AI-Powered Construction Document Analysis &amp; Estimation · 3D Technology Services Inc.</p>
-      <p style="margin-top:8px;font-size:12px;opacity:0.7">SmartPlans v5.144.0 · Last Updated: April 28, 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
+      <p style="margin-top:8px;font-size:12px;opacity:0.7">SmartPlans v5.144.1 · Last Updated: April 28, 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
     </div>
     <button onclick="window.print()" style="margin-left:auto;padding:10px 20px;background:#BF9000;color:white;border:none;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;">Save as PDF</button>
   </div>
@@ -190,10 +190,10 @@
     <!-- ============================================================ -->
     <!-- SPEC AUTO-DETECT — v5.144.0 -->
     <!-- ============================================================ -->
-    <h2 id="spec-autodetect">Spec Auto-Detect Disciplines <span class="badge-new">v5.144.0</span></h2>
+    <h2 id="spec-autodetect">Spec Auto-Detect: Disciplines + Project Metadata <span class="badge-new">v5.144.1</span></h2>
 
     <div class="callout callout-info" style="margin-bottom:18px;">
-      <strong>Plain English:</strong> When you drag the spec book onto Step 1 (Project Setup), SmartPlans reads the entire table of contents in about 5 seconds, finds every CSI section number, and pre-checks the matching discipline chips below. You go from "did I remember every trade?" to "the spec said it, so it's already picked." Saves you the most common bid mistake — forgetting an entire discipline.
+      <strong>Plain English:</strong> When you drag the spec book onto Step 1 (Project Setup), SmartPlans reads the entire table of contents in about 5 seconds and pre-fills two things: <strong>(1) the discipline chips below it</strong> (auto-checked, click to override) and <strong>(2) a confirm panel with the wage type, state, county, and code jurisdiction it found</strong> (yellow box — review and click "Apply Detected" to fill the form fields). You go from "did I remember every trade and pick the right wage type?" to "the spec said it, so it's already there." Saves you 6–8 manual steps per bid.
     </div>
 
     <h3>Why this exists</h3>
@@ -247,6 +247,52 @@
 
     <h3>Realistic accuracy lift</h3>
     <p>Approximately <strong>2–3% on the bid total</strong>, plus eliminating the "I forgot fire alarm" class of error entirely. Most useful on bids with 5+ disciplines where remembering them all from memory is the real risk.</p>
+
+    <h3>Project Metadata Auto-Detect <span class="badge-new">v5.144.1</span></h3>
+    <p>The same spec scan also pulls four other project fields — <strong>but unlike disciplines, these aren't auto-applied</strong>. They appear in a yellow confirm panel right under the spec upload, and you decide which ones to apply.</p>
+
+    <table>
+      <tr><th>Field</th><th>What it Detects</th><th>Confidence</th></tr>
+      <tr><td><strong>Wage Standard</strong></td><td>Davis-Bacon (federal) / CA State Prevailing / PLA / none. Looks for affirmative phrasing only — "if applicable" boilerplate is filtered out.</td><td>~95% Davis-Bacon, ~88% CA prevailing, ~80% PLA</td></tr>
+      <tr><td><strong>State</strong></td><td>Detects California from 2+ "California" / "CBC" / "Cal. Lab." references; other states from "City, ST 95___" ZIP patterns.</td><td>~85–95%</td></tr>
+      <tr><td><strong>County</strong></td><td>All 58 California counties. Strong match: "[County] County". Weak match: bare county name in CA-context proximity.</td><td>~92% strong / ~65% weak</td></tr>
+      <tr><td><strong>Code Jurisdiction</strong></td><td>"California Building Code 2022", "IBC 2021", etc. Defaults to CBC over IBC if state=CA.</td><td>~92%</td></tr>
+    </table>
+
+    <h3>Why metadata uses confirm-then-apply (not silent auto-fill)</h3>
+    <p>Wage misclassification is a <strong>20–30% bid swing</strong>. Picking Davis-Bacon when the project is actually open shop bids you ~25% high (you lose). Picking open shop when it's actually Davis-Bacon bids you ~25% low (you win the job and lose your shirt on labor). Both are catastrophic — too risky to auto-apply on regex confidence alone. So SmartPlans surfaces what it found in a confirmation panel: each field shows the detected value, the confidence (High/Medium/Low colored pill), and the actual snippet of text it matched on. You tick the checkboxes for the picks you trust, click <strong>Apply Detected</strong>, and only then do the form dropdowns update.</p>
+
+    <h3>Dual-trigger projects (federal + CA)</h3>
+    <p>If both Davis-Bacon AND California prevailing wage trigger (federally-funded CA project), Davis-Bacon wins by federal rule (the higher of the two rates applies). The detector picks DBA in that case and notes "Federal trumps state on dual-trigger projects" in the evidence panel.</p>
+
+    <h3>How to use it</h3>
+    <ol class="step-list">
+      <li>Drop the spec PDF into the upload zone on Step 1.</li>
+      <li>Wait ~5 seconds for the scan. The discipline chips below auto-check (with ✨ badges), and a yellow "Project Metadata Detected — Review &amp; Confirm" panel appears between the upload and the discipline evidence.</li>
+      <li>Each detected field has a checkbox (default checked) plus the confidence pill and a code-formatted evidence snippet showing the spec text that triggered the pick.</li>
+      <li>Uncheck anything that looks wrong (e.g., the detector flagged "Sacramento County" with Low confidence and you know it's actually "Yolo County" because the project address is in Davis).</li>
+      <li>Click <strong>Apply Detected</strong>. The corresponding form fields below the panel (Project Location, Prevailing Wage dropdown, CA County dropdown, Code Jurisdiction) update with the applied values. The panel switches to "All Applied" and the apply button disables.</li>
+      <li>Or click <strong>Dismiss</strong> if you'd rather fill the fields manually — the detected metadata is forgotten and the form stays as-is.</li>
+    </ol>
+
+    <h3>What gets matched (full pattern reference)</h3>
+    <ul>
+      <li><strong>Davis-Bacon (HIGH confidence):</strong> "this contract is subject to Davis-Bacon", "wages shall be paid per Davis-Bacon", "federally-funded construction contract", "Davis-Bacon Act", "DBRA"</li>
+      <li><strong>Davis-Bacon (rejected as boilerplate):</strong> "if applicable, see Davis-Bacon", "where Davis-Bacon applies", "if federally funded"</li>
+      <li><strong>CA State Prevailing (HIGH):</strong> "California Labor Code Section 1771/1773", "California Department of Industrial Relations", "DIR Registration Number", "DAS-140 / DAS-142", "Certified Payroll", "general prevailing wage determination", "PWCR"</li>
+      <li><strong>PLA (HIGH):</strong> "Project Labor Agreement", "Community Workforce Agreement / CWA"</li>
+      <li><strong>PLA (MEDIUM):</strong> bare "PLA" acronym (case-sensitive to avoid matching "appliance")</li>
+      <li><strong>State CA (HIGH):</strong> 5+ mentions of "California", "Cal. Lab.", "CBC", "State of California"</li>
+      <li><strong>State CA (MEDIUM):</strong> 2–4 such mentions</li>
+      <li><strong>Other state:</strong> "City, ST 95xxx" ZIP-anchored pattern</li>
+      <li><strong>County (HIGH):</strong> "[CountyName] County" pattern (e.g., "Yolo County", "Contra Costa County")</li>
+      <li><strong>County (LOW):</strong> bare county name within 200 chars of a CA-context word — flagged because city names like "Sacramento" appear identically</li>
+      <li><strong>Code Jurisdiction:</strong> "California Building Code [year]", "CBC [year]", "International Building Code [year]", "IBC [year]"</li>
+    </ul>
+
+    <div class="callout callout-warn">
+      <strong>The confidence pill matters.</strong> Green (HIGH ≥85%) is safe to apply as-is. Yellow (MEDIUM 70–84%) — read the evidence snippet and confirm. Red (LOW &lt;70%) — verify against the spec yourself before applying. The detector is conservative on county detection in particular because city/county name collisions (e.g., the city of Sacramento is in Sacramento County, but the city of Davis is in Yolo County) can't always be resolved from text alone.
+    </div>
 
     <!-- ============================================================ -->
     <!-- CLARIFICATION POP-UP — v5.143.0 -->
