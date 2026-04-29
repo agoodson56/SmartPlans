@@ -65,7 +65,7 @@
     <div>
       <h1>SmartPlans — User Guide</h1>
       <p>AI-Powered Construction Document Analysis &amp; Estimation · 3D Technology Services Inc.</p>
-      <p style="margin-top:8px;font-size:12px;opacity:0.7">SmartPlans v5.103.0 · Last Updated: April 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
+      <p style="margin-top:8px;font-size:12px;opacity:0.7">SmartPlans v5.143.1 · Last Updated: April 28, 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
     </div>
     <button onclick="window.print()" style="margin-left:auto;padding:10px 20px;background:#BF9000;color:white;border:none;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;">Save as PDF</button>
   </div>
@@ -73,7 +73,12 @@
 
 <nav class="guide-nav">
   <div class="container">
-    <a href="#estimator-checklist" style="background:#BF9000;color:white;border-color:#BF9000;font-weight:700;">Estimator's Checklist</a>
+    <a href="#read-this-first" style="background:#BF9000;color:white;border-color:#BF9000;font-weight:700;">Read This First</a>
+    <a href="#quick-start">Quick Start (10 min)</a>
+    <a href="#hit-99">How to Hit 99%</a>
+    <a href="#clarification-gate">Clarification Pop-Up</a>
+    <a href="#save-resume">Save &amp; Resume</a>
+    <a href="#estimator-checklist">Estimator's Checklist</a>
     <a href="#getting-started">Getting Started</a>
     <a href="#header-bar">Header &amp; Navigation</a>
     <a href="#pdf-tool">PDF Page Extractor</a>
@@ -110,9 +115,168 @@
   <div class="container">
 
     <!-- ============================================================ -->
+    <!-- READ THIS FIRST + 99% HIGHLIGHT (v5.143.1) -->
+    <!-- ============================================================ -->
+    <h2 id="read-this-first" style="font-size:26px;margin-top:0;">Read This First <span class="badge-new">START HERE</span></h2>
+    <p style="font-size:16px;font-weight:600;color:#1a1a2e;margin-bottom:12px;">SmartPlans, explained like you're brand new to it.</p>
+
+    <div style="padding:18px 22px;border-radius:10px;border:2px solid #0D9488;background:linear-gradient(135deg,rgba(13,148,136,0.06),rgba(13,148,136,0.02));margin-bottom:18px;">
+      <p style="font-size:14px;line-height:1.65;margin-bottom:10px;"><strong style="color:#0D9488;">What is SmartPlans?</strong> It's a tool that reads construction drawings (the PDF plans an architect makes) and writes you a price for the job. Instead of you sitting at a desk for 40 hours counting every camera, every door reader, and every smoke detector by hand, the AI does it in about 5–15 minutes.</p>
+      <p style="font-size:14px;line-height:1.65;margin-bottom:10px;"><strong style="color:#0D9488;">What you give it:</strong> The PDF plans, the spec book (a Word or PDF document with rules), and the project name. That's it.</p>
+      <p style="font-size:14px;line-height:1.65;margin-bottom:0;"><strong style="color:#0D9488;">What you get back:</strong> A complete bid — every device counted, priced, and labor-hour estimated; a typed proposal you can hand to the customer; an Excel workbook with all the numbers; and a checklist of things you should double-check before you submit.</p>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- 99% ACCURACY HIGHLIGHT -->
+    <!-- ============================================================ -->
+    <h2 id="hit-99" style="font-size:24px;margin-top:36px;">What It Takes to Hit 99% Accuracy <span class="badge-new">GOAL</span></h2>
+
+    <div style="padding:22px 26px;border-radius:12px;border:3px solid #BF9000;background:linear-gradient(135deg,rgba(191,144,0,0.08),rgba(191,144,0,0.02));margin-bottom:20px;box-shadow:0 4px 16px rgba(191,144,0,0.10);">
+      <p style="font-size:16px;font-weight:700;color:#BF9000;margin-bottom:14px;letter-spacing:0.3px;">99% accuracy is achievable, but it's the outlier — not the norm.</p>
+      <p style="font-size:14px;line-height:1.7;margin-bottom:14px;">Most bids land in the 90–94% accuracy range. To routinely push above 95% — and occasionally hit 99% — every one of these five things must line up:</p>
+      <ol style="padding-left:22px;margin-bottom:0;">
+        <li style="font-size:14px;line-height:1.7;margin-bottom:10px;"><strong style="color:#0D9488;">Vector PDFs with a clear, complete legend.</strong> A "vector PDF" means the architect made it directly from CAD software — the text inside is searchable. Open the file, try to copy a sentence — if you can highlight and copy it, it's vector. If you can't (it's just an image), it's a "raster" or "scanned" PDF and accuracy drops.</li>
+        <li style="font-size:14px;line-height:1.7;margin-bottom:10px;"><strong style="color:#0D9488;">Cover/Index sheet uploaded so Sheet Inventory Guard works.</strong> The cover sheet is the front page of the drawings — it lists every sheet in the set ("E-1.0 Power Plan, T-1.0 Telecom Plan, FA-1.0 Fire Alarm Plan…"). Without it, SmartPlans can't tell you you forgot to upload a sheet, and you'll get $0 in a discipline you should have priced.</li>
+        <li style="font-size:14px;line-height:1.7;margin-bottom:10px;"><strong style="color:#0D9488;">A calibration anchor for the project type.</strong> A calibration anchor is a real bid you've done before that's similar to this one. Amtrak Sacramento landed within <strong>1%</strong> of actual; Greentree Apartments within <strong>~6%</strong>. The more bids of the same type you've fed back to SmartPlans, the tighter the next one gets.</li>
+        <li style="font-size:14px;line-height:1.7;margin-bottom:10px;"><strong style="color:#0D9488;">Clarification gate answered honestly with write-ins where the choices don't fit.</strong> Mid-bid, SmartPlans will pop up a list of questions about symbols it isn't sure about. <strong>Don't click the closest answer</strong> just to make the pop-up go away — if none of the choices is right, type the correct answer in the write-in box. Wrong answers lock the bid math to wrong values.</li>
+        <li style="font-size:14px;line-height:1.7;margin-bottom:0;"><strong style="color:#0D9488;">5+ real bid outcomes already fed to Wave 8's learning loop for similar projects.</strong> After every bid, tell SmartPlans whether you won, lost, or were the second-place bidder, and the actual award number. After 5 of those for similar projects, the AI's pricing tightens measurably on the next one.</li>
+      </ol>
+    </div>
+
+    <div class="callout callout-tip">
+      <strong>Realistic expectation:</strong> On average plans, plan for <strong>90–94% bid accuracy</strong>. With great vector plans + a calibration anchor + Wave 8 history, you'll see <strong>95–98%</strong>. 99% requires all five conditions above to align.
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- QUICK START — YOUR FIRST BID IN 10 MINUTES -->
+    <!-- ============================================================ -->
+    <h2 id="quick-start" style="font-size:24px;">Quick Start — Your First Bid in 10 Minutes <span class="badge-new">BEGINNER</span></h2>
+    <p style="font-size:14px;line-height:1.65;">If you've never used SmartPlans before, follow these 8 steps in order. Don't skip ahead — each step builds on the last.</p>
+
+    <ol class="step-list">
+      <li>
+        <strong>Open SmartPlans.</strong> Go to the website (<a href="https://smartplans-4g5.pages.dev/" style="color:#0D9488;font-weight:600;">smartplans-4g5.pages.dev</a>). You'll see a header at the top with buttons, and the main area in the middle with a step-by-step wizard.
+      </li>
+      <li>
+        <strong>Click "New Bid".</strong> The button is in the top-right header. This clears any old data and starts you fresh. (If you're picking up from a previous session, click "Saved" instead and pick the bid you want to continue.)
+      </li>
+      <li>
+        <strong>Type the project name.</strong> Be specific and consistent. "<em>Amtrak Sacramento 2026</em>" is good. "<em>job1</em>" is bad — it'll collide with other bids and the learning loop won't work right. <strong>Use the same naming pattern every time.</strong>
+      </li>
+      <li>
+        <strong>Pick the disciplines.</strong> A discipline is the type of work — CCTV (cameras), Access Control (door readers), Fire Alarm, Structured Cabling (data outlets), Audio Visual, etc. Click only the ones the job actually has. If you pick something the job doesn't have, you'll waste AI time and possibly get a "$0 discipline" warning later.
+      </li>
+      <li>
+        <strong>Upload the plans.</strong> Drag your PDF of the construction drawings into the upload box. <strong>Always include the cover sheet</strong> (the page with the drawing index). Without it, SmartPlans can't tell you which sheets are missing.
+      </li>
+      <li>
+        <strong>Upload the spec book.</strong> Specs are the rules — what brand of camera, what cable type, what testing is required. Drag in the PDF or Word file the architect provided. If there's no spec book, skip this step.
+      </li>
+      <li>
+        <strong>Click "Run Analysis".</strong> SmartPlans starts reading. You'll see a progress bar with messages like "Wave 1: Counting symbols…" Most bids take 5–15 minutes depending on plan size. <strong>Don't close the tab.</strong>
+      </li>
+      <li>
+        <strong>Answer the clarification questions when they pop up.</strong> About halfway through, SmartPlans pauses and shows you a list of symbols it isn't sure about (up to 30, ranked by money impact). For each one, look at the page and location it tells you (it gives you the sheet number AND a thumbnail with a red dot showing where the symbol is), pick the correct answer, or type it in the write-in box. <strong>You must answer every question</strong> for the bid to continue. If you need to step away, click "💾 Save Progress &amp; Exit" — your answers are kept for 30 days and auto-resume next time you run this bid.
+      </li>
+    </ol>
+
+    <p style="font-size:14px;line-height:1.65;">When the analysis finishes, you'll be on the Results page. Scroll through the cards — each one tells you something different (BOM totals, missing sheets, scope risks, etc.). At the top is the Estimator's Review Checklist — go through it before you export anything.</p>
+
+    <div class="callout callout-warn">
+      <strong>If something goes wrong:</strong> A red card means SmartPlans found a problem you have to fix before submitting (e.g., "Disciplines Came Back Empty — Fire Alarm has 0 devices"). A yellow card is a warning. A green card means you're clear. Don't ignore red cards — they mean the bid will be wrong if you submit it as-is.
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- CLARIFICATION POP-UP — v5.143.0 -->
+    <!-- ============================================================ -->
+    <h2 id="clarification-gate">The Clarification Pop-Up (What It Is &amp; What to Do) <span class="badge-new">v5.143.0</span></h2>
+
+    <div class="callout callout-info" style="margin-bottom:18px;">
+      <strong>Plain English:</strong> About halfway through every bid, SmartPlans hits the brakes and asks you up to 30 questions about symbols it isn't 100% sure about. You answer them, click Continue, and the rest of the bid runs using your answers instead of guesses. This is the single biggest accuracy boost in the whole tool — answer it carefully.
+    </div>
+
+    <h3>Why it exists</h3>
+    <p>Symbol mistakes are the #1 source of bid error — about 3–8% of total bid cost on average drawings comes from the AI getting a symbol wrong (calling a card reader a camera, miscounting outlets, etc.). The clarification pop-up catches those mistakes BEFORE the AI prices, labors, and writes the proposal. Catching them after is too late — the math is already locked.</p>
+
+    <h3>When does it pop up?</h3>
+    <p>After Wave 1 (counting) finishes, before Wave 1.5 (verification) and Wave 2 (pricing) start. You'll see your progress bar pause around the 34% mark with a message like <em>"❓ 14 question(s) need your input before continuing…"</em></p>
+
+    <h3>What gets asked</h3>
+    <ul>
+      <li><strong>Symbols below 85% confidence.</strong> If the AI is less than 85% sure what a symbol is, it asks. Above 85%, it trusts itself.</li>
+      <li><strong>Schedule vs. plan count conflicts.</strong> If the equipment schedule says "12 cameras" but the floor plans show 9 camera symbols, you decide which one is right.</li>
+      <li><strong>Spec vs. plan conflicts.</strong> If the spec says Axis cameras but the plans label them Hanwha, you decide.</li>
+      <li><strong>Addenda changes.</strong> If addenda were uploaded, you confirm whether to use the addenda counts or the original plan counts.</li>
+      <li><strong>Wave 4 ground-truth count overrides.</strong> When the deterministic pdf.js text-extractor counts something different than the AI vision model, you adjudicate.</li>
+    </ul>
+
+    <h3>How questions are ordered</h3>
+    <p>Biggest-money-impact first. The ranker estimates how many dollars the bid will swing if a question is answered wrong, and puts the highest-$ questions at the top. So #1 might be a $40,000-swing access-control question, and #30 might be a $300-swing data-outlet question. <strong>If you only have time for half, the top half is the half worth answering.</strong></p>
+
+    <h3>Cap at 30</h3>
+    <p>If there are more than 30 questions below 85% confidence, only the top 30 by cost impact are asked. The rest are deferred to the post-bid Estimator Review Checklist where you can still resolve them later.</p>
+
+    <h3>What each question shows you</h3>
+    <ul>
+      <li><strong>Sheet badge</strong> (gold) — the sheet number to look at, like <code>E-1.01</code>.</li>
+      <li><strong>Coordinate pin</strong> — the rough x%/y% position on the sheet (top-left corner = 0%, 0%; bottom-right = 100%, 100%). Open your plans in Bluebeam/Adobe and jump to roughly that spot.</li>
+      <li><strong>Sheet preview thumbnail</strong> — a small picture of the page with a red pulsing dot where the symbol is. This usually saves you opening the original PDF.</li>
+      <li><strong>Confidence pill</strong> — how sure the AI was (red &lt; 50%, yellow 50–75%, green 75–85%).</li>
+      <li><strong>Money swing pill</strong> — the estimated bid impact if this question is answered wrong (e.g., <code>💰 $42K swing</code>).</li>
+      <li><strong>Occurrence count</strong> — how many times this symbol appears on the plans.</li>
+      <li><strong>Multiple-choice buttons</strong> — the AI's best guesses for what the symbol is. Click one to select it.</li>
+      <li><strong>Write-in field</strong> — a text box right under the choices. Use this if NONE of the buttons is correct. Type what the symbol actually is in plain English ("4-channel I/O monitor module" — whatever's right).</li>
+    </ul>
+
+    <h3>Rules of the road</h3>
+    <ul>
+      <li><strong>Answer every question.</strong> The Continue button stays disabled until all 30 (or however many there are) have an answer. There is no "skip" button by design — wrong skipped answers were the #1 source of late-stage bid errors.</li>
+      <li><strong>Use the write-in if the choices are wrong.</strong> Don't click the closest option just to move on. The bid math locks to your answer.</li>
+      <li><strong>Don't guess.</strong> Open your plans, find the symbol, then answer. If you genuinely cannot find it or don't know, save and exit — come back when you've checked.</li>
+      <li><strong>Same-symbol answers carry forward.</strong> If you answered "Symbol X = Hanwha XNB-6000" on yesterday's bid, today's bid for a different project that has the same Symbol X will pre-fill that answer. Confirm or correct — don't blindly trust it.</li>
+    </ul>
+
+    <h3>Progress bar</h3>
+    <p>The sticky header at the top of the modal shows "<code>X of N answered</code>" with a green progress bar. When the bar hits 100%, the Continue button turns gold and unlocks.</p>
+
+    <!-- ============================================================ -->
+    <!-- SAVE PROGRESS & RESUME — v5.143.1 -->
+    <!-- ============================================================ -->
+    <h2 id="save-resume">Save Progress &amp; Exit (Resume Later) <span class="badge-new">v5.143.1</span></h2>
+
+    <div class="callout callout-info" style="margin-bottom:18px;">
+      <strong>Plain English:</strong> If you're partway through answering the clarification pop-up and need to step away — lunch, end of day, the building's on fire — click the gray <strong>💾 Save Progress &amp; Exit</strong> button. Your answers are saved for 30 days. Re-run analysis on the same bid later and you'll pick up exactly where you left off.
+    </div>
+
+    <h3>How to use it</h3>
+    <ol class="step-list">
+      <li>You're in the middle of the clarification pop-up. You've answered, say, 11 of 23 questions.</li>
+      <li>Click <strong>💾 Save Progress &amp; Exit</strong> (the gray button to the left of "Continue with answers" in the footer).</li>
+      <li>You'll see a green toast: <em>"💾 Saved 11 of 23 answers. Re-run this bid to resume — answers are kept for 30 days."</em></li>
+      <li>The pop-up closes. The analysis halts cleanly — Wave 1.5 and Wave 2 do NOT run, so no AI tokens are wasted on incomplete answers.</li>
+      <li>The bid goes back to its starting state. You can close the browser, walk away, do other work.</li>
+      <li>Come back later (anytime in the next 30 days). Open the same bid (the SAME project name + estimate matters here — the save is keyed off both).</li>
+      <li>Click <strong>Run Analysis</strong> again. The earlier waves run again (counting, etc.), and when the clarification pop-up appears, you'll see a blue toast: <em>"💾 Resumed 11 of 23 answers from your last save."</em> Your 11 answers are pre-filled.</li>
+      <li>Answer the remaining 12 questions, click Continue, and the bid finishes normally.</li>
+    </ol>
+
+    <h3>What happens to the saved answers</h3>
+    <ul>
+      <li><strong>Stored in your browser's localStorage</strong> — they don't leave your computer. If you switch to a different machine, they don't follow you (yet).</li>
+      <li><strong>30-day TTL.</strong> After 30 days the save auto-expires and gets pruned. Don't sit on a half-answered bid for a month.</li>
+      <li><strong>Auto-clears when you finish the bid.</strong> Successfully clicking Continue with all answers wipes the save — no stale leftovers.</li>
+      <li><strong>Won't survive renaming the bid.</strong> The save is keyed off the project name + estimate ID. If you rename "Amtrak Sac" to "Amtrak Sacramento", the save won't match anymore.</li>
+      <li><strong>Won't survive major plan changes.</strong> If a re-run produces totally different questions (new addenda, swapped plans), the IDs won't match and only the questions that still exist will pre-fill.</li>
+    </ul>
+
+    <div class="callout callout-warn">
+      <strong>Don't use Save &amp; Exit as a way to skip questions.</strong> The save is for genuinely needing to step away. If you save with 11 of 23 answered and never come back, the bid is permanently stuck — you'll have to re-run from scratch and the save expires after 30 days.
+    </div>
+
+    <!-- ============================================================ -->
     <!-- ESTIMATOR'S REVIEW CHECKLIST -->
     <!-- ============================================================ -->
-    <h2 id="estimator-checklist" style="font-size:24px;margin-top:0;">Estimator's Review Checklist <span class="badge-new">ESSENTIAL</span></h2>
+    <h2 id="estimator-checklist" style="font-size:24px;margin-top:36px;">Estimator's Review Checklist <span class="badge-new">ESSENTIAL</span></h2>
     <p style="font-size:16px;font-weight:600;color:#1a1a2e;margin-bottom:4px;">How to Turn an AI Estimate into a Winning Bid</p>
     <p>This section is your practical, step-by-step guide to reviewing and refining the SmartPlans AI-generated estimate before it becomes your final bid. Whether you are a junior estimator building your first proposal or a seasoned veteran looking for a systematic checklist, this guide ensures nothing falls through the cracks.</p>
 
@@ -305,6 +469,10 @@
     <!-- ============================================================ -->
     <h2 id="getting-started">Getting Started</h2>
 
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> SmartPlans is a website. You give it your construction drawings (PDFs) and it gives you back a complete bid. You don't install anything — just open the link in your browser. Works on Chrome, Edge, or Firefox. Need a calculator and a thick spec book? No. SmartPlans is the calculator AND the device counter AND the proposal writer rolled into one.
+    </div>
+
     <h3>What Is SmartPlans?</h3>
     <p>SmartPlans is a website that reads your construction drawings for you. You upload your blueprints and spec books as PDF files. The AI looks at every page, counts all the devices, figures out how much cable you need, prices everything out, and gives you a complete bid. It does in minutes what used to take days by hand.</p>
 
@@ -352,6 +520,10 @@
     <!-- PDF PAGE EXTRACTOR TOOL -->
     <!-- ============================================================ -->
     <h2 id="pdf-tool">PDF Page Extractor Tool <span class="badge-new">NEW</span></h2>
+
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> Sometimes the architect sends you a 200-page PDF, but only 15 of those pages have low-voltage stuff on them. This tool lets you cut out just the 15 pages you need so SmartPlans isn't wading through pages of plumbing and HVAC to find your work. Like making a copy of the chapters you actually need from a thick book.
+    </div>
 
     <h3>What Is This?</h3>
     <p>The PDF Page Extractor is a built-in tool that lets you <strong>trim a large PDF file down to only the pages you need</strong>. Imagine you have a 109-page construction plan set, but you only need the 19 electrical pages for your low-voltage bid. Instead of sending all 109 pages through the AI (which takes longer and costs more), you can use this tool to pull out just the 19 pages you need.</p>
@@ -408,6 +580,10 @@
     <!-- ============================================================ -->
     <h2 id="wizard-nav">8-Step Wizard Navigation</h2>
 
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> Across the top of the screen there's a row of 8 numbered circles. Each circle is a step in building your bid. You start at #0 (project name) and work your way to #7 (results). You can jump back to a previous step at any time, but you have to finish each one before the next one unlocks. Think of it like an oven timer that won't let you set the temperature before you've put the food in.
+    </div>
+
     <h3>What Are the Step Circles?</h3>
     <p>Across the top of the screen (just below the header bar), you will see <strong>8 small circles</strong> in a row, connected by lines. Each circle represents one stage of the estimation process. They look like this:</p>
     <table>
@@ -445,6 +621,10 @@
     <!-- STAGE 1 — PROJECT SETUP -->
     <!-- ============================================================ -->
     <h2 id="stage1">Stage 1 — Project Setup (Step 0)</h2>
+
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> This is the form-filling step. You type the project name, pick the trades you're bidding (cameras? fire alarm? both?), tell it the location (so it picks the right wages), and check a box if it's a transit/railroad job (those are pricier and have stricter rules). 5 minutes of careful typing here saves you re-running the whole bid later. <strong>Always use the same project naming pattern</strong> — "Owner – Site – Year" works well.
+    </div>
 
     <h3>What Is This?</h3>
     <p>Stage 1 is where you tell SmartPlans about your project. Think of it like filling out a form before you go to the doctor. The more you fill in, the better the AI can help you. Every box you fill in here changes how the AI reads your drawings, what prices it picks, and how it counts your labor hours.</p>
@@ -713,6 +893,10 @@
     <!-- ============================================================ -->
     <h2 id="stage2">Stage 2 — Symbol Legend (Step 1)</h2>
 
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> The legend is the "decoder ring" page in the drawings. It says "this little circle = camera, this triangle = speaker." Without a clear legend, the AI has to guess what every symbol means and gets way more questions wrong. <strong>Spend 30 seconds making sure the legend page is clearly readable in your upload</strong> — not blurry, not cut off. This is the single biggest accuracy lever you control.
+    </div>
+
     <h3>What Is a Symbol Legend?</h3>
     <p>A symbol legend is a special page in your drawings that shows a list of little pictures (like circles, squares, and triangles) and tells you what each one means. For example, a small circle might mean "camera" and a triangle might mean "speaker." It is like a key on a map — without it, you do not know what the symbols on the map represent.</p>
 
@@ -738,6 +922,10 @@
     <!-- STAGE 3 — FLOOR PLANS -->
     <!-- ============================================================ -->
     <h2 id="stage3">Stage 3 — Floor Plans (Step 2)</h2>
+
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> Floor plans are the actual drawings — top-down views of each floor with all the symbols on them. This is where SmartPlans does most of its work. Drag the PDF in, wait for the upload bar to fill. <strong>Always include the cover/index sheet</strong> (the front page that lists all the drawings) — it lets SmartPlans tell you if any sheets are missing.
+    </div>
 
     <h3>What Are Floor Plans?</h3>
     <p>Floor plans are the drawings that show the building layout and where all the devices go. They have little symbols for cameras, data drops, speakers, card readers, pull stations, and everything else that needs to be installed. These are the most important documents in your bid — without them, the AI has nothing to count.</p>
@@ -771,6 +959,10 @@
     <!-- ============================================================ -->
     <h2 id="stage4">Stage 4 — Specifications (Step 3)</h2>
 
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> The spec book is the rulebook — a thick written document that says "use Axis cameras, not Hanwha" and "all cable must be plenum-rated Cat6A." Without it, the AI has to use generic prices that may be off. With it, the AI prices the EXACT products the spec calls for. Drag in the spec PDF and let it work.
+    </div>
+
     <h3>What Are Specifications?</h3>
     <p>Specifications (people call them "specs") are the written instructions that come with the drawings. The specs tell you exactly what products to use, how to install them, what testing is required, and what quality standards must be met. For example, the specs might say "Use Axis brand cameras, model P3245-V" or "All cables must be plenum-rated, Cat6A, meeting TIA-568 standards."</p>
 
@@ -800,6 +992,10 @@
     <!-- ============================================================ -->
     <h2 id="stage5">Stage 5 — Addenda (Step 4)</h2>
 
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> Addenda are changes the architect made AFTER the original drawings went out. Like a "P.S." or "edit." If addenda exist and you don't upload them, your bid will be wrong because you'll price the original drawings instead of the corrected version. If the project has no addenda, click "No" and move on.
+    </div>
+
     <h3>What Are Addenda?</h3>
     <p>Addenda (singular: addendum) are changes that were made to the original drawings or specs after they were first sent out to bidders. Think of them like corrections, updates, or additions to the original plan. An addendum might say "Add 5 more cameras to the parking lot" or "Change the cable type from Cat6 to Cat6A" or "Delete the fire alarm scope — it is now a separate bid package."</p>
 
@@ -818,6 +1014,10 @@
     <!-- STAGE 6 — REVIEW & ANALYZE -->
     <!-- ============================================================ -->
     <h2 id="stage6">Stage 6 — Review &amp; Analyze (Step 5)</h2>
+
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> The "click GO" page. SmartPlans shows you a summary of everything you uploaded, you double-check it's right, then click <strong>Run Analysis</strong>. The AI starts working — usually 5–15 minutes. Don't close the browser tab. Halfway through it'll pop up the clarification questions; answer them and the rest finishes automatically.
+    </div>
 
     <h3>What Is This?</h3>
     <p>This is the stage where you check everything you have entered so far, and then tell the AI to start working. Think of it like reviewing your homework before you turn it in.</p>
@@ -857,6 +1057,10 @@
     <!-- ============================================================ -->
     <h2 id="ai-engine">How the 27-Brain AI Engine Works</h2>
 
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> Instead of using one big AI to do everything, SmartPlans uses 27 little AIs that each have one job. One counts symbols. One reads the legend. One figures cable runs. One prices the materials. They run in order — the counter has to finish before the pricer can start. You don't need to know what each one does — but knowing they exist helps you understand the progress messages while a bid runs ("Wave 0.5: Mapping the building…", "Wave 2: Pricing materials…").
+    </div>
+
     <p>SmartPlans does not use just one AI. It uses <strong>27 specialized AI brains</strong> that each focus on a different part of the analysis. Think of it like a team of 27 experts, each with their own specialty, all working on your drawings at the same time. These brains are organized into "waves" — groups that run in sequence because later waves need results from earlier ones.</p>
 
     <table>
@@ -876,6 +1080,10 @@
     <!-- STAGE 7 — TRAVEL, PER DIEM & INCIDENTALS -->
     <!-- ============================================================ -->
     <h2 id="stage7">Stage 7 — Travel, Per Diem &amp; Incidentals (Step 6)</h2>
+
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> If your crew has to drive far or stay overnight, this is where you add those costs. Per diem = the daily allowance for hotels and meals. Mileage = paying for fuel/wear-and-tear on the truck. Bonds, permits, and insurance also go here. Skip if the job is local and your crew goes home every night.
+    </div>
 
     <h3>What Is This?</h3>
     <p>This stage shows up <strong>after the AI finishes its analysis</strong>. It is where you set up travel costs if your crew needs to go to another city for the project. It also has a place for extra costs like permits, insurance, and bonding. The reason this comes after the AI analysis is because the AI needs to figure out how many labor hours the project needs first. Once it knows the hours, it can help you figure out how many workers you need and how long the project will take.</p>
@@ -960,6 +1168,10 @@
     <!-- STAGE 8 — RESULTS & RFIs -->
     <!-- ============================================================ -->
     <h2 id="stage8">Stage 8 — Results &amp; RFIs (Step 7)</h2>
+
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> The finish line. SmartPlans shows you everything it found in a stack of cards. Read them top to bottom. <strong>Red cards = problems you must fix before submitting</strong> (e.g., a discipline came back $0). <strong>Yellow cards = warnings worth checking.</strong> <strong>Green cards = all clear.</strong> The very top has the Estimator's Review Checklist with checkboxes — go through every checkbox before you click Export. The Export buttons at the bottom send the bid to Excel, Word, and the proposal PDF.
+    </div>
 
     <p>This is the big results page. It has everything the AI found, plus all the tools you need to turn the estimate into a final bid. There are many sections here — scroll down through the page to find each one. Let us go through each section in the order they appear.</p>
 
@@ -1108,6 +1320,10 @@
     <!-- SYMBOL INVENTORY AUDIT -->
     <!-- ============================================================ -->
     <h2 id="symbol-inventory">Symbol Inventory Audit</h2>
+
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> A super-detailed receipt: every single device SmartPlans found, what it is, what room it's in, and which sheet number it's on. Use this to spot-check the AI's counts. If something looks wildly off (e.g., "120 cameras in a 4-room office"), this is where you find and fix the bad count.
+    </div>
 
     <h3>What Is This?</h3>
     <p>The Symbol Inventory Audit is a card on the Results page (Stage 8) that lists <strong>every single device</strong> the AI found on your drawings. It shows you exactly what was counted, where it was counted, and on which sheet number. Think of it like a detailed receipt: "I found 3 cameras in Room 101 on Sheet E2.1."</p>
@@ -1356,6 +1572,10 @@
     <!-- ============================================================ -->
     <h2 id="exports">Exporting Your Work</h2>
 
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> "Export" means download. SmartPlans gives you several download buttons — pick the one that matches what you need. Need to email a proposal to the general contractor? Use <strong>Generate Proposal</strong> (Word doc). Need to send the materials list to your supplier so they quote prices? Use <strong>Supplier BOM</strong>. Want everything? Use <strong>Export All (ZIP)</strong>. <strong>Don't export until you've gone through every red and yellow card on the Results page</strong> — exporting locks the bid math.
+    </div>
+
     <p>After your estimate is ready in Stage 8, you can download your work in many different formats. The export buttons are grouped together in an export panel.</p>
 
     <table>
@@ -1374,6 +1594,10 @@
     <!-- PROPOSAL GENERATOR -->
     <!-- ============================================================ -->
     <h2 id="proposal-generator">Proposal Generator</h2>
+
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> Click one button and SmartPlans writes the actual sales-ready proposal document — your company name and logo at the top, scope of work paragraphs, the bid number, exclusions and assumptions, signature lines at the bottom. Comes out as a Word document (.docx) so you can tweak it before sending. Saves the 4–6 hours you'd normally spend writing the proposal by hand.
+    </div>
 
     <h3>What Is This?</h3>
     <p>The Proposal Generator creates professional-looking documents you can send to the general contractor or client. These are formatted Word documents (.docx) with your company branding, scope of work, pricing, and exclusions.</p>
@@ -1479,6 +1703,10 @@
     <!-- ============================================================ -->
     <h2 id="saved">Saved Estimates Panel</h2>
 
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> Every bid you start is saved automatically — you don't have to remember to hit Save. The Saved panel is your filing cabinet of all past bids. Click "Saved" in the top header, find the bid you want, click it to reopen, edit, re-export, or duplicate as a starting point for a similar new bid. Saved bids live in the cloud, so you can pick up on a different computer.
+    </div>
+
     <h3>What Is This?</h3>
     <p>Every estimate you create is saved automatically to the cloud. You can access them from any computer by logging in. The Saved Estimates panel lets you manage all your past work.</p>
 
@@ -1550,7 +1778,19 @@
     <!-- ============================================================ -->
     <h2 id="troubleshooting">Troubleshooting</h2>
 
+    <div class="callout callout-info">
+      <strong>Plain English:</strong> Stuff break? Look up your problem in this table. The most common fix is the "hard refresh": <strong>Ctrl + Shift + R</strong> on Windows, <strong>Cmd + Shift + R</strong> on Mac. That throws away the old cached version of SmartPlans and downloads the latest. Always try that first when something seems weird.
+    </div>
+
     <p>If something is not working right, find your problem in the left column and try the fix in the right column.</p>
+
+    <table>
+      <tr><th>Problem</th><th>Plain-English Fix</th></tr>
+      <tr><td><strong>I don't see the new clarification pop-up / Save Progress button</strong></td><td>Hard refresh: <code>Ctrl+Shift+R</code> (Windows) or <code>Cmd+Shift+R</code> (Mac). Confirm the console shows <code>Build: v5.143.1 — 2026-04-28</code>. Old service worker may be cached.</td></tr>
+      <tr><td><strong>I clicked Save Progress &amp; Exit, came back, but my answers didn't pre-fill</strong></td><td>Project name must match. If you renamed the bid, the saved answers no longer link to it. Also: saves expire after 30 days; check the date you originally saved.</td></tr>
+      <tr><td><strong>The Continue button stays gray and won't unlock</strong></td><td>Every question needs an answer (option clicked OR write-in typed). Scroll up — the "X of N answered" counter at the top tells you how many remain. Find the rows without a highlighted choice or empty write-in field.</td></tr>
+      <tr><td><strong>SmartPlans skipped some E-prefix sheets in my upload</strong></td><td>Fixed in v5.138.0 (April 26, 2026). Hard refresh and retry. The progressive prefix-fallback now keeps every E-sheet (ED-1.01, ESD-300, EE-101, etc.) regardless of mechanical/structural coordination text on the page.</td></tr>
+    </table>
 
     <table>
       <tr><th>Problem</th><th>What to Do</th></tr>
