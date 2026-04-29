@@ -3489,22 +3489,31 @@ const SmartBrains = {
           // Text extraction failed — include page by default
         }
 
-        // ── STEP 2: Classify sheet for downstream brain context ──
-        // v5.144.8: estimator mandate — NEVER skip any page. Every uploaded
-        // page goes to the AI brains. Pre-fix, the discipline filter caused
-        // real-bid pages to silently disappear because product codes (RJ45,
-        // CAT6, CR2330) were misread as sheet IDs and routed to "skip"
-        // because RJ/CAT/CR weren't in SHEET_DISCIPLINE_MAP. Plus VS-prefix
-        // (Video Surveillance), DS-prefix (Door Schedule), and other
-        // legitimate LV sheet families weren't in the map either. Cost
-        // increase from sending 100% of pages: ~9% on a typical bid; the
-        // accuracy benefit (no silent missing scope) is worth it.
+        // ── STEP 2: Determine discipline from sheet ID prefix ──
+        // v5.144.9 — refined skip policy. Pages can ONLY be skipped when we
+        // are POSITIVE they belong to another trade entirely. Otherwise they
+        // are included. The hard rules:
         //
-        // We still extract sheet prefix below for chunk-naming and for the
-        // SHEET_INVENTORY_GUARD downstream, but NEVER use it to skip pages.
-        let skipThisPage = false; // ALWAYS false — kept for log clarity
+        //   SKIP  if prefix mapped to [] (M = mechanical, P = plumbing,
+        //         S = structural — explicitly non-LV)
+        //   SKIP  if prefix mapped to disciplines NONE of which the
+        //         estimator selected (e.g., 'FA' Fire Alarm but bid only
+        //         covers CCTV)
+        //   KEEP  if prefix mapped to 'all' (general/cover sheets)
+        //   KEEP  if prefix mapped to >=1 selected discipline
+        //   KEEP  if prefix not in map at all (unknown — could be a real
+        //         LV sheet OR a product callout misread; default safe)
+        //   KEEP  always when sheetId itself wasn't found (no prefix to
+        //         judge on)
+        //
+        // The pre-fix bug: keyword backup ("PLUMBING"/"MECHANICAL" text on
+        // the page) would skip even on unknown prefixes, dropping pages
+        // where product callouts like RJ45 / CAT6 / CR2330 / VS-124 were
+        // mistakenly read as the sheet ID. That backup is REMOVED — we
+        // only trust the prefix → mapped-disciplines decision now.
+        let skipThisPage = false;
         let mappedDisciplines = undefined;
-        if (sheetId) {
+        if (hasDisciplineFilter && sheetId) {
           const normalizedId = String(sheetId).toUpperCase().replace(/[\s.\-_]/g, '');
           const prefixMatch = normalizedId.match(/^([A-Z]{1,3})/);
           if (prefixMatch) {
@@ -3518,8 +3527,28 @@ const SmartBrains = {
               }
             }
             if (!sheetPrefix) sheetPrefix = fullPrefix;
+
+            if (mappedDisciplines !== undefined) {
+              if (mappedDisciplines.includes('all')) {
+                // General / cover / index — always include
+                skipThisPage = false;
+              } else if (mappedDisciplines.length === 0) {
+                // Explicitly non-LV (M, P, S) — skip
+                skipThisPage = true;
+              } else {
+                // Mapped to specific disciplines — skip only if NONE selected
+                const overlap = mappedDisciplines.some(d => selectedSet.has(d));
+                skipThisPage = !overlap;
+              }
+            }
+            // mappedDisciplines === undefined means prefix unknown — DEFAULT
+            // INCLUDE. Could be a misread product callout (RJ45, CAT6,
+            // CR2330) or a real but-rare LV sheet prefix — either way, send
+            // it to the AI rather than risk dropping real scope.
           }
         }
+        // If sheetId itself wasn't found, skipThisPage stays false → page
+        // is included by default. The AI can identify it by content.
 
         // ── STEP 3: Scale bar detection (always, even on skipped pages — fast & useful) ──
         try {
@@ -3538,12 +3567,17 @@ const SmartBrains = {
           canvasScaleResults.push({ found: false, pixelsPerFoot: 0, confidence: 0, method: 'scale_bar_canvas', pageNum: p, sheetId: sheetId || `page_${p}` });
         }
 
-        // ── STEP 4: NO SKIPPING (v5.144.8 — estimator mandate "every page accounted for") ──
-        // skipThisPage is forced false above. Block kept for diagnostic clarity:
-        // if a future change ever sets skipThisPage=true, the log line still fires.
+        // ── STEP 4: Skip page if discipline filter says so ──
+        // v5.144.9: only fires when the prefix is EXPLICITLY non-LV (M, P, S)
+        // OR mapped to disciplines none of which were selected. Unknown
+        // prefixes always include — see Step 2 for the full rule set.
         if (skipThisPage) {
-          console.warn(`[SmartBrains] ⚠ skipThisPage=true on page ${p} — ignoring (no-skip policy active)`);
-          skipThisPage = false;
+          const reason = mappedDisciplines && mappedDisciplines.length === 0
+            ? `prefix "${sheetPrefix}" is non-LV (mechanical/plumbing/structural)`
+            : `prefix "${sheetPrefix}" → ${(mappedDisciplines || []).join('/')} not in selected disciplines`;
+          console.log(`[SmartBrains] ✗ Skipping page ${p}/${totalPages} (${sheetId || 'unknown'}) — ${reason}`);
+          skippedPages++;
+          continue;
         }
 
         // ── STEP 5: Render page at upload resolution (2x) → JPEG ──
