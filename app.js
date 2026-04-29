@@ -366,25 +366,24 @@ function _visibleStepIndex(i) {
 }
 
 const DISCIPLINES = [
-  // Division 27 — Communications
-  "Structured Cabling",
-  "Audio Visual",
-  "Distributed Antenna Systems (DAS)",
-  "ERRCS",
-  "Paging / Intercom",
-  "Nurse Call Systems",
-  "Micro Duct",
-  "Point-to-Point",
-  // Division 28 — Electronic Safety & Security
-  "CCTV",
+  // v5.143.2: alphabetical order (was previously grouped by CSI division —
+  // Div 27 Comms / Div 28 Security / Div 8 Openings / Div 1 General).
+  // CSI mapping is preserved separately in DISCIPLINE_TO_CSI below.
   "Access Control",
-  "Intrusion Detection",
-  "Fire Alarm",
-  "Two-Way Radio",
-  // Division 8 — Openings (Door Hardware)
+  "Audio Visual",
+  "CCTV",
+  "Distributed Antenna Systems (DAS)",
   "Door Hardware / Electrified Hardware",
-  // Division 1 — General Requirements
+  "ERRCS",
+  "Fire Alarm",
   "General Requirements / Conditions",
+  "Intrusion Detection",
+  "Micro Duct",
+  "Nurse Call Systems",
+  "Paging / Intercom",
+  "Point-to-Point",
+  "Structured Cabling",
+  "Two-Way Radio",
 ];
 
 // ═══════════════════════════════════════════════════════════════
