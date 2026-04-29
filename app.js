@@ -4758,6 +4758,12 @@ function renderStep0(container) {
       <label class="form-label">Specifications <span style="color:var(--text-muted);font-weight:400">(optional but highly recommended)</span></label>
       <p class="form-hint">Drop the spec book here BEFORE picking disciplines. SmartPlans reads the table of contents, finds every CSI section, and pre-checks the matching disciplines below. <strong>v5.144.1:</strong> the same scan also auto-detects wage type (Davis-Bacon / CA prevailing / PLA), state, county, and code jurisdiction — review and confirm before applying. <strong>If you don't have specs yet, skip this — pick disciplines manually below.</strong></p>
       <div id="spec-upload-step0"></div>
+      <!-- v5.144.4: hint added after a real-bid Amtrak case where wage type didn't detect because the
+           wage language lived in F1._General_Provisions_for_Construction_Contract.docx, not the C2
+           technical specs. -->
+      <div style="margin-top:10px;padding:11px 14px;background:rgba(99,102,241,0.06);border-left:3px solid #6366F1;border-radius:6px;font-size:12px;color:#475569;line-height:1.55;">
+        💡 <strong style="color:#1a1a2e;">Wage type not auto-detecting?</strong> The wage clauses (Davis-Bacon, prevailing wage, PLA) usually live in a SEPARATE document — the <strong>General Provisions</strong>, <strong>Contract Terms</strong>, <strong>Supplementary Conditions</strong>, or the project <strong>RFP</strong>. The technical spec (CSI Divisions 01-34) often has zero wage language. If the wage doc came as Word/DOCX, <strong>open it in Word and Save As → PDF first</strong> (the detector can't read DOCX in-browser), then drop the PDF here too along with the technical spec. The scanner will read all uploaded files together.
+      </div>
       <div id="spec-metadata-confirm" style="margin-top:10px;"></div>
       <div id="spec-detect-status" style="margin-top:10px;"></div>
     </div>
