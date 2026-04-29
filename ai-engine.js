@@ -986,13 +986,32 @@ const SmartBrains = {
    * v5.144.0: Extract plain text from a spec file for the auto-detector.
    * PDF → pdf.js. TXT → direct read. DOCX → not supported in browser without
    * a parser; we skip with a warning and rely on plans-only fallback.
+   *
+   * v5.144.3 fix: renderFileUpload wraps files as { name, size, rawFile: File }
+   * so direct .arrayBuffer() throws "is not a function". Resolve to the real
+   * File/Blob first, then call. Same pattern app.js uses at line 17400.
    */
   async _extractTextFromSpec(file) {
     if (!file) return '';
     const name = (file.name || '').toLowerCase();
+
+    // Resolve to a Blob/File the browser can read. Possible shapes:
+    //   - raw File from a drop event (has arrayBuffer/text directly)
+    //   - wrapped { name, size, rawFile: File } from renderFileUpload
+    //   - some legacy shapes carry `_data` or `data` as ArrayBuffer
+    const blob = (typeof file.arrayBuffer === 'function') ? file
+               : (file.rawFile && typeof file.rawFile.arrayBuffer === 'function') ? file.rawFile
+               : (file._data instanceof ArrayBuffer) ? new Blob([file._data])
+               : (file.data instanceof ArrayBuffer) ? new Blob([file.data])
+               : null;
+    if (!blob) {
+      console.warn(`[SpecDetect] ${file.name || 'spec'}: no readable byte source on file object — keys=${Object.keys(file).join(',')}`);
+      return '';
+    }
+
     if (name.endsWith('.pdf')) {
       if (typeof pdfjsLib === 'undefined') return '';
-      const ab = await file.arrayBuffer();
+      const ab = await blob.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
       const parts = [];
       const cap = Math.min(pdf.numPages, 200); // safety cap on huge spec books
@@ -1004,7 +1023,10 @@ const SmartBrains = {
       return parts.join('\n');
     }
     if (name.endsWith('.txt')) {
-      return await file.text();
+      // .text() exists on both File and Blob; fall back to arrayBuffer→decode if missing
+      if (typeof blob.text === 'function') return await blob.text();
+      const ab = await blob.arrayBuffer();
+      return new TextDecoder('utf-8').decode(ab);
     }
     if (name.endsWith('.docx') || name.endsWith('.doc')) {
       console.warn(`[SpecDetect] ${file.name}: DOCX/DOC text extraction is not available in the browser. Convert to PDF for spec auto-detect, or pick disciplines manually.`);
