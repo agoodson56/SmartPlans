@@ -335,7 +335,10 @@ const STEPS = [
   // indices (case 2 = plans, case 5 = review, etc.) stay stable.
   { id: "legend", title: "Symbol Legend", subtitle: "Auto-extracted from plans", icon: "🔑", hidden: true },
   { id: "plans", title: "Floor Plans", subtitle: "Upload drawings", icon: "📐" },
-  { id: "specs", title: "Specifications", subtitle: "Upload spec docs", icon: "📄" },
+  // v5.144.7: Specs step hidden — spec upload moved to Stage 0 in v5.144.0,
+  // so this step is duplicate. Kept in array (case 3) for saved-bid compat
+  // but hidden from nav and skipped by Next/Back navigation.
+  { id: "specs", title: "Specifications", subtitle: "Upload spec docs", icon: "📄", hidden: true },
   { id: "addenda", title: "Addenda", subtitle: "Changes & updates", icon: "📝" },
   { id: "review", title: "Review & Analyze", subtitle: "Final check", icon: "🔍" },
   { id: "travel", title: "Travel & Costs", subtitle: "Per diem & incidentals", icon: "✈️" },
@@ -5350,22 +5353,69 @@ function renderStep0(container) {
               }
             }
 
-            // ── Stash metadata for confirm-then-apply UI (no auto-fill) ──
-            // Wage misclassification is a 20-30% bid swing so we surface
-            // detected wage/state/county/jurisdiction as a confirm panel.
-            // The user reviews and clicks "Apply Detected" before any
-            // form field actually changes.
+            // ── Auto-apply metadata directly to form fields (v5.144.7) ──
+            // Earlier versions surfaced detected metadata in a confirm-then-apply
+            // panel because wage misclassification is a 20-30% bid swing. In
+            // practice, real-bid testing showed users miss the panel entirely
+            // (it appears above the wage dropdown they're staring at) and submit
+            // bids with the wrong wage type. Auto-applying with a clear toast
+            // is safer because the user SEES the dropdown change and can override
+            // by clicking it — vs missing a panel they didn't scroll to.
             state._specDetectedMetadata = metaResult || null;
+            state._specMetadataApplied = state._specMetadataApplied || {};
 
             const detectedFields = [];
-            if (metaResult?.wageType) detectedFields.push(`wage=${metaResult.wageType.value}`);
-            if (metaResult?.state)    detectedFields.push(`state=${metaResult.state.value}`);
-            if (metaResult?.county)   detectedFields.push(`county=${metaResult.county.value}`);
-            if (metaResult?.jurisdiction) detectedFields.push(`code=${metaResult.jurisdiction.value}`);
+            const appliedSummary = [];
+            if (metaResult?.wageType) {
+              detectedFields.push(`wage=${metaResult.wageType.value}`);
+              if (!state._specMetadataApplied.wageType) {
+                state.prevailingWage = metaResult.wageType.value;
+                state._specMetadataApplied.wageType = true;
+                appliedSummary.push(`Wage=${metaResult.wageType.value}`);
+              }
+            }
+            if (metaResult?.state) {
+              detectedFields.push(`state=${metaResult.state.value}`);
+              if (!state._specMetadataApplied.state) {
+                const cur = (state.projectLocation || '').trim();
+                const cityFromMeta = metaResult.cityState?.value;
+                if (cityFromMeta) {
+                  state.projectLocation = cityFromMeta;
+                } else if (cur && !cur.includes(metaResult.state.value)) {
+                  state.projectLocation = `${cur}, ${metaResult.state.value}`;
+                } else if (!cur) {
+                  state.projectLocation = metaResult.state.value;
+                }
+                state._specMetadataApplied.state = true;
+                appliedSummary.push(`State=${metaResult.state.value}`);
+              }
+            }
+            if (metaResult?.county) {
+              detectedFields.push(`county=${metaResult.county.value}`);
+              if (!state._specMetadataApplied.county) {
+                state._pwCounty = metaResult.county.value;
+                state._specMetadataApplied.county = true;
+                appliedSummary.push(`County=${metaResult.county.value}`);
+              }
+            }
+            if (metaResult?.jurisdiction) {
+              detectedFields.push(`code=${metaResult.jurisdiction.value}`);
+              if (!state._specMetadataApplied.jurisdiction) {
+                state.codeJurisdiction = metaResult.jurisdiction.value;
+                state._specMetadataApplied.jurisdiction = true;
+                appliedSummary.push(`Code=${metaResult.jurisdiction.value}`);
+              }
+            }
 
             if (typeof spToast === 'function') {
-              const parts = [disciplineMsg, detectedFields.length > 0 ? `📋 ${detectedFields.length} project fields` : ''].filter(Boolean);
-              if (parts.length > 0) spToast(`${parts.join(' + ')} — review and adjust below`, 'success');
+              const parts = [];
+              if (disciplineMsg) parts.push(disciplineMsg);
+              if (appliedSummary.length > 0) {
+                parts.push(`✓ Auto-applied: ${appliedSummary.join(', ')}`);
+              }
+              if (parts.length > 0) {
+                spToast(`${parts.join(' + ')} — click any field to override`, 'success');
+              }
             }
             renderStep0(container);
           } catch (e) {
@@ -5405,97 +5455,62 @@ function renderStep0(container) {
                           : v;
     const confColor = (c) => c >= 0.85 ? '#10b981' : (c >= 0.70 ? '#f59e0b' : '#ef4444');
     const confLabel = (c) => c >= 0.85 ? 'High' : (c >= 0.70 ? 'Medium' : 'Low');
+    // v5.144.7: row is now a passive receipt — no checkbox, just shows what
+    // was auto-applied with confidence + evidence. The user overrides by
+    // clicking the actual form dropdown below the panel.
     const fieldRow = (key, label, picked, fieldData) => {
       if (!fieldData || !fieldData.value) return '';
-      const checked = !metaApplied[key]; // default checked = will-apply unless user already applied
       const conf = Number.isFinite(fieldData.confidence) ? fieldData.confidence : 0.5;
       const evidence = fieldData.evidence ? `<div style="margin-top:4px;padding:6px 10px;background:rgba(0,0,0,0.04);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#475569;line-height:1.45;">"${esc(fieldData.evidence.substring(0, 220))}${fieldData.evidence.length > 220 ? '…' : ''}"</div>` : '';
       return `
         <div style="padding:10px 12px;border:1px solid rgba(0,0,0,0.06);border-radius:6px;margin-bottom:8px;background:#fff;">
-          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
-            <input type="checkbox" class="meta-confirm-cb" data-meta-key="${esc(key)}" ${checked ? 'checked' : ''} ${metaApplied[key] ? 'disabled' : ''} style="margin-top:3px;flex-shrink:0;">
-            <div style="flex:1;min-width:0;">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#64748b;font-weight:700;">${esc(label)}</span>
-                <span style="font-size:13px;font-weight:700;color:#0F2942;">${esc(picked)}</span>
-                <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(${conf >= 0.85 ? '16,185,129' : conf >= 0.70 ? '245,158,11' : '239,68,68'},0.12);color:${confColor(conf)};font-size:10px;font-weight:700;">${confLabel(conf)} ${Math.round(conf * 100)}%</span>
-                ${metaApplied[key] ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(13,148,136,0.12);color:#0D9488;font-size:10px;font-weight:700;">✓ APPLIED</span>` : ''}
-              </div>
-              ${evidence}
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#64748b;font-weight:700;">${esc(label)}</span>
+              <span style="font-size:13px;font-weight:700;color:#0F2942;">${esc(picked)}</span>
+              <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(${conf >= 0.85 ? '16,185,129' : conf >= 0.70 ? '245,158,11' : '239,68,68'},0.12);color:${confColor(conf)};font-size:10px;font-weight:700;">${confLabel(conf)} ${Math.round(conf * 100)}%</span>
+              <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(13,148,136,0.12);color:#0D9488;font-size:10px;font-weight:700;">✓ APPLIED</span>
             </div>
-          </label>
+            ${evidence}
+          </div>
         </div>`;
     };
 
-    const allApplied = ['wageType', 'state', 'county', 'jurisdiction'].every(k => !meta[k] || metaApplied[k]);
+    const allApplied = true; // v5.144.7: auto-apply always means "applied"
 
+    // v5.144.7: panel is now a passive "what we auto-applied" summary, not
+    // a confirm-then-apply gate. The form fields below already updated when
+    // detection ran; this panel just shows the receipt + lets the user undo.
     metaPanel.innerHTML = `
-      <div style="padding:14px 16px;background:linear-gradient(135deg,rgba(245,158,11,0.06),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.30);border-radius:10px;">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-          <span style="font-size:18px;">📋</span>
-          <div style="font-size:13px;font-weight:800;color:#92400E;">Project Metadata Detected — Review &amp; Confirm</div>
-          ${allApplied ? `<span style="margin-left:auto;padding:3px 10px;border-radius:4px;background:rgba(13,148,136,0.15);color:#0D9488;font-size:10px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;">All Applied</span>` : ''}
+      <div style="padding:14px 16px;background:linear-gradient(135deg,rgba(13,148,136,0.06),rgba(13,148,136,0.02));border:2px solid rgba(13,148,136,0.30);border-radius:10px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <span style="font-size:18px;">✨</span>
+          <div style="font-size:13px;font-weight:800;color:#0D9488;">Project Metadata Auto-Applied from Spec</div>
+          <span style="margin-left:auto;padding:3px 10px;border-radius:4px;background:rgba(13,148,136,0.15);color:#0D9488;font-size:10px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;">Applied</span>
         </div>
-        <p style="font-size:11.5px;color:#78350F;margin-bottom:10px;line-height:1.55;">Wage misclassification is a 20–30% bid swing — confirm each pick before applying. Uncheck anything that's wrong, then click <strong>Apply Detected</strong>.</p>
+        <p style="font-size:11.5px;color:#475569;margin-bottom:10px;line-height:1.55;">SmartPlans filled the form fields below from the spec. Wrong? Just click any dropdown below to override. Click <strong>Undo All</strong> to revert everything to defaults.</p>
         ${fieldRow('wageType', 'Wage Standard', meta.wageType ? wageLabel(meta.wageType.value) : '', meta.wageType)}
         ${fieldRow('state', 'State', meta.state?.value || '', meta.state)}
         ${fieldRow('county', 'County', meta.county?.value || '', meta.county)}
         ${fieldRow('jurisdiction', 'Code Jurisdiction', meta.jurisdiction?.value || '', meta.jurisdiction)}
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;">
-          <button class="header-btn" id="meta-skip-btn" type="button" style="font-size:11px;">Dismiss</button>
-          <button class="header-btn header-btn--start" id="meta-apply-btn" type="button" style="font-size:12px;${allApplied ? 'opacity:0.5;cursor:not-allowed;' : ''}" ${allApplied ? 'disabled' : ''}>${allApplied ? 'All Applied' : '✓ Apply Detected'}</button>
+          <button class="header-btn" id="meta-undo-btn" type="button" style="font-size:11px;">Undo All</button>
         </div>
       </div>`;
 
-    // Apply button — write detected values into state for the checked fields,
-    // mark them as applied (so the panel reflects "✓ APPLIED"), re-render so
-    // the form dropdowns show the new values.
-    const applyBtn = document.getElementById('meta-apply-btn');
-    if (applyBtn && !allApplied) {
-      applyBtn.addEventListener('click', () => {
-        const checks = metaPanel.querySelectorAll('.meta-confirm-cb');
-        state._specMetadataApplied = state._specMetadataApplied || {};
-        let appliedCount = 0;
-        checks.forEach(cb => {
-          if (!cb.checked || cb.disabled) return;
-          const key = cb.dataset.metaKey;
-          if (key === 'wageType' && meta.wageType) {
-            state.prevailingWage = meta.wageType.value;
-            state._specMetadataApplied.wageType = true;
-            appliedCount++;
-          } else if (key === 'state' && meta.state) {
-            // Build / update projectLocation
-            const cur = (state.projectLocation || '').trim();
-            const cityFromMeta = meta.cityState?.value;
-            if (cityFromMeta) {
-              state.projectLocation = cityFromMeta;
-            } else if (cur && !cur.includes(meta.state.value)) {
-              state.projectLocation = `${cur}, ${meta.state.value}`;
-            } else if (!cur) {
-              state.projectLocation = meta.state.value;
-            }
-            state._specMetadataApplied.state = true;
-            appliedCount++;
-          } else if (key === 'county' && meta.county) {
-            state._pwCounty = meta.county.value;
-            state._specMetadataApplied.county = true;
-            appliedCount++;
-          } else if (key === 'jurisdiction' && meta.jurisdiction) {
-            state.codeJurisdiction = meta.jurisdiction.value;
-            state._specMetadataApplied.jurisdiction = true;
-            appliedCount++;
-          }
-        });
-        if (appliedCount > 0 && typeof spToast === 'function') {
-          spToast(`✓ Applied ${appliedCount} project field${appliedCount === 1 ? '' : 's'} from spec`, 'success');
-        }
-        renderStep0(container);
-      });
-    }
-    const skipBtn = document.getElementById('meta-skip-btn');
-    if (skipBtn) {
-      skipBtn.addEventListener('click', () => {
+    // Undo button — reverts auto-applied fields back to defaults so the user
+    // can pick manually. Clears the applied tracking so the next spec drop
+    // can re-apply.
+    const undoBtn = document.getElementById('meta-undo-btn');
+    if (undoBtn) {
+      undoBtn.addEventListener('click', () => {
+        state.prevailingWage = '';
+        state._pwCounty = '';
         state._specDetectedMetadata = null;
+        state._specMetadataApplied = {};
+        if (typeof spToast === 'function') {
+          spToast('Undone — auto-applied fields cleared. Pick manually below.', 'info');
+        }
         renderStep0(container);
       });
     }
