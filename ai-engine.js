@@ -676,6 +676,7 @@ const SmartBrains = {
 
       // Division 28 — Electronic Safety & Security
       '28 05': null,                            // common work — ambiguous, no auto-pick
+      // Post-2014 MasterFormat (current numbering)
       '28 13': ['Access Control'],
       '28 14': ['Access Control'],              // identity management
       '28 16': ['Intrusion Detection'],
@@ -684,6 +685,12 @@ const SmartBrains = {
       '28 31': ['Fire Alarm'],                  // fire detection & alarm
       '28 33 13': ['ERRCS'],                    // in-building RF distribution = BDA/ERRCS
       '28 33':    ['Two-Way Radio'],
+      // Pre-2014 legacy numbering (still used by Amtrak / TKDA / federal specs)
+      // v5.144.2 fix: silent miss on Martinez spec which used 28 10 / 28 20.
+      '28 10': ['Access Control'],              // legacy: "Access Control"
+      '28 20': ['CCTV'],                        // legacy: "Video Surveillance"
+      '28 30': ['Fire Alarm'],                  // legacy: "Fire Detection and Alarm"
+      '28 40': ['Intrusion Detection'],         // legacy: "Electronic Monitoring and Control"
     },
     // Keyword fallback for spec books that don't carry visible CSI numbers
     keywords: {
