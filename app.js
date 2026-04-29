@@ -1897,6 +1897,10 @@ function startNewBid() {
   state._clarificationAnswers = {};
   state._brainInsights = [];
   state._sessionInsights = [];
+  // v5.144.0: spec auto-detect fields — must clear so previous bid's
+  // detected disciplines don't pre-check chips on a fresh bid.
+  state._specDetectedDisciplines = [];
+  state._specDetectionEvidence = {};
   state._addendaDelta = null;
   state._rfpCriteria = null;
   state._checklistChecked = {};
@@ -4644,9 +4648,14 @@ function renderStep0(container) {
   // redundant and contradicts the auto-detection. state.fileFormat remains
   // for backwards-compat with old saved bids but is no longer set by Step 0.
   const projectTypeOptions = PROJECT_TYPES.map(t => `<option value="${esc(t)}" ${state.projectType === t ? 'selected' : ''}>${esc(t)}</option>`).join("");
+  // v5.144.0: discipline chips now show an auto-detect badge if the spec scan
+  // pre-selected them. The user can still toggle on/off freely.
+  const autoDetected = new Set(state._specDetectedDisciplines || []);
   const disciplineChips = DISCIPLINES.map(d => {
     const sel = state.disciplines.includes(d) ? " selected" : "";
-    return `<button class="chip${sel}" data-disc="${esc(d)}">${sel ? "✓ " : ""}${esc(d)}</button>`;
+    const auto = autoDetected.has(d) ? " auto-detected" : "";
+    const badge = autoDetected.has(d) ? ` <span class="auto-badge" title="Auto-detected from spec">✨</span>` : '';
+    return `<button class="chip${sel}${auto}" data-disc="${esc(d)}">${sel ? "✓ " : ""}${esc(d)}${badge}</button>`;
   }).join("");
 
   container.innerHTML = `
@@ -4741,9 +4750,19 @@ function renderStep0(container) {
       </select>
     </div>
 
+    <!-- v5.144.0: Spec upload moved up — runs auto-detect on upload to pre-pick disciplines below -->
+    <div class="form-group">
+      <label class="form-label">Specifications <span style="color:var(--text-muted);font-weight:400">(optional but highly recommended)</span></label>
+      <p class="form-hint">Drop the spec book here BEFORE picking disciplines. SmartPlans reads the table of contents, finds every CSI section, and pre-checks the matching disciplines below. Saves you from forgetting a trade. <strong>If you don't have specs yet, skip this — pick disciplines manually below.</strong></p>
+      <div id="spec-upload-step0"></div>
+      <div id="spec-detect-status" style="margin-top:10px;"></div>
+    </div>
+
     <div class="form-group">
       <label class="form-label">Which disciplines should I focus on? <span class="required">*</span></label>
-      <p class="form-hint">Select all that apply. Focusing on specific trades eliminates false positives from similar-looking symbols across disciplines.</p>
+      <p class="form-hint">${(state._specDetectedDisciplines && state._specDetectedDisciplines.length > 0)
+        ? `<strong style="color:#0D9488;">✨ ${state._specDetectedDisciplines.length} discipline(s) auto-detected from spec — review and adjust.</strong> Click any chip to toggle it. Hover the ✨ icon to see which spec section triggered the pick.`
+        : `Select all that apply. Focusing on specific trades eliminates false positives from similar-looking symbols across disciplines.`}</p>
       <div class="chip-grid accuracy-critical-group" id="discipline-chips">${disciplineChips}</div>
     </div>
 
@@ -5274,6 +5293,87 @@ function renderStep0(container) {
     renderFooter();
   });
 
+  // ═══════════════════════════════════════════════════════════════
+  // v5.144.0: SPEC UPLOAD ON STAGE 0 + AUTO-DETECT DISCIPLINES
+  // ═══════════════════════════════════════════════════════════════
+  // Drag a spec book in here and SmartPlans scans it for CSI section
+  // numbers (28 23 13 = CCTV, 27 13 13 = Structured Cabling, etc.) and
+  // pre-checks the matching disciplines below. Estimator can override
+  // any auto-pick by clicking the chip.
+  const specMount = document.getElementById('spec-upload-step0');
+  if (specMount) {
+    renderFileUpload(specMount, {
+      label: 'Spec Book / Specifications',
+      description: 'PDF preferred (text-searchable). Word/DOCX is accepted but skips auto-detect — convert to PDF for full benefit.',
+      files: state.specFiles,
+      onFilesChange: async (files) => {
+        state.specFiles = files;
+        renderFooter();
+        // Run auto-detect if we have at least one file and the engine is loaded
+        if (files && files.length > 0 && typeof SmartBrains !== 'undefined' && SmartBrains._detectDisciplinesFromSpec) {
+          const statusEl = document.getElementById('spec-detect-status');
+          if (statusEl) {
+            statusEl.innerHTML = `<div style="padding:10px 14px;background:rgba(99,102,241,0.06);border-left:3px solid #6366F1;border-radius:6px;font-size:12px;color:#475569;">⏳ Reading spec book — looking for CSI sections to pre-pick disciplines…</div>`;
+          }
+          try {
+            const result = await SmartBrains._detectDisciplinesFromSpec(files);
+            if (result && Array.isArray(result.disciplines) && result.disciplines.length > 0) {
+              // Merge detected disciplines with whatever was already selected
+              const previouslySelected = new Set(state.disciplines || []);
+              const detected = new Set(result.disciplines);
+              state.disciplines = Array.from(new Set([...previouslySelected, ...detected]));
+              state._specDetectedDisciplines = Array.from(detected);
+              state._specDetectionEvidence = result.evidence || {};
+              // Defensive: don't let SmartDefaults re-cascade and erase auto-picks
+              state._disciplinesUserTouched = true;
+              if (typeof SmartDefaults !== 'undefined') SmartDefaults.markManual('disciplines');
+              if (typeof spToast === 'function') {
+                spToast(`✨ Auto-detected ${detected.size} discipline${detected.size === 1 ? '' : 's'} from spec — review and adjust below`, 'success');
+              }
+              renderStep0(container);
+            } else {
+              if (statusEl) {
+                statusEl.innerHTML = `<div style="padding:10px 14px;background:rgba(245,158,11,0.06);border-left:3px solid #F59E0B;border-radius:6px;font-size:12px;color:#92400E;">⚠️ Could not auto-detect disciplines from this spec. Possible reasons: scanned/image PDF, DOCX format (convert to PDF), or unusual section numbering. Pick disciplines manually below.</div>`;
+              }
+            }
+          } catch (e) {
+            console.warn('[SpecDetect] Auto-detect threw:', e?.message);
+            if (statusEl) {
+              statusEl.innerHTML = `<div style="padding:10px 14px;background:rgba(239,68,68,0.06);border-left:3px solid #EF4444;border-radius:6px;font-size:12px;color:#991B1B;">❌ Auto-detect failed (${esc(e?.message || 'unknown')}). Pick disciplines manually below.</div>`;
+            }
+          }
+        } else if (!files || files.length === 0) {
+          // Files cleared — also clear the detection state so the chips lose their badges
+          state._specDetectedDisciplines = [];
+          state._specDetectionEvidence = {};
+          renderStep0(container);
+        }
+      },
+      accept: '.pdf,.doc,.docx,.txt',
+    });
+  }
+
+  // Show auto-detect evidence summary if specs already analyzed
+  if (state._specDetectedDisciplines && state._specDetectedDisciplines.length > 0) {
+    const evid = state._specDetectionEvidence || {};
+    const evidenceRows = state._specDetectedDisciplines.map(d => {
+      const items = (evid[d] || []).slice(0, 1);
+      const detail = items.length > 0
+        ? `<span style="color:var(--text-muted);font-size:11px;font-family:'JetBrains Mono',monospace;">— ${esc(items[0].section)}</span>`
+        : '';
+      return `<div style="font-size:12px;padding:3px 0;"><span style="color:#0D9488;font-weight:700;">✨ ${esc(d)}</span> ${detail}</div>`;
+    }).join('');
+    const statusEl = document.getElementById('spec-detect-status');
+    if (statusEl) {
+      statusEl.innerHTML = `
+        <div style="padding:12px 14px;background:rgba(13,148,136,0.06);border-left:3px solid #0D9488;border-radius:6px;">
+          <div style="font-size:12px;font-weight:700;color:#0D9488;margin-bottom:6px;">Auto-detected from spec — ${state._specDetectedDisciplines.length} discipline${state._specDetectedDisciplines.length === 1 ? '' : 's'} pre-picked below:</div>
+          ${evidenceRows}
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(13,148,136,0.15);font-size:11px;color:var(--text-muted);">Anything wrong? Just click the chip below to toggle it off, or click an unchecked chip to add it manually.</div>
+        </div>`;
+    }
+  }
+
   document.getElementById("discipline-chips").addEventListener("click", e => {
     const btn = e.target.closest(".chip");
     if (!btn) return;
@@ -5712,9 +5812,26 @@ function _renderDetectedLegendNotesBanner() {
 
 // ─── Step 3: Specifications ───
 function renderStep3(container) {
+  // v5.144.0: specs are now primarily uploaded on Stage 0 so the auto-detect
+  // can pre-pick disciplines BEFORE the wizard moves on. This step still
+  // exists for adding more spec files mid-flow (addenda specs, late-arrived
+  // sections) and for users who said "no specs yet" on Stage 0.
+  const alreadyUploaded = Array.isArray(state.specFiles) && state.specFiles.length > 0;
+  const detectedCount = (state._specDetectedDisciplines || []).length;
+
   container.innerHTML = `
-    <h2 class="step-heading">Upload Specifications</h2>
-    <p class="step-subheading">Specification documents let me cross-check what's shown on the plans against what's required in the written specs. This is where I catch conflicts.</p>
+    <h2 class="step-heading">${alreadyUploaded ? 'Specifications — Add More' : 'Upload Specifications'}</h2>
+    <p class="step-subheading">${alreadyUploaded
+      ? `You uploaded ${state.specFiles.length} spec file${state.specFiles.length === 1 ? '' : 's'} on Step 1. Add more here if you have additional spec sections, or move on to the next step.`
+      : `Specification documents let me cross-check what's shown on the plans against what's required in the written specs. This is where I catch conflicts.`}</p>
+
+    ${alreadyUploaded && detectedCount > 0 ? `
+    <div class="info-card info-card--emerald">
+      <div class="info-card-title">✨ Auto-Detect Already Ran</div>
+      <div class="info-card-body">
+        ${detectedCount} discipline${detectedCount === 1 ? '' : 's'} pre-picked from your spec on Step 1: <strong>${state._specDetectedDisciplines.map(d => esc(d)).join(', ')}</strong>. If you upload more spec files here, the detector will re-run and may add more disciplines.
+      </div>
+    </div>` : ''}
 
     <div class="info-card info-card--rose">
       <div class="info-card-title">⚠ Critical Requirement</div>
@@ -5743,7 +5860,30 @@ function renderStep3(container) {
     label: "Specification Sections",
     description: "Upload all relevant spec sections, not just the ones you think apply. Cross-references between sections are common.",
     files: state.specFiles,
-    onFilesChange: files => { state.specFiles = files; renderFooter(); },
+    onFilesChange: async files => {
+      state.specFiles = files;
+      renderFooter();
+      // v5.144.0: re-run auto-detect if files added/removed here
+      if (files && files.length > 0 && typeof SmartBrains !== 'undefined' && SmartBrains._detectDisciplinesFromSpec) {
+        try {
+          const result = await SmartBrains._detectDisciplinesFromSpec(files);
+          if (result && Array.isArray(result.disciplines) && result.disciplines.length > 0) {
+            const previouslySelected = new Set(state.disciplines || []);
+            const detected = new Set(result.disciplines);
+            state.disciplines = Array.from(new Set([...previouslySelected, ...detected]));
+            state._specDetectedDisciplines = Array.from(detected);
+            state._specDetectionEvidence = result.evidence || {};
+            state._disciplinesUserTouched = true;
+            if (typeof spToast === 'function') {
+              spToast(`✨ Auto-detected ${detected.size} discipline${detected.size === 1 ? '' : 's'} from spec — review on Step 1`, 'success');
+            }
+          }
+        } catch (e) { console.warn('[SpecDetect] Step 3 re-run failed:', e?.message); }
+      } else if (!files || files.length === 0) {
+        state._specDetectedDisciplines = [];
+        state._specDetectionEvidence = {};
+      }
+    },
     accept: ".pdf,.doc,.docx,.txt",
   });
 }

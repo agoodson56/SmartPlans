@@ -65,7 +65,7 @@
     <div>
       <h1>SmartPlans — User Guide</h1>
       <p>AI-Powered Construction Document Analysis &amp; Estimation · 3D Technology Services Inc.</p>
-      <p style="margin-top:8px;font-size:12px;opacity:0.7">SmartPlans v5.143.1 · Last Updated: April 28, 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
+      <p style="margin-top:8px;font-size:12px;opacity:0.7">SmartPlans v5.144.0 · Last Updated: April 28, 2026 · <a href="https://smartplans-4g5.pages.dev/" style="color:#BF9000;text-decoration:underline;">Launch SmartPlans</a></p>
     </div>
     <button onclick="window.print()" style="margin-left:auto;padding:10px 20px;background:#BF9000;color:white;border:none;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;">Save as PDF</button>
   </div>
@@ -76,6 +76,7 @@
     <a href="#read-this-first" style="background:#BF9000;color:white;border-color:#BF9000;font-weight:700;">Read This First</a>
     <a href="#quick-start">Quick Start (10 min)</a>
     <a href="#hit-99">How to Hit 99%</a>
+    <a href="#spec-autodetect">Spec Auto-Detect</a>
     <a href="#clarification-gate">Clarification Pop-Up</a>
     <a href="#save-resume">Save &amp; Resume</a>
     <a href="#estimator-checklist">Estimator's Checklist</a>
@@ -164,13 +165,13 @@
         <strong>Type the project name.</strong> Be specific and consistent. "<em>Amtrak Sacramento 2026</em>" is good. "<em>job1</em>" is bad — it'll collide with other bids and the learning loop won't work right. <strong>Use the same naming pattern every time.</strong>
       </li>
       <li>
-        <strong>Pick the disciplines.</strong> A discipline is the type of work — CCTV (cameras), Access Control (door readers), Fire Alarm, Structured Cabling (data outlets), Audio Visual, etc. Click only the ones the job actually has. If you pick something the job doesn't have, you'll waste AI time and possibly get a "$0 discipline" warning later.
+        <strong>Drop the spec book in (NEW order — v5.144.0).</strong> The spec upload sits right under the project info on Step 1. As soon as you drop the spec PDF in, SmartPlans reads the table of contents, finds every CSI section number (28 23 13 = CCTV, 27 13 13 = Structured Cabling, etc.), and <strong>pre-checks the matching disciplines below</strong>. You'll see a green "✨" badge on each auto-picked one. <strong>Don't have the spec yet?</strong> Skip the upload and pick disciplines manually — you can drop the spec into Step 4 later.
+      </li>
+      <li>
+        <strong>Review the disciplines (most are pre-checked for you).</strong> A discipline is the type of work — CCTV (cameras), Access Control (door readers), Fire Alarm, Structured Cabling (data outlets), etc. Look at the chips below the spec upload — the ones with a ✨ were detected in your spec. Click any chip to toggle it (deselect things that are out of scope, add anything the spec missed). The list is alphabetical so you can scan quickly.
       </li>
       <li>
         <strong>Upload the plans.</strong> Drag your PDF of the construction drawings into the upload box. <strong>Always include the cover sheet</strong> (the page with the drawing index). Without it, SmartPlans can't tell you which sheets are missing.
-      </li>
-      <li>
-        <strong>Upload the spec book.</strong> Specs are the rules — what brand of camera, what cable type, what testing is required. Drag in the PDF or Word file the architect provided. If there's no spec book, skip this step.
       </li>
       <li>
         <strong>Click "Run Analysis".</strong> SmartPlans starts reading. You'll see a progress bar with messages like "Wave 1: Counting symbols…" Most bids take 5–15 minutes depending on plan size. <strong>Don't close the tab.</strong>
@@ -185,6 +186,67 @@
     <div class="callout callout-warn">
       <strong>If something goes wrong:</strong> A red card means SmartPlans found a problem you have to fix before submitting (e.g., "Disciplines Came Back Empty — Fire Alarm has 0 devices"). A yellow card is a warning. A green card means you're clear. Don't ignore red cards — they mean the bid will be wrong if you submit it as-is.
     </div>
+
+    <!-- ============================================================ -->
+    <!-- SPEC AUTO-DETECT — v5.144.0 -->
+    <!-- ============================================================ -->
+    <h2 id="spec-autodetect">Spec Auto-Detect Disciplines <span class="badge-new">v5.144.0</span></h2>
+
+    <div class="callout callout-info" style="margin-bottom:18px;">
+      <strong>Plain English:</strong> When you drag the spec book onto Step 1 (Project Setup), SmartPlans reads the entire table of contents in about 5 seconds, finds every CSI section number, and pre-checks the matching discipline chips below. You go from "did I remember every trade?" to "the spec said it, so it's already picked." Saves you the most common bid mistake — forgetting an entire discipline.
+    </div>
+
+    <h3>Why this exists</h3>
+    <p>"Forgot a discipline" is the silent killer of accurate bids. A spec book has a Section 27 52 13 (Nurse Call) but the estimator ticked off CCTV, Access Control, and Fire Alarm and moved on. Result: the bid comes back $0 in nurse call and you find out 3 days after submitting. The spec is the authoritative scope document — it lists EVERY trade the GC is buying — so reading it first eliminates the guesswork.</p>
+
+    <h3>How it works (under the hood)</h3>
+    <ol class="step-list">
+      <li>You drop a spec PDF into the spec upload zone on Step 1.</li>
+      <li>SmartPlans uses pdf.js (the same engine your browser uses for PDF previews) to extract every word from up to 200 pages of the spec.</li>
+      <li>Two passes run on the extracted text:
+        <ul>
+          <li><strong>Pass 1 — CSI section number scan.</strong> A regex finds every "28 23 13" / "27 13 13" / "08 71 00" pattern and looks them up in a lookup table mapping section numbers to disciplines. Most-specific match wins (e.g., "27 53 23" maps to ERRCS, but "27 53" by itself maps to DAS).</li>
+          <li><strong>Pass 2 — keyword fallback.</strong> Some spec books don't show CSI numbers visibly (or use non-standard numbering). For any discipline NOT picked up by Pass 1, a keyword regex looks for trade-specific phrases ("public safety radio" → ERRCS, "video surveillance" → CCTV, etc.).</li>
+        </ul>
+      </li>
+      <li>Detected disciplines are pre-checked in the chip grid below, with a ✨ badge on each.</li>
+      <li>You can override anything: click a chip to toggle it on or off. Auto-picks aren't locked.</li>
+      <li>An evidence panel appears between the upload and the chips showing which spec section triggered each pick (e.g., "✨ CCTV — found Section 28 23 13").</li>
+    </ol>
+
+    <h3>What gets recognized</h3>
+    <table>
+      <tr><th>CSI Section</th><th>Discipline Picked</th></tr>
+      <tr><td><code>08 71 xx</code></td><td>Door Hardware / Electrified Hardware + Access Control</td></tr>
+      <tr><td><code>27 05 / 27 11 / 27 13 / 27 15 / 27 21 / 27 30 / 27 31</code></td><td>Structured Cabling</td></tr>
+      <tr><td><code>27 41 / 27 42</code></td><td>Audio Visual</td></tr>
+      <tr><td><code>27 51 13 / 27 51 16 / 27 51 23</code></td><td>Paging / Intercom</td></tr>
+      <tr><td><code>27 52</code></td><td>Nurse Call Systems</td></tr>
+      <tr><td><code>27 53 13 / 27 53 19</code></td><td>Distributed Antenna Systems (DAS)</td></tr>
+      <tr><td><code>27 53 23 / 28 33 13</code></td><td>ERRCS</td></tr>
+      <tr><td><code>28 13 / 28 14</code></td><td>Access Control</td></tr>
+      <tr><td><code>28 16 / 28 26</code></td><td>Intrusion Detection</td></tr>
+      <tr><td><code>28 23</code></td><td>CCTV</td></tr>
+      <tr><td><code>28 31</code></td><td>Fire Alarm</td></tr>
+      <tr><td><code>28 33</code></td><td>Two-Way Radio</td></tr>
+    </table>
+
+    <h3>What if I don't have a spec book?</h3>
+    <p>Skip the spec upload entirely on Step 1 — the chips below are still clickable and you can pick disciplines manually like you always did. You can also upload the spec later on Step 4 (Specifications). Whenever you upload it, the auto-detect runs and pre-picks disciplines you haven't already manually selected.</p>
+
+    <h3>What if the spec is a scanned image (no text layer)?</h3>
+    <p>Auto-detect needs searchable text. Scanned image PDFs return blank text and the detector will show "⚠️ Could not auto-detect disciplines from this spec." When that happens, ask the design team for a digital (text-searchable) PDF, or pick disciplines manually. The detector also can't read DOCX/DOC files in the browser — convert to PDF first.</p>
+
+    <h3>Common gotchas</h3>
+    <ul>
+      <li><strong>Auto-detect ran but missed a discipline I'm bidding.</strong> Specs sometimes carry trades on a separate spec section the architect mailed late, or the trade is "by-others" in the spec but you're including it. Just click the unchecked chip to add it manually — your selection wins.</li>
+      <li><strong>Auto-detect picked a discipline I'm NOT bidding.</strong> Spec lists every trade for the project, but maybe AV is "by-Owner" and not your scope. Click the chip to deselect it. The decision is yours.</li>
+      <li><strong>I uploaded the spec but no disciplines were pre-checked.</strong> Either the PDF is scanned (no text), the file is DOCX (use PDF), or the spec uses non-standard section numbering. Check the spec ToC manually and pick disciplines yourself.</li>
+      <li><strong>The detector reset my picks.</strong> It shouldn't — auto-detect only ADDS to your manual selections, never removes. If you deselected a chip and then uploaded a spec that detected it, it will get re-added. Click again to deselect.</li>
+    </ul>
+
+    <h3>Realistic accuracy lift</h3>
+    <p>Approximately <strong>2–3% on the bid total</strong>, plus eliminating the "I forgot fire alarm" class of error entirely. Most useful on bids with 5+ disciplines where remembering them all from memory is the real risk.</p>
 
     <!-- ============================================================ -->
     <!-- CLARIFICATION POP-UP — v5.143.0 -->
@@ -623,7 +685,7 @@
     <h2 id="stage1">Stage 1 — Project Setup (Step 0)</h2>
 
     <div class="callout callout-info">
-      <strong>Plain English:</strong> This is the form-filling step. You type the project name, pick the trades you're bidding (cameras? fire alarm? both?), tell it the location (so it picks the right wages), and check a box if it's a transit/railroad job (those are pricier and have stricter rules). 5 minutes of careful typing here saves you re-running the whole bid later. <strong>Always use the same project naming pattern</strong> — "Owner – Site – Year" works well.
+      <strong>Plain English:</strong> Type the project name, drop the spec book in, watch SmartPlans auto-pick the right disciplines (v5.144.0), then fill in location/wage info. The spec upload is the second-most important thing on this page — drag the spec PDF in and the discipline chips below pre-check themselves with a ✨ badge. 5 minutes of careful typing here saves you re-running the whole bid later. <strong>Always use the same project naming pattern</strong> — "Owner – Site – Year" works well.
     </div>
 
     <h3>What Is This?</h3>
@@ -960,7 +1022,7 @@
     <h2 id="stage4">Stage 4 — Specifications (Step 3)</h2>
 
     <div class="callout callout-info">
-      <strong>Plain English:</strong> The spec book is the rulebook — a thick written document that says "use Axis cameras, not Hanwha" and "all cable must be plenum-rated Cat6A." Without it, the AI has to use generic prices that may be off. With it, the AI prices the EXACT products the spec calls for. Drag in the spec PDF and let it work.
+      <strong>Plain English:</strong> The spec book is the rulebook — a thick written document that says "use Axis cameras, not Hanwha" and "all cable must be plenum-rated Cat6A." <strong>As of v5.144.0, you upload the spec on Step 1 (Project Setup) so the auto-detect can pre-pick your disciplines.</strong> This page (Step 4) is for adding MORE spec sections if they arrive later, or uploading specs if you said "no specs yet" on Step 1. Either way, every spec file you add re-runs the auto-detect on the discipline chips.
     </div>
 
     <h3>What Are Specifications?</h3>

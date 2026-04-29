@@ -1028,6 +1028,23 @@ textarea:focus {
   box-shadow: none;
 }
 
+/* v5.144.0: Auto-detected discipline (from spec scan) — subtle ring + sparkle */
+.chip.auto-detected {
+  border-color: rgba(13, 148, 136, 0.85);
+  position: relative;
+}
+.chip.auto-detected.selected {
+  background: linear-gradient(135deg, rgba(13, 148, 136, 0.10), rgba(13, 148, 136, 0.04));
+  box-shadow: 0 0 0 1px rgba(13, 148, 136, 0.35);
+}
+.chip .auto-badge {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  vertical-align: baseline;
+  filter: drop-shadow(0 0 2px rgba(191, 144, 0, 0.4));
+}
+
 /* ─── Toggle Buttons ─── */
 .toggle-row {
   display: flex;

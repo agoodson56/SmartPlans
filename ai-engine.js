@@ -640,6 +640,179 @@ const SmartBrains = {
     '28': ['CCTV', 'Access Control', 'Fire Alarm', 'Intrusion Detection', 'Two-Way Radio'],
   },
 
+  // ═══════════════════════════════════════════════════════════════
+  // v5.144.0: SPEC AUTO-DETECT — CSI sections + keyword fallback
+  // ═══════════════════════════════════════════════════════════════
+  // Maps a CSI MasterFormat section number (e.g. "27 13 13") to the
+  // disciplines that section implies. Used by _detectDisciplinesFromSpec()
+  // to pre-select discipline chips on Stage 0 upload. More-specific keys
+  // (3-pair) win over less-specific (2-pair) when both match.
+  SPEC_DISCIPLINE_DETECTOR: {
+    sections: {
+      // Division 08 — Openings (door hardware, electrified hardware)
+      '08 71': ['Door Hardware / Electrified Hardware', 'Access Control'],
+      '08 74': ['Access Control'],
+
+      // Division 27 — Communications
+      '27 05': ['Structured Cabling'],         // common work
+      '27 11': ['Structured Cabling'],         // equipment room fittings
+      '27 13': ['Structured Cabling'],         // backbone cabling (copper + fiber)
+      '27 15': ['Structured Cabling'],         // horizontal cabling, outlets
+      '27 21': ['Structured Cabling'],         // data network equipment
+      '27 30': ['Structured Cabling'],         // voice comms
+      '27 31': ['Structured Cabling'],         // telephony
+      '27 41': ['Audio Visual'],               // audio-video systems
+      '27 42': ['Audio Visual'],               // electronic digital systems (info kiosks etc)
+      '27 51 13': ['Paging / Intercom'],
+      '27 51 16': ['Paging / Intercom'],       // PA
+      '27 51 19': ['Audio Visual'],            // sound masking
+      '27 51 23': ['Paging / Intercom'],       // intercom
+      '27 51':    ['Paging / Intercom'],
+      '27 52':    ['Nurse Call Systems'],
+      '27 53 13': ['Distributed Antenna Systems (DAS)'],
+      '27 53 19': ['Distributed Antenna Systems (DAS)'],
+      '27 53 23': ['ERRCS'],                   // public safety DAS
+      '27 53':    ['Distributed Antenna Systems (DAS)'],
+
+      // Division 28 — Electronic Safety & Security
+      '28 05': null,                            // common work — ambiguous, no auto-pick
+      '28 13': ['Access Control'],
+      '28 14': ['Access Control'],              // identity management
+      '28 16': ['Intrusion Detection'],
+      '28 23': ['CCTV'],                        // video surveillance
+      '28 26': ['Intrusion Detection'],         // electronic personal protection
+      '28 31': ['Fire Alarm'],                  // fire detection & alarm
+      '28 33 13': ['ERRCS'],                    // in-building RF distribution = BDA/ERRCS
+      '28 33':    ['Two-Way Radio'],
+    },
+    // Keyword fallback for spec books that don't carry visible CSI numbers
+    keywords: {
+      'CCTV':                              /\b(cctv|video\s*surveillance|security\s*camera|nvr\b|vms\b|ip\s*camera)/i,
+      'Access Control':                    /\b(access\s*control|card\s*reader|electric\s*strike|maglock|electrified\s*hardware|prox\s*card|mortise\s*lock)/i,
+      'Fire Alarm':                        /\b(fire\s*alarm|facp\b|smoke\s*detect|notification\s*appliance|nfpa\s*72)/i,
+      'Intrusion Detection':               /\b(intrusion\s*detection|burglar\s*alarm|motion\s*detector|glass\s*break)/i,
+      'Audio Visual':                      /\b(audio.?visual|projection\s*system|sound\s*reinforcement|sound\s*masking)\b/i,
+      'Paging / Intercom':                 /\b(public\s*address|paging\s*system|intercom\s*system|page\s*party)/i,
+      'Nurse Call Systems':                /\b(nurse\s*call|patient\s*call|code\s*blue|staff\s*emergency)/i,
+      'Distributed Antenna Systems (DAS)': /\bdistributed\s*antenna|\bdas\s*system|cellular\s*coverage|in-?building\s*wireless/i,
+      'ERRCS':                             /\b(errcs|emergency\s*responder|public\s*safety\s*radio|bda\b|nfpa\s*1221|ifc\s*510)/i,
+      'Structured Cabling':                /\b(structured\s*cabling|backbone\s*cabling|horizontal\s*cabling|cat\s*[56]a?|fiber\s*optic\s*cable|telecom\s*outlet)/i,
+      'Two-Way Radio':                     /\b(two.?way\s*radio|land\s*mobile\s*radio|portable\s*radio|trunked\s*radio)/i,
+      'Door Hardware / Electrified Hardware': /\b(door\s*hardware|electrified\s*hardware|finish\s*hardware\s*schedule)/i,
+      'Micro Duct':                        /\bmicro.?duct\b|innerduct/i,
+      'Point-to-Point':                    /\bpoint.?to.?point|wireless\s*backhaul|wireless\s*bridge/i,
+    },
+  },
+
+  /**
+   * v5.144.0: Auto-detect disciplines from uploaded spec files.
+   * Returns: { disciplines: [...], evidence: { [discipline]: [{source, section, snippet}] } }
+   *
+   * Strategy:
+   *   1. Extract text from each spec file (PDF via pdf.js, TXT directly).
+   *   2. Pass 1: scan for CSI section numbers (\d\d \d\d \d\d), match against
+   *      SPEC_DISCIPLINE_DETECTOR.sections (most-specific first).
+   *   3. Pass 2: for any discipline NOT picked up by CSI, run keyword regex
+   *      as fallback.
+   *   4. Return detected list + 1-3 evidence snippets per discipline so the
+   *      UI can show "found Section 28 23 13 in foo.pdf" hover detail.
+   */
+  async _detectDisciplinesFromSpec(specFiles) {
+    const detected = new Set();
+    const evidence = {};
+    if (!Array.isArray(specFiles) || specFiles.length === 0) {
+      return { disciplines: [], evidence: {} };
+    }
+
+    const recordEvidence = (discipline, source, section, snippet) => {
+      if (!evidence[discipline]) evidence[discipline] = [];
+      if (evidence[discipline].length < 3) {
+        evidence[discipline].push({ source, section, snippet });
+      }
+    };
+
+    for (const file of specFiles) {
+      let text = '';
+      try {
+        text = await this._extractTextFromSpec(file);
+      } catch (e) {
+        console.warn(`[SpecDetect] Could not extract text from ${file?.name || 'file'}: ${e.message}`);
+        continue;
+      }
+      if (!text || text.length < 20) continue;
+
+      // Pass 1: CSI section number scan (NN NN NN or NN NN with optional dots/dashes)
+      const sectionRegex = /\b(\d{2})[\s.\-]+(\d{2})(?:[\s.\-]+(\d{2,3}))?\b/g;
+      let m;
+      while ((m = sectionRegex.exec(text)) !== null) {
+        const div = m[1], sec = m[2], sub = m[3];
+        const fullKey = sub ? `${div} ${sec} ${sub}` : null;
+        const partialKey = `${div} ${sec}`;
+        const disciplines = (fullKey && this.SPEC_DISCIPLINE_DETECTOR.sections[fullKey])
+          || this.SPEC_DISCIPLINE_DETECTOR.sections[partialKey];
+        if (disciplines && Array.isArray(disciplines)) {
+          for (const d of disciplines) {
+            detected.add(d);
+            const snippetStart = Math.max(0, m.index - 30);
+            const snippetEnd = Math.min(text.length, m.index + 120);
+            const snippet = text.substring(snippetStart, snippetEnd).replace(/\s+/g, ' ').trim();
+            recordEvidence(d, file.name || 'spec', fullKey || partialKey, snippet);
+          }
+        }
+      }
+
+      // Pass 2: keyword fallback for disciplines not picked up by CSI
+      for (const [discipline, pattern] of Object.entries(this.SPEC_DISCIPLINE_DETECTOR.keywords)) {
+        if (detected.has(discipline)) continue;
+        const km = text.match(pattern);
+        if (km) {
+          detected.add(discipline);
+          const idx = text.indexOf(km[0]);
+          const snippetStart = Math.max(0, idx - 30);
+          const snippetEnd = Math.min(text.length, idx + 120);
+          const snippet = text.substring(snippetStart, snippetEnd).replace(/\s+/g, ' ').trim();
+          recordEvidence(discipline, file.name || 'spec', `keyword: ${km[0]}`, snippet);
+        }
+      }
+    }
+
+    return {
+      disciplines: Array.from(detected),
+      evidence,
+    };
+  },
+
+  /**
+   * v5.144.0: Extract plain text from a spec file for the auto-detector.
+   * PDF → pdf.js. TXT → direct read. DOCX → not supported in browser without
+   * a parser; we skip with a warning and rely on plans-only fallback.
+   */
+  async _extractTextFromSpec(file) {
+    if (!file) return '';
+    const name = (file.name || '').toLowerCase();
+    if (name.endsWith('.pdf')) {
+      if (typeof pdfjsLib === 'undefined') return '';
+      const ab = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+      const parts = [];
+      const cap = Math.min(pdf.numPages, 200); // safety cap on huge spec books
+      for (let i = 1; i <= cap; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        parts.push(content.items.map(it => it.str).join(' '));
+      }
+      return parts.join('\n');
+    }
+    if (name.endsWith('.txt')) {
+      return await file.text();
+    }
+    if (name.endsWith('.docx') || name.endsWith('.doc')) {
+      console.warn(`[SpecDetect] ${file.name}: DOCX/DOC text extraction is not available in the browser. Convert to PDF for spec auto-detect, or pick disciplines manually.`);
+      return '';
+    }
+    return '';
+  },
+
   /**
    * Classify sheets from Wave 0 SPATIAL_LAYOUT + chunk filenames
    * Returns a Map<chunkName, { relevant: boolean, disciplines: string[], sheetId: string, reason: string }>
