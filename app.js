@@ -13204,6 +13204,78 @@ async function runGeminiAnalysis(updateProgress) {
         return `${source}|${label}|${visual}|${category}`;
     }
 
+    // ═══ v5.143.1: SAVE PROGRESS & RESUME — localStorage helpers ═══
+    // Lets the estimator save partial answers mid-modal and pick up next time
+    // they re-run the same bid. Stored under a project key (name + estimateId)
+    // with a 30-day TTL so old saves get pruned automatically.
+    const _CLARIFY_PROGRESS_KEY = 'smartplans_clarification_progress_v1';
+    const _CLARIFY_PROGRESS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+    function _clarifyProjectKey(state) {
+        const name = (state?.projectName || 'unnamed').toString().trim().toLowerCase();
+        const eid = (state?.estimateId || state?._estimateId || '').toString().slice(0, 24);
+        return `${name}::${eid}`;
+    }
+
+    function _loadClarifyProgress(state) {
+        try {
+            const raw = localStorage.getItem(_CLARIFY_PROGRESS_KEY);
+            if (!raw) return null;
+            const all = JSON.parse(raw) || {};
+            const key = _clarifyProjectKey(state);
+            const entry = all[key];
+            if (!entry || !entry.savedAt) return null;
+            // TTL prune
+            if (Date.now() - entry.savedAt > _CLARIFY_PROGRESS_TTL_MS) {
+                delete all[key];
+                localStorage.setItem(_CLARIFY_PROGRESS_KEY, JSON.stringify(all));
+                return null;
+            }
+            return entry;
+        } catch (e) {
+            console.warn('[Clarification] Load saved progress failed:', e.message);
+            return null;
+        }
+    }
+
+    function _saveClarifyProgress(state, answers, totalQuestions) {
+        try {
+            const raw = localStorage.getItem(_CLARIFY_PROGRESS_KEY);
+            const all = raw ? (JSON.parse(raw) || {}) : {};
+            const key = _clarifyProjectKey(state);
+            // Prune expired siblings while we're here (LRU + TTL)
+            const cutoff = Date.now() - _CLARIFY_PROGRESS_TTL_MS;
+            for (const k of Object.keys(all)) {
+                if (!all[k]?.savedAt || all[k].savedAt < cutoff) delete all[k];
+            }
+            all[key] = {
+                savedAt: Date.now(),
+                projectName: state?.projectName || null,
+                answers: { ...answers },
+                totalQuestions,
+                version: '5.143.0',
+            };
+            localStorage.setItem(_CLARIFY_PROGRESS_KEY, JSON.stringify(all));
+            return true;
+        } catch (e) {
+            console.warn('[Clarification] Save progress failed:', e.message);
+            return false;
+        }
+    }
+
+    function _clearClarifyProgress(state) {
+        try {
+            const raw = localStorage.getItem(_CLARIFY_PROGRESS_KEY);
+            if (!raw) return;
+            const all = JSON.parse(raw) || {};
+            const key = _clarifyProjectKey(state);
+            if (all[key]) {
+                delete all[key];
+                localStorage.setItem(_CLARIFY_PROGRESS_KEY, JSON.stringify(all));
+            }
+        } catch (_) { /* non-fatal */ }
+    }
+
     async function _persistClarificationAnswers(state, questions, answers) {
         if (!state?.pricingConfig?.clarificationPersistAnswers && typeof SmartBrains !== 'undefined' &&
             SmartBrains.config?.clarificationPersistAnswers === false) return;
@@ -13290,21 +13362,52 @@ async function runGeminiAnalysis(updateProgress) {
         if (allQuestions.length === 0) { resolve({}); return; }
 
         // v5.128.2 (Wave 2B): Pre-fill answers from prior bids where the fingerprint matches.
-        // If every question has a prior answer, we resolve automatically without popping the modal.
+        // v5.143.1: ALSO pre-load any "Save progress & exit" snapshot for this same bid
+        // from localStorage. Saved progress wins over prior-bid pre-fill — it's more
+        // recent and bid-specific. If everything resolves from those two sources, skip
+        // the modal entirely.
         let priorAnswers = {};
         try { priorAnswers = await _lookupPriorAnswers(allQuestions); } catch (_) { /* non-fatal */ }
-        const stillNeedingHuman = allQuestions.filter(q => !priorAnswers[q.id]);
-        if (stillNeedingHuman.length === 0 && Object.keys(priorAnswers).length > 0) {
-            console.log(`[Clarification] ✅ All ${allQuestions.length} question(s) pre-filled from prior bids — skipping modal`);
+
+        const savedProgress = _loadClarifyProgress(state);
+        const savedAnswers = savedProgress?.answers || {};
+        // Filter saved answers to only those whose question IDs still exist in this run
+        // (a bid re-run may produce a slightly different question set)
+        const validQids = new Set(allQuestions.map(q => q.id));
+        const validSavedAnswers = {};
+        for (const [qid, val] of Object.entries(savedAnswers)) {
+            if (validQids.has(qid)) validSavedAnswers[qid] = val;
+        }
+        const orphanedSavedCount = Object.keys(savedAnswers).length - Object.keys(validSavedAnswers).length;
+
+        if (Object.keys(validSavedAnswers).length > 0) {
+            const ageHrs = savedProgress?.savedAt ? Math.round((Date.now() - savedProgress.savedAt) / 3600000) : 0;
+            const ageStr = ageHrs < 1 ? 'just now' : (ageHrs < 24 ? `${ageHrs}h ago` : `${Math.round(ageHrs / 24)}d ago`);
+            console.log(`[Clarification] 💾 Resumed ${Object.keys(validSavedAnswers).length} answer(s) from saved progress (${ageStr})${orphanedSavedCount > 0 ? `; ${orphanedSavedCount} orphaned answer(s) dropped (questions changed)` : ''}`);
             if (typeof spToast === 'function') {
-                spToast(`Pre-filled ${allQuestions.length} clarification(s) from prior bids`, 'success');
+                spToast(`💾 Resumed ${Object.keys(validSavedAnswers).length} of ${allQuestions.length} answers from your last save`, 'info');
             }
-            resolve(priorAnswers);
+        }
+
+        // Merge order: priorAnswers (cross-bid) < savedProgress (this bid). Saved wins.
+        const mergedPrefill = { ...priorAnswers, ...validSavedAnswers };
+        const stillNeedingHuman = allQuestions.filter(q => !mergedPrefill[q.id]);
+        if (stillNeedingHuman.length === 0 && Object.keys(mergedPrefill).length > 0) {
+            console.log(`[Clarification] ✅ All ${allQuestions.length} question(s) pre-filled — skipping modal`);
+            if (typeof spToast === 'function') {
+                spToast(`Pre-filled all ${allQuestions.length} clarification(s) — analysis continuing`, 'success');
+            }
+            // Successful auto-resolution clears the saved progress
+            _clearClarifyProgress(state);
+            resolve(mergedPrefill);
             return;
         }
         if (Object.keys(priorAnswers).length > 0) {
-            console.log(`[Clarification] Pre-filled ${Object.keys(priorAnswers).length} of ${allQuestions.length} questions from prior bids`);
+            console.log(`[Clarification] Pre-filled ${Object.keys(priorAnswers).length} of ${allQuestions.length} from prior bids`);
         }
+        // From here, priorAnswers carries the merged set so existing modal-init
+        // code (which seeds `answers` from priorAnswers) gets both sources.
+        priorAnswers = mergedPrefill;
 
         // v5.128.2 (Wave 2B): Modal carries coordinates (x%/y%), detailed reason,
         // per-option explanation tooltips, and confidence-score pill. All of these
@@ -13459,10 +13562,11 @@ async function runGeminiAnalysis(updateProgress) {
               <div style="padding:16px 28px 24px;border-top:1px solid #334155;background:#0f172a;border-radius:0 0 14px 14px;">
                 <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;align-items:center;">
                   <span id="clarify-remaining" style="font-size:12px;color:#fca5a5;font-weight:700;margin-right:auto;">${allQuestions.length} unanswered</span>
+                  <button id="clarify-save-exit" title="Save your answers so far and exit. Re-run this bid later to pick up where you left off." style="padding:11px 18px;border-radius:8px;border:1px solid #64748b;background:transparent;color:#cbd5e1;cursor:pointer;font-weight:700;font-size:13px;letter-spacing:0.2px;">💾 Save Progress &amp; Exit</button>
                   <button id="clarify-submit" disabled style="padding:11px 22px;border-radius:8px;border:none;background:#475569;color:#94a3b8;cursor:not-allowed;font-weight:800;font-size:14px;letter-spacing:0.3px;">Continue with answers</button>
                 </div>
                 <div style="margin-top:12px;padding:10px 14px;background:rgba(235,179,40,0.06);border-left:3px solid #EBB328;border-radius:6px;font-size:11px;color:#cbd5e1;line-height:1.5;">
-                  💡 <strong style="color:#ffffff;">Tip:</strong> Open your plans in Bluebeam/Adobe, jump to the sheet shown for each question, and find the symbol at the listed location. Pick the matching option, or use the write-in field if none of the choices is correct. The Continue button enables once every question has an answer.
+                  💡 <strong style="color:#ffffff;">Tip:</strong> Open your plans in Bluebeam/Adobe, jump to the sheet shown for each question, and find the symbol at the listed location. Pick the matching option, or use the write-in field if none of the choices is correct. The Continue button enables once every question has an answer. Need to step away? Use <em>💾 Save Progress &amp; Exit</em> — your answers are kept for 30 days and auto-resume next time you run this bid.
                 </div>
               </div>
             </div>
@@ -13585,9 +13689,34 @@ async function runGeminiAnalysis(updateProgress) {
             if (unanswered.length > 0) {
                 state._unansweredClarifications = (state._unansweredClarifications || []).concat(unanswered);
             }
+            // Successful submit clears any saved progress for this bid — we're done.
+            _clearClarifyProgress(state);
             // Persist answers to D1 so the same ambiguity on a future bid can pre-fill.
             _persistClarificationAnswers(state, allQuestions, answers).catch(err => console.warn('[Clarification] Persist failed (non-fatal):', err.message));
             resolve(answers);
+        });
+
+        // v5.143.1: Save Progress & Exit — snapshot partial answers to localStorage
+        // and signal the engine to bail out cleanly. The user picks up next time
+        // they run analysis on this same bid.
+        const saveExitBtn = modal.querySelector('#clarify-save-exit');
+        saveExitBtn?.addEventListener('click', () => {
+            if (resolved) return;
+            const answeredCount = allQuestions.filter(q => _hasAnswer(q.id)).length;
+            const ok = _saveClarifyProgress(state, answers, allQuestions.length);
+            if (!ok) {
+                if (typeof spToast === 'function') spToast('Could not save progress (storage full or blocked). Continuing without save.', 'warn');
+                return;
+            }
+            resolved = true;
+            clearTimeout(_timeoutHandle);
+            modal.remove();
+            if (typeof spToast === 'function') {
+                spToast(`💾 Saved ${answeredCount} of ${allQuestions.length} answers. Re-run this bid to resume — answers are kept for 30 days.`, 'success');
+            }
+            // Resolve with the special marker; engine inspects this and aborts the
+            // analysis run so Wave 1.5/2/3 don't fire on incomplete answers.
+            resolve({ __savedAndExit: true, answers });
         });
 
         // v5.143.0: 4-hour soft timeout. The blocking modal expects the
@@ -13674,6 +13803,20 @@ async function runGeminiAnalysis(updateProgress) {
           render();
           return;
         }
+      } else if (err && err.code === 'CLARIFICATION_SAVED_EXIT') {
+        // v5.143.1: estimator clicked "Save Progress & Exit" in the clarification
+        // modal. The progress is already in localStorage. Halt analysis cleanly,
+        // clear timer, leave state ready for the user to re-run when they return.
+        state.analyzing = false;
+        AnalysisTimer.stop();
+        const saved = err.savedCount || 0;
+        const total = err.totalCount || 0;
+        if (typeof spToast === 'function') {
+          spToast(`💾 Bid paused — ${saved} of ${total} answers saved. Click Run Analysis again on this bid to resume.`, 'info');
+        }
+        console.log(`[SmartPlans] 💾 Analysis paused at clarification gate — ${saved}/${total} answered, saved to localStorage`);
+        render();
+        return;
       } else if (err && err.code === 'MODEL_HEALTH_GATE') {
         state.analyzing = false;
         AnalysisTimer.stop();

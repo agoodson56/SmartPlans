@@ -12777,6 +12777,21 @@ ${legendContext}
       progressCallback(34, `❓ ${clarificationQuestions.length} question(s) need your input before continuing…`, this._brainStatus);
       try {
         const answers = await state._clarificationCallback(clarificationQuestions);
+        // v5.143.1: estimator clicked "Save Progress & Exit" — bail out cleanly
+        // BEFORE Wave 1.5/2/3 fire on incomplete answers. App layer catches
+        // this specific error and shows a paused-bid UI.
+        if (answers && answers.__savedAndExit) {
+          const savedCount = answers.answers ? Object.keys(answers.answers).length : 0;
+          console.log(`[SmartBrains] 💾 Estimator saved ${savedCount} of ${clarificationQuestions.length} answer(s) and exited — aborting analysis run`);
+          state._clarificationSavedAndExited = true;
+          state._clarificationSavedCount = savedCount;
+          state._clarificationTotalCount = clarificationQuestions.length;
+          const err = new Error('CLARIFICATION_SAVED_EXIT');
+          err.code = 'CLARIFICATION_SAVED_EXIT';
+          err.savedCount = savedCount;
+          err.totalCount = clarificationQuestions.length;
+          throw err;
+        }
         if (answers && typeof answers === 'object') {
           // Wave 10 A3 (v5.128.7): MERGE answers instead of overwriting. A
           // bid can fire Checkpoint A (Wave 4 count questions + Wave 1
@@ -12788,6 +12803,9 @@ ${legendContext}
           console.log(`[SmartBrains] ✅ Estimator provided ${Object.keys(answers).length} clarification answer(s) — resuming analysis`);
         }
       } catch (e) {
+        // Re-throw the saved-exit signal so the app catches it. Other errors
+        // are non-fatal — analysis continues with whatever answers we have.
+        if (e?.code === 'CLARIFICATION_SAVED_EXIT') throw e;
         console.warn('[SmartBrains] Clarification callback failed — continuing without answers:', e.message);
       }
     } else if (clarificationQuestions.length > 0) {
