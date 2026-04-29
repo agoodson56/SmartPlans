@@ -13284,24 +13284,26 @@ async function runGeminiAnalysis(updateProgress) {
     // and records unanswered questions on state for export gating.
     state._clarificationCallback = (questions) => {
       return new Promise(async (resolve) => {
-        const highPriority = questions.filter(q => q.severity === 'high' || q.severity === 'critical');
-        if (highPriority.length === 0) { resolve({}); return; }
+        // v5.143.0: drop the highPriority filter — engine has already ranked
+        // by cost-impact and capped at 30. Show every question that made it through.
+        const allQuestions = (questions || []).filter(q => q && q.id);
+        if (allQuestions.length === 0) { resolve({}); return; }
 
         // v5.128.2 (Wave 2B): Pre-fill answers from prior bids where the fingerprint matches.
         // If every question has a prior answer, we resolve automatically without popping the modal.
         let priorAnswers = {};
-        try { priorAnswers = await _lookupPriorAnswers(highPriority); } catch (_) { /* non-fatal */ }
-        const stillNeedingHuman = highPriority.filter(q => !priorAnswers[q.id]);
+        try { priorAnswers = await _lookupPriorAnswers(allQuestions); } catch (_) { /* non-fatal */ }
+        const stillNeedingHuman = allQuestions.filter(q => !priorAnswers[q.id]);
         if (stillNeedingHuman.length === 0 && Object.keys(priorAnswers).length > 0) {
-            console.log(`[Clarification] ✅ All ${highPriority.length} question(s) pre-filled from prior bids — skipping modal`);
+            console.log(`[Clarification] ✅ All ${allQuestions.length} question(s) pre-filled from prior bids — skipping modal`);
             if (typeof spToast === 'function') {
-                spToast(`Pre-filled ${highPriority.length} clarification(s) from prior bids`, 'success');
+                spToast(`Pre-filled ${allQuestions.length} clarification(s) from prior bids`, 'success');
             }
             resolve(priorAnswers);
             return;
         }
         if (Object.keys(priorAnswers).length > 0) {
-            console.log(`[Clarification] Pre-filled ${Object.keys(priorAnswers).length} of ${highPriority.length} questions from prior bids`);
+            console.log(`[Clarification] Pre-filled ${Object.keys(priorAnswers).length} of ${allQuestions.length} questions from prior bids`);
         }
 
         // v5.128.2 (Wave 2B): Modal carries coordinates (x%/y%), detailed reason,
@@ -13351,23 +13353,48 @@ async function runGeminiAnalysis(updateProgress) {
             }
         };
 
+        // v5.143.0: cost-impact swing pill (shown per question)
+        const _formatImpactPill = (q) => {
+          const raw = Number(q?._costImpactRaw);
+          if (!Number.isFinite(raw) || raw <= 0) return '';
+          const dollars = raw >= 1000 ? `$${Math.round(raw / 1000)}K` : `$${Math.round(raw)}`;
+          return `<span title="Estimated bid swing if this is answered wrong" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;background:rgba(34,197,94,0.18);color:#86efac;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.3px;">💰 ${dollars} swing</span>`;
+        };
+        const _totalImpact = allQuestions.reduce((s, q) => s + (Number(q._costImpactRaw) || 0), 0);
+        const _totalImpactStr = _totalImpact >= 1000 ? `$${Math.round(_totalImpact / 1000)}K` : `$${Math.round(_totalImpact)}`;
+
         const modalHtml = `
-          <div id="clarification-modal" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;padding:20px;">
-            <div style="background:#0f172a;border:2px solid #EBB328;border-radius:14px;max-width:760px;width:100%;max-height:86vh;overflow-y:auto;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
-              <h3 style="margin:0 0 6px;color:#ffffff;font-size:20px;font-weight:800;">❓ Clarification Needed</h3>
-              <p style="margin:0 0 20px;color:#e2e8f0;font-size:13px;line-height:1.55;">The AI found ${highPriority.length} ambiguit${highPriority.length === 1 ? 'y' : 'ies'} that could affect counts. Each question shows the <strong style="color:#EBB328;">sheet number and location</strong> where the symbol first appears — open your plans, verify the symbol, then answer.</p>
+          <div id="clarification-modal" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;padding:20px;">
+            <div style="background:#0f172a;border:2px solid #EBB328;border-radius:14px;max-width:820px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.7);">
 
-              ${highPriority.map((q, i) => `
-                <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:0;margin-bottom:14px;overflow:hidden;">
+              <!-- Sticky header with progress -->
+              <div id="clarify-sticky-header" style="position:sticky;top:0;z-index:5;background:#0f172a;padding:24px 28px 14px;border-bottom:1px solid #334155;border-radius:14px 14px 0 0;">
+                <h3 style="margin:0 0 6px;color:#ffffff;font-size:20px;font-weight:800;">❓ Clarification Needed — ${allQuestions.length} Question${allQuestions.length === 1 ? '' : 's'}</h3>
+                <p style="margin:0 0 12px;color:#e2e8f0;font-size:13px;line-height:1.55;">Ranked by cost impact — biggest bid swing first. Total potential swing across all ${allQuestions.length}: <strong style="color:#86efac;">${_totalImpactStr}</strong>. Open your plans, find each symbol on the listed sheet/location, and pick or write the correct answer. <strong style="color:#EBB328;">All ${allQuestions.length} must be answered before counting and pricing continue.</strong></p>
+                <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+                  <div style="flex:1;min-width:180px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;border:1px solid #334155;">
+                    <div id="clarify-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#10b981);transition:width 0.3s ease;"></div>
+                  </div>
+                  <div id="clarify-progress-text" style="font-size:13px;font-weight:700;color:#cbd5e1;font-variant-numeric:tabular-nums;min-width:120px;text-align:right;">0 of ${allQuestions.length} answered</div>
+                </div>
+              </div>
 
-                  <!-- Location strip: sheet + area + coordinates + confidence -->
+              <!-- Scrollable question list -->
+              <div style="flex:1;overflow-y:auto;padding:18px 28px;">
+
+              ${allQuestions.map((q, i) => `
+                <div class="clarify-q-row" data-qid="${esc(q.id || '')}" style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:0;margin-bottom:14px;overflow:hidden;">
+
+                  <!-- Location strip: rank + sheet + area + coordinates + confidence + impact -->
                   <div style="background:linear-gradient(135deg,#0F2942,#237078);padding:12px 18px;border-bottom:1px solid #334155;">
                     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+                      <span style="font-size:11px;font-weight:800;color:#EBB328;letter-spacing:1px;text-transform:uppercase;">#${i + 1}</span>
                       <span style="font-size:10px;font-weight:800;color:#EBB328;letter-spacing:2px;text-transform:uppercase;">Look on</span>
                       ${_formatSheetBadge(q.firstSeenSheet)}
                       ${_formatCoordPill(q.firstSeenXPct, q.firstSeenYPct)}
                       ${_formatArea(q.firstSeenArea)}
                       ${_formatConfPill(q.confidence)}
+                      ${_formatImpactPill(q)}
                       ${q.occurrenceCount > 0 ? `<span style="margin-left:auto;padding:3px 10px;border-radius:10px;background:rgba(235,179,40,0.15);color:#EBB328;font-size:11px;font-weight:700;letter-spacing:0.5px;">×${q.occurrenceCount} occurrences</span>` : ''}
                     </div>
                     ${Array.isArray(q.allSheets) && q.allSheets.length > 1 ? `
@@ -13396,13 +13423,20 @@ async function runGeminiAnalysis(updateProgress) {
 
                     <div style="color:#ffffff;font-size:14.5px;line-height:1.55;margin-bottom:14px;font-weight:500;">${esc(q.question || '')}</div>
 
-                    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
                       ${(q.options || []).map((opt) => {
                         const why = q.optionExplanations && typeof q.optionExplanations === 'object' ? q.optionExplanations[opt] : '';
                         const tooltip = why ? ` title="${esc(String(why))}"` : '';
                         return `<button class="clarify-option" data-qid="${esc(q.id || '')}" data-val="${esc(String(opt || ''))}"${tooltip} style="padding:10px 16px;border-radius:8px;border:2px solid #475569;background:#0f172a;color:#ffffff;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.15s;">${esc(String(opt || ''))}</button>`;
                       }).join('')}
                     </div>
+
+                    <!-- v5.143.0: free-text write-in field for cases where none of the choices are correct -->
+                    <div style="margin-top:8px;">
+                      <label style="display:block;font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;font-weight:700;">Or write the correct answer:</label>
+                      <input type="text" class="clarify-writein" data-qid="${esc(q.id || '')}" placeholder="Type your answer if none of the choices above are correct…" style="width:100%;padding:10px 12px;border-radius:7px;border:1px solid #475569;background:#0f172a;color:#ffffff;font-size:13px;font-family:inherit;box-sizing:border-box;" />
+                    </div>
+
                     ${q.optionExplanations && Object.keys(q.optionExplanations).length > 0 ? `
                       <details style="margin-top:10px;">
                         <summary style="cursor:pointer;font-size:11px;color:#94a3b8;font-weight:600;user-select:none;">▸ Why each option is plausible</summary>
@@ -13418,12 +13452,18 @@ async function runGeminiAnalysis(updateProgress) {
                 </div>
               `).join('')}
 
-              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap;">
-                <button id="clarify-skip" style="padding:10px 18px;border-radius:8px;border:1px solid #64748b;background:transparent;color:#cbd5e1;cursor:pointer;font-size:13px;font-weight:600;">Skip — Use AI best guess</button>
-                <button id="clarify-submit" style="padding:10px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,#EBB328,#C99518);color:#0F2942;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 4px 12px rgba(235,179,40,0.35);letter-spacing:0.3px;">Continue with answers</button>
               </div>
-              <div style="margin-top:12px;padding:10px 14px;background:rgba(235,179,40,0.06);border-left:3px solid #EBB328;border-radius:6px;font-size:11px;color:#cbd5e1;line-height:1.5;">
-                💡 <strong style="color:#ffffff;">Tip:</strong> Open your copy of the plans in Bluebeam, Adobe, or PDF.js and scroll to the sheet number shown above. The symbol you're being asked about lives at the location described. If you can't find it or don't know, click <em>Skip — Use AI best guess</em> and the analysis will continue.
+              <!-- /scrollable -->
+
+              <!-- Sticky footer with submit -->
+              <div style="padding:16px 28px 24px;border-top:1px solid #334155;background:#0f172a;border-radius:0 0 14px 14px;">
+                <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;align-items:center;">
+                  <span id="clarify-remaining" style="font-size:12px;color:#fca5a5;font-weight:700;margin-right:auto;">${allQuestions.length} unanswered</span>
+                  <button id="clarify-submit" disabled style="padding:11px 22px;border-radius:8px;border:none;background:#475569;color:#94a3b8;cursor:not-allowed;font-weight:800;font-size:14px;letter-spacing:0.3px;">Continue with answers</button>
+                </div>
+                <div style="margin-top:12px;padding:10px 14px;background:rgba(235,179,40,0.06);border-left:3px solid #EBB328;border-radius:6px;font-size:11px;color:#cbd5e1;line-height:1.5;">
+                  💡 <strong style="color:#ffffff;">Tip:</strong> Open your plans in Bluebeam/Adobe, jump to the sheet shown for each question, and find the symbol at the listed location. Pick the matching option, or use the write-in field if none of the choices is correct. The Continue button enables once every question has an answer.
+                </div>
               </div>
             </div>
           </div>`;
@@ -13436,8 +13476,56 @@ async function runGeminiAnalysis(updateProgress) {
         // confirm rather than re-answer every time the same symbol shows up.
         const answers = { ...priorAnswers };
         const modal = document.getElementById('clarification-modal');
+        const submitBtn = modal.querySelector('#clarify-submit');
+        const progressBar = modal.querySelector('#clarify-progress-bar');
+        const progressText = modal.querySelector('#clarify-progress-text');
+        const remainingText = modal.querySelector('#clarify-remaining');
 
-        // Handle option clicks
+        // v5.143.0: progress tracker — updates header bar and unlocks Submit
+        // when every question has either a chosen option OR a non-empty write-in.
+        const _hasAnswer = (qid) => {
+          const v = answers[qid];
+          return v !== undefined && v !== null && String(v).trim().length > 0;
+        };
+        const _updateProgress = () => {
+          const answered = allQuestions.filter(q => _hasAnswer(q.id)).length;
+          const total = allQuestions.length;
+          const pct = total > 0 ? Math.round(answered / total * 100) : 0;
+          if (progressBar) progressBar.style.width = pct + '%';
+          if (progressText) progressText.textContent = `${answered} of ${total} answered`;
+          if (remainingText) {
+            const left = total - answered;
+            remainingText.textContent = left === 0 ? '✅ All answered — ready to continue' : `${left} unanswered`;
+            remainingText.style.color = left === 0 ? '#86efac' : '#fca5a5';
+          }
+          if (submitBtn) {
+            const allDone = answered === total;
+            submitBtn.disabled = !allDone;
+            submitBtn.style.cursor = allDone ? 'pointer' : 'not-allowed';
+            submitBtn.style.background = allDone ? 'linear-gradient(135deg,#EBB328,#C99518)' : '#475569';
+            submitBtn.style.color = allDone ? '#0F2942' : '#94a3b8';
+            submitBtn.style.boxShadow = allDone ? '0 4px 12px rgba(235,179,40,0.35)' : 'none';
+          }
+        };
+        // Apply pre-filled answers visually before first paint
+        for (const q of allQuestions) {
+          if (answers[q.id]) {
+            const btn = modal.querySelector(`.clarify-option[data-qid="${CSS.escape(q.id)}"][data-val="${CSS.escape(String(answers[q.id]))}"]`);
+            if (btn) {
+              btn.style.background = 'var(--accent-sky,#38bdf8)';
+              btn.style.color = '#000';
+              btn.style.borderColor = 'var(--accent-sky,#38bdf8)';
+            } else {
+              // Pre-filled answer was a write-in (no matching option) — seed the input
+              const input = modal.querySelector(`.clarify-writein[data-qid="${CSS.escape(q.id)}"]`);
+              if (input) input.value = String(answers[q.id]);
+            }
+          }
+        }
+        _updateProgress();
+
+        // Option click — picks one of the AI's suggested choices.
+        // Clears any write-in for that question (mutually exclusive UX).
         modal.addEventListener('click', (e) => {
           const btn = e.target.closest('.clarify-option');
           if (!btn) return;
@@ -13446,54 +13534,78 @@ async function runGeminiAnalysis(updateProgress) {
           answers[qid] = val;
           // Highlight selected, deselect siblings
           const siblings = btn.parentElement.querySelectorAll('.clarify-option');
-          siblings.forEach(s => { s.style.background = 'var(--bg-card,#1a1a2e)'; s.style.borderColor = 'var(--border,#444)'; });
+          siblings.forEach(s => { s.style.background = '#0f172a'; s.style.borderColor = '#475569'; s.style.color = '#ffffff'; });
           btn.style.background = 'var(--accent-sky,#38bdf8)';
           btn.style.color = '#000';
           btn.style.borderColor = 'var(--accent-sky,#38bdf8)';
+          // Clear write-in for this question
+          const input = modal.querySelector(`.clarify-writein[data-qid="${CSS.escape(qid)}"]`);
+          if (input) input.value = '';
+          _updateProgress();
+        });
+
+        // Write-in input — typed text overrides any selected option.
+        modal.addEventListener('input', (e) => {
+          const input = e.target.closest('.clarify-writein');
+          if (!input) return;
+          const qid = input.dataset.qid;
+          const val = input.value.trim();
+          if (val.length > 0) {
+            answers[qid] = val;
+            // Deselect any chosen option for this question
+            const opts = modal.querySelectorAll(`.clarify-option[data-qid="${CSS.escape(qid)}"]`);
+            opts.forEach(s => { s.style.background = '#0f172a'; s.style.borderColor = '#475569'; s.style.color = '#ffffff'; });
+          } else {
+            // Empty input — only clear the answer if it was set from this input
+            // (i.e., not matching any of the option values for this question)
+            const opts = Array.from(modal.querySelectorAll(`.clarify-option[data-qid="${CSS.escape(qid)}"]`));
+            const optionVals = opts.map(o => o.dataset.val);
+            if (!optionVals.includes(answers[qid])) {
+              delete answers[qid];
+            }
+          }
+          _updateProgress();
         });
 
         // Wave 10 H1 (v5.128.7): single-resolve guard. Timer + submit click
         // racing used to double-append state._unansweredClarifications,
         // inflating export-gate counts and falsely blocking export. Now only
-        // the first handler wins. Double-resolves on promises are silently
-        // ignored by JS, but state side-effects were not — hence this guard.
+        // the first handler wins.
         let resolved = false;
-        document.getElementById('clarify-skip')?.addEventListener('click', () => {
+        submitBtn?.addEventListener('click', () => {
             if (resolved) return;
+            if (submitBtn.disabled) return;  // belt + suspenders — visual disable AND logic guard
             resolved = true;
             clearTimeout(_timeoutHandle);
             modal.remove();
-            state._unansweredClarifications = (state._unansweredClarifications || []).concat(highPriority.map(q => q.id));
-            resolve({ __skipped: true });
-        });
-        document.getElementById('clarify-submit')?.addEventListener('click', () => {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(_timeoutHandle);
-            modal.remove();
-            // Any question the estimator did not answer (i.e. not in `answers`)
-            // is recorded as unanswered so the Export gate can enforce it.
-            const unanswered = highPriority.filter(q => !answers[q.id]).map(q => q.id);
+            // v5.143.0: blocking modal means every question SHOULD have an answer
+            // by the time this fires. Defensive: still record any unanswered as
+            // unanswered so the export gate enforces.
+            const unanswered = allQuestions.filter(q => !_hasAnswer(q.id)).map(q => q.id);
             if (unanswered.length > 0) {
                 state._unansweredClarifications = (state._unansweredClarifications || []).concat(unanswered);
             }
             // Persist answers to D1 so the same ambiguity on a future bid can pre-fill.
-            _persistClarificationAnswers(state, highPriority, answers).catch(err => console.warn('[Clarification] Persist failed (non-fatal):', err.message));
+            _persistClarificationAnswers(state, allQuestions, answers).catch(err => console.warn('[Clarification] Persist failed (non-fatal):', err.message));
             resolve(answers);
         });
 
-        // v5.128.2 (Wave 2B) — 15-minute skip timeout.
+        // v5.143.0: 4-hour soft timeout. The blocking modal expects the
+        // estimator to answer every question, but we still need an upper
+        // bound in case the browser tab is left open overnight by accident.
+        // (Default raised from 15 min — 30 cost-ranked questions can take 30+
+        // minutes to work through legitimately.)
         const timeoutMs = (typeof SmartBrains !== 'undefined' && SmartBrains.config?.clarificationSkipTimeoutMs)
-            || 15 * 60 * 1000;
+            || 4 * 60 * 60 * 1000;
         const _timeoutHandle = setTimeout(() => {
             if (resolved) return;
             resolved = true;
             console.warn(`[Clarification] ${Math.round(timeoutMs / 60000)}-minute timeout elapsed — using AI best guess for unanswered questions`);
-            const unanswered = highPriority.filter(q => !answers[q.id]).map(q => q.id);
+            const unanswered = allQuestions.filter(q => !_hasAnswer(q.id)).map(q => q.id);
             state._unansweredClarifications = (state._unansweredClarifications || []).concat(unanswered);
             state._clarificationTimedOut = true;
             if (typeof spToast === 'function') {
-                spToast(`Clarification timeout — used AI best guess for ${unanswered.length} question(s). Review on the Results page.`, 'warn');
+                spToast(`Clarification timeout (${Math.round(timeoutMs / 60000)} min) — used AI best guess for ${unanswered.length} question(s). Review on the Results page.`, 'warn');
             }
             if (modal && modal.parentNode) modal.remove();
             resolve(answers);

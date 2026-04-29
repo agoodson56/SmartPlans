@@ -333,8 +333,9 @@ const SmartBrains = {
     // Policy: whenever the system is uncertain, stop and ask a human.
     // Below 75% confidence = escalate. Above = trust the AI.
     // ═══════════════════════════════════════════════════════════
-    clarificationConfidenceThreshold: 0.75,   // stop-and-ask below this (0..1)
-    clarificationSkipTimeoutMs: 15 * 60 * 1000, // 15 min → use AI best guess + flag
+    clarificationConfidenceThreshold: 0.85,   // v5.143.0: stop-and-ask below 85% (raised from 0.75 per estimator request)
+    clarificationMaxQuestions: 30,            // v5.143.0: hard cap, ranked by cost impact desc
+    clarificationSkipTimeoutMs: 4 * 60 * 60 * 1000, // v5.143.0: 4 hr (was 15 min). Estimators answering 30 cost-ranked questions need time.
     clarificationPersistAnswers: true,         // save answers to D1 for future pre-fill
     clarificationBlockExport: true,            // unanswered HIGH/CRITICAL blocks proposal export
     disputeDisagreementThreshold: 0.20,        // reads differ by >20% → clarification question
@@ -754,6 +755,82 @@ const SmartBrains = {
     }
 
     return { relevant: true, disciplines: [], reason: 'no content keyword match', determined: false };
+  },
+
+  /**
+   * v5.143.0: Estimate the dollar swing if this clarification question is answered
+   * incorrectly. Used to rank questions before capping at 30 — biggest-$ first.
+   *
+   * Coarse but useful. Returns a score in approximate dollars; relative ordering
+   * matters more than precision. Higher = ask first.
+   *
+   * Inputs (any subset):
+   *   { type: 'symbol' | 'count_conflict' | 'spec_conflict' | 'addenda',
+   *     occurrenceCount, options, legendLabel, deviceType, countDelta,
+   *     explicitCost, changeCount, confidence }
+   */
+  _estimateQuestionCostImpact(input) {
+    if (!input || typeof input !== 'object') return 0;
+    const conf = Number.isFinite(Number(input.confidence)) ? Number(input.confidence) : 0.5;
+    const uncertaintyMult = Math.max(0, 1 - conf);  // 30% confident → 0.7×, 80% conf → 0.2×
+    let baseDollars = 0;
+
+    if (input.type === 'symbol') {
+      const occ = Math.max(1, parseInt(input.occurrenceCount) || 1);
+      const guessFromText = (txt) => {
+        const t = (txt || '').toLowerCase();
+        if (/camera|cctv|ptz|dome|fisheye|panoram|turret|bullet/.test(t)) return 1200;     // installed cost incl. cable + labor
+        if (/access\s*control|card\s*reader|maglock|electric\s*strike|rex|keypad|mortise/.test(t)) return 1800;
+        if (/intercom|video\s*entry|station/.test(t)) return 900;
+        if (/speaker|paging|horn\s*strobe|notification|nac/.test(t)) return 350;
+        if (/smoke\s*det|heat\s*det|fire\s*alarm|pull\s*station/.test(t)) return 280;
+        if (/wap|wireless|access\s*point/.test(t)) return 700;
+        if (/data|outlet|jack|cat6|patch/.test(t)) return 180;
+        if (/duct\s*det|relay|monitor\s*module/.test(t)) return 250;
+        return 250; // generic LV device
+      };
+      // Score from BEST hint we have: legend label or option list
+      let perDevice = guessFromText(input.legendLabel);
+      if (perDevice === 250 && Array.isArray(input.options)) {
+        for (const opt of input.options) {
+          const v = guessFromText(opt);
+          if (v > perDevice) perDevice = v;
+        }
+      }
+      baseDollars = perDevice * occ;
+    } else if (input.type === 'count_conflict') {
+      const delta = Math.max(1, parseInt(input.countDelta) || 1);
+      const dt = (input.deviceType || '').toLowerCase();
+      let perDevice = 250;
+      if (/camera|cctv/.test(dt)) perDevice = 1200;
+      else if (/reader|access\s*control|maglock/.test(dt)) perDevice = 1800;
+      else if (/speaker|paging/.test(dt)) perDevice = 350;
+      else if (/smoke|fire|pull/.test(dt)) perDevice = 280;
+      else if (/wap|wireless/.test(dt)) perDevice = 700;
+      else if (/data|outlet|jack/.test(dt)) perDevice = 180;
+      baseDollars = perDevice * delta;
+    } else if (input.type === 'spec_conflict') {
+      // If the spec brain already estimated a $ impact, use it. Otherwise
+      // assume mid-tier — spec conflicts often cascade into manufacturer
+      // changes and downstream rework.
+      baseDollars = Number.isFinite(Number(input.explicitCost)) && Number(input.explicitCost) > 0
+        ? Number(input.explicitCost)
+        : 5000;
+    } else if (input.type === 'addenda') {
+      // Each addenda change ~$1500 average swing (conservative estimate).
+      const cnt = Math.max(1, parseInt(input.changeCount) || 1);
+      baseDollars = cnt * 1500;
+    } else if (input.type === 'wave4_escalation') {
+      // Pre-tagged via context._pendingWave4Escalations; if explicit cost
+      // delta carried, use it; else default to high priority.
+      baseDollars = Number.isFinite(Number(input.explicitCost)) && Number(input.explicitCost) > 0
+        ? Number(input.explicitCost)
+        : 8000;
+    } else {
+      baseDollars = 1000;
+    }
+
+    return Math.round(baseDollars * uncertaintyMult);
   },
 
   /**
@@ -12467,13 +12544,25 @@ ${legendContext}
     }
 
     // ═══ INTERACTIVE CLARIFICATION: Collect ambiguities for estimator review ═══
-    // After Wave 1, check if there are significant ambiguities that the estimator should resolve
-    // before counting continues. If a clarification callback is provided, pause and ask.
+    // After Wave 1 — before Wave 1.5 verifiers and Wave 2 pricing — collect every
+    // question with confidence below the threshold (default 85%), rank by estimated
+    // cost impact, cap at 30, and block until the estimator answers each one.
+    //
+    // v5.143.0 estimator-driven changes:
+    //   - threshold raised 75 → 85 (anything below 85% confidence gets asked)
+    //   - per-source slice(0,5) caps removed (was hiding mid-tier questions)
+    //   - questions sorted by cost-impact desc; top 30 kept
+    //   - ALL severities pop the modal, not just high/critical (the cost-impact
+    //     ranker already filters noise — a $50 device at 50% confident is worth
+    //     less than a $50K device at 80% confident, which the old severity tag
+    //     could not distinguish)
+    const CLARIFICATION_THRESHOLD = this.config?.clarificationConfidenceThreshold ?? 0.85;
+    const CLARIFICATION_MAX = this.config?.clarificationMaxQuestions ?? 30;
     const clarificationQuestions = [];
     try {
       // Source 0 (v5.128.3, Wave 4): Symbol Scanner vs deterministic
-      // count disagreements. Injected first so they appear at the top
-      // of the modal — these are ground-truth-backed count overrides.
+      // count disagreements. Highest priority — ground-truth-backed count
+      // overrides. Pre-tagged with cost impact when available.
       if (Array.isArray(context._pendingWave4Escalations)) {
         for (const esc of context._pendingWave4Escalations) clarificationQuestions.push(esc);
       }
@@ -12486,20 +12575,22 @@ ${legendContext}
       for (const a of legendAmbig) {
         const sheetList = Array.isArray(a.all_sheets) ? a.all_sheets : [];
         const firstSheet = a.first_seen_sheet || (sheetList[0] || null);
-        // v5.128.2: honor confidence threshold — skip "ambiguous" items the AI is
-        // actually confident about (>= 75%). Everything else still surfaces as HIGH.
+        // v5.143.0: only filter when AI is ABOVE the threshold (default 85%).
+        // Below = we ask, regardless of severity tag.
         const conf = Number.isFinite(Number(a.confidence)) ? Number(a.confidence) / 100 : null;
-        const threshold = this.config?.clarificationConfidenceThreshold ?? 0.75;
-        if (conf !== null && conf >= threshold) {
-          if (this.config?.DEBUG) console.log(`[SmartBrains] Skipping ambiguous symbol ${a.symbol_id} — confidence ${Math.round(conf * 100)}% >= threshold ${Math.round(threshold * 100)}%`);
+        if (conf !== null && conf >= CLARIFICATION_THRESHOLD) {
+          if (this.config?.DEBUG) console.log(`[SmartBrains] Skipping ambiguous symbol ${a.symbol_id} — confidence ${Math.round(conf * 100)}% >= threshold ${Math.round(CLARIFICATION_THRESHOLD * 100)}%`);
           continue;
         }
         const severity = (conf !== null && conf < 0.50) ? 'critical' : 'high';
+        const occurrenceCount = parseInt(a.occurrence_count) || 1;
+        const couldBe = Array.isArray(a.could_be) ? a.could_be : [];
         clarificationQuestions.push({
           id: `legend-${a.symbol_id}`,
           category: 'Symbol Identification',
-          question: `Symbol "${a.legend_label || a.symbol_id}" is ambiguous: ${a.reason}. It could be: ${(a.could_be || []).join(' or ')}. Which is correct?`,
-          options: a.could_be || [],
+          question: `Symbol "${a.legend_label || a.symbol_id}" is ambiguous: ${a.reason}. It could be: ${couldBe.join(' or ')}. Which is correct?`,
+          options: couldBe,
+          allowWriteIn: true,
           severity,
           source: 'LEGEND_DECODER',
           // Location context fields
@@ -12508,7 +12599,7 @@ ${legendContext}
           visualDescription: a.visual || null,
           firstSeenSheet: firstSheet,
           firstSeenArea: a.first_seen_area || null,
-          occurrenceCount: parseInt(a.occurrence_count) || 0,
+          occurrenceCount,
           allSheets: sheetList,
           reason: a.reason || '',
           // v5.128.2 — Wave 2B additions
@@ -12517,6 +12608,14 @@ ${legendContext}
           firstSeenXPct: Number.isFinite(Number(a.first_seen_x_pct)) ? Math.round(Number(a.first_seen_x_pct)) : null,
           firstSeenYPct: Number.isFinite(Number(a.first_seen_y_pct)) ? Math.round(Number(a.first_seen_y_pct)) : null,
           confidence: conf,
+          // v5.143.0: cost-impact estimate so the ranker can sort by $ swing
+          _costImpactRaw: this._estimateQuestionCostImpact({
+            type: 'symbol',
+            occurrenceCount,
+            options: couldBe,
+            legendLabel: a.legend_label,
+            confidence: conf,
+          }),
         });
       }
 
@@ -12526,30 +12625,48 @@ ${legendContext}
       for (const [deviceType, schedQty] of Object.entries(scheduleData)) {
         const symbolQty = symbolCounts[deviceType] || 0;
         if (schedQty > 0 && symbolQty > 0 && Math.abs(schedQty - symbolQty) / Math.max(schedQty, symbolQty) > 0.3) {
+          const delta = Math.abs(schedQty - symbolQty);
           clarificationQuestions.push({
             id: `schedule-${deviceType}`,
             category: 'Count Conflict',
             question: `The equipment schedule shows ${schedQty} ${deviceType}(s) but plan symbols show ${symbolQty}. The schedule is typically authoritative — should we use the schedule count (${schedQty})?`,
             options: [`Use schedule count (${schedQty})`, `Use symbol count (${symbolQty})`, 'Investigate further'],
-            severity: symbolQty === 0 ? 'critical' : 'medium',
+            allowWriteIn: true,
+            severity: symbolQty === 0 ? 'critical' : 'high',
             source: 'ANNOTATION_READER vs SYMBOL_SCANNER',
+            confidence: 0.55, // count conflicts are inherently low-confidence
+            _costImpactRaw: this._estimateQuestionCostImpact({
+              type: 'count_conflict',
+              deviceType,
+              countDelta: delta,
+              confidence: 0.55,
+            }),
           });
         }
       }
 
-      // Source 3: Spec vs plan manufacturer conflicts
+      // Source 3: Spec vs plan manufacturer conflicts (cap removed; ranker handles volume)
       const specCrossRef = wave1Results.SPEC_CROSS_REF;
       if (specCrossRef && !specCrossRef._failed) {
         const conflicts = specCrossRef.conflicts || specCrossRef.discrepancies || [];
-        for (const c of (Array.isArray(conflicts) ? conflicts : []).slice(0, 5)) {
+        let specIdx = 0;
+        for (const c of (Array.isArray(conflicts) ? conflicts : [])) {
           const desc = typeof c === 'string' ? c : (c.description || c.issue || JSON.stringify(c));
+          const explicitCost = (typeof c === 'object' && Number.isFinite(Number(c.cost_impact))) ? Number(c.cost_impact) : null;
           clarificationQuestions.push({
-            id: `spec-conflict-${clarificationQuestions.length}`,
+            id: `spec-conflict-${specIdx++}`,
             category: 'Spec Conflict',
             question: desc.substring(0, 300),
             options: ['Use spec requirement', 'Use plan annotation', 'Flag as RFI'],
-            severity: 'medium',
+            allowWriteIn: true,
+            severity: 'high',
             source: 'SPEC_CROSS_REF',
+            confidence: 0.60,
+            _costImpactRaw: this._estimateQuestionCostImpact({
+              type: 'spec_conflict',
+              explicitCost,
+              confidence: 0.60,
+            }),
           });
         }
       }
@@ -12563,8 +12680,15 @@ ${legendContext}
             category: 'Addenda Changes',
             question: `Addenda detected ${changes.length} change(s): ${changes.slice(0, 3).map(c => c.description || c.change || JSON.stringify(c)).join('; ')}. Should we proceed with the addenda-revised counts?`,
             options: ['Yes, use addenda counts', 'No, use original counts', 'Review each change'],
+            allowWriteIn: true,
             severity: 'high',
             source: 'SYMBOL_SCANNER',
+            confidence: 0.65,
+            _costImpactRaw: this._estimateQuestionCostImpact({
+              type: 'addenda',
+              changeCount: changes.length,
+              confidence: 0.65,
+            }),
           });
         }
       }
@@ -12610,31 +12734,61 @@ ${legendContext}
     clarificationQuestions.length = 0;
     clarificationQuestions.push(...filteredQuestions);
 
+    // ═══ v5.143.0: COST-IMPACT RANKING + 30-QUESTION CAP ═══
+    // Sort questions by raw cost-impact descending. Higher $ swing rises to the
+    // top. Then keep at most CLARIFICATION_MAX (default 30). Estimator gets
+    // every question that could meaningfully move the bid; long-tail noise
+    // (sub-$500 swings) is dropped if there are >30 above it.
+    const beforeRank = clarificationQuestions.length;
+    clarificationQuestions.sort((a, b) => {
+      const ca = Number.isFinite(Number(a._costImpactRaw)) ? Number(a._costImpactRaw) : 0;
+      const cb = Number.isFinite(Number(b._costImpactRaw)) ? Number(b._costImpactRaw) : 0;
+      return cb - ca;
+    });
+    if (clarificationQuestions.length > CLARIFICATION_MAX) {
+      const dropped = clarificationQuestions.slice(CLARIFICATION_MAX);
+      const droppedTotalImpact = dropped.reduce((s, q) => s + (Number(q._costImpactRaw) || 0), 0);
+      clarificationQuestions.length = CLARIFICATION_MAX;
+      console.log(`[SmartBrains] 📊 Clarification cap: ${beforeRank} → ${CLARIFICATION_MAX} (dropped ${dropped.length} lowest-impact, total deferred impact ~$${Math.round(droppedTotalImpact).toLocaleString()})`);
+      // Surface deferred questions as a brain insight so they appear in the
+      // post-bid Estimator Review Checklist (still answerable, just not gating).
+      context._brainInsights = context._brainInsights || [];
+      context._brainInsights.push({
+        source: 'CLARIFICATION_GATE',
+        type: 'deferred_questions',
+        detail: `${dropped.length} lower-impact clarifications deferred to post-bid checklist (estimated $${Math.round(droppedTotalImpact).toLocaleString()} aggregate swing)`,
+      });
+    }
+    // Tag rank for UI display ("#1 of 30, $42K swing")
+    clarificationQuestions.forEach((q, i) => {
+      q._rank = i + 1;
+      q._totalQuestions = clarificationQuestions.length;
+    });
+
     // Store clarification questions for the UI to display
     context._clarificationQuestions = clarificationQuestions;
     state._clarificationQuestions = clarificationQuestions;
 
-    // If a clarification callback is provided AND there are significant questions, pause for estimator input
+    // v5.143.0: fire the modal whenever ANY question survives the cost-impact
+    // ranker. The threshold + cap have already filtered the noise; if a
+    // question made it this far, the estimator should answer it.
     if (clarificationQuestions.length > 0 && state._clarificationCallback) {
-      const highSeverity = clarificationQuestions.filter(q => q.severity === 'high' || q.severity === 'critical');
-      if (highSeverity.length > 0) {
-        console.log(`[SmartBrains] ❓ ${highSeverity.length} high-severity clarification question(s) — pausing for estimator input`);
-        progressCallback(34, `❓ ${highSeverity.length} question(s) need your input before continuing…`, this._brainStatus);
-        try {
-          const answers = await state._clarificationCallback(clarificationQuestions);
-          if (answers && typeof answers === 'object') {
-            // Wave 10 A3 (v5.128.7): MERGE answers instead of overwriting. A
-            // bid can fire Checkpoint A (Wave 4 count questions + Wave 1
-            // ambiguities) and then Checkpoint B (dispute resolution). Prior
-            // to this fix, Checkpoint B's assignment wiped Checkpoint A's
-            // answers. Now every checkpoint's answers accumulate.
-            context._clarificationAnswers = { ...(context._clarificationAnswers || {}), ...answers };
-            state._clarificationAnswers = context._clarificationAnswers;
-            console.log(`[SmartBrains] ✅ Estimator provided ${Object.keys(answers).length} clarification answer(s) — resuming analysis`);
-          }
-        } catch (e) {
-          console.warn('[SmartBrains] Clarification callback failed — continuing without answers:', e.message);
+      console.log(`[SmartBrains] ❓ ${clarificationQuestions.length} clarification question(s) ranked by cost impact — pausing for estimator input`);
+      progressCallback(34, `❓ ${clarificationQuestions.length} question(s) need your input before continuing…`, this._brainStatus);
+      try {
+        const answers = await state._clarificationCallback(clarificationQuestions);
+        if (answers && typeof answers === 'object') {
+          // Wave 10 A3 (v5.128.7): MERGE answers instead of overwriting. A
+          // bid can fire Checkpoint A (Wave 4 count questions + Wave 1
+          // ambiguities) and then Checkpoint B (dispute resolution). Prior
+          // to this fix, Checkpoint B's assignment wiped Checkpoint A's
+          // answers. Now every checkpoint's answers accumulate.
+          context._clarificationAnswers = { ...(context._clarificationAnswers || {}), ...answers };
+          state._clarificationAnswers = context._clarificationAnswers;
+          console.log(`[SmartBrains] ✅ Estimator provided ${Object.keys(answers).length} clarification answer(s) — resuming analysis`);
         }
+      } catch (e) {
+        console.warn('[SmartBrains] Clarification callback failed — continuing without answers:', e.message);
       }
     } else if (clarificationQuestions.length > 0) {
       console.log(`[SmartBrains] ❓ ${clarificationQuestions.length} clarification question(s) collected (no callback — auto-proceeding with best guesses)`);
