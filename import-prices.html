@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartPlans — Import Distributor Prices</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .card { background: #1e293b; border: 1px solid rgba(59,151,161,0.3); border-radius: 16px; padding: 40px; max-width: 600px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+  h1 { font-size: 22px; color: #EBB328; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #94a3b8; margin-bottom: 24px; }
+  .drop-zone { border: 2px dashed rgba(59,151,161,0.4); border-radius: 12px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 20px; }
+  .drop-zone:hover, .drop-zone.dragover { border-color: #EBB328; background: rgba(235,179,40,0.06); }
+  .drop-zone p { font-size: 14px; color: #94a3b8; }
+  .drop-zone .big { font-size: 32px; margin-bottom: 8px; }
+  input[type="file"] { display: none; }
+  .stats { background: #0f172a; border-radius: 8px; padding: 16px; margin: 16px 0; font-size: 13px; line-height: 1.8; }
+  .stats .label { color: #94a3b8; }
+  .stats .value { color: #22c55e; font-weight: 700; }
+  .btn { display: inline-block; padding: 12px 28px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+  .btn-gold { background: linear-gradient(135deg, #EBB328, #C99518); color: #0f172a; }
+  .btn-gold:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(235,179,40,0.4); }
+  .btn-gold:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+  .progress { height: 6px; background: #334155; border-radius: 3px; overflow: hidden; margin: 16px 0; display: none; }
+  .progress-bar { height: 100%; background: linear-gradient(90deg, #3B97A1, #EBB328); border-radius: 3px; transition: width 0.3s; width: 0%; }
+  .log { max-height: 200px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; background: #0f172a; border-radius: 8px; padding: 12px; margin-top: 12px; display: none; }
+  .log .ok { color: #22c55e; }
+  .log .err { color: #ef4444; }
+  .log .info { color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Import Distributor Prices</h1>
+  <p class="sub">Load real quotes from Graybar, Anixter, Genetec, and other distributors into SmartPlans so Material Pricer uses your actual negotiated costs instead of generic estimates.</p>
+
+  <div class="drop-zone" id="dropZone">
+    <div class="big">📂</div>
+    <p>Drop a <strong>.jsonl</strong> price list here, or click to browse</p>
+    <input type="file" id="fileInput" accept=".jsonl,.json,.ndjson">
+  </div>
+
+  <div class="stats" id="stats" style="display:none;"></div>
+  <div class="progress" id="progress"><div class="progress-bar" id="progressBar"></div></div>
+  <button class="btn btn-gold" id="importBtn" disabled>Import to SmartPlans</button>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+const CATEGORY_MAP = {
+  cctv: 'CCTV', access_control: 'Access Control', structured_cabling: 'Structured Cabling',
+  fire_alarm: 'Fire Alarm', intrusion: 'Intrusion Detection', audio_visual: 'Audio Visual',
+  nurse_call: 'Nurse Call', das: 'DAS', network_infra: 'Network Infrastructure',
+  power: 'Power & UPS', enclosures: 'Enclosures & Racks', general: 'General',
+};
+
+function normSupplier(s) {
+  if (!s) return 'Unknown';
+  const l = s.toLowerCase();
+  if (l.includes('graybar')) return 'Graybar';
+  if (l.includes('anixter') || l.includes('wesco')) return 'Anixter/WESCO';
+  if (l.includes('genetec')) return 'Genetec';
+  if (l.includes('adi')) return 'ADI';
+  return s.substring(0, 100);
+}
+
+let records = [];
+
+// Auth — grab session token from SmartPlans cookie/localStorage
+function getToken() {
+  try { return localStorage.getItem('smartplans_session_token') || ''; } catch(e) { return ''; }
+}
+
+// Drop zone
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => parseJSONL(reader.result, file.name);
+  reader.readAsText(file);
+}
+
+function parseJSONL(text, filename) {
+  const lines = text.split('\n').filter(l => l.trim());
+  const seen = new Map();
+  let parseErrors = 0;
+
+  for (const line of lines) {
+    let row;
+    try { row = JSON.parse(line); } catch(e) { parseErrors++; continue; }
+
+    const mfg = (row.manufacturer || '').trim();
+    const part = (row.part_number || '').trim();
+    const supplier = normSupplier(row.supplier);
+    const unitCost = parseFloat(row.unit_cost);
+    if (!unitCost || unitCost <= 0) continue;
+
+    let itemName = (row.item_name || '').trim() || (row.description || '').trim() || `${mfg} ${part}`.trim();
+    if (!itemName) continue;
+
+    const category = CATEGORY_MAP[row.service_line] || row.service_line || 'General';
+
+    let expiresAt = null;
+    if (row.quote_date) {
+      try {
+        const exp = new Date(new Date(row.quote_date).getTime() + 180*24*60*60*1000);
+        if (!isNaN(exp.getTime())) expiresAt = exp.toISOString().split('T')[0];
+      } catch(e) {}
+    }
+
+    const notesParts = [];
+    if (row.procore_project_name) notesParts.push('Project: ' + row.procore_project_name);
+    if (row.supplier_quote_number) notesParts.push('Quote#: ' + row.supplier_quote_number);
+    if (row.mfr_catalog) notesParts.push('Catalog: ' + row.mfr_catalog);
+
+    const record = {
+      item_name: itemName.substring(0, 300),
+      manufacturer: mfg.substring(0, 200) || null,
+      part_number: part.substring(0, 100) || null,
+      distributor: supplier,
+      unit_cost: unitCost,
+      unit: (row.unit || 'EA').toUpperCase(),
+      list_price: row.mfr_list_price ? parseFloat(row.mfr_list_price) : null,
+      discount_pct: row.discount_pct ? parseFloat(row.discount_pct) : null,
+      category,
+      quote_number: (row.supplier_quote_number || '').substring(0, 50) || null,
+      quote_date: row.quote_date || null,
+      expires_at: expiresAt,
+      notes: notesParts.join(' | ').substring(0, 500) || null,
+    };
+
+    const key = `${mfg.toUpperCase()}|${part.toUpperCase()}|${supplier.toUpperCase()}`;
+    const existing = seen.get(key);
+    if (existing) {
+      const ed = existing.quote_date ? new Date(existing.quote_date) : new Date(0);
+      const nd = record.quote_date ? new Date(record.quote_date) : new Date(0);
+      if (nd > ed) seen.set(key, record);
+    } else {
+      seen.set(key, record);
+    }
+  }
+
+  records = Array.from(seen.values());
+
+  // Summary
+  const byCat = {}, bySup = {};
+  for (const r of records) {
+    byCat[r.category] = (byCat[r.category] || 0) + 1;
+    bySup[r.distributor] = (bySup[r.distributor] || 0) + 1;
+  }
+
+  const statsEl = document.getElementById('stats');
+  statsEl.style.display = 'block';
+  statsEl.innerHTML = `
+    <div><span class="label">File:</span> <span class="value">${filename}</span></div>
+    <div><span class="label">Total lines:</span> ${lines.length} &nbsp;|&nbsp; <span class="label">Unique prices:</span> <span class="value">${records.length}</span> &nbsp;|&nbsp; <span class="label">Duplicates removed:</span> ${lines.length - records.length - parseErrors}</div>
+    <div style="margin-top:8px;"><span class="label">By supplier:</span> ${Object.entries(bySup).sort((a,b)=>b[1]-a[1]).map(([s,c])=>`${s}: <span class="value">${c}</span>`).join(' · ')}</div>
+    <div><span class="label">By category:</span> ${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`${c}: <span class="value">${n}</span>`).join(' · ')}</div>
+  `;
+
+  document.getElementById('importBtn').disabled = false;
+  dropZone.innerHTML = '<div class="big">✅</div><p>Ready to import <strong>' + records.length + '</strong> prices</p>';
+}
+
+// Import
+document.getElementById('importBtn').addEventListener('click', async () => {
+  if (records.length === 0) return;
+
+  const btn = document.getElementById('importBtn');
+  const progressEl = document.getElementById('progress');
+  const progressBar = document.getElementById('progressBar');
+  const logEl = document.getElementById('log');
+
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+  progressEl.style.display = 'block';
+  logEl.style.display = 'block';
+  logEl.innerHTML = '';
+
+  const log = (msg, cls) => { logEl.innerHTML += `<div class="${cls}">${msg}</div>`; logEl.scrollTop = logEl.scrollHeight; };
+
+  const BATCH = 50;
+  let totalSaved = 0, totalErrors = 0;
+  const totalBatches = Math.ceil(records.length / BATCH);
+
+  // Get auth token
+  const token = getToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['X-Session-Token'] = token;
+
+  for (let i = 0; i < records.length; i += BATCH) {
+    const batch = records.slice(i, i + BATCH);
+    const batchNum = Math.floor(i / BATCH) + 1;
+    const pct = Math.round((batchNum / totalBatches) * 100);
+    progressBar.style.width = pct + '%';
+
+    try {
+      const resp = await fetch('/api/distributor-prices', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ items: batch }),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        log(`Batch ${batchNum}/${totalBatches} FAILED (${resp.status}): ${text}`, 'err');
+        totalErrors += batch.length;
+        continue;
+      }
+
+      const result = await resp.json();
+      totalSaved += result.saved || 0;
+      totalErrors += result.errors || 0;
+      log(`Batch ${batchNum}/${totalBatches}: ${result.saved} saved, ${result.errors || 0} errors`, 'ok');
+    } catch (err) {
+      log(`Batch ${batchNum}/${totalBatches} NETWORK ERROR: ${err.message}`, 'err');
+      totalErrors += batch.length;
+    }
+  }
+
+  progressBar.style.width = '100%';
+  log(`\nCOMPLETE: ${totalSaved} saved, ${totalErrors} errors`, totalErrors > 0 ? 'err' : 'ok');
+  log('Material Pricer will now use these prices on your next bid.', 'info');
+
+  btn.textContent = `Done — ${totalSaved} prices imported`;
+  btn.style.background = '#22c55e';
+  btn.style.color = '#fff';
+});
+</script>
+</body>
+</html>
